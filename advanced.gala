@@ -48,73 +48,38 @@ struct TableData(
 // widget.gala; instead we expose Table as a function that returns a
 // pre-constructed Widget tree built from Row/Column/Text primitives.)
 func Table(data TableData) Widget {
-    val headerRow = if (data.Headers.NonEmpty()) {
-        renderTableHeaderRow(data.Headers, data.Widths)
-    } else {
-        Empty()
-    }
-
-    val separator = if (data.Headers.NonEmpty()) {
-        FillCh('─')
-    } else {
-        Empty()
-    }
-
-    // Build body widgets explicitly to carry the row's index (which tells us
-    // whether it's the selected row). Avoids a lambda-with-block-body pattern
-    // whose return type GALA's inference stumbles on.
-    var bodyWidgets = EmptyArray[Widget]()
-    var rIdx = 0
-    val nRows = data.Rows.Length()
-    for rIdx < nRows {
-        val row = data.Rows.Get(rIdx)
-        bodyWidgets = bodyWidgets.Append(renderTableRow(row, data.Widths, rIdx == data.Selected))
-        rIdx = rIdx + 1
-    }
-
-    // Compose header + separator + body into a Column.
-    var children = EmptyArray[LayoutChild]()
-    if (data.Headers.NonEmpty()) {
-        children = children.Append(Fixed(1, headerRow))
-        children = children.Append(Fixed(1, separator))
-    }
-    var i = 0
-    for i < bodyWidgets.Length() {
-        children = children.Append(Fixed(1, bodyWidgets.Get(i)))
-        i = i + 1
-    }
-    return Column(children)
+    val hasHeaders = data.Headers.NonEmpty()
+    val bodyChildren = data.Rows.ZipWithIndex().Map((pair) =>
+        Fixed(1, renderTableRow(pair.V1, data.Widths, pair.V2 == data.Selected)))
+    val headerChildren = if (hasHeaders) ArrayOf[LayoutChild](
+        Fixed(1, renderTableHeaderRow(data.Headers, data.Widths)),
+        Fixed(1, FillCh('─')),
+    ) else EmptyArray[LayoutChild]()
+    return Column(headerChildren.AppendAll(bodyChildren))
 }
 
 // renderTableHeaderRow builds a Row of bold header cells.
-func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget {
-    val boldStyle = DefaultStyle().WithBold()
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = headers.Length()
-    for i < n {
-        val header = headers.Get(i)
-        val w = if (i < widths.Length()) widths.Get(i) else Fill(1)
-        cells = cells.Append(LayoutChild(Constraint = w, Widget = TextStyled(header, boldStyle)))
-        i = i + 1
-    }
-    return Row(cells)
+func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget =
+    Row(headers.ZipWithIndex().Map((pair) =>
+        tableHeaderCell(pair.V1, pair.V2, widths)))
+
+func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChild {
+    val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
+    return LayoutChild(Constraint = w,
+        Widget = TextStyled(header, DefaultStyle().WithBold()))
 }
 
 // renderTableRow builds a Row of body cells. When `selected` is true, every
 // cell is drawn with reverse-video so the whole row highlights.
 func renderTableRow(row Array[string], widths Array[Constraint], selected bool) Widget {
     val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = row.Length()
-    for i < n {
-        val cell = row.Get(i)
-        val w = if (i < widths.Length()) widths.Get(i) else Fill(1)
-        cells = cells.Append(LayoutChild(Constraint = w, Widget = TextStyled(cell, rowStyle)))
-        i = i + 1
-    }
-    return Row(cells)
+    return Row(row.ZipWithIndex().Map((pair) =>
+        tableBodyCell(pair.V1, pair.V2, widths, rowStyle)))
+}
+
+func tableBodyCell(cell string, idx int, widths Array[Constraint], style Style) LayoutChild {
+    val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
+    return LayoutChild(Constraint = w, Widget = TextStyled(cell, style))
 }
 
 // NewTable is a convenience constructor for tables without headers.

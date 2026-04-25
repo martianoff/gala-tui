@@ -67,27 +67,25 @@ func PendingFutures[T any](c Cmd[T]) Array[Future[T]] {
 // Pure — no blocking, no side effects on the input. The runtime calls this
 // every loop iteration so long-running IO (HTTP, DB, file read) becomes a
 // natural part of the event flow.
+//
+// Implementation: split `pending` into completed vs. still-pending via
+// Partition, then Collect the success values from the completed half.
+// Failures are silently dropped (apps that want failure delivery should
+// wrap the Future via Recover/OnFailure before handing it off).
 func PollFutures[T any](pending Array[Future[T]]) Tuple[Array[T], Array[Future[T]]] {
-    var done = EmptyArray[T]()
-    var still = EmptyArray[Future[T]]()
-    var i = 0
-    val n = pending.Length()
-    for i < n {
-        val fut = pending.Get(i)
-        val v = fut.Value()
-        if v.IsDefined() {
-            val tr = v.Get()
-            if tr.IsSuccess() {
-                done = done.Append(tr.Get())
-            }
-            // Failure: drop; the app can wire its own failure path by mapping
-            // the Future through Recover / OnFailure before handing it off.
-        } else {
-            still = still.Append(fut)
-        }
-        i = i + 1
-    }
+    val (completed, still) = pending.Partition((fut) => fut.Value().IsDefined())
+    val done = completed.Collect[T]((fut) => pollSuccessValue[T](fut))
     return (done, still)
+}
+
+// pollSuccessValue returns the future's success value, dropping failures.
+// Caller has already confirmed the future is completed (Value() is Some).
+func pollSuccessValue[T any](fut Future[T]) Option[T] {
+    val tr = fut.Value().Get()
+    if tr.IsSuccess() {
+        return Some[T](tr.Get())
+    }
+    return None[T]()
 }
 
 // Program is the Elm/TEA triple: initial model, update, and view.

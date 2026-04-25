@@ -178,10 +178,7 @@ func Spinner(kind SpinnerKind, frame int) Widget =
 // Button renders a labeled button. When `focused`, a reverse style signals
 // selection — pair with Enter in the user's update() to fire the action.
 func Button(label string, focused bool) Widget {
-    var style = DefaultStyle()
-    if focused {
-        style = style.WithReverse().WithBold()
-    }
+    val style = if (focused) DefaultStyle().WithReverse().WithBold() else DefaultStyle()
     return ButtonW(Label = label, Style = style, Focused = focused)
 }
 
@@ -236,19 +233,16 @@ func Tabs(titles Array[string], bodies Array[Widget], sel int) Widget {
 }
 
 func tabHeaderRow(titles Array[string], sel int) Widget {
-    val selStyle = DefaultStyle().WithBold().WithReverse()
-    val idleStyle = DefaultStyle().WithDim()
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = titles.Length()
-    for i < n {
-        val title = " " + titles.Get(i) + " "
-        val style = if (i == sel) selStyle else idleStyle
-        cells = cells.Append(Fixed(runeCount(title), TextStyled(title, style)))
-        i = i + 1
-    }
-    cells = cells.Append(Flex(1, FillCh(' ')))
-    return Row(cells)
+    val cells = titles.ZipWithIndex().Map((pair) =>
+        tabHeaderCell(pair.V1, pair.V2 == sel))
+    return Row(cells.Append(Flex(1, FillCh(' '))))
+}
+
+func tabHeaderCell(title string, selected bool) LayoutChild {
+    val style = if (selected) DefaultStyle().WithBold().WithReverse()
+                else DefaultStyle().WithDim()
+    val padded = " " + title + " "
+    return Fixed(runeCount(padded), TextStyled(padded, style))
 }
 
 // ----------------------------------------------------------------------------
