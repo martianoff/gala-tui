@@ -38,7 +38,7 @@ A typo in your `KeyToMsg` won't fail this test. Use Layer 2 for that.
 
 Lives in the `harness/` subpackage. Constructs a "fake terminal" that
 runs the same `update + redispatch + render` loop the real runtime
-uses, but with no goroutines, no IO, and a buffer you can assert on.
+uses, but with no background Futures, no IO, and a buffer you can assert on.
 
 ### Building a harness
 
@@ -233,7 +233,7 @@ IsFalse(t, anyCellMatches(session.Buffer(),
 | "Does pressing Tab move focus through every pane?" | Harness with chained `Press(PlainKey(Tab()))` |
 
 Three rules of thumb:
-1. **No goroutines, no terminal IO** — every layer above runs purely.
+1. **No background Futures, no terminal IO** — every layer above runs purely.
 2. **Round-trip the key decoder** wherever you can. A passing reducer
    test that doesn't go through `KeyToMsg` will not catch typos in your
    shortcut spec.

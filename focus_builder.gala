@@ -1,0 +1,92 @@
+package gala_tui
+
+import (
+    "github.com/martianoff/gala-tui/state"
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// FocusBuilder — write-once, render-many-times focus dispatcher.
+//
+// Without it, every focusable widget call needs a manual `IsFocused`
+// lookup:
+//
+//     val sidebarFocused = m.Focus.IsFocused("sidebar")
+//     val tableFocused   = m.Focus.IsFocused("table")
+//     return Row(ArrayOf[LayoutChild](
+//         Fixed(20, SelectListOf(m.NavItems, m.NavSel, sidebarFocused)),
+//         Flex(1,  DataTableView(m.Table, tableFocused)),
+//     ))
+//
+// With it, the pane name moves to the front and the lookup disappears:
+//
+//     val ui = NewFocusBuilder(m.Focus)
+//     return Row(ArrayOf[LayoutChild](
+//         Fixed(20, ui.SelectListOf("sidebar", m.NavItems, m.NavSel)),
+//         Flex(1,  ui.DataTable("table", m.Table)),
+//     ))
+//
+// That reads as "this slot is the 'sidebar' pane" — the pane name is
+// the first argument, the widget content follows. The framework looks
+// up focus internally; the app never threads booleans through.
+//
+// Each method below mirrors the underlying widget constructor and
+// adds the pane-name argument up front. For widgets the FocusBuilder
+// doesn't cover (or generic ones like `PaletteView[T]`), fall back to
+// `ui.IsFocused(pane)` and call the bare constructor:
+//
+//     val pal = PaletteView[Msg](m.Palette, ui.IsFocused("palette"))
+//
+// FocusBuilder is a value, not a handle — copy and pass it around.
+// ============================================================================
+
+struct FocusBuilder(
+    Checker func(string) bool,
+)
+
+// NewFocusBuilder wraps a FocusManager so widgets can ask "am I focused?"
+// by pane name.
+func NewFocusBuilder(fm state.FocusManager) FocusBuilder =
+    FocusBuilder(Checker = (p) => fm.IsFocused(p))
+
+// IsFocused exposes the underlying check for widgets the FocusBuilder
+// doesn't have a method for (or for custom focus-conditional logic).
+func (fb FocusBuilder) IsFocused(pane string) bool = fb.Checker(pane)
+
+// ----------------------------------------------------------------------------
+// Per-widget convenience methods. Pane name first, then the widget's
+// own arguments — same shape across the board.
+// ----------------------------------------------------------------------------
+
+func (fb FocusBuilder) DataTable(pane string, dt DataTable) Widget =
+    DataTableView(dt, fb.IsFocused(pane))
+
+func (fb FocusBuilder) SelectList(pane string, items Array[ListItem], sel int) Widget =
+    SelectList(items, sel, fb.IsFocused(pane))
+
+func (fb FocusBuilder) SelectListOf(pane string, labels Array[string], sel int) Widget =
+    SelectListOf(labels, sel, fb.IsFocused(pane))
+
+func (fb FocusBuilder) Tree(pane string, root TreeNode, cursor int) Widget =
+    TreeFocused(root, cursor, fb.IsFocused(pane))
+
+func (fb FocusBuilder) Menu(pane string, m Menu) Widget =
+    MenuView(m, fb.IsFocused(pane))
+
+func (fb FocusBuilder) Calendar(pane string, c Calendar) Widget =
+    CalendarView(c, fb.IsFocused(pane))
+
+func (fb FocusBuilder) FileBrowser(pane string, b FileBrowser) Widget =
+    FileBrowserView(b, fb.IsFocused(pane))
+
+func (fb FocusBuilder) Form(pane string, f FormState) Widget =
+    FormView(f, fb.IsFocused(pane))
+
+func (fb FocusBuilder) Tabs(pane string, titles Array[string], bodies Array[Widget], sel int) Widget =
+    Tabs(titles, bodies, sel, fb.IsFocused(pane))
+
+func (fb FocusBuilder) Input(pane string, value string, cursor int, placeholder string) Widget =
+    Input(value, cursor, placeholder, fb.IsFocused(pane))
+
+func (fb FocusBuilder) Dropdown(pane string, d Dropdown) Widget =
+    DropdownView(d, fb.IsFocused(pane))

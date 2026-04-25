@@ -213,9 +213,10 @@ case StartImport() =>
     ))
 ```
 
-The `() => parseHugeCsv(...)` runs in a goroutine; if it panics, the
-recovered message becomes the `errMsg` argument to your err callback.
-Your `Update` handles `ImportFailed` like any normal message.
+The `() => parseHugeCsv(...)` runs as a background `Future[T]` on the
+runtime's `ExecutionContext`; if it panics, the recovered message becomes
+the `errMsg` argument to your err callback. Your `Update` handles
+`ImportFailed` like any normal message.
 
 ## Fan a single key into multiple submodules
 
@@ -307,7 +308,7 @@ on `MouseInput(m)` and emit `MouseDown(m.X, m.Y)` / `MouseMove(...)` /
 ## Test an Update without booting a terminal
 
 `StepAll` drives a `Program` through a list of messages and returns
-the final model + commands emitted. No stdin, no goroutines.
+the final model + commands emitted. No stdin, no background Futures.
 
 ```gala
 func TestIncrementsThenQuits(t T) T {

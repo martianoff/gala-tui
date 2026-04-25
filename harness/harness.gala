@@ -28,7 +28,7 @@ import (
 //   3. Rendering — a passing reducer test tells you the model is right,
 //      not that the user can find the button.
 //
-// This harness covers all three. It's a pure value, no goroutines, no
+// This harness covers all three. It's a pure value, no background Futures, no
 // terminal IO; runs the same `update + redispatch` pipeline the runtime
 // uses.
 //

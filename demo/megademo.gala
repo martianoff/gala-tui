@@ -556,7 +556,8 @@ func megaOverviewBody(m MegaModel, th Theme) Widget =
     ))
 
 func megaSidebar(m MegaModel, th Theme) Widget {
-    val focused = m.Focus.IsFocused("sidebar")
+    val ui = NewFocusBuilder(m.Focus)
+    val focused = ui.IsFocused("sidebar")
     val titleStyle = if (focused)
         DefaultStyle().WithBold().WithFg(BrightYellow())
     else
@@ -566,7 +567,8 @@ func megaSidebar(m MegaModel, th Theme) Widget {
     // cursor (SidebarSel). When it isn't, it follows the active screen.
     val menuSel = if (focused) m.SidebarSel
                   else megaScreenIndex(m.Screens.Current())
-    val menu = SelectListOf(
+    val menu = ui.SelectListOf(
+        "sidebar",
         ArrayOf[string]("  Overview", "  Builds", "  Pipelines", "  Logs"),
         menuSel,
     )
@@ -615,26 +617,27 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
 }
 
 func megaBuildsBody(m MegaModel, th Theme) Widget {
-    val focused = m.Focus.IsFocused("table")
+    val ui = NewFocusBuilder(m.Focus)
+    val focused = ui.IsFocused("table")
     // The filter is applied to m.BuildsTable in update(), so the view
     // can render it directly without re-filtering (which would reset
     // the cursor every paint).
-    val table = DataTableView(m.BuildsTable, focused)
-    val tabs = Tabs(
+    val table = ui.DataTable("table", m.BuildsTable)
+    val tabs = ui.Tabs(
+        "table",
         ArrayOf[string]("Running", "Succeeded", "Failed"),
         ArrayOf[Widget](table, table, table),
         m.BuildTab,
-        focused,
     )
     val borderKind = if (focused) ThickBorder() else th.BorderKind
     return BorderOf(PaddingHV(0, 1, tabs), borderKind)
 }
 
 func megaPipelinesBody(m MegaModel, th Theme) Widget {
-    val focused = m.Focus.IsFocused("table")
-    val borderKind = if (focused) ThickBorder() else th.BorderKind
+    val ui = NewFocusBuilder(m.Focus)
+    val borderKind = if (ui.IsFocused("table")) ThickBorder() else th.BorderKind
     return BorderOf(
-        PaddingHV(0, 1, TreeFocused(m.Pipelines, m.PipelinesCursor, focused)),
+        PaddingHV(0, 1, ui.Tree("table", m.Pipelines, m.PipelinesCursor)),
         borderKind,
     )
 }
