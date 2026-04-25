@@ -80,4 +80,4 @@ Source-code contributions and bug reports welcome.
 
 ## License
 
-MIT
+APACHE 2.0
