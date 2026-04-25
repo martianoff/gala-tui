@@ -198,6 +198,408 @@ func TestMegaRendersPaletteWhenOpen(t T) T {
 }
 
 // ----------------------------------------------------------------------------
+// MegaKeyToMsg — every key binding the demo advertises in the help screen.
+// ----------------------------------------------------------------------------
+
+func TestMegaKeyToMsgQIsQuit(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Char('q')))
+    return IsTrue(t, megaIsQuitMsg(msg))
+}
+
+func TestMegaKeyToMsgCtrlCIsQuit(t T) T {
+    val msg = MegaKeyToMsg(Ctrl(Char('c')))
+    return IsTrue(t, megaIsQuitMsg(msg))
+}
+
+func TestMegaKeyToMsgQuestionTogglesHelp(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Char('?')))
+    val isHelp = msg match {
+        case MegaToggleHelp() => true
+        case _                => false
+    }
+    return IsTrue(t, isHelp)
+}
+
+func TestMegaKeyToMsgTCyclesTheme(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Char('t')))
+    val isCycle = msg match {
+        case MegaCycleTheme() => true
+        case _                => false
+    }
+    return IsTrue(t, isCycle)
+}
+
+func TestMegaKeyToMsgSlashTogglesLogs(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Char('/')))
+    val isToggle = msg match {
+        case MegaToggleLogs() => true
+        case _                => false
+    }
+    return IsTrue(t, isToggle)
+}
+
+func TestMegaKeyToMsgTabIsFocusNext(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Tab()))
+    val isNext = msg match {
+        case MegaFocusNext() => true
+        case _               => false
+    }
+    return IsTrue(t, isNext)
+}
+
+func TestMegaKeyToMsgEscRoutes(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Esc()))
+    val isEsc = msg match {
+        case MegaKeyEsc() => true
+        case _            => false
+    }
+    return IsTrue(t, isEsc)
+}
+
+func TestMegaKeyToMsgBackspaceForPalette(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Backspace()))
+    val isBs = msg match {
+        case MegaPalBackspace() => true
+        case _                  => false
+    }
+    return IsTrue(t, isBs)
+}
+
+func TestMegaKeyToMsgUnboundCtrlIsNoOp(t T) T {
+    val msg = MegaKeyToMsg(Ctrl(Char('z')))
+    val isNoOp = msg match {
+        case MegaNoOp() => true
+        case _          => false
+    }
+    return IsTrue(t, isNoOp)
+}
+
+// ----------------------------------------------------------------------------
+// Theme cycle — full loop through all 4 themes.
+// ----------------------------------------------------------------------------
+
+func TestMegaCycleThemeFullLoop(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaCycleTheme())
+    val (m2, _) = MegaUpdate(m1, MegaCycleTheme())
+    val (m3, _) = MegaUpdate(m2, MegaCycleTheme())
+    val (m4, _) = MegaUpdate(m3, MegaCycleTheme())
+    // After 4 cycles we're back to the initial theme.
+    return IsTrue(t, themesEqual(m0.ActiveTheme, m4.ActiveTheme))
+}
+
+func TestMegaCycleThemeAllFourAreDistinct(t T) T {
+    var m = NewMegaModel()
+    var seen = ArrayOf[string](megaThemeName(m.ActiveTheme))
+    var i = 0
+    for i < 3 {
+        val (mNext, _) = MegaUpdate(m, MegaCycleTheme())
+        m = mNext
+        seen = seen.Append(megaThemeName(m.ActiveTheme))
+        i = i + 1
+    }
+    // Each theme name appears exactly once across 4 distinct themes.
+    return Eq(t, megaUniqueLength(seen), 4)
+}
+
+// ----------------------------------------------------------------------------
+// Screen navigation — the full overview→builds→pipelines→logs→help cycle and
+// the Esc/Pop behavior.
+// ----------------------------------------------------------------------------
+
+// Once the user lands on "builds" the arrow keys are captured by the
+// DataTable (so the cursor moves) — they don't keep cycling screens. To
+// hop past builds the user uses the palette or MegaPushScreen. Verify
+// that two consecutive KeyDowns from overview reach builds and *stay*
+// there (the second arrow doesn't accidentally advance to pipelines).
+func TestMegaScreenStepStopsAtBuilds(t T) T {
+    var m = NewMegaModel()
+    val (m1, _) = MegaUpdate(m, MegaKeyDown())   // overview → builds
+    val t1 = Eq(t, m1.Screens.Current(), "builds")
+    val (m2, _) = MegaUpdate(m1, MegaKeyDown())  // table cursor only
+    return Eq(t1, m2.Screens.Current(), "builds")
+}
+
+// The palette is the user's path past "builds" — picking "Go to Pipelines"
+// dispatches a MegaPushScreen("pipelines") via MsgCmd, which the runtime
+// re-feeds to update().
+func TestMegaPushFlowReachesAllRoutes(t T) T {
+    val routes = ArrayOf[string]("overview", "builds", "pipelines", "logs")
+    var m = NewMegaModel()
+    var i = 0
+    var ok = true
+    for i < routes.Length() {
+        val (mNext, _) = MegaUpdate(m, MegaPushScreen(Route = routes.Get(i)))
+        if mNext.Screens.Current() != routes.Get(i) {
+            ok = false
+            i = routes.Length()
+        } else {
+            m = mNext
+            i = i + 1
+        }
+    }
+    return IsTrue(t, ok)
+}
+
+func TestMegaPushScreenSwitchesRoute(t T) T {
+    val (m, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    return Eq(t, m.Screens.Current(), "pipelines")
+}
+
+func TestMegaPushSameScreenIsNoOp(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "overview"))
+    return Eq(t, m1.Screens.Current(), "overview")
+}
+
+func TestMegaPopAfterPushReturns(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (m2, _) = MegaUpdate(m1, MegaPopScreen())
+    return Eq(t, m2.Screens.Current(), "overview")
+}
+
+// ----------------------------------------------------------------------------
+// Esc — priority routing: palette > help > logs > confirm > screen-pop.
+// ----------------------------------------------------------------------------
+
+func TestMegaEscClosesPalette(t T) T {
+    val (mOpen, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val (mEsc, _) = MegaUpdate(mOpen, MegaKeyEsc())
+    return IsTrue(t, !mEsc.PaletteOpen)
+}
+
+func TestMegaEscClosesHelpBeforePopping(t T) T {
+    val (mHelp, _) = MegaUpdate(NewMegaModel(), MegaToggleHelp())
+    val (mEsc, _) = MegaUpdate(mHelp, MegaKeyEsc())
+    return IsTrue(t, !mEsc.ShowHelp)
+}
+
+func TestMegaEscClosesLogs(t T) T {
+    val (mLogs, _) = MegaUpdate(NewMegaModel(), MegaToggleLogs())
+    val (mEsc, _) = MegaUpdate(mLogs, MegaKeyEsc())
+    return IsTrue(t, !mEsc.ShowLogs)
+}
+
+func TestMegaEscClearsConfirm(t T) T {
+    val (mConf, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "deploy"))
+    val (mEsc, _)  = MegaUpdate(mConf, MegaKeyEsc())
+    return Eq(t, mEsc.ConfirmAction, "")
+}
+
+func TestMegaEscPopsScreenWhenStacked(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    val (m2, _) = MegaUpdate(m1, MegaPushScreen(Route = "pipelines"))
+    val (m3, _) = MegaUpdate(m2, MegaKeyEsc())
+    return Eq(t, m3.Screens.Current(), "builds")
+}
+
+func TestMegaEscOnRootIsNoOp(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaKeyEsc())
+    return Eq(t, m1.Screens.Current(), m0.Screens.Current())
+}
+
+// ----------------------------------------------------------------------------
+// Palette — typing, filtering, confirming, navigation between actions.
+// ----------------------------------------------------------------------------
+
+func TestMegaPaletteCharNarrowsResults(t T) T {
+    val (mOpen, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val before = mOpen.Palette.FilteredActions().Length()
+    val (mTyped, _) = MegaUpdate(mOpen, MegaPalChar(C = 'D'))
+    val after = mTyped.Palette.FilteredActions().Length()
+    return IsTrue(t, after < before)
+}
+
+func TestMegaPaletteBackspaceUndoesQuery(t T) T {
+    val (mOpen, _)  = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val (mTyped, _) = MegaUpdate(mOpen, MegaPalChar(C = 'D'))
+    val (mBack, _)  = MegaUpdate(mTyped, MegaPalBackspace())
+    val before = mOpen.Palette.FilteredActions().Length()
+    val after = mBack.Palette.FilteredActions().Length()
+    return Eq(t, after, before)
+}
+
+func TestMegaPaletteToggleClosesAndResets(t T) T {
+    val (mOpen, _)  = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val (mTyped, _) = MegaUpdate(mOpen, MegaPalChar(C = 'X'))
+    val (mClose, _) = MegaUpdate(mTyped, MegaPalTogglePalette())
+    return IsTrue(t, !mClose.PaletteOpen)
+}
+
+func TestMegaPaletteConfirmDispatchesAction(t T) T {
+    // Top action is "Go to Overview" — confirming with the cursor at 0 should
+    // emit a MsgCmd carrying MegaPushScreen("overview").
+    val (mOpen, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val (mDone, cmd) = MegaUpdate(mOpen, MegaPalConfirm())
+    val t1 = IsTrue(t, !mDone.PaletteOpen)
+    return IsTrue(t1, megaCmdHasMsg(cmd))
+}
+
+func TestMegaPaletteEnterIsConfirm(t T) T {
+    // Pressing Enter while the palette is open should behave like PalConfirm.
+    val (mOpen, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val (mEnter, cmd) = MegaUpdate(mOpen, MegaKeyEnter())
+    val t1 = IsTrue(t, !mEnter.PaletteOpen)
+    return IsTrue(t1, megaCmdHasMsg(cmd))
+}
+
+func TestMegaPalNextAdvances(t T) T {
+    val (mOpen, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val (mNext, _) = MegaUpdate(mOpen, MegaPalNext())
+    return IsTrue(t, mNext.Palette.Selected != mOpen.Palette.Selected)
+}
+
+func TestMegaPalPrevFromZeroWrapsOrStays(t T) T {
+    val (mOpen, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    val (mPrev, _) = MegaUpdate(mOpen, MegaPalPrev())
+    // Either wraps to last (>0) or clamps to 0 — behavior is "didn't crash"
+    // and the palette is still open.
+    return IsTrue(t, mPrev.PaletteOpen)
+}
+
+// ----------------------------------------------------------------------------
+// Confirm modal — Yes adds toast & log, No just clears.
+// ----------------------------------------------------------------------------
+
+func TestMegaConfirmYesAddsToast(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "deploy"))
+    val toastsBefore = m1.Toasts.Length()
+    val (m2, _) = MegaUpdate(m1, MegaConfirmYes())
+    return IsTrue(t, m2.Toasts.Length() > toastsBefore)
+}
+
+func TestMegaConfirmYesAppendsLog(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaShowConfirm(Action = "deploy"))
+    val logsBefore = m1.Logs.Length()
+    val (m2, _) = MegaUpdate(m1, MegaConfirmYes())
+    return IsTrue(t, m2.Logs.Length() > logsBefore)
+}
+
+func TestMegaConfirmNoOnlyClears(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "deploy"))
+    val toastsBefore = m1.Toasts.Length()
+    val (m2, _) = MegaUpdate(m1, MegaConfirmNo())
+    val t1 = Eq(t, m2.ConfirmAction, "")
+    return Eq(t1, m2.Toasts.Length(), toastsBefore)
+}
+
+func TestMegaEnterOnConfirmTriggersYes(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "deploy"))
+    val (m2, _) = MegaUpdate(m1, MegaKeyEnter())
+    val t1 = Eq(t, m2.ConfirmAction, "")
+    return IsTrue(t1, m2.Toasts.Length() > m1.Toasts.Length())
+}
+
+// ----------------------------------------------------------------------------
+// Tab + tabs — Focus.Next on Tab key, BuildTab on MegaTabNext.
+// ----------------------------------------------------------------------------
+
+func TestMegaFocusNextRotates(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaFocusNext())
+    return IsTrue(t, m1.Focus.Current() != m0.Focus.Current())
+}
+
+func TestMegaTabNextCyclesThroughThree(t T) T {
+    var m = NewMegaModel()
+    val t1 = Eq(t, m.BuildTab, 0)
+    val (m1, _) = MegaUpdate(m, MegaTabNext())
+    val t2 = Eq(t1, m1.BuildTab, 1)
+    val (m2, _) = MegaUpdate(m1, MegaTabNext())
+    val t3 = Eq(t2, m2.BuildTab, 2)
+    val (m3, _) = MegaUpdate(m2, MegaTabNext())
+    return Eq(t3, m3.BuildTab, 0)
+}
+
+// ----------------------------------------------------------------------------
+// Tick — advances Tick + Now, prunes toasts, restarts animation when done.
+// ----------------------------------------------------------------------------
+
+func TestMegaTickAdvancesTick(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaTick())
+    return Eq(t, m1.Tick, m0.Tick + 1)
+}
+
+func TestMegaTickAdvancesNow(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaTick())
+    return IsTrue(t, m1.Now.IsAfter(m0.Now))
+}
+
+// ----------------------------------------------------------------------------
+// Copy row — populates toast + log, no-op on empty selection.
+// ----------------------------------------------------------------------------
+
+func TestMegaCopySelectedAddsToast(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaCopySelected())
+    return IsTrue(t, m1.Toasts.Length() > m0.Toasts.Length())
+}
+
+func TestMegaCopySelectedAppendsLog(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaCopySelected())
+    return IsTrue(t, m1.Logs.Length() > m0.Logs.Length())
+}
+
+// ----------------------------------------------------------------------------
+// View — every screen renders without crashing and produces recognisable
+// content. These also catch regressions where the body collapses to empty.
+// ----------------------------------------------------------------------------
+
+func TestMegaRendersBuildsScreen(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "Branch"))
+}
+
+func TestMegaRendersPipelinesScreen(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "backend"))
+}
+
+func TestMegaRendersLogsScreen(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "logs"))
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "dashboard started"))
+}
+
+func TestMegaRendersConfirmModal(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "Deploy to Prod"))
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "Deploy to Prod"))
+}
+
+func TestMegaRendersLogDrawerOverlay(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaToggleLogs())
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    // The overlay should still show the dashboard background plus a log line.
+    return IsTrue(t, megaStringHas(joined, "dashboard started"))
+}
+
+func TestMegaRendersToastWhenPushed(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "deploy"))
+    val (m2, _) = MegaUpdate(m1, MegaConfirmYes())
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m2), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "Confirmed"))
+}
+
+// ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -245,4 +647,36 @@ func megaTestRunes(s string) Array[rune] {
         acc = acc.Append(c)
     }
     return acc
+}
+
+func megaIsQuitMsg(msg MegaMsg) bool {
+    return msg match {
+        case MegaQuit() => true
+        case _          => false
+    }
+}
+
+// megaCmdHasMsg returns true if the cmd carries at least one inline message
+// (the palette dispatches its action via `MsgCmd`, which we want to verify).
+func megaCmdHasMsg(cmd Cmd[MegaMsg]) bool = !PendingMsgs(cmd).IsEmpty()
+
+// megaUniqueLength counts distinct strings in `xs` — used to assert the
+// theme cycle covers all four themes.
+func megaUniqueLength(xs Array[string]) int {
+    var uniq = EmptyArray[string]()
+    var i = 0
+    val n = xs.Length()
+    for i < n {
+        val s = xs.Get(i)
+        var seen = false
+        var j = 0
+        val k = uniq.Length()
+        for j < k {
+            if uniq.Get(j) == s { seen = true; j = k }
+            else { j = j + 1 }
+        }
+        if !seen { uniq = uniq.Append(s) }
+        i = i + 1
+    }
+    return uniq.Length()
 }
