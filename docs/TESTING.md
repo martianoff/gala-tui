@@ -105,15 +105,20 @@ val styledText = s.StyledText()                    // string (with ANSI)
 ### Multi-step tests with `RunSequence` and `Trace`
 
 When a test scripts a sequence of inputs, build an `Array[HarnessStep[T]]`
-and apply it in one go:
+and apply it in one go. Every harness step is a sealed-type case —
+keys, mouse, resize, and direct messages all live in the same script.
 
 ```gala
-val steps = ArrayOf[HarnessStep[Msg]](
-    StepKey(Ev = PlainKey(Char('a'))),
-    StepType(Text = "lice"),
-    StepKey(Ev = Ctrl(Char('s'))),
-    StepWait(N = 3),                               // tick 3 times
-    StepResize(W = 100, H = 30),
+val steps = ArrayOf[harness.HarnessStep[Msg]](
+    harness.StepKey[Msg](Ev = PlainKey(Char('a'))),
+    harness.StepType[Msg](Text = "lice"),
+    harness.StepKey[Msg](Ev = Ctrl(Char('s'))),
+    harness.StepClick[Msg](X = 40, Y = 10),       // mouse press at (40,10)
+    harness.StepScroll[Msg](X = 40, Y = 10, Up = false),  // wheel down
+    harness.StepResize[Msg](W = 100, H = 30),     // window resize
+    harness.StepWait[Msg](N = 3),                 // tick 3 times
+    harness.StepMsg[Msg](Msg = SaveAll()),        // skip key decoding,
+                                                  //   send a Msg directly
 )
 
 // Final session only:
@@ -125,6 +130,89 @@ val trace = h.Trace(steps)
 IsFalse(t, trace.Get(0).Contains("Saved"))         // before save
 IsTrue(t,  trace.Get(3).Contains("Saved"))         // after Ctrl-S
 ```
+
+> **Why the `[Msg]` everywhere?** `HarnessStep` is generic over the
+> app's Msg type, but the transpiler currently can't infer that
+> parameter from the surrounding `ArrayOf[HarnessStep[Msg]](...)`
+> context. Spell it out on every case constructor; the workaround is
+> mechanical. (Tracked as BUG-12 in the local bug log.)
+
+### `RunSequence` + `Snapshot`: the golden-file test pattern
+
+`Snapshot` only makes sense at the *end* of a test script — it's the
+"freeze-frame" assertion that goes on the rendered output. Combine it
+with `RunSequence` to drive a sequence of inputs and assert the final
+buffer matches a fixture string.
+
+```gala
+import (
+    . "github.com/martianoff/gala-tui"
+    "github.com/martianoff/gala-tui/harness"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+func TestCounterAfterThreePlusses(t T) T {
+    val program = Program[CounterModel, CounterMsg](
+        Initial = CounterModel(N = 0),
+        Update  = (m, msg) => counterUpdate(m, msg),
+        View    = (m) => counterView(m),
+    )
+    val h = harness.NewHarness[CounterModel, CounterMsg](
+        program, (ev) => counterKey(ev), 25, 2,
+    )
+    val final = h.RunSequence(ArrayOf[harness.HarnessStep[CounterMsg]](
+        harness.StepType[CounterMsg](Text = "+++"),
+    ))
+    val want = " Count: 3                " + "\n" +
+               " + / - to change         "
+    return IsTrue(t, SnapshotsEqual(final.Text(), want))
+}
+```
+
+When the assertion fails, `SnapshotDiff` produces an actionable
+row-level diff:
+
+```gala
+val diff = SnapshotDiff(final.Text(), want)
+diff match {
+    case Some(report) => Println(report)   // human-readable diff
+    case None()       => Println("snapshots match")
+}
+```
+
+`Snapshot` always sees the *post-script* state. To snapshot intermediate
+frames, pair `Trace(steps)` with `SnapshotsEqual` per step.
+
+### Mouse + resize via `RunSequence`
+
+Mouse interactions go through the same harness API, but `StepClick` /
+`StepScroll` only fire when the harness was built via `NewHarnessFull`
+(apps wired to `RunFull`). On a `NewHarness` (key-only) harness they're
+silently ignored.
+
+```gala
+val final = h.RunSequence(ArrayOf[harness.HarnessStep[Msg]](
+    harness.StepKey[Msg](Ev = PlainKey(Tab())),       // shift focus to table
+    harness.StepScroll[Msg](X = 0, Y = 0, Up = false), // wheel-down
+))
+IsTrue(t, final.Model.Cursor > 0)
+```
+
+Or chained on the `Session` directly without building an Array:
+
+```gala
+val final = h.Start()
+    .Press(PlainKey(Tab()))
+    .Scroll(0, 0, false)
+    .Click(40, 10)
+    .Resize(120, 40)
+IsTrue(t, final.Model.Cursor > 0)
+```
+
+Both forms are equivalent. Use `RunSequence` when the script is
+parameterised or driven from a fixture; chain methods when the test is
+short and reads better that way.
 
 ### Debugging
 

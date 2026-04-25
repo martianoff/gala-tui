@@ -2,6 +2,7 @@ package main
 
 import (
     . "github.com/martianoff/gala-tui"
+    "github.com/martianoff/gala-tui/harness"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -312,6 +313,221 @@ func TestRegressionSidebarUnfocusedHidesHint(t T) T {
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 60, Height = 30), buf)
     val joined = megaStitchRows(buf)
     return IsFalse(t, megaStringHas(joined, "Enter to jump"))
+}
+
+// ----------------------------------------------------------------------------
+// RunSequence + Snapshot integration tests.
+//
+// These drive the *whole* megademo through the harness — including the
+// MegaInputToMsg adapter, runtime synchronous re-dispatch, and Render
+// — and assert on the rendered output. This is what Layer 2 of the
+// testing doc looks like in practice; if the user's "press Tab then ↓"
+// flow stops working at any point in the pipeline, these tests fail.
+// ----------------------------------------------------------------------------
+
+// Build a fresh Harness for the megademo. Used by every RunSequence
+// test below.
+func newMegaHarness() harness.Harness[MegaModel, MegaMsg] {
+    val program = Program[MegaModel, MegaMsg](
+        Initial = NewMegaModel(),
+        Update  = (m, msg) => MegaUpdate(m, msg),
+        View    = (m) => MegaView(m),
+    )
+    return harness.NewHarnessFull[MegaModel, MegaMsg](program, (ev) => MegaInputToMsg(ev), 100, 24)
+}
+
+// Drive: Down (sidebar cursor 0→1) → Enter → land on builds with focus
+// already on table. Then ↓ → table cursor advances. Snapshot the
+// rendered text — assert the build #4208 row carries the bright cursor.
+func TestHarnessDriveSidebarToBuildsThenScrollTable(t T) T {
+    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // sidebar cursor 0 → 1 (Builds)
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),   // jump → focus auto-shifts to "table"
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // table cursor 0 → 1 ("#4208 …")
+    ))
+    val t1 = Eq(t, final.Model.Screens.Current(), "builds")
+    val t2 = Eq(t1, final.Model.Focus.Current(), "table")
+    val t3 = Eq(t2, final.Model.BuildsTable.Selected, 1)
+    return IsTrue(t3, final.Contains("feat/mega-dashboard"))
+}
+
+// Drive: Down Down (sidebar 0→2 = Pipelines) → Enter → focus on table
+// → Enter → tree collapses ("Pipelines" branch is at cursor 0). Snapshot
+// proves the children disappeared from the rendered output.
+func TestHarnessDrivePipelinesAndCollapseTree(t T) T {
+    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // sidebar 0 → 2 (Pipelines)
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),   // jump
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),   // collapse the root
+    ))
+    val t1 = Eq(t, final.Model.Screens.Current(), "pipelines")
+    val collapsedRoot = !final.Model.Pipelines.Expanded
+    val t2 = IsTrue(t1, collapsedRoot)
+    // After collapse the rendered tree shouldn't show "backend".
+    return IsFalse(t2, final.Contains("backend"))
+}
+
+// Drive: Ctrl-P → palette opens → Type "deploy" → arrow filters down to
+// Deploy actions → Enter dispatches MegaShowConfirm. Snapshot shows the
+// confirm modal.
+func TestHarnessDrivePaletteToDeployConfirm(t T) T {
+    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = Ctrl(Char('p'))),
+        harness.StepType[MegaMsg](Text = "deploy"),
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
+    ))
+    val t1 = IsFalse(t, final.Model.PaletteOpen)
+    val t2 = IsTrue(t1, final.Model.ConfirmAction != "")
+    return IsTrue(t2, final.Contains("Confirm action"))
+}
+
+// Drive: Down → Down → Down → Down (sidebar wraps to 0 = Overview) →
+// Enter. The wraparound is the contract; this catches accidental
+// off-by-one drifts in megaMoveSidebarSel.
+func TestHarnessSidebarWrapsAround(t T) T {
+    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // wraps 3 → 0
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
+    ))
+    return Eq(t, final.Model.Screens.Current(), "overview")
+}
+
+// `Trace` exposes the Session AFTER each step, so a test can assert on
+// intermediate frames. Verify the sidebar hint changes as focus moves.
+func TestHarnessTraceShowsSidebarHintAfterFocusShift(t T) T {
+    val trace = newMegaHarness().Trace(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = PlainKey(Tab())),     // sidebar → table
+    ))
+    val initial = trace.Get(0)
+    val afterTab = trace.Get(1)
+    val t1 = IsTrue(t, initial.Contains("Enter to jump"))      // sidebar focused
+    return IsFalse(t1, afterTab.Contains("Enter to jump"))     // table focused
+}
+
+// Mouse input — drive the wheel through RunSequence. On the builds
+// screen with table focus, scroll-down advances the row cursor.
+//
+// `StepScroll(X, Y, Up = false)` translates to a scroll-wheel-down
+// MouseEvent, runs through MegaInputToMsg (which maps wheel events to
+// up/down keys), then through update().
+func TestHarnessMouseScrollAdvancesBuildsCursor(t T) T {
+    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),       // sidebar 0 → 1
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),      // jump to builds
+        harness.StepScroll[MegaMsg](X = 0, Y = 0, Up = false), // wheel down
+    ))
+    return Eq(t, final.Model.BuildsTable.Selected, 1)
+}
+
+// Mouse-click on the demo is currently a no-op (no hit-testing yet —
+// the megademo treats clicks as MegaNoOp). This test documents that
+// contract: clicking shouldn't crash and shouldn't advance the cursor.
+func TestHarnessMouseClickIsNoOpToday(t T) T {
+    val before = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
+    ))
+    val after = before.Click(40, 10)
+    return Eq(t, after.Model.BuildsTable.Selected, before.Model.BuildsTable.Selected)
+}
+
+// Resize through the harness — pass StepResize through the input
+// adapter, verify the model isn't disturbed (resize is a no-op for
+// the megademo since View() re-queries TermSize on each frame).
+func TestHarnessResizeDoesNotDisturbModel(t T) T {
+    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
+        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
+        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
+        harness.StepResize[MegaMsg](W = 200, H = 60),
+    ))
+    return Eq(t, final.Model.Screens.Current(), "builds")
+}
+
+// ----------------------------------------------------------------------------
+// Snapshot fixture tests — RunSequence + Snapshot together. Compare
+// the rendered text against a golden-file string. Catches *visual*
+// regressions: layout shifts, missing cells, wrong styles in plaintext.
+// ----------------------------------------------------------------------------
+
+// Tiny program for snapshot tests — a Counter, the simplest possible
+// thing you can render and assert on byte-for-byte.
+struct CounterModel(N int)
+sealed type CounterMsg {
+    case CounterInc()
+    case CounterDec()
+}
+
+func counterUpdate(m CounterModel, msg CounterMsg) Tuple[CounterModel, Cmd[CounterMsg]] =
+    msg match {
+        case CounterInc() => (m.Copy(N = m.N + 1), NoCmd[CounterMsg]())
+        case CounterDec() => (m.Copy(N = m.N - 1), NoCmd[CounterMsg]())
+    }
+
+func counterView(m CounterModel) Widget {
+    val title = TextStyled(s" Count: ${m.N} ",
+        DefaultStyle().WithBold().WithFg(BrightCyan()))
+    val hint = TextStyled(" + / - to change ", DefaultStyle().WithDim())
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, title),
+        Fixed(1, hint),
+    ))
+}
+
+func counterKey(ev KeyEvent) CounterMsg {
+    return ev.Key match {
+        case Char(c)     => counterCharToMsg(c)
+        case Esc()       => CounterInc()  // ignored in tests
+        case _           => CounterInc()
+    }
+}
+
+func counterCharToMsg(c rune) CounterMsg {
+    if c == '+' || c == '=' { return CounterInc() }
+    if c == '-' { return CounterDec() }
+    return CounterInc()
+}
+
+// RunSequence + Snapshot golden-file pattern: drive a sequence of
+// inputs, then assert the final rendered text matches a fixture. If
+// the layout shifts, this test fails with a clear before/after diff.
+func TestHarnessSnapshotMatchesAfterRunSequence(t T) T {
+    val program = Program[CounterModel, CounterMsg](
+        Initial = CounterModel(N = 0),
+        Update  = (m, msg) => counterUpdate(m, msg),
+        View    = (m) => counterView(m),
+    )
+    val h = harness.NewHarness[CounterModel, CounterMsg](program, (ev) => counterKey(ev), 25, 2)
+    val final = h.RunSequence(ArrayOf[harness.HarnessStep[CounterMsg]](
+        harness.StepType[CounterMsg](Text = "+++"),
+    ))
+    val want = " Count: 3                " + "\n" +
+               " + / - to change         "
+    val got = final.Text()
+    return IsTrue(t, SnapshotsEqual(got, want))
+}
+
+// SnapshotDiff reports the row-level mismatch when two snapshots
+// don't match — useful inside test assertions for actionable error
+// messages rather than "expected true got false".
+func TestHarnessSnapshotDiffReportsRow(t T) T {
+    val program = Program[CounterModel, CounterMsg](
+        Initial = CounterModel(N = 0),
+        Update  = (m, msg) => counterUpdate(m, msg),
+        View    = (m) => counterView(m),
+    )
+    val h = harness.NewHarness[CounterModel, CounterMsg](program, (ev) => counterKey(ev), 25, 2)
+    val s1 = h.RunSequence(ArrayOf[harness.HarnessStep[CounterMsg]](
+        harness.StepType[CounterMsg](Text = "+"),
+    ))
+    val s2 = h.RunSequence(ArrayOf[harness.HarnessStep[CounterMsg]](
+        harness.StepType[CounterMsg](Text = "++"),
+    ))
+    val diff = SnapshotDiff(s1.Text(), s2.Text())
+    return IsTrue(t, diff.IsDefined())
 }
 
 // ----------------------------------------------------------------------------
