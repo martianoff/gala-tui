@@ -274,6 +274,24 @@ func TestMegaKeyToMsgUnboundCtrlIsNoOp(t T) T {
     return IsTrue(t, isNoOp)
 }
 
+func TestMegaKeyToMsgCCopiesRow(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Char('c')))
+    val isCopy = msg match {
+        case MegaCopySelected() => true
+        case _                  => false
+    }
+    return IsTrue(t, isCopy)
+}
+
+func TestMegaKeyToMsgDOpensDeploy(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(Char('d')))
+    val isConfirm = msg match {
+        case MegaShowConfirm(_) => true
+        case _                  => false
+    }
+    return IsTrue(t, isConfirm)
+}
+
 // ----------------------------------------------------------------------------
 // Theme cycle — full loop through all 4 themes.
 // ----------------------------------------------------------------------------

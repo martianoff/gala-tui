@@ -67,13 +67,16 @@ screen at once. Keys:
 | `Enter` | confirm |
 | `Esc` | close overlay / go back |
 | `?` | toggle help (markdown overlay) |
-| `F12` / `/` | toggle log drawer |
+| `/` | toggle log drawer |
 | `t` | cycle theme |
+| `c` | copy the selected build row to clipboard |
+| `d` | open the deploy-to-prod confirm dialog |
 | `q` / `Ctrl-C` | quit |
 
 ## Documentation
 
 - [Getting Started](docs/GETTING_STARTED.md) — build a counter, an input form, and a fetcher app from scratch
+- [Widget catalog](docs/WIDGETS.md) — every widget the framework ships, grouped by purpose
 - [Project structure](STRUCTURE.md) — where each file lives in this repo
 
 ## Status

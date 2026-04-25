@@ -680,6 +680,8 @@ func megaPlainChar(c rune) MegaMsg {
     if c == '?' { return MegaToggleHelp() }
     if c == 't' { return MegaCycleTheme() }
     if c == '/' { return MegaToggleLogs() }
+    if c == 'c' { return MegaCopySelected() }
+    if c == 'd' { return MegaShowConfirm(Action = "Deploy to Prod") }
     // When the palette is open the char goes into it — update() routes it.
     return MegaPalChar(C = c)
 }
