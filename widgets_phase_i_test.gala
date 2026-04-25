@@ -14,7 +14,7 @@ import (
 // ----------------------------------------------------------------------------
 
 func TestParagraphWrapsOnSpaces(t T) T {
-    var buf = NewBuffer(10, 3)
+    val buf = NewBuffer(10, 3)
     RenderTo(Paragraph("hello world from gala"),
         Rect(X = 0, Y = 0, Width = 10, Height = 3), buf)
     val t1 = Eq(t, BufferText(buf, 0), "hello     ")   // "hello world" (11) > 10; "hello " stays
@@ -25,7 +25,7 @@ func TestParagraphWrapsOnSpaces(t T) T {
 }
 
 func TestParagraphRespectsExplicitNewlines(t T) T {
-    var buf = NewBuffer(12, 3)
+    val buf = NewBuffer(12, 3)
     RenderTo(Paragraph("line1\nline2\nline3"),
         Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
     val t1 = Eq(t, BufferText(buf, 0), "line1       ")
@@ -34,7 +34,7 @@ func TestParagraphRespectsExplicitNewlines(t T) T {
 }
 
 func TestParagraphClipsOverflow(t T) T {
-    var buf = NewBuffer(5, 2)
+    val buf = NewBuffer(5, 2)
     RenderTo(Paragraph("aaa bbb ccc ddd"),
         Rect(X = 0, Y = 0, Width = 5, Height = 2), buf)
     val t1 = Eq(t, BufferText(buf, 0), "aaa  ")
@@ -57,7 +57,7 @@ func TestViewportShowsTopSlice(t T) T {
         Fixed(1, Text("line-f")),
     ))
     val vp = ScrollableViewport(content, 0, 6)
-    var buf = NewBuffer(6, 3)
+    val buf = NewBuffer(6, 3)
     RenderTo(vp, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
     val t1 = Eq(t, BufferText(buf, 0), "line-a")
     val t2 = Eq(t1, BufferText(buf, 1), "line-b")
@@ -74,7 +74,7 @@ func TestViewportScrollsByOffset(t T) T {
         Fixed(1, Text("line-f")),
     ))
     val vp = ScrollableViewport(content, 2, 6)   // skip first two
-    var buf = NewBuffer(6, 3)
+    val buf = NewBuffer(6, 3)
     RenderTo(vp, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
     val t1 = Eq(t, BufferText(buf, 0), "line-c")
     val t2 = Eq(t1, BufferText(buf, 1), "line-d")
@@ -89,7 +89,7 @@ func TestViewportClampsExcessiveOffset(t T) T {
     ))
     // offset=99 with contentHeight=3 and visible=2 → clamps to offset=1.
     val vp = ScrollableViewport(content, 99, 3)
-    var buf = NewBuffer(3, 2)
+    val buf = NewBuffer(3, 2)
     RenderTo(vp, Rect(X = 0, Y = 0, Width = 3, Height = 2), buf)
     val t1 = Eq(t, BufferText(buf, 0), "2  ")
     return Eq(t1, BufferText(buf, 1), "3  ")
@@ -105,7 +105,7 @@ func TestTabsRendersHeaderAndSelectedBody(t T) T {
         ArrayOf[Widget](Text("body-1"), Text("body-2"), Text("body-3")),
         1,   // select the second tab
     )
-    var buf = NewBuffer(20, 2)
+    val buf = NewBuffer(20, 2)
     RenderTo(tabs, Rect(X = 0, Y = 0, Width = 20, Height = 2), buf)
     // Header row contains all three titles
     val row0 = BufferText(buf, 0)
@@ -122,7 +122,7 @@ func TestTabsSelectedHasReverseStyle(t T) T {
         ArrayOf[Widget](Text("x"), Text("y")),
         0,
     )
-    var buf = NewBuffer(10, 2)
+    val buf = NewBuffer(10, 2)
     RenderTo(tabs, Rect(X = 0, Y = 0, Width = 10, Height = 2), buf)
     // The first header cell (" A ") begins at col 0 with reverse style.
     return IsTrue(t, buf.StyleAt(0, 0).Reverse)
@@ -134,7 +134,7 @@ func TestTabsSelectedHasReverseStyle(t T) T {
 
 func TestScrollbarFullWhenContentFitsViewport(t T) T {
     // total=5, visible=5 → thumb fills entire track.
-    var buf = NewBuffer(1, 5)
+    val buf = NewBuffer(1, 5)
     RenderTo(Scrollbar(5, 5, 0), Rect(X = 0, Y = 0, Width = 1, Height = 5), buf)
     var y = 0
     var allFull = true
@@ -149,7 +149,7 @@ func TestScrollbarFullWhenContentFitsViewport(t T) T {
 
 func TestScrollbarThumbAtTopForZeroOffset(t T) T {
     // total=10, visible=2, offset=0 — thumb at top (row 0), track dim elsewhere.
-    var buf = NewBuffer(1, 10)
+    val buf = NewBuffer(1, 10)
     RenderTo(Scrollbar(10, 2, 0), Rect(X = 0, Y = 0, Width = 1, Height = 10), buf)
     val t1 = Eq(t, buf.CharAt(0, 0), '█')
     return Eq(t1, buf.CharAt(0, 9), '│')
@@ -157,7 +157,7 @@ func TestScrollbarThumbAtTopForZeroOffset(t T) T {
 
 func TestScrollbarThumbAtBottomForMaxOffset(t T) T {
     // total=10, visible=2, offset=8 (max). Thumb should occupy last row(s).
-    var buf = NewBuffer(1, 10)
+    val buf = NewBuffer(1, 10)
     RenderTo(Scrollbar(10, 2, 8), Rect(X = 0, Y = 0, Width = 1, Height = 10), buf)
     val t1 = Eq(t, buf.CharAt(0, 0), '│')
     return Eq(t1, buf.CharAt(0, 9), '█')

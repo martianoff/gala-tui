@@ -82,7 +82,7 @@ func TestToastViewShowsMostRecent(t T) T {
     var q = NewToastQueue(10)
     q = q.PushInfo("older", epoch(), Seconds(int64(1)))
     q = q.PushInfo("newer", epoch(), Seconds(int64(1)))
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(ToastView(q), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     val row = BufferText(buf, 0)
     return IsTrue(t, toastRowContains(row, "newer"))
@@ -91,7 +91,7 @@ func TestToastViewShowsMostRecent(t T) T {
 func TestToastViewErrorIsRedBackground(t T) T {
     var q = NewToastQueue(5)
     q = q.PushError("oops", epoch(), Seconds(int64(1)))
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(ToastView(q), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Bg, BrightRed()))
 }
@@ -101,7 +101,7 @@ func TestToastStackViewRendersAllToasts(t T) T {
     q = q.PushInfo("first",  epoch(), Seconds(int64(1)))
     q = q.PushInfo("second", epoch(), Seconds(int64(1)))
     q = q.PushInfo("third",  epoch(), Seconds(int64(1)))
-    var buf = NewBuffer(20, 3)
+    val buf = NewBuffer(20, 3)
     RenderTo(ToastStackView(q), Rect(X = 0, Y = 0, Width = 20, Height = 3), buf)
     val t1 = IsTrue(t, toastRowContains(BufferText(buf, 0), "first"))
     val t2 = IsTrue(t1, toastRowContains(BufferText(buf, 1), "second"))
@@ -118,7 +118,7 @@ func TestStatusBarRendersThreeSlots(t T) T {
         Text(" doc.gala "),
         Text(" 12:34 "),
     )
-    var buf = NewBuffer(60, 1)
+    val buf = NewBuffer(60, 1)
     RenderTo(StatusBarView(bar), Rect(X = 0, Y = 0, Width = 60, Height = 1), buf)
     val row = BufferText(buf, 0)
     val t1 = IsTrue(t, toastRowContains(row, "focus: sidebar"))
@@ -128,7 +128,7 @@ func TestStatusBarRendersThreeSlots(t T) T {
 
 func TestStatusBarBackgroundStyled(t T) T {
     val bar = NewStatusBar(Text("l"), Text("c"), Text("r"))
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(StatusBarView(bar), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     // Whole row has the cyan background.
     return IsTrue(t, ColorEq(buf.StyleAt(10, 0).Bg, BrightCyan()))

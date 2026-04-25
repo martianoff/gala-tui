@@ -54,7 +54,7 @@ func TestHelpsToBindingsRejectsUnboundKey(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestHelpViewRendersAllShortcuts(t T) T {
-    var buf = NewBuffer(40, 3)
+    val buf = NewBuffer(40, 3)
     RenderTo(HelpView[HelpTestMsg](helpEntries()),
         Rect(X = 0, Y = 0, Width = 40, Height = 3), buf)
     val t1 = IsTrue(t, helpRowHas(BufferText(buf, 0), "q"))
@@ -64,7 +64,7 @@ func TestHelpViewRendersAllShortcuts(t T) T {
 }
 
 func TestHelpViewSpecCellIsBoldCyan(t T) T {
-    var buf = NewBuffer(30, 1)
+    val buf = NewBuffer(30, 1)
     RenderTo(HelpView[HelpTestMsg](helpEntries()),
         Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
     val t1 = IsTrue(t, buf.StyleAt(0, 0).Bold)
@@ -73,14 +73,14 @@ func TestHelpViewSpecCellIsBoldCyan(t T) T {
 
 func TestHelpViewEmptyShowsHint(t T) T {
     val empty = EmptyArray[HelpSpec[HelpTestMsg]]()
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(HelpView[HelpTestMsg](empty),
         Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     return Eq(t, buf.CharAt(0, 0), '(')
 }
 
 func TestHelpModalViewHasTitle(t T) T {
-    var buf = NewBuffer(80, 20)
+    val buf = NewBuffer(80, 20)
     RenderTo(HelpModalView[HelpTestMsg](helpEntries(), 80, 20),
         Rect(X = 0, Y = 0, Width = 80, Height = 20), buf)
     val joined = stitchRows(buf)

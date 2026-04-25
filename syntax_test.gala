@@ -69,7 +69,7 @@ func TestTokenizeGalaKeywords(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestHighlightLineKeywordIsMagentaBold(t T) T {
-    var buf = NewBuffer(40, 1)
+    val buf = NewBuffer(40, 1)
     RenderTo(HighlightLine("if cond { 1 }", "go"),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     // ' ' at col 0 (leading pad), 'i' of "if" at col 1 → bold magenta.
@@ -78,7 +78,7 @@ func TestHighlightLineKeywordIsMagentaBold(t T) T {
 }
 
 func TestHighlightLineStringIsGreen(t T) T {
-    var buf = NewBuffer(40, 1)
+    val buf = NewBuffer(40, 1)
     RenderTo(HighlightLine("x = \"hi\"", "go"),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     // Find the position of '"'. Assume " starts at col 5 (' x = ').
@@ -130,7 +130,7 @@ func TestMarkdownFencedCodeBlockNoLangIsBlankString(t T) T {
 func TestMarkdownFencedCodeBlockRendersWithBorder(t T) T {
     val src = "```go\nprintln(\"hi\")\n```"
     val widget = MarkdownView(src)
-    var buf = NewBuffer(20, 5)
+    val buf = NewBuffer(20, 5)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 5), buf)
     val joined = stitchSyntaxRows(buf)
     return IsTrue(t, syntaxRowHas(joined, "println"))

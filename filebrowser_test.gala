@@ -84,7 +84,7 @@ func TestParentPathAlreadyRootStays(t T) T {
 
 func TestFileBrowserViewRendersBreadcrumb(t T) T {
     val b = FileBrowserOpen(".")
-    var buf = NewBuffer(40, 8)
+    val buf = NewBuffer(40, 8)
     RenderTo(FileBrowserView(b), Rect(X = 0, Y = 0, Width = 40, Height = 8), buf)
     val joined = stitchFbRows(buf)
     return IsTrue(t, fbRowHas(joined, ".."))

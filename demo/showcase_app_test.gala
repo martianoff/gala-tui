@@ -17,7 +17,7 @@ import (
 
 func TestShowcaseRendersWithoutCrashing(t T) T {
     val m = NewShowcaseModel()
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     // Header's thick top border uses ┏ at the top-left.
     val row0 = BufferText(buf, 0)
@@ -26,14 +26,14 @@ func TestShowcaseRendersWithoutCrashing(t T) T {
 
 func TestShowcaseRendersSidebarMenu(t T) T {
     val m = NewShowcaseModel()
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     return IsTrue(t, showcaseContains(buf, "Overview"))
 }
 
 func TestShowcaseRendersProcessTable(t T) T {
     val m = NewShowcaseModel()
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val t1 = IsTrue(t, showcaseContains(buf, "postgres"))
     return IsTrue(t1, showcaseContains(buf, "PID"))

@@ -70,7 +70,7 @@ func TestSolveZeroTotal(t T) T {
 // ============================================================================
 
 func TestRowTwoTextsSplitByLength(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = Row(ArrayOf[LayoutChild](
         Fixed(5, Text("HelloWorld")),
         Fixed(5, Text("12345")),
@@ -80,7 +80,7 @@ func TestRowTwoTextsSplitByLength(t T) T {
 }
 
 func TestRowFillFillEvenSplit(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = Row(ArrayOf[LayoutChild](
         Flex(1, Text("aaaaaaaaaa")),
         Flex(1, Text("bbbbbbbbbb")),
@@ -90,7 +90,7 @@ func TestRowFillFillEvenSplit(t T) T {
 }
 
 func TestRowLengthPlusFill(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = Row(ArrayOf[LayoutChild](
         Fixed(3, Text("IDs")),
         Flex(1, Text("bodybodyXX")),
@@ -100,7 +100,7 @@ func TestRowLengthPlusFill(t T) T {
 }
 
 func TestColumnThreeRows(t T) T {
-    var buf = NewBuffer(5, 3)
+    val buf = NewBuffer(5, 3)
     val w = Column(ArrayOf[LayoutChild](
         Fixed(1, Text("aaaaa")),
         Fixed(1, Text("bbbbb")),
@@ -113,7 +113,7 @@ func TestColumnThreeRows(t T) T {
 }
 
 func TestColumnHeaderBodyFooter(t T) T {
-    var buf = NewBuffer(5, 5)
+    val buf = NewBuffer(5, 5)
     val w = Column(ArrayOf[LayoutChild](
         Fixed(1, Text("HEADR")),
         Flex(1,  FillCh('.')),
@@ -128,14 +128,14 @@ func TestColumnHeaderBodyFooter(t T) T {
 }
 
 func TestStackMergesLayers(t T) T {
-    var buf = NewBuffer(5, 1)
+    val buf = NewBuffer(5, 1)
     val w = Stack(ArrayOf[Widget](FillCh('.'), Text("hi")))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "hi...")
 }
 
 func TestRealDashboardLayout(t T) T {
-    var buf = NewBuffer(20, 7)
+    val buf = NewBuffer(20, 7)
     val w = Column(ArrayOf[LayoutChild](
         Fixed(1, Text("== TITLE ===========")),
         Flex(1, Row(ArrayOf[LayoutChild](

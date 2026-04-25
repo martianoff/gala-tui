@@ -10,7 +10,7 @@ import (
 // ============================================================================
 
 func TestListSelectionHighlight(t T) T {
-    var buf = NewBuffer(6, 3)
+    val buf = NewBuffer(6, 3)
     val w = SelectListOf(ArrayOf[string]("apple", "banana", "cherry"), 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
     val t1 = Eq(t, BufferText(buf, 0), "apple ")
@@ -20,7 +20,7 @@ func TestListSelectionHighlight(t T) T {
 }
 
 func TestListHandlesEmpty(t T) T {
-    var buf = NewBuffer(5, 2)
+    val buf = NewBuffer(5, 2)
     val w = SelectListOf(EmptyArray[string](), 0)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 2), buf)
     // Nothing should crash; buffer stays blank.
@@ -30,7 +30,7 @@ func TestListHandlesEmpty(t T) T {
 func TestListScrollsToShowSelected(t T) T {
     // 5 items, viewport height 2, selected = 4. Viewport must slide to show
     // items 3 and 4 (offset = 3).
-    var buf = NewBuffer(4, 2)
+    val buf = NewBuffer(4, 2)
     val w = SelectListOf(ArrayOf[string]("a", "b", "c", "d", "e"), 4)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
     val t1 = Eq(t, BufferText(buf, 0), "d   ")
@@ -49,7 +49,7 @@ func TestListViewportOffsetBasic(t T) T {
 // ============================================================================
 
 func TestInputShowsPlaceholderWhenEmpty(t T) T {
-    var buf = NewBuffer(12, 1)
+    val buf = NewBuffer(12, 1)
     val w = Input("", 0, "type here")
     RenderTo(w, Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
     val t1 = Eq(t, BufferText(buf, 0), "type here   ")
@@ -58,7 +58,7 @@ func TestInputShowsPlaceholderWhenEmpty(t T) T {
 }
 
 func TestInputShowsValueAndCursor(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = Input("hello", 3, "")
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val t1 = Eq(t, BufferText(buf, 0), "hello     ")
@@ -71,7 +71,7 @@ func TestInputShowsValueAndCursor(t T) T {
 // ============================================================================
 
 func TestProgressBarHalf(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = Progress(50)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // 10-width bar, 50%: "[████░░░░]" — 4 filled + 4 empty between brackets.
@@ -79,21 +79,21 @@ func TestProgressBarHalf(t T) T {
 }
 
 func TestProgressBarFull(t T) T {
-    var buf = NewBuffer(8, 1)
+    val buf = NewBuffer(8, 1)
     val w = Progress(100)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "[██████]")
 }
 
 func TestProgressBarEmpty(t T) T {
-    var buf = NewBuffer(8, 1)
+    val buf = NewBuffer(8, 1)
     val w = Progress(0)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "[░░░░░░]")
 }
 
 func TestProgressClampsOverflow(t T) T {
-    var buf = NewBuffer(8, 1)
+    val buf = NewBuffer(8, 1)
     val w = Progress(250)   // out of range
     RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
     // Clamped to 100% → all inner cells filled.
@@ -101,7 +101,7 @@ func TestProgressClampsOverflow(t T) T {
 }
 
 func TestGaugeFullCells(t T) T {
-    var buf = NewBuffer(4, 1)
+    val buf = NewBuffer(4, 1)
     val w = Gauge(50)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
     // 4 cells, 50% → 2 full + 2 empty.
@@ -121,7 +121,7 @@ func TestSpinnerWrapsFrameIndex(t T) T {
 }
 
 func TestSpinnerRendersCell(t T) T {
-    var buf = NewBuffer(3, 1)
+    val buf = NewBuffer(3, 1)
     val w = Spinner(PipeSpinner(), 2)  // '-'
     RenderTo(w, Rect(X = 0, Y = 0, Width = 3, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "-  ")
@@ -132,7 +132,7 @@ func TestSpinnerRendersCell(t T) T {
 // ============================================================================
 
 func TestButtonRendersLabel(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = Button("OK", false)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // "[ OK ]" = 6 chars + 4 blanks = 10.
@@ -140,7 +140,7 @@ func TestButtonRendersLabel(t T) T {
 }
 
 func TestFocusedButtonIsReversed(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = Button("OK", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val t1 = Eq(t, BufferText(buf, 0), "[ OK ]    ")

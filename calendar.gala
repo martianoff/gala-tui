@@ -184,19 +184,19 @@ func calPad(day int) string {
 // Small helpers
 // ----------------------------------------------------------------------------
 
-func monthName(m int) string {
-    if m == 1  { return "January" }
-    if m == 2  { return "February" }
-    if m == 3  { return "March" }
-    if m == 4  { return "April" }
-    if m == 5  { return "May" }
-    if m == 6  { return "June" }
-    if m == 7  { return "July" }
-    if m == 8  { return "August" }
-    if m == 9  { return "September" }
-    if m == 10 { return "October" }
-    if m == 11 { return "November" }
-    return "December"
+func monthName(m int) string = m match {
+    case 1  => "January"
+    case 2  => "February"
+    case 3  => "March"
+    case 4  => "April"
+    case 5  => "May"
+    case 6  => "June"
+    case 7  => "July"
+    case 8  => "August"
+    case 9  => "September"
+    case 10 => "October"
+    case 11 => "November"
+    case _  => "December"
 }
 
 // intToStr renders a non-negative int in base 10. We avoid fmt.Sprintf

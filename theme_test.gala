@@ -45,7 +45,7 @@ func TestDarkAndLightHeadingsDiffer(t T) T {
 
 func TestHeadingTHelperPaintsBoldCell(t T) T {
     val th = DarkTheme()
-    var buf = NewBuffer(5, 1)
+    val buf = NewBuffer(5, 1)
     RenderTo(HeadingT(th, "hi"), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
     val t1 = Eq(t, buf.CharAt(0, 0), 'h')
     return IsTrue(t1, buf.StyleAt(0, 0).Bold)
@@ -53,14 +53,14 @@ func TestHeadingTHelperPaintsBoldCell(t T) T {
 
 func TestMutedTHelperPaintsDimCell(t T) T {
     val th = DefaultTheme()
-    var buf = NewBuffer(3, 1)
+    val buf = NewBuffer(3, 1)
     RenderTo(MutedT(th, "x"), Rect(X = 0, Y = 0, Width = 3, Height = 1), buf)
     return IsTrue(t, buf.StyleAt(0, 0).Dim)
 }
 
 func TestBackgroundTCoversArea(t T) T {
     val th = HighContrastTheme()
-    var buf = NewBuffer(4, 2)
+    val buf = NewBuffer(4, 2)
     RenderTo(BackgroundT(th, Text("hi")), Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
     // Background color is Black() for HighContrastTheme. Cell (3, 1) was not
     // touched by the Text overlay so its Bg should match theme.Background.

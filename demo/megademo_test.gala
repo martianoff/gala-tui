@@ -174,7 +174,7 @@ func TestMegaScrollDownAdvancesTableOnBuildsScreen(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestMegaRendersOverviewScreen(t T) T {
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(NewMegaModel()),
         Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
@@ -183,7 +183,7 @@ func TestMegaRendersOverviewScreen(t T) T {
 
 func TestMegaRendersHelpModalWhenOpen(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaToggleHelp())
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     return IsTrue(t, megaStringHas(joined, "Key bindings"))
@@ -191,7 +191,7 @@ func TestMegaRendersHelpModalWhenOpen(t T) T {
 
 func TestMegaRendersPaletteWhenOpen(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     // Palette modal shows the prompt with the ">" arrow.
@@ -720,7 +720,7 @@ func TestMegaKeyToMsgEndJumpsToBottom(t T) T {
 
 func TestMegaRendersBuildsScreen(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     return IsTrue(t, megaStringHas(joined, "Branch"))
@@ -728,7 +728,7 @@ func TestMegaRendersBuildsScreen(t T) T {
 
 func TestMegaRendersPipelinesScreen(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     return IsTrue(t, megaStringHas(joined, "backend"))
@@ -736,7 +736,7 @@ func TestMegaRendersPipelinesScreen(t T) T {
 
 func TestMegaRendersLogsScreen(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "logs"))
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     return IsTrue(t, megaStringHas(joined, "dashboard started"))
@@ -744,7 +744,7 @@ func TestMegaRendersLogsScreen(t T) T {
 
 func TestMegaRendersConfirmModal(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "Deploy to Prod"))
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     return IsTrue(t, megaStringHas(joined, "Deploy to Prod"))
@@ -752,7 +752,7 @@ func TestMegaRendersConfirmModal(t T) T {
 
 func TestMegaRendersLogDrawerOverlay(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaToggleLogs())
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     // The overlay shows the tail of the log buffer — assert on the last
@@ -763,7 +763,7 @@ func TestMegaRendersLogDrawerOverlay(t T) T {
 func TestMegaRendersToastWhenPushed(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "deploy"))
     val (m2, _) = MegaUpdate(m1, MegaConfirmYes())
-    var buf = NewBuffer(120, 30)
+    val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m2), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     return IsTrue(t, megaStringHas(joined, "Confirmed"))

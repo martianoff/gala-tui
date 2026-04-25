@@ -28,7 +28,7 @@ import (
 // text string: one line per row, newlines between rows, no ANSI styling.
 // Ideal for snapshot-style tests with stored fixtures.
 func Snapshot(w Widget, width int, height int) string {
-    var buf = NewBuffer(width, height)
+    val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
     return bufferPlainText(buf)
 }
@@ -37,7 +37,7 @@ func Snapshot(w Widget, width int, height int) string {
 // for tests that want to assert on colors/styles (and tolerate the ANSI
 // noise in fixtures).
 func SnapshotStyled(w Widget, width int, height int) string {
-    var buf = NewBuffer(width, height)
+    val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
     return buf.String()
 }
@@ -46,7 +46,7 @@ func SnapshotStyled(w Widget, width int, height int) string {
 // strings. Useful for line-by-line assertions or for comparing a slice of
 // the view to a fixture.
 func SnapshotLines(w Widget, width int, height int) Array[string] {
-    var buf = NewBuffer(width, height)
+    val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
     var rows = EmptyArray[string]()
     var y = 0

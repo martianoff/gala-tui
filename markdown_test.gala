@@ -115,21 +115,21 @@ func TestMarkdownUnmatchedStarIsLiteral(t T) T {
 
 func TestMarkdownViewRendersHeading(t T) T {
     val widget = MarkdownView("# Dashboard")
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     return IsTrue(t, buf.StyleAt(0, 0).Bold)
 }
 
 func TestMarkdownViewHeading1IsCyan(t T) T {
     val widget = MarkdownView("# Title")
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
 }
 
 func TestMarkdownViewBoldInline(t T) T {
     val widget = MarkdownView("see **important** text")
-    var buf = NewBuffer(30, 1)
+    val buf = NewBuffer(30, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
     // "see " → 4 cells, then "important" in bold starting at col 4.
     return IsTrue(t, buf.StyleAt(4, 0).Bold)
@@ -137,7 +137,7 @@ func TestMarkdownViewBoldInline(t T) T {
 
 func TestMarkdownViewLinkUnderlined(t T) T {
     val widget = MarkdownView("go to [docs](https://example.com)")
-    var buf = NewBuffer(30, 1)
+    val buf = NewBuffer(30, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
     // "go to " → 6 cells, then "docs" with underline.
     return IsTrue(t, buf.StyleAt(6, 0).Underline)
@@ -145,7 +145,7 @@ func TestMarkdownViewLinkUnderlined(t T) T {
 
 func TestMarkdownViewBulletHasDotPrefix(t T) T {
     val widget = MarkdownView("- first item")
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     return Eq(t, buf.CharAt(1, 0), '•')
 }

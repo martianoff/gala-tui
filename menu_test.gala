@@ -78,7 +78,7 @@ func TestMenuCurrentItemReturnsSelected(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestMenuVerticalViewRendersOneItemPerRow(t T) T {
-    var buf = NewBuffer(12, 3)
+    val buf = NewBuffer(12, 3)
     RenderTo(MenuView(threeItemMenu()),
         Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
     val r0 = BufferText(buf, 0)
@@ -90,7 +90,7 @@ func TestMenuVerticalViewRendersOneItemPerRow(t T) T {
 }
 
 func TestMenuSelectedRowIsReverse(t T) T {
-    var buf = NewBuffer(12, 3)
+    val buf = NewBuffer(12, 3)
     RenderTo(MenuView(threeItemMenu()),
         Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
     // First row is selected by default → reverse style.
@@ -98,7 +98,7 @@ func TestMenuSelectedRowIsReverse(t T) T {
 }
 
 func TestMenuDisabledRowIsDim(t T) T {
-    var buf = NewBuffer(15, 3)
+    val buf = NewBuffer(15, 3)
     RenderTo(MenuView(menuWithDisabled()),
         Rect(X = 0, Y = 0, Width = 15, Height = 3), buf)
     // Row 1 is disabled.
@@ -111,7 +111,7 @@ func TestMenuHorizontalRendersInline(t T) T {
         NewMenuItem("B"),
         NewMenuItem("C"),
     ))
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(MenuView(m), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     val row = BufferText(buf, 0)
     val t1 = IsTrue(t, menuRowHas(row, "A"))
@@ -123,7 +123,7 @@ func TestMenuItemHintRendersRightAligned(t T) T {
     val m = NewMenu(ArrayOf[MenuItem](
         NewMenuItemWithHint("Save", "Ctrl+S"),
     ))
-    var buf = NewBuffer(20, 1)
+    val buf = NewBuffer(20, 1)
     RenderTo(MenuView(m), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     val row = BufferText(buf, 0)
     val t1 = IsTrue(t, menuRowHas(row, "Save"))
@@ -141,7 +141,7 @@ func TestDropdownClosedShowsTriggerOnly(t T) T {
         Open    = false,
         Width   = 12,
     )
-    var buf = NewBuffer(12, 4)
+    val buf = NewBuffer(12, 4)
     RenderTo(DropdownView(d), Rect(X = 0, Y = 0, Width = 12, Height = 4), buf)
     // Only the trigger renders — row 1 should be blank.
     val row1 = BufferText(buf, 1)
@@ -155,7 +155,7 @@ func TestDropdownOpenShowsMenuBelowTrigger(t T) T {
         Open    = true,
         Width   = 15,
     )
-    var buf = NewBuffer(15, 8)
+    val buf = NewBuffer(15, 8)
     RenderTo(DropdownView(d), Rect(X = 0, Y = 0, Width = 15, Height = 8), buf)
     val joined = allMenuRows(buf)
     val t1 = IsTrue(t, menuRowHas(joined, "Pick"))

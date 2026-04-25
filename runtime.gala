@@ -575,7 +575,7 @@ func processKeyBytes[M any, T any](
 // that doesn't care about bandwidth.
 func paintFrame(w Widget) {
     val (width, height) = TermSize()
-    var buf = NewBuffer(width, height)
+    val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
     fmt.Fprint(os.Stdout, ansiHome())
     fmt.Fprint(os.Stdout, buf.String())
@@ -591,7 +591,7 @@ func paintFrame(w Widget) {
 // full repaint.
 func paintFrameDiff(w Widget, prev *Buffer) *Buffer {
     val (width, height) = TermSize()
-    var buf = NewBuffer(width, height)
+    val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
     fmt.Fprint(os.Stdout, buf.DiffString(prev))
     return buf

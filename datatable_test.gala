@@ -159,7 +159,7 @@ func TestDataTableSelectedRowWithSortReturnsVisibleRow(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestDataTableViewRendersHeader(t T) T {
-    var buf = NewBuffer(30, 6)
+    val buf = NewBuffer(30, 6)
     RenderTo(DataTableView(sampleDataTable()),
         Rect(X = 0, Y = 0, Width = 30, Height = 6), buf)
     val row0 = BufferText(buf, 0)
@@ -167,14 +167,14 @@ func TestDataTableViewRendersHeader(t T) T {
 }
 
 func TestDataTableViewHasHorizontalRule(t T) T {
-    var buf = NewBuffer(30, 6)
+    val buf = NewBuffer(30, 6)
     RenderTo(DataTableView(sampleDataTable()),
         Rect(X = 0, Y = 0, Width = 30, Height = 6), buf)
     return Eq(t, buf.CharAt(0, 1), '─')
 }
 
 func TestDataTableViewHighlightsSelectedRow(t T) T {
-    var buf = NewBuffer(30, 6)
+    val buf = NewBuffer(30, 6)
     RenderTo(DataTableView(sampleDataTable()),
         Rect(X = 0, Y = 0, Width = 30, Height = 6), buf)
     // Selected row is first body row at y=2.
@@ -183,7 +183,7 @@ func TestDataTableViewHighlightsSelectedRow(t T) T {
 
 func TestDataTableSortedHeaderShowsArrow(t T) T {
     val dt = DataTableUpdate(sampleDataTable(), DTSort(Col = 0))
-    var buf = NewBuffer(30, 3)
+    val buf = NewBuffer(30, 3)
     RenderTo(DataTableView(dt), Rect(X = 0, Y = 0, Width = 30, Height = 3), buf)
     val row0 = BufferText(buf, 0)
     return IsTrue(t, dtRowHas(row0, "Name ↑"))
@@ -191,7 +191,7 @@ func TestDataTableSortedHeaderShowsArrow(t T) T {
 
 func TestDataTableEmptyAfterFilterShowsHint(t T) T {
     val dt = DataTableUpdate(sampleDataTable(), DTFilter(Query = "zzzzz"))
-    var buf = NewBuffer(30, 4)
+    val buf = NewBuffer(30, 4)
     RenderTo(DataTableView(dt), Rect(X = 0, Y = 0, Width = 30, Height = 4), buf)
     val combined = dtJoinRows(buf)
     return IsTrue(t, dtRowHas(combined, "no rows"))

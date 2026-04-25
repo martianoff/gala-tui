@@ -10,7 +10,7 @@ import (
 // ============================================================================
 
 func TestModalHasDimBackdrop(t T) T {
-    var buf = NewBuffer(20, 10)
+    val buf = NewBuffer(20, 10)
     RenderTo(Modal(10, 4, Text("hi")),
         Rect(X = 0, Y = 0, Width = 20, Height = 10), buf)
     // Top-left corner is backdrop (not masked by panel).
@@ -18,7 +18,7 @@ func TestModalHasDimBackdrop(t T) T {
 }
 
 func TestModalCentersPanelHorizontally(t T) T {
-    var buf = NewBuffer(20, 6)
+    val buf = NewBuffer(20, 6)
     RenderTo(Modal(10, 4, Text("hi")),
         Rect(X = 0, Y = 0, Width = 20, Height = 6), buf)
     // Panel is 10 wide in a 20-wide area → starts at col 5.
@@ -26,7 +26,7 @@ func TestModalCentersPanelHorizontally(t T) T {
 }
 
 func TestConfirmDialogRendersBothButtons(t T) T {
-    var buf = NewBuffer(40, 6)
+    val buf = NewBuffer(40, 6)
     RenderTo(ConfirmDialog("Confirm", "Proceed?", true),
         Rect(X = 0, Y = 0, Width = 40, Height = 6), buf)
     val combined = catRows(buf)
@@ -35,7 +35,7 @@ func TestConfirmDialogRendersBothButtons(t T) T {
 }
 
 func TestAlertDialogRendersOK(t T) T {
-    var buf = NewBuffer(30, 6)
+    val buf = NewBuffer(30, 6)
     RenderTo(AlertDialog("Heads up", "All good."),
         Rect(X = 0, Y = 0, Width = 30, Height = 6), buf)
     val combined = catRows(buf)

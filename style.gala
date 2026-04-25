@@ -1,7 +1,6 @@
 package gala_tui
 
 import (
-    "fmt"
     "strings"
     . "martianoff/gala/go_interop"
 )
@@ -122,5 +121,3 @@ func StyleEqual(a Style, b Style) bool {
         ColorEq(a.Bg, b.Bg)
 }
 
-// Silence unused-import warning when the rare fmt.Sprintf path doesn't fire.
-var _ = fmt.Sprintf

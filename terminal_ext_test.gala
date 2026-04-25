@@ -33,7 +33,7 @@ func TestHyperlinkEndIsTerminator(t T) T {
 }
 
 func TestHyperlinkTextPaintsUnderlineLink(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     RenderTo(HyperlinkText("docs", "https://example.com"),
         Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val t1 = IsTrue(t, buf.StyleAt(0, 0).Underline)

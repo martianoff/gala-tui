@@ -87,7 +87,7 @@ func TestCalendarSelectedReturnsCorrectDate(t T) T {
 
 func TestCalendarViewRendersMonthName(t T) T {
     val c = NewCalendarAt(2026, 4, 15)
-    var buf = NewBuffer(30, 8)
+    val buf = NewBuffer(30, 8)
     RenderTo(CalendarView(c), Rect(X = 0, Y = 0, Width = 30, Height = 8), buf)
     val row0 = BufferText(buf, 0)
     return IsTrue(t, fbRowHas(row0, "April"))
@@ -95,7 +95,7 @@ func TestCalendarViewRendersMonthName(t T) T {
 
 func TestCalendarViewSelectedDayIsReverse(t T) T {
     val c = NewCalendarAt(2026, 4, 15)
-    var buf = NewBuffer(30, 8)
+    val buf = NewBuffer(30, 8)
     RenderTo(CalendarView(c), Rect(X = 0, Y = 0, Width = 30, Height = 8), buf)
     // Walk the grid until we find a reverse cell — at least one cell
     // (the selected day) should be reverse-styled.

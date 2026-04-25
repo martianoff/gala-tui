@@ -201,7 +201,7 @@ func TestShowcaseEndToEnd(t T) T {
 
     // Rendered-frame assertion — ensures the view actually renders and the
     // scripted state makes it into the right cells.
-    var buf = NewBuffer(65, 20)
+    val buf = NewBuffer(65, 20)
     RenderTo(dashView(final), Rect(X = 0, Y = 0, Width = 65, Height = 20), buf)
 
     // Title bar is row 0.

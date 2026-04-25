@@ -31,20 +31,20 @@ func BufferText(b *Buffer, y int) string {
 // ----------------------------------------------------------------------------
 
 func TestTextWidgetRenders(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     RenderTo(Text("hello"), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "hello     ")
 }
 
 func TestTextWidgetClipsToArea(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     RenderTo(Text("hello world!"), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
     // Only the first 5 chars fit; remaining 5 of the buffer stay blank.
     return Eq(t, BufferText(buf, 0), "hello     ")
 }
 
 func TestTextStyledPropagatesStyle(t T) T {
-    var buf = NewBuffer(5, 1)
+    val buf = NewBuffer(5, 1)
     val red = DefaultStyle().WithFg(Red())
     RenderTo(TextStyled("boom!", red), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
     // The rune is 'b' and its style is red.
@@ -53,7 +53,7 @@ func TestTextStyledPropagatesStyle(t T) T {
 }
 
 func TestFillCoversArea(t T) T {
-    var buf = NewBuffer(4, 2)
+    val buf = NewBuffer(4, 2)
     RenderTo(FillCh('.'), Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
     val t1 = Eq(t, BufferText(buf, 0), "....")
     return Eq(t1, BufferText(buf, 1), "....")
@@ -64,7 +64,7 @@ func TestFillCoversArea(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestBorderSingleFrame(t T) T {
-    var buf = NewBuffer(4, 3)
+    val buf = NewBuffer(4, 3)
     RenderTo(Border(Empty()), Rect(X = 0, Y = 0, Width = 4, Height = 3), buf)
     // Expected: ┌──┐
     //           │  │
@@ -75,7 +75,7 @@ func TestBorderSingleFrame(t T) T {
 }
 
 func TestBorderAsciiFrame(t T) T {
-    var buf = NewBuffer(4, 3)
+    val buf = NewBuffer(4, 3)
     RenderTo(BorderOf(Empty(), AsciiBorder()), Rect(X = 0, Y = 0, Width = 4, Height = 3), buf)
     val t1 = Eq(t, BufferText(buf, 0), "+--+")
     val t2 = Eq(t1, BufferText(buf, 1), "|  |")
@@ -83,14 +83,14 @@ func TestBorderAsciiFrame(t T) T {
 }
 
 func TestBorderDoubleFrame(t T) T {
-    var buf = NewBuffer(3, 3)
+    val buf = NewBuffer(3, 3)
     RenderTo(BorderOf(Empty(), DoubleBorder()), Rect(X = 0, Y = 0, Width = 3, Height = 3), buf)
     val t1 = Eq(t, BufferText(buf, 0), "╔═╗")
     return Eq(t1, BufferText(buf, 2), "╚═╝")
 }
 
 func TestBorderWrapsInnerText(t T) T {
-    var buf = NewBuffer(7, 3)
+    val buf = NewBuffer(7, 3)
     RenderTo(Border(Text("hi")), Rect(X = 0, Y = 0, Width = 7, Height = 3), buf)
     // Expected:   ┌─────┐
     //             │hi   │
@@ -105,7 +105,7 @@ func TestBorderWrapsInnerText(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestPaddingOffsetsInner(t T) T {
-    var buf = NewBuffer(8, 3)
+    val buf = NewBuffer(8, 3)
     RenderTo(Padding(1, Text("hi")), Rect(X = 0, Y = 0, Width = 8, Height = 3), buf)
     // Row 0 is padding (empty); row 1 has "hi" starting at col 1; row 2 is padding.
     val t1 = Eq(t, BufferText(buf, 0), "        ")
@@ -114,14 +114,14 @@ func TestPaddingOffsetsInner(t T) T {
 }
 
 func TestPaddingHVAsymmetric(t T) T {
-    var buf = NewBuffer(8, 3)
+    val buf = NewBuffer(8, 3)
     RenderTo(PaddingHV(0, 2, Text("abc")), Rect(X = 0, Y = 0, Width = 8, Height = 3), buf)
     // Horizontal padding = 2; vertical = 0 → "abc" starts at col 2.
     return Eq(t, BufferText(buf, 0), "  abc   ")
 }
 
 func TestPaddingLargerThanAreaNoOp(t T) T {
-    var buf = NewBuffer(4, 2)
+    val buf = NewBuffer(4, 2)
     RenderTo(Padding(5, Text("hello")), Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
     // Padding exceeds area — inner area is clamped to zero, nothing drawn.
     return Eq(t, BufferText(buf, 0), "    ")
@@ -132,14 +132,14 @@ func TestPaddingLargerThanAreaNoOp(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestAlignLeft(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = AlignWidget(Inner = Text("abc"), Horiz = AlignLeft(), ChildW = 3, ChildH = 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "abc       ")
 }
 
 func TestAlignCenter(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = AlignWidget(Inner = Text("abc"), Horiz = AlignCenter(), ChildW = 3, ChildH = 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // (10-3)/2 = 3 cells of left padding → "   abc    "
@@ -147,7 +147,7 @@ func TestAlignCenter(t T) T {
 }
 
 func TestAlignRight(t T) T {
-    var buf = NewBuffer(10, 1)
+    val buf = NewBuffer(10, 1)
     val w = AlignWidget(Inner = Text("abc"), Horiz = AlignRight(), ChildW = 3, ChildH = 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "       abc")
@@ -158,7 +158,7 @@ func TestAlignRight(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestOverlayMasksBottom(t T) T {
-    var buf = NewBuffer(5, 1)
+    val buf = NewBuffer(5, 1)
     // Bottom draws "aaaaa", top draws "X" in col 0 — only col 0 changes.
     val w = Overlay(FillCh('a'), Text("X"))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
@@ -171,7 +171,7 @@ func TestOverlayMasksBottom(t T) T {
 // ----------------------------------------------------------------------------
 
 func TestComposedBorderPaddingText(t T) T {
-    var buf = NewBuffer(12, 5)
+    val buf = NewBuffer(12, 5)
     val w = Border(Padding(1, Text("nested")))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 12, Height = 5), buf)
     // Row 0: top border

@@ -137,7 +137,7 @@ func TestPaletteFilteredActionsAreRanked(t T) T {
 
 func TestPaletteViewRendersHeader(t T) T {
     val p = NewPalette[PMsg](sampleActions())
-    var buf = NewBuffer(40, 10)
+    val buf = NewBuffer(40, 10)
     RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 40, Height = 10), buf)
     // The ">" prompt should appear in row 0.
     return Eq(t, buf.CharAt(1, 0), '>')
@@ -146,7 +146,7 @@ func TestPaletteViewRendersHeader(t T) T {
 func TestPaletteViewShowsFilteredResults(t T) T {
     var p = NewPalette[PMsg](sampleActions())
     p = PaletteUpdate(p, PalChar(C = 'q'))       // matches "Quit"
-    var buf = NewBuffer(40, 10)
+    val buf = NewBuffer(40, 10)
     RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 40, Height = 10), buf)
     val combined = palStitch(buf)
     return IsTrue(t, palRowHas(combined, "Quit"))
@@ -154,7 +154,7 @@ func TestPaletteViewShowsFilteredResults(t T) T {
 
 func TestPaletteViewHighlightsSelected(t T) T {
     val p = NewPalette[PMsg](sampleActions())
-    var buf = NewBuffer(30, 10)
+    val buf = NewBuffer(30, 10)
     RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
     // Selected row is at y=2 (after header and separator).
     return IsTrue(t, buf.StyleAt(0, 2).Reverse)
@@ -165,7 +165,7 @@ func TestPaletteViewNoMatches(t T) T {
     p = PaletteUpdate(p, PalChar(C = 'z'))
     p = PaletteUpdate(p, PalChar(C = 'z'))
     p = PaletteUpdate(p, PalChar(C = 'z'))
-    var buf = NewBuffer(30, 5)
+    val buf = NewBuffer(30, 5)
     RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 30, Height = 5), buf)
     val combined = palStitch(buf)
     return IsTrue(t, palRowHas(combined, "no matches"))
