@@ -230,8 +230,6 @@ func megaTogglePalette(m MegaModel) MegaModel {
 }
 
 func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
-    // BUG-6 workaround: matching on a chained-call generic Option erases
-    // T. Bind to a val first, then extract via a non-generic helper.
     val cur = m.Palette.Current()
     if cur.IsDefined() {
         return (m.Copy(PaletteOpen = false),
@@ -240,9 +238,6 @@ func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
     return (m.Copy(PaletteOpen = false), NoCmd[MegaMsg]())
 }
 
-// paletteActionMsg extracts the Msg from a PaletteAction[MegaMsg]. It's a
-// non-generic wrapper so the type parameter doesn't get erased when we
-// access `action.Msg` — see BUG-6 in TRANSPILER_BUGS.md.
 func paletteActionMsg(a PaletteAction[MegaMsg]) MegaMsg = a.Msg
 
 // Arrow keys are routed by *what's on screen*, not by the focus pane —

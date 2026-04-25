@@ -71,10 +71,15 @@ screen at once. Keys:
 | `t` | cycle theme |
 | `q` / `Ctrl-C` | quit |
 
+## Documentation
+
+- [Getting Started](docs/GETTING_STARTED.md) — build a counter, an input form, and a fetcher app from scratch
+- [Project structure](STRUCTURE.md) — where each file lives in this repo
+
 ## Status
 
-- 430+ tests passing
-- Builds against GALA 0.33.0+
+- 546 tests passing
+- Builds against GALA 0.34.1+
 
 Source-code contributions and bug reports welcome.
 
