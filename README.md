@@ -162,16 +162,19 @@ are plaintext-only so they fit in a README.
 | Key | Action |
 |---|---|
 | `Ctrl-P` | command palette (fuzzy search) |
-| `↑ / ↓` | move selection / cycle screens |
-| `Tab` | cycle focus pane (or, in confirm modal, flip Yes ↔ No) |
-| `Enter` | confirm |
+| `↑ / ↓` | cycle screens (overview ↔ builds ↔ pipelines ↔ logs); on builds screen, moves the row cursor |
+| `PgUp / PgDn` | scroll the log drawer when it's open |
+| `End` | jump to the latest log entry |
+| `Tab` | cycle focus pane; in the confirm modal, flips Yes ↔ No |
+| `Enter` | confirm; in the confirm modal, picks the focused button |
 | `Esc` | close overlay / go back |
 | `?` | toggle help (markdown overlay) |
 | `/` | toggle log drawer |
-| `t` | cycle theme |
+| `t` | cycle theme (default → dark → light → high-contrast) |
 | `c` | copy the selected build row to clipboard |
 | `d` | open the deploy-to-prod confirm dialog |
 | `q` / `Ctrl-C` | quit |
+| Mouse wheel | scroll up/down in the focused list/table |
 
 ## Documentation
 
@@ -182,7 +185,7 @@ are plaintext-only so they fit in a README.
 
 ## Status
 
-- 554 tests passing
+- 564 tests passing
 - Builds against GALA 0.34.1+
 
 Source-code contributions and bug reports welcome.

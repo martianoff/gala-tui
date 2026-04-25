@@ -21,11 +21,12 @@ func TestMegaArrowDownCyclesScreens(t T) T {
     return Eq(t1, m1.Screens.Current(), "builds")
 }
 
-func TestMegaArrowUpFromOverviewWrapsToHelp(t T) T {
-    // Up from overview wraps to "help" — which is rendered as a modal
-    // overlay rather than a screen change, so ShowHelp flips to true.
+func TestMegaArrowUpFromOverviewWrapsToLogs(t T) T {
+    // Up from overview wraps to "logs" (the last entry in the screen
+    // ring). Help is intentionally NOT in the arrow cycle — it's a
+    // modal overlay reachable via `?` or the palette.
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaKeyUp())
-    return IsTrue(t, m1.ShowHelp)
+    return Eq(t, m1.Screens.Current(), "logs")
 }
 
 func TestMegaArrowOnBuildsScreenMovesTableCursor(t T) T {
@@ -627,6 +628,92 @@ func TestMegaCopySelectedAppendsLog(t T) T {
 }
 
 // ----------------------------------------------------------------------------
+// Log drawer scrolling — PgUp / PgDn / End walk the buffer; toggling
+// the drawer resets to the latest entries.
+// ----------------------------------------------------------------------------
+
+func TestMegaLogStartsAtBottom(t T) T {
+    return Eq(t, NewMegaModel().LogScroll, 0)
+}
+
+func TestMegaLogPgUpAdvancesScroll(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaLogPgUp())
+    return IsTrue(t, m1.LogScroll > 0)
+}
+
+func TestMegaLogPgDnPullsBackTowardBottom(t T) T {
+    var m = NewMegaModel()
+    val (m1, _) = MegaUpdate(m, MegaLogPgUp())
+    val before = m1.LogScroll
+    val (m2, _) = MegaUpdate(m1, MegaLogPgDn())
+    return IsTrue(t, m2.LogScroll < before)
+}
+
+func TestMegaLogPgDnAtBottomClampsAtZero(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaLogPgDn())
+    return Eq(t, m1.LogScroll, 0)
+}
+
+func TestMegaLogPgUpClampsAtMaxScroll(t T) T {
+    var m = NewMegaModel()
+    var i = 0
+    for i < 50 {
+        val (mNext, _) = MegaUpdate(m, MegaLogPgUp())
+        m = mNext
+        i = i + 1
+    }
+    val total = m.Logs.Length()
+    val visible = 8
+    val maxScroll = if (total > visible) total - visible else 0
+    return Eq(t, m.LogScroll, maxScroll)
+}
+
+func TestMegaLogJumpEndResetsScroll(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaLogPgUp())
+    val (m2, _) = MegaUpdate(m1, MegaLogJumpEnd())
+    return Eq(t, m2.LogScroll, 0)
+}
+
+func TestMegaToggleLogsResetsScroll(t T) T {
+    // Open drawer, scroll up, close, reopen — should land at bottom again.
+    var m = NewMegaModel()
+    val (m1, _) = MegaUpdate(m, MegaToggleLogs())
+    val (m2, _) = MegaUpdate(m1, MegaLogPgUp())
+    val t1 = IsTrue(t, m2.LogScroll > 0)
+    val (m3, _) = MegaUpdate(m2, MegaToggleLogs())  // close
+    val (m4, _) = MegaUpdate(m3, MegaToggleLogs())  // reopen
+    return Eq(t1, m4.LogScroll, 0)
+}
+
+// PgUp / PgDn / End map to the right MegaMsg via the keymap.
+func TestMegaKeyToMsgPgUpScrollsLog(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(PageUp()))
+    val isPgUp = msg match {
+        case MegaLogPgUp() => true
+        case _             => false
+    }
+    return IsTrue(t, isPgUp)
+}
+
+func TestMegaKeyToMsgPgDnScrollsLog(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(PageDown()))
+    val isPgDn = msg match {
+        case MegaLogPgDn() => true
+        case _             => false
+    }
+    return IsTrue(t, isPgDn)
+}
+
+func TestMegaKeyToMsgEndJumpsToBottom(t T) T {
+    val msg = MegaKeyToMsg(PlainKey(End()))
+    val isEnd = msg match {
+        case MegaLogJumpEnd() => true
+        case _                => false
+    }
+    return IsTrue(t, isEnd)
+}
+
+// ----------------------------------------------------------------------------
 // View — every screen renders without crashing and produces recognisable
 // content. These also catch regressions where the body collapses to empty.
 // ----------------------------------------------------------------------------
@@ -668,8 +755,9 @@ func TestMegaRendersLogDrawerOverlay(t T) T {
     var buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    // The overlay should still show the dashboard background plus a log line.
-    return IsTrue(t, megaStringHas(joined, "dashboard started"))
+    // The overlay shows the tail of the log buffer — assert on the last
+    // seeded entry which is "ws clients online: 4".
+    return IsTrue(t, megaStringHas(joined, "ws clients online"))
 }
 
 func TestMegaRendersToastWhenPushed(t T) T {

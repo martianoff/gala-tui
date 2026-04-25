@@ -62,6 +62,9 @@ sealed type MegaMsg {
     case MegaConfirmYes()
     case MegaConfirmNo()
     case MegaCopySelected()
+    case MegaLogPgUp()
+    case MegaLogPgDn()
+    case MegaLogJumpEnd()
     case MegaNoOp()
 }
 
@@ -91,6 +94,7 @@ struct MegaModel(
     ActiveTheme    MegaTheme,
     ConfirmAction  string,              // "" = no modal; non-empty = action being confirmed
     ConfirmYes     bool,                // which button is focused inside the confirm modal
+    LogScroll      int,                 // lines scrolled UP from latest in the log drawer (0 = bottom)
     Progress       state.Animation,
     BuildTab       int,                 // 0 = Running, 1 = Succeeded, 2 = Failed
     Now            Instant,
@@ -117,6 +121,7 @@ func NewMegaModel() MegaModel {
         ActiveTheme    = ThDark(),
         ConfirmAction  = "",
         ConfirmYes     = true,
+        LogScroll      = 0,
         Progress       = state.SmoothTween(0, 100, now, Seconds(int64(10))),
         BuildTab       = 0,
         Now            = now,
@@ -172,11 +177,22 @@ func megaInitialPipelines() TreeNode =
 
 func seedInitialLogs(p LogPanel) LogPanel {
     var q = p
-    q = q.AppendAt(LogInfo(),  "dashboard started",            FromUnixNanos(int64(0)))
-    q = q.AppendAt(LogInfo(),  "polling #4211 (feat/async)",   FromUnixNanos(int64(0)))
-    q = q.AppendAt(LogWarn(),  "test flake in #4210",          FromUnixNanos(int64(0)))
-    q = q.AppendAt(LogError(), "#4207 failed: exit code 1",    FromUnixNanos(int64(0)))
-    q = q.AppendAt(LogInfo(),  "#4210 succeeded in 01:47",     FromUnixNanos(int64(0)))
+    val t0 = FromUnixNanos(int64(0))
+    q = q.AppendAt(LogInfo(),  "dashboard started",                 t0)
+    q = q.AppendAt(LogInfo(),  "loading saved themes from disk",    t0)
+    q = q.AppendAt(LogInfo(),  "connected to scheduler 10.0.0.4",   t0)
+    q = q.AppendAt(LogInfo(),  "polling #4211 (feat/async)",        t0)
+    q = q.AppendAt(LogWarn(),  "test flake in #4210",               t0)
+    q = q.AppendAt(LogError(), "#4207 failed: exit code 1",         t0)
+    q = q.AppendAt(LogInfo(),  "#4210 succeeded in 01:47",          t0)
+    q = q.AppendAt(LogInfo(),  "#4209 succeeded in 03:22",          t0)
+    q = q.AppendAt(LogDebug(), "git fetch origin (skipped, cached)", t0)
+    q = q.AppendAt(LogInfo(),  "deploy worker idle, queue depth 0", t0)
+    q = q.AppendAt(LogWarn(),  "disk usage 78% on /var/cache",      t0)
+    q = q.AppendAt(LogInfo(),  "polling #4208 (feat/mega-dashboard)",t0)
+    q = q.AppendAt(LogInfo(),  "broadcast: nightly cron in 27 min", t0)
+    q = q.AppendAt(LogDebug(), "tick budget consumed: 2.1ms / 5ms", t0)
+    q = q.AppendAt(LogInfo(),  "ws clients online: 4",              t0)
     return q
 }
 
@@ -202,13 +218,16 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaPushScreen(r)         => (megaPushScreen(m, r), NoCmd[MegaMsg]())
         case MegaPopScreen()           => (m.Copy(Screens = m.Screens.Pop()), NoCmd[MegaMsg]())
         case MegaTabNext()             => (m.Copy(BuildTab = (m.BuildTab + 1) % 3), NoCmd[MegaMsg]())
-        case MegaToggleLogs()          => (m.Copy(ShowLogs = !m.ShowLogs), NoCmd[MegaMsg]())
+        case MegaToggleLogs()          => (m.Copy(ShowLogs = !m.ShowLogs, LogScroll = 0), NoCmd[MegaMsg]())
         case MegaToggleHelp()          => (m.Copy(ShowHelp = !m.ShowHelp), NoCmd[MegaMsg]())
         case MegaCycleTheme()          => (m.Copy(ActiveTheme = megaCycleTheme(m.ActiveTheme)), NoCmd[MegaMsg]())
         case MegaShowConfirm(act)      => (m.Copy(ConfirmAction = act, ConfirmYes = true), NoCmd[MegaMsg]())
         case MegaConfirmYes()          => (megaConfirmYes(m), NoCmd[MegaMsg]())
         case MegaConfirmNo()           => (m.Copy(ConfirmAction = ""), NoCmd[MegaMsg]())
         case MegaCopySelected()        => (megaCopyRow(m), NoCmd[MegaMsg]())
+        case MegaLogPgUp()             => (megaLogScroll(m, 4), NoCmd[MegaMsg]())
+        case MegaLogPgDn()             => (megaLogScroll(m, -4), NoCmd[MegaMsg]())
+        case MegaLogJumpEnd()          => (m.Copy(LogScroll = 0), NoCmd[MegaMsg]())
         case MegaNoOp()                => (m, NoCmd[MegaMsg]())
     }
 }
@@ -276,17 +295,12 @@ func megaKeyDown(m MegaModel) MegaModel {
 // entry (overview → builds → pipelines → logs → help → wraparound).
 // Replace (not Push) keeps the breadcrumb sane.
 func megaScreenStep(m MegaModel, delta int) MegaModel {
-    val screens = ArrayOf[string]("overview", "builds", "pipelines", "logs", "help")
+    val screens = ArrayOf[string]("overview", "builds", "pipelines", "logs")
     val n = screens.Length()
     var idx = megaScreenIndex(m.Screens.Current())
+    if idx >= n { idx = 0 }
     idx = (idx + delta + n) % n
     val next = screens.Get(idx)
-    if next == "help" {
-        return m.Copy(ShowHelp = true)
-    }
-    if next == "logs" {
-        return m.Copy(Screens = m.Screens.Replace("logs"))
-    }
     return m.Copy(Screens = m.Screens.Replace(next))
 }
 
@@ -308,6 +322,19 @@ func megaTabRouted(m MegaModel) MegaModel {
         return m.Copy(ConfirmYes = !m.ConfirmYes)
     }
     return m.Copy(Focus = m.Focus.Next())
+}
+
+// megaLogScroll bumps LogScroll by `delta` (positive scrolls *up* into
+// older entries) and clamps to a sensible window. Once the user catches
+// up to the bottom (offset <= 0), they see the latest entries.
+func megaLogScroll(m MegaModel, delta int) MegaModel {
+    val total = m.Logs.Length()
+    val visible = 8
+    val maxScroll = if (total > visible) total - visible else 0
+    var next = m.LogScroll + delta
+    if next < 0          { next = 0 }
+    if next > maxScroll  { next = maxScroll }
+    return m.Copy(LogScroll = next)
 }
 
 func megaEsc(m MegaModel) MegaModel {
@@ -446,12 +473,18 @@ func megaOverviewBody(m MegaModel, th Theme) Widget =
     ))
 
 func megaSidebar(m MegaModel, th Theme) Widget {
+    val focused = m.Focus.Current() == "sidebar"
+    val titleStyle = if (focused)
+        DefaultStyle().WithBold().WithFg(BrightYellow())
+    else
+        th.Heading
+    val titleLabel = if (focused) " ◆ Nav (focused) " else " Nav "
     val menu = SelectListOf(
         ArrayOf[string]("  Overview", "  Builds", "  Pipelines", "  Logs", "  Help"),
         megaScreenIndex(m.Screens.Current()),
     )
     val inside = Column(ArrayOf[LayoutChild](
-        Fixed(1, TextStyled(" Nav", th.Heading)),
+        Fixed(1, TextStyled(titleLabel, titleStyle)),
         Fixed(5, menu),
         Fixed(1, Text("")),
         Fixed(1, TextStyled(" Throughput (7d)", th.Heading)),
@@ -463,7 +496,8 @@ func megaSidebar(m MegaModel, th Theme) Widget {
         Fixed(1, Text("")),
         Flex(1, Tree(m.Pipelines)),
     ))
-    return BorderOf(PaddingHV(0, 1, inside), th.BorderKind)
+    val borderKind = if (focused) ThickBorder() else th.BorderKind
+    return BorderOf(PaddingHV(0, 1, inside), borderKind)
 }
 
 func megaOverviewMain(m MegaModel, th Theme) Widget {
@@ -494,6 +528,7 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
 }
 
 func megaBuildsBody(m MegaModel, th Theme) Widget {
+    val focused = m.Focus.Current() == "table"
     val tabs = Tabs(
         ArrayOf[string]("Running", "Succeeded", "Failed"),
         ArrayOf[Widget](
@@ -503,7 +538,8 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
         ),
         m.BuildTab,
     )
-    return BorderOf(PaddingHV(0, 1, tabs), th.BorderKind)
+    val borderKind = if (focused) ThickBorder() else th.BorderKind
+    return BorderOf(PaddingHV(0, 1, tabs), borderKind)
 }
 
 func megaBuildsForStatus(m MegaModel, status string) Widget =
@@ -534,14 +570,48 @@ func megaFooter(m MegaModel, th Theme) Widget {
 // ---- Overlays ---------------------------------------------------------------
 
 func megaLayerLogs(below Widget, m MegaModel, th Theme) Widget {
-    val logs = LogPanelViewTail(m.Logs, 8)
+    val visible = 8
+    val total = m.Logs.Length()
+    // Slice the buffer based on LogScroll: 0 = bottom, K = K lines older.
+    val end = if (total - m.LogScroll < 0) 0 else total - m.LogScroll
+    val start = if (end - visible < 0) 0 else end - visible
+    val window = m.Logs.Lines.Slice(start, end)
+    val rows = window.Map((line) => Fixed(1, megaLogLine(line)))
+    val body = if (window.IsEmpty()) TextStyled("(no log entries)", DefaultStyle().WithDim())
+               else Column(rows)
+    val title = if (m.LogScroll == 0)
+                  s" Log Drawer (PgUp/PgDn scroll, End jumps to bottom)"
+                else
+                  s" Log Drawer  ↑ ${m.LogScroll} lines back  (End jumps to bottom)"
     val drawer = BorderOf(PaddingHV(0, 1, Column(ArrayOf[LayoutChild](
-        Fixed(1, TextStyled(" Log Drawer (F12 toggles)", th.Heading)),
-        Flex(1, logs),
+        Fixed(1, TextStyled(title, th.Heading)),
+        Flex(1, body),
     ))), th.BorderKind)
     return Column(ArrayOf[LayoutChild](
         Flex(2, below),
         Fixed(11, drawer),
+    ))
+}
+
+// megaLogLine renders a single LogLine with its level prefix coloured.
+// Reproduces the framework's renderLogLine so megademo can build its
+// own column without reaching into private helpers.
+func megaLogLine(line LogLine) Widget {
+    val prefix = line.Level match {
+        case LogInfo()  => "INFO "
+        case LogWarn()  => "WARN "
+        case LogError() => "ERR  "
+        case LogDebug() => "DBG  "
+    }
+    val style = line.Level match {
+        case LogInfo()  => DefaultStyle().WithFg(BrightCyan())
+        case LogWarn()  => DefaultStyle().WithBold().WithFg(BrightYellow())
+        case LogError() => DefaultStyle().WithBold().WithFg(BrightRed())
+        case LogDebug() => DefaultStyle().WithDim()
+    }
+    return Row(ArrayOf[LayoutChild](
+        Fixed(5, TextStyled(prefix, style)),
+        Flex(1, Text(line.Text)),
     ))
 }
 
@@ -685,6 +755,9 @@ func MegaKeyToMsg(ev KeyEvent) MegaMsg {
         case Down()      => MegaKeyDown()
         case Enter()     => MegaKeyEnter()
         case Backspace() => MegaPalBackspace()
+        case PageUp()    => MegaLogPgUp()
+        case PageDown()  => MegaLogPgDn()
+        case End()       => MegaLogJumpEnd()
         case _           => MegaNoOp()
     }
 }
@@ -711,10 +784,16 @@ func RunMegaDemo() MegaModel {
         Update  = (m, msg) => MegaUpdate(m, msg),
         View    = (m) => MegaView(m),
     )
+    // 100 ms ticks keep the spinner spinning, the gauge filling, the
+    // sparkline + line chart shifting, and the tick counter incrementing.
+    val sub = TickSub[MegaMsg](
+        Interval = Milliseconds(int64(100)),
+        Make     = () => MegaTick(),
+    )
     return RunFull[MegaModel, MegaMsg](
         program,
         (ev) => MegaInputToMsg(ev),
-        NoSubs[MegaMsg](),
+        sub,
     )
 }
 
