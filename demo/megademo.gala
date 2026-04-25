@@ -700,5 +700,39 @@ func RunMegaDemo() MegaModel {
         Update  = (m, msg) => MegaUpdate(m, msg),
         View    = (m) => MegaView(m),
     )
-    return Run[MegaModel, MegaMsg](program, (ev) => MegaKeyToMsg(ev))
+    return RunFull[MegaModel, MegaMsg](
+        program,
+        (ev) => MegaInputToMsg(ev),
+        NoSubs[MegaMsg](),
+    )
+}
+
+// MegaInputToMsg adapts the unified InputEvent stream from `RunFull` into the
+// app's MegaMsg vocabulary.
+//
+//   - Keys flow through the existing key-binding table (MegaKeyToMsg).
+//   - Scroll wheel becomes Up/Down so the focused list (datatable, log
+//     drawer, palette) scrolls naturally with the mouse.
+//   - Other mouse events (click, motion) are dropped today — the demo is
+//     keyboard-driven and we don't want a stray click to fire a MegaTick.
+//   - Resize is a no-op: the next View() call already re-queries TermSize
+//     and re-flows the layout.
+func MegaInputToMsg(ev InputEvent) MegaMsg {
+    return ev match {
+        case KeyInput(k)       => MegaKeyToMsg(k)
+        case MouseInput(m)     => megaMouseToMsg(m)
+        case ResizeInput(_, _) => MegaNoOp()
+        case UnknownInput()    => MegaNoOp()
+    }
+}
+
+func megaMouseToMsg(m MouseEvent) MegaMsg {
+    return m.Btn match {
+        case MouseScrollUp()    => MegaKeyUp()
+        case MouseScrollDown()  => MegaKeyDown()
+        case MouseLeft()        => MegaNoOp()
+        case MouseMiddle()      => MegaNoOp()
+        case MouseRight()       => MegaNoOp()
+        case MouseButtonNone()  => MegaNoOp()
+    }
 }

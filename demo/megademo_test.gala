@@ -86,6 +86,89 @@ func TestMegaConfirmThenYes(t T) T {
 }
 
 // ----------------------------------------------------------------------------
+// MegaInputToMsg adapter — keys, mouse, resize all funnel through one
+// translator when the demo runs under RunFull.
+// ----------------------------------------------------------------------------
+
+func TestMegaInputAdapterRoutesKeys(t T) T {
+    // A KeyInput should reach MegaKeyToMsg unchanged.
+    val msg = MegaInputToMsg(KeyInput(Ev = Ctrl(Char('p'))))
+    val isToggle = msg match {
+        case MegaPalTogglePalette() => true
+        case _                      => false
+    }
+    return IsTrue(t, isToggle)
+}
+
+func TestMegaInputAdapterScrollUpIsKeyUp(t T) T {
+    val ev = MouseInput(Ev = MouseEvent(
+        Btn = MouseScrollUp(), X = 0, Y = 0, Pressed = true,
+    ))
+    val msg = MegaInputToMsg(ev)
+    val isUp = msg match {
+        case MegaKeyUp() => true
+        case _           => false
+    }
+    return IsTrue(t, isUp)
+}
+
+func TestMegaInputAdapterScrollDownIsKeyDown(t T) T {
+    val ev = MouseInput(Ev = MouseEvent(
+        Btn = MouseScrollDown(), X = 0, Y = 0, Pressed = true,
+    ))
+    val msg = MegaInputToMsg(ev)
+    val isDown = msg match {
+        case MegaKeyDown() => true
+        case _             => false
+    }
+    return IsTrue(t, isDown)
+}
+
+func TestMegaInputAdapterClickIsNoOp(t T) T {
+    val ev = MouseInput(Ev = MouseEvent(
+        Btn = MouseLeft(), X = 5, Y = 5, Pressed = true,
+    ))
+    val msg = MegaInputToMsg(ev)
+    val isNoOp = msg match {
+        case MegaNoOp() => true
+        case _          => false
+    }
+    return IsTrue(t, isNoOp)
+}
+
+func TestMegaInputAdapterResizeIsNoOp(t T) T {
+    val msg = MegaInputToMsg(ResizeInput(W = 200, H = 60))
+    val isNoOp = msg match {
+        case MegaNoOp() => true
+        case _          => false
+    }
+    return IsTrue(t, isNoOp)
+}
+
+func TestMegaInputAdapterUnknownIsNoOp(t T) T {
+    val msg = MegaInputToMsg(UnknownInput())
+    val isNoOp = msg match {
+        case MegaNoOp() => true
+        case _          => false
+    }
+    return IsTrue(t, isNoOp)
+}
+
+// End-to-end: scrolling the wheel on the builds screen drives the table
+// cursor — proves the mouse → KeyDown adapter wires through all the way
+// to the table's update logic.
+func TestMegaScrollDownAdvancesTableOnBuildsScreen(t T) T {
+    var m = NewMegaModel()
+    val (mBuilds, _) = MegaUpdate(m, MegaKeyDown())     // navigate to "builds"
+    val before = mBuilds.BuildsTable.Selected
+    val scroll = MegaInputToMsg(MouseInput(Ev = MouseEvent(
+        Btn = MouseScrollDown(), X = 0, Y = 0, Pressed = true,
+    )))
+    val (mScrolled, _) = MegaUpdate(mBuilds, scroll)
+    return IsTrue(t, mScrolled.BuildsTable.Selected > before)
+}
+
+// ----------------------------------------------------------------------------
 // View rendering smoke
 // ----------------------------------------------------------------------------
 
