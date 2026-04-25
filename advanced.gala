@@ -247,6 +247,41 @@ func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
 // useful for clamping a cursor at the end of the navigable range.
 func TreeFlatRowCount(root TreeNode) int = flattenTree(root, 0).Length()
 
+// TreeToggleAt returns a new tree with the Expanded flag of the node at
+// flat-row `cursor` flipped. If `cursor` lands on a leaf, the call is a
+// no-op visually (leaves have no children to show).
+//
+// Walks DFS, threading the flat index — same traversal `flattenTree` uses,
+// so cursor positions are stable between toggles.
+func TreeToggleAt(root TreeNode, cursor int) TreeNode {
+    val (next, _) = treeToggleHelper(root, cursor, 0)
+    return next
+}
+
+// treeToggleHelper visits `node` at flat index `idx`. If `idx == target`,
+// returns the node with Expanded flipped. Otherwise recurses into expanded
+// children, threading the index. Returns (rewrittenNode, nextFreeIdx).
+func treeToggleHelper(node TreeNode, target int, idx int) Tuple[TreeNode, int] {
+    if idx == target {
+        return (node.Copy(Expanded = !node.Expanded), idx + 1)
+    }
+    if !node.Expanded || node.Children.IsEmpty() {
+        return (node, idx + 1)
+    }
+    var newChildren = EmptyArray[TreeNode]()
+    var cur = idx + 1
+    var i = 0
+    val n = node.Children.Length()
+    for i < n {
+        val child = node.Children.Get(i)
+        val (newChild, advancedIdx) = treeToggleHelper(child, target, cur)
+        newChildren = newChildren.Append(newChild)
+        cur = advancedIdx
+        i = i + 1
+    }
+    return (node.Copy(Children = newChildren), cur)
+}
+
 // flattenTree turns a TreeNode into a list of display strings with
 // indentation and expand/collapse markers.
 func flattenTree(node TreeNode, depth int) Array[string] {

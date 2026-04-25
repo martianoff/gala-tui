@@ -78,6 +78,63 @@ func TestMegaArrowOnPipelinesScreenWithSidebarFocusNoOpOnTree(t T) T {
     return Eq(t, mDown.PipelinesCursor, before)
 }
 
+// Enter on the pipelines tree toggles expand/collapse at the cursor.
+func TestMegaEnterOnPipelinesTreeTogglesExpand(t T) T {
+    val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())  // → table focus
+    // Cursor 0 = root "Pipelines" (expanded by default). Enter collapses it.
+    val rowsBefore = TreeFlatRowCount(mFocused.Pipelines)
+    val (mCollapsed, _) = MegaUpdate(mFocused, MegaKeyEnter())
+    val rowsAfter = TreeFlatRowCount(mCollapsed.Pipelines)
+    return IsTrue(t, rowsAfter < rowsBefore)
+}
+
+// Space mirrors Enter for tree-toggle ergonomics.
+func TestMegaSpaceOnPipelinesTreeTogglesExpand(t T) T {
+    val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())
+    val rowsBefore = TreeFlatRowCount(mFocused.Pipelines)
+    // Space is decoded as MegaKeyEnter in MegaKeyToMsg.
+    val msg = MegaKeyToMsg(PlainKey(Space()))
+    val (mToggled, _) = MegaUpdate(mFocused, msg)
+    val rowsAfter = TreeFlatRowCount(mToggled.Pipelines)
+    return IsTrue(t, rowsAfter < rowsBefore)
+}
+
+// Enter on builds with focus = table copies the row (toast + log).
+func TestMegaEnterOnBuildsTableCopiesRow(t T) T {
+    val (mBuilds, _)  = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    val (mFocused, _) = MegaUpdate(mBuilds, MegaFocusNext())  // → table focus
+    val toastsBefore = mFocused.Toasts.Length()
+    val (mAfter, _) = MegaUpdate(mFocused, MegaKeyEnter())
+    return IsTrue(t, mAfter.Toasts.Length() > toastsBefore)
+}
+
+// TreeToggleAt on a leaf node is a no-op visually (no children to expand).
+func TestTreeToggleAtLeafDoesNotChangeFlatRowCount(t T) T {
+    val tree = NewTreeBranchExpanded("root", ArrayOf[TreeNode](
+        NewTreeLeaf("a"),
+        NewTreeLeaf("b"),
+    ))
+    val before = TreeFlatRowCount(tree)
+    val toggled = TreeToggleAt(tree, 1)  // leaf "a"
+    val after = TreeFlatRowCount(toggled)
+    return Eq(t, after, before)
+}
+
+func TestTreeToggleAtBranchCollapsesChildren(t T) T {
+    val tree = NewTreeBranchExpanded("root", ArrayOf[TreeNode](
+        NewTreeBranchExpanded("inner", ArrayOf[TreeNode](
+            NewTreeLeaf("leaf1"),
+            NewTreeLeaf("leaf2"),
+        )),
+    ))
+    val before = TreeFlatRowCount(tree)  // root + inner + 2 leaves = 4
+    val toggled = TreeToggleAt(tree, 1)   // collapse "inner"
+    val after = TreeFlatRowCount(toggled) // root + inner = 2
+    return Eq(t, before - after, 2)
+}
+
 func TestMegaCtrlPOpensPalette(t T) T {
     val msg = MegaKeyToMsg(Ctrl(Char('p')))
     val isToggle = msg match {
@@ -561,7 +618,7 @@ func TestMegaFocusNextRotates(t T) T {
 func TestMegaFocusCyclesBackToFirst(t T) T {
     var m = NewMegaModel()
     val first = m.Focus.Current()
-    val n = 3   // sidebar → table → palette → sidebar
+    val n = 2   // sidebar → table → sidebar
     var i = 0
     for i < n {
         val (mNext, _) = MegaUpdate(m, MegaFocusNext())

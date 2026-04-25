@@ -111,7 +111,7 @@ func NewMegaModel() MegaModel {
     return MegaModel(
         Tick           = 0,
         Screens        = state.NewScreenStack("overview"),
-        Focus          = state.NewFocusManager(ArrayOf[string]("sidebar", "table", "palette")),
+        Focus          = state.NewFocusManager(ArrayOf[string]("sidebar", "table")),
         Palette        = NewPalette[MegaMsg](megaPaletteActions()),
         PaletteOpen    = false,
         BuildsTable    = megaInitialBuildsTable(),
@@ -344,9 +344,31 @@ func megaEnter(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
         if m.ConfirmYes { return (megaConfirmYes(m), NoCmd[MegaMsg]()) }
         return (m.Copy(ConfirmAction = ""), NoCmd[MegaMsg]())
     }
-    // When the sidebar is focused, Enter commits the tentative cursor.
-    if m.Focus.Current() == "sidebar" {
-        return (megaJumpToSidebar(m), NoCmd[MegaMsg]())
+    return state.Routed[Tuple[MegaModel, Cmd[MegaMsg]]](
+        m.Focus,
+        ArrayOf[state.FocusedCase[Tuple[MegaModel, Cmd[MegaMsg]]]](
+            state.FocusedCase[Tuple[MegaModel, Cmd[MegaMsg]]](
+                Pane    = "sidebar",
+                Handler = () => (megaJumpToSidebar(m), NoCmd[MegaMsg]()),
+            ),
+            state.FocusedCase[Tuple[MegaModel, Cmd[MegaMsg]]](
+                Pane    = "table",
+                Handler = () => megaEnterOnPane(m),
+            ),
+        ),
+        (m, NoCmd[MegaMsg]()),
+    )
+}
+
+// megaEnterOnPane handles Enter when focus = main pane: screen-specific
+// primary actions (copy on builds table, expand/collapse on pipelines tree).
+func megaEnterOnPane(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
+    if m.Screens.Current() == "builds" {
+        return (megaCopyRow(m), NoCmd[MegaMsg]())
+    }
+    if m.Screens.Current() == "pipelines" {
+        return (m.Copy(Pipelines = TreeToggleAt(m.Pipelines, m.PipelinesCursor)),
+                NoCmd[MegaMsg]())
     }
     return (m, NoCmd[MegaMsg]())
 }
@@ -518,7 +540,7 @@ func megaOverviewBody(m MegaModel, th Theme) Widget =
     ))
 
 func megaSidebar(m MegaModel, th Theme) Widget {
-    val focused = m.Focus.Current() == "sidebar"
+    val focused = m.Focus.IsFocused("sidebar")
     val titleStyle = if (focused)
         DefaultStyle().WithBold().WithFg(BrightYellow())
     else
@@ -577,7 +599,7 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
 }
 
 func megaBuildsBody(m MegaModel, th Theme) Widget {
-    val focused = m.Focus.Current() == "table"
+    val focused = m.Focus.IsFocused("table")
     val tabs = Tabs(
         ArrayOf[string]("Running", "Succeeded", "Failed"),
         ArrayOf[Widget](
@@ -596,7 +618,7 @@ func megaBuildsForStatus(m MegaModel, status string, focused bool) Widget =
     DataTableView(DataTableUpdate(m.BuildsTable, DTFilter(Query = status)), focused)
 
 func megaPipelinesBody(m MegaModel, th Theme) Widget {
-    val focused = m.Focus.Current() == "table"
+    val focused = m.Focus.IsFocused("table")
     val borderKind = if (focused) ThickBorder() else th.BorderKind
     return BorderOf(
         PaddingHV(0, 1, TreeFocused(m.Pipelines, m.PipelinesCursor, focused)),
@@ -810,6 +832,8 @@ func MegaKeyToMsg(ev KeyEvent) MegaMsg {
         case Up()        => MegaKeyUp()
         case Down()      => MegaKeyDown()
         case Enter()     => MegaKeyEnter()
+        case Space()     => MegaKeyEnter()  // Space mirrors Enter — common
+                                            // tree-toggle / table-action shortcut.
         case Backspace() => MegaPalBackspace()
         case PageUp()    => MegaLogPgUp()
         case PageDown()  => MegaLogPgDn()
