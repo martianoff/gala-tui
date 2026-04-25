@@ -371,6 +371,258 @@ return IsTrue(t, SnapshotsEqual(out, want))
 
 Run all the tests with `gala test ./your-app`.
 
+## 6. Two-pane app with focus + navigation
+
+The previous parts each had one focusable widget. Real TUIs usually
+have several panes the user Tab-cycles between, with arrow keys driving
+*the focused pane* and visible cursor highlighting on whichever one
+owns the keyboard. The framework provides three primitives so you don't
+hand-roll any of that:
+
+| Primitive | What it owns |
+|---|---|
+| `state.FocusManager` | The focus ring + Tab/Shift-Tab cycling |
+| `state.Routed[T]` | "What does an arrow key mean *for the focused pane*?" |
+| `NewFocusBuilder(fm)` | Per-widget focus visualization (`ui.DataTable("table", dt)`) |
+
+We'll build a tiny **contact browser** — sidebar lists names, main pane
+shows details of the highlighted contact. Tab cycles focus, arrows move
+within the focused pane, Enter on the sidebar pins the selection.
+
+`contacts/gala.mod`:
+```
+module example.com/contacts
+
+gala dev
+```
+
+`contacts/main.gala`:
+```gala
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    "github.com/martianoff/gala-tui/state"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ----- Model ----------------------------------------------------------------
+
+struct Contact(Name string, Email string, Phone string)
+
+struct Model(
+    Focus    state.FocusManager,
+    Contacts Array[Contact],
+    Sel      int,                  // selected contact index
+    DetailLn int,                  // detail-pane cursor (0..2 for the 3 fields)
+)
+
+func initialModel() Model {
+    val contacts = ArrayOf[Contact](
+        Contact(Name = "Ada Lovelace",     Email = "ada@example.com",  Phone = "+44 20 7123 4567"),
+        Contact(Name = "Grace Hopper",     Email = "grace@example.com", Phone = "+1 555 010 0001"),
+        Contact(Name = "Alan Turing",      Email = "alan@example.com",  Phone = "+44 20 7123 4568"),
+        Contact(Name = "Margaret Hamilton", Email = "marg@example.com", Phone = "+1 555 010 0002"),
+    )
+    return Model(
+        Focus    = state.NewFocusManager(ArrayOf[string]("sidebar", "details")),
+        Contacts = contacts,
+        Sel      = 0,
+        DetailLn = 0,
+    )
+}
+
+// ----- Messages -------------------------------------------------------------
+
+sealed type Msg {
+    case TabKey()
+    case ArrowUp()
+    case ArrowDown()
+    case Enter()
+    case Quit()
+    case NoOp()
+}
+
+// ----- Update ---------------------------------------------------------------
+
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] {
+    return msg match {
+        case Quit()      => (m, QuitCmd[Msg]())
+        case TabKey()    => (m.Copy(Focus = m.Focus.Next()), NoCmd[Msg]())
+        case ArrowDown() => (arrowByFocus(m, +1), NoCmd[Msg]())
+        case ArrowUp()   => (arrowByFocus(m, -1), NoCmd[Msg]())
+        case Enter()     => (m, NoCmd[Msg]())
+        case NoOp()      => (m, NoCmd[Msg]())
+    }
+}
+
+// state.Routed dispatches the arrow to whichever pane is focused.
+// One declarative call replaces an `if focus == "sidebar" else if ...` chain.
+func arrowByFocus(m Model, delta int) Model =
+    state.Routed[Model](m.Focus,
+        ArrayOf[state.FocusedCase[Model]](
+            state.FocusedCase[Model](
+                Pane    = "sidebar",
+                Handler = () => moveSidebar(m, delta),
+            ),
+            state.FocusedCase[Model](
+                Pane    = "details",
+                Handler = () => moveDetails(m, delta),
+            ),
+        ),
+        m,   // fallback: nothing focused → unchanged
+    )
+
+func moveSidebar(m Model, delta int) Model {
+    val n = m.Contacts.Length()
+    var next = m.Sel + delta
+    if next < 0  { next = 0 }
+    if next >= n { next = n - 1 }
+    return m.Copy(Sel = next, DetailLn = 0)  // reset detail cursor on switch
+}
+
+func moveDetails(m Model, delta int) Model {
+    var next = m.DetailLn + delta
+    if next < 0  { next = 0 }
+    if next > 2  { next = 2 }
+    return m.Copy(DetailLn = next)
+}
+
+// ----- View -----------------------------------------------------------------
+
+func view(m Model) Widget {
+    val ui = NewFocusBuilder(m.Focus)
+    val sidebar = sidebarPane(m, ui)
+    val details = detailsPane(m, ui)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header(m)),
+        Flex(1, Row(ArrayOf[LayoutChild](
+            Fixed(28, sidebar),
+            Flex(1, details),
+        ))),
+        Fixed(1, footer()),
+    ))
+}
+
+func header(m Model) Widget =
+    TextStyled(" Contacts — Tab to switch panes ",
+        DefaultStyle().WithBold().WithFg(BrightCyan()))
+
+func sidebarPane(m Model, ui FocusBuilder) Widget {
+    val labels = m.Contacts.Map((c) => c.Name)
+    val list = ui.SelectListOf("sidebar", labels, m.Sel)
+    return Border(list)
+}
+
+func detailsPane(m Model, ui FocusBuilder) Widget {
+    val c = m.Contacts.Get(m.Sel)
+    val lines = ArrayOf[string](
+        "Name:  " + c.Name,
+        "Email: " + c.Email,
+        "Phone: " + c.Phone,
+    )
+    val list = ui.SelectListOf("details", lines, m.DetailLn)
+    return Border(list)
+}
+
+func footer() Widget =
+    TextStyled(" ↑↓ move · Tab switch panes · q quit ",
+        DefaultStyle().WithDim())
+
+// ----- Key bindings ---------------------------------------------------------
+
+func keyToMsg(ev KeyEvent) Msg {
+    if KeyMatches(ev, "ctrl+c") { return Quit() }
+    return ev.Key match {
+        case Char(c) => charToMsg(c)
+        case Tab()   => TabKey()
+        case Up()    => ArrowUp()
+        case Down()  => ArrowDown()
+        case Enter() => Enter()
+        case Esc()   => Quit()
+        case _       => NoOp()
+    }
+}
+
+func charToMsg(c rune) Msg {
+    if c == 'q' { return Quit() }
+    return NoOp()
+}
+
+// ----- main -----------------------------------------------------------------
+
+func main() {
+    val program = Program[Model, Msg](
+        initialModel(),
+        (m, msg) => update(m, msg),
+        (m) => view(m),
+    )
+    val _ = Run[Model, Msg](program, (ev) => keyToMsg(ev))
+}
+```
+
+Run it:
+```bash
+gala build ./contacts
+./contacts
+```
+
+Press Tab — the focus border moves between sidebar and details. Press
+↓ — the cursor advances *inside the focused pane only*. Same code,
+zero hand-rolled focus state.
+
+### What you didn't have to write
+
+- **Per-widget `IsFocused(...)` lookups in view.** `ui.SelectListOf("sidebar", ...)` looks up focus internally.
+- **A style branch per widget.** When sidebar has focus, the `SelectListOf` cursor row paints `BrightYellow + Bold + Reverse`. Default `false` keeps the unfocused list calm.
+- **An `if focus == "X" else if focus == "Y"` chain in update.** `state.Routed` does the dispatch declaratively.
+- **A border swap based on focus.** (You can add one with `if (m.Focus.IsFocused("sidebar")) ThickBorder() else SingleBorder()` if you want — but the cursor highlight alone is usually enough.)
+
+### Add a third pane
+
+Want a log drawer that's also focusable? Three steps:
+
+```gala
+// 1. Name the new pane in the focus ring:
+Focus = state.NewFocusManager(ArrayOf[string]("sidebar", "details", "drawer"))
+
+// 2. Add a Routed case:
+state.FocusedCase[Model](Pane = "drawer", Handler = () => scrollDrawer(m, delta)),
+
+// 3. Render it focus-aware:
+val drawer = ui.SelectListOf("drawer", logLines, m.LogCursor)
+```
+
+That's the full diff for adding a focusable pane.
+
+### Testing this app
+
+Use `state.Routed` directly in a unit test — no terminal needed:
+
+```gala
+import . "github.com/martianoff/gala-tui"
+import "github.com/martianoff/gala-tui/state"
+import . "martianoff/gala/test"
+
+func TestSidebarArrowMovesSel(t T) T {
+    val m0 = initialModel()
+    val (m1, _) = update(m0, ArrowDown())
+    return Eq(t, m1.Sel, m0.Sel + 1)
+}
+
+func TestTabSwitchesFocus(t T) T {
+    val m0 = initialModel()
+    val (m1, _) = update(m0, TabKey())
+    val (m2, _) = update(m1, ArrowDown())
+    val t1 = Eq(t, m2.Sel, m0.Sel)               // sidebar didn't move
+    return Eq(t1, m2.DetailLn, m0.DetailLn + 1)  // details cursor did
+}
+```
+
+For the full picture (key decoding + render + buffer assertions), use
+the harness — see [TESTING.md § "Layer 2"](TESTING.md).
+
 ## Where to go next
 
 - Browse `demo/megademo.gala` — exercises every widget on screen at once
