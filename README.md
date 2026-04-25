@@ -57,7 +57,107 @@ gala build ./demo
 ```
 
 The bundled demo is a build-server dashboard that exercises every widget on
-screen at once. Keys:
+screen at once. Below: five frames captured directly from `MegaView` via
+the `Snapshot` helper. The actual demo is in color and animates; these
+are plaintext-only so they fit in a README.
+
+### Overview screen
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ⛩   gala-tui build server        path: overvi⠋   active: 2   tick: 0     #4211 0%               ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭──────────────────────────╮╭──────────────────────────────────────────────────────────────────────╮
+│  Nav                     ││ Build Duration (last 40)                                             │
+│   Overview               │╰──────────────────────────────────────────────────────────────────────╯
+│   Builds                 │╭──────────────────────────────────────────────────────────────────────╮
+│   Pipelines              ││ Load Average (5-min ticks)                                           │
+│   Logs                   ││ ▁   ▆    ▂   ▇    ▂   █    ▃                                         │
+│   Help                   ││ █   █▄   █   █▅   █▁  █▆   █▂                                        │
+│                          ││ █▇  ██▃  ██  ██▄  ██  ██▅  ██                                        │
+│  Throughput (7d)         ││ ██▆ ███▂ ██▇ ███▃ ███ ███▃ ██                                        │
+│ backend  ███████████████ ││ ███▅████ ███▅████▁███▆████▂██                                        │
+│ frontend █████████▊      ││                                                                      │
+│ infra    █████▎          │╰──────────────────────────────────────────────────────────────────────╯
+│                          │╭──────────────────────────────────────────────────────────────────────╮
+│                          ││ Recent Builds                                                        │
+│                          ││ #4211  feat/async  Running  00:02:14                                 │
+│ ▼ Pipelines              ││ #4210  fix/race  Succeeded  00:01:47                                 │
+│   ▼ backend              ││ #4209  main  Succeeded  00:03:22                                     │
+│     • unit-tests         ││ #4208  feat/mega-dashboard  Running  00:00:43                        │
+│     • integration-tests  ││                                                                      │
+╰──────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
+ focus: sidebar   theme: dark   v0.33.0       ^P palette   ^/ logs   ?  help   Tab cycle   q quit
+```
+
+### Builds screen — sortable, filterable DataTable with tabs
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ⛩   gala-tui build server        path: overvi⠋   active: 2   tick: 0     #4211 0%               ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  Running  Succeeded  Failed                                                                      │
+│ #    Branch                              Status    Duration Author                               │
+│ ──────────────────────────────────────────────────────────────────────────────────────────────── │
+│ #4211feat/async                          Running   00:02:14 alice                                │
+│ #4208feat/mega-dashboard                 Running   00:00:43 max                                  │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ focus: sidebar   theme: dark   v0.33.0       ^P palette   ^/ logs   ?  help   Tab cycle   q quit
+```
+
+### Pipelines — collapsible Tree
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃  ⛩   gala-tui build server        path: overvi⠋   active: 2   tick: 0     #4211 0%               ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▼ Pipelines                                                                                      │
+│   ▼ backend                                                                                      │
+│     • unit-tests                                                                                 │
+│     • integration-tests                                                                          │
+│     • lint                                                                                       │
+│   ▶ frontend                                                                                     │
+│   ▼ deploy                                                                                       │
+│     • staging                                                                                    │
+│     • prod                                                                                       │
+│                                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ focus: sidebar   theme: dark   v0.33.0       ^P palette   ^/ logs   ?  help   Tab cycle   q quit
+```
+
+### Command palette (Ctrl-P) — fuzzy search
+
+```
+                    ┌──────────────────────────────────────────────────────────┐
+                    │ > Type a command…                                        │
+                    │──────────────────────────────────────────────────────────│
+                    │ Go to Overview                                       Nav │
+                    │ Go to Builds                                         Nav │
+                    │ Go to Pipelines                                      Nav │
+                    │ Show Help                                           View │
+                    │ Toggle Log Drawer                                   View │
+                    │ Cycle Theme                                         View │
+                    │ Deploy to Staging                                 Deploy │
+                    │ Deploy to Prod                                    Deploy │
+                    └──────────────────────────────────────────────────────────┘
+```
+
+### Confirm dialog (`d` key)
+
+```
+                         ┌────────────────────────────────────────────────┐
+                         │  Confirm action                                │
+                         │                                                │
+                         │ Deploy to Prod? Press Enter to confirm, Esc to │
+                         │ cancel.                                        │
+                         │                [ Yes ]  [ No ]                 │
+                         └────────────────────────────────────────────────┘
+```
+
+### Keys
 
 | Key | Action |
 |---|---|
