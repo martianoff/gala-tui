@@ -14,6 +14,7 @@ widget, read the source — every public function has a docstring.
 | `FillCh(ch)` | `(rune) Widget` | Fill the area with a single character. |
 | `FillChStyled(ch, style)` | `(rune, Style) Widget` | Filled background block. |
 | `Paragraph(content)` | `(string) Widget` | Word-wrapped paragraph. |
+| `ParagraphStyled(content, style)` | `(string, Style) Widget` | Same with explicit style. |
 
 ```gala
 TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan()))
@@ -51,11 +52,14 @@ Column(ArrayOf[LayoutChild](
 | Widget | Signature | Notes |
 |---|---|---|
 | `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. |
-| `SparklineStyled(values, style)` | | …with custom fg/bg. |
+| `SparklineStyled(values, style)` | `(Array[int], Style) Widget` | …with custom fg/bg. |
 | `BarChart(data)` | `(Array[BarChartDatum]) Widget` | Labeled horizontal bars. |
 | `LineChart(values)` | `(Array[int]) Widget` | Auto-bounded, sub-cell resolution. |
-| `LineChartBounded(values, style, bounds)` | | Explicit `LineChartBounds(Min, Max)`. |
+| `LineChartStyled(values, style)` | `(Array[int], Style) Widget` | Default bounds, explicit style. |
+| `LineChartBounded(values, style, bounds)` | `(Array[int], Style, LineChartBounds) Widget` | Explicit `LineChartBounds(Min, Max)`. |
+| `LineChartAtHeight(values, style, bounds, rows)` | `(Array[int], Style, LineChartBounds, int) Widget` | Pin the chart to exactly `rows` rows. |
 | `MultiLineChart(series, styles)` | `(Array[Array[int]], Array[Style]) Widget` | Overlapping series sharing one Y-axis. |
+| `MultiLineChartAtHeight(series, styles, rows)` | `(Array[Array[int]], Array[Style], int) Widget` | Pinned-row variant. |
 | `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. |
 | `Progress(percent)` | `(int) Widget` | Cell-precise progress bar. |
 
@@ -70,7 +74,8 @@ BarChart(ArrayOf[BarChartDatum](
 
 | Widget | Signature | Notes |
 |---|---|---|
-| `SelectListOf(labels, selected)` | `(Array[string], int) Widget` | Vertical list with selection highlight. |
+| `SelectList(items, selected)` | `(Array[ListItem], int) Widget` | Vertical list. Each item carries label + optional hint via `NewListItem(label)`. |
+| `SelectListOf(labels, selected)` | `(Array[string], int) Widget` | Convenience over `SelectList` when you only need labels. |
 | `Table(data)` | `(TableData) Widget` | Fixed grid; pre-sized columns. |
 | `DataTableView(dt)` | `(DataTable) Widget` | Sortable + filterable. State in `DataTable` model — drive with `DataTableUpdate`. |
 | `Tree(root)` | `(TreeNode) Widget` | Collapsible tree. Build with `NewTreeBranch`/`NewTreeBranchExpanded`/`NewTreeLeaf`. |
@@ -148,8 +153,9 @@ RenderTo(ToastView(toasts1), area, buf)
 | `MenuView(m)` | `(Menu) Widget` | Vertical or horizontal menu — set `Menu.Orientation`. |
 | `DropdownView(d)` | `(Dropdown) Widget` | Closed = trigger; open = menu below. |
 | `Tabs(titles, bodies, selected)` | `(Array[string], Array[Widget], int) Widget` | Tabbed pane — bodies parallel to titles. |
-| `Scrollbar(total, viewport, offset, vertical)` | `(int, int, int, bool) Widget` | Scrollbar thumb track. |
-| `Viewport(content, height, offset)` | `(Widget, int, int) Widget` | Vertically clipped slice of a tall widget. |
+| `Scrollbar(total, visible, offset)` | `(int, int, int) Widget` | Vertical scroll-thumb track. |
+| `ScrollbarStyled(total, visible, offset, style)` | `(int, int, int, Style) Widget` | …with explicit fg/bg. |
+| `ScrollableViewport(inner, offset, contentHeight)` | `(Widget, int, int) Widget` | Vertically scroll a tall widget; clip to the area. |
 
 ## Markdown & code
 

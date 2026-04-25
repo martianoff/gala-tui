@@ -90,6 +90,7 @@ struct MegaModel(
     Toasts         ToastQueue,
     ActiveTheme    MegaTheme,
     ConfirmAction  string,              // "" = no modal; non-empty = action being confirmed
+    ConfirmYes     bool,                // which button is focused inside the confirm modal
     Progress       state.Animation,
     BuildTab       int,                 // 0 = Running, 1 = Succeeded, 2 = Failed
     Now            Instant,
@@ -115,6 +116,7 @@ func NewMegaModel() MegaModel {
         Toasts         = NewToastQueue(5),
         ActiveTheme    = ThDark(),
         ConfirmAction  = "",
+        ConfirmYes     = true,
         Progress       = state.SmoothTween(0, 100, now, Seconds(int64(10))),
         BuildTab       = 0,
         Now            = now,
@@ -136,7 +138,7 @@ func megaPaletteActions() Array[PaletteAction[MegaMsg]] = ArrayOf[PaletteAction[
 
 func megaInitialBuildsTable() DataTable = NewDataTable(
     ArrayOf[string]("#", "Branch", "Status", "Duration", "Author"),
-    ArrayOf[Constraint](Length(5), Fill(2), Length(10), Length(9), Fill(2)),
+    ArrayOf[Constraint](Length(7), Fill(2), Length(11), Length(10), Fill(2)),
     ArrayOf[Array[string]](
         ArrayOf[string]("#4211", "feat/async",        "Running",   "00:02:14", "alice"),
         ArrayOf[string]("#4210", "fix/race",          "Succeeded", "00:01:47", "bob"),
@@ -192,7 +194,7 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaPalNext()             => (m.Copy(Palette = PaletteUpdate(m.Palette, PalNext())), NoCmd[MegaMsg]())
         case MegaPalPrev()             => (m.Copy(Palette = PaletteUpdate(m.Palette, PalPrev())), NoCmd[MegaMsg]())
         case MegaPalConfirm()          => megaConfirmPalette(m)
-        case MegaFocusNext()           => (m.Copy(Focus = m.Focus.Next()), NoCmd[MegaMsg]())
+        case MegaFocusNext()           => (megaTabRouted(m), NoCmd[MegaMsg]())
         case MegaKeyUp()               => (megaKeyUp(m), NoCmd[MegaMsg]())
         case MegaKeyDown()             => (megaKeyDown(m), NoCmd[MegaMsg]())
         case MegaKeyEnter()            => megaEnter(m)
@@ -203,7 +205,7 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaToggleLogs()          => (m.Copy(ShowLogs = !m.ShowLogs), NoCmd[MegaMsg]())
         case MegaToggleHelp()          => (m.Copy(ShowHelp = !m.ShowHelp), NoCmd[MegaMsg]())
         case MegaCycleTheme()          => (m.Copy(ActiveTheme = megaCycleTheme(m.ActiveTheme)), NoCmd[MegaMsg]())
-        case MegaShowConfirm(act)      => (m.Copy(ConfirmAction = act), NoCmd[MegaMsg]())
+        case MegaShowConfirm(act)      => (m.Copy(ConfirmAction = act, ConfirmYes = true), NoCmd[MegaMsg]())
         case MegaConfirmYes()          => (megaConfirmYes(m), NoCmd[MegaMsg]())
         case MegaConfirmNo()           => (m.Copy(ConfirmAction = ""), NoCmd[MegaMsg]())
         case MegaCopySelected()        => (megaCopyRow(m), NoCmd[MegaMsg]())
@@ -291,9 +293,21 @@ func megaScreenStep(m MegaModel, delta int) MegaModel {
 func megaEnter(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
     if m.PaletteOpen { return megaConfirmPalette(m) }
     if m.ConfirmAction != "" {
-        return (megaConfirmYes(m), NoCmd[MegaMsg]())
+        // Honor the focused button: Yes commits, No just dismisses.
+        if m.ConfirmYes { return (megaConfirmYes(m), NoCmd[MegaMsg]()) }
+        return (m.Copy(ConfirmAction = ""), NoCmd[MegaMsg]())
     }
     return (m, NoCmd[MegaMsg]())
+}
+
+// megaTabRouted dispatches Tab. While the confirm modal is open, Tab
+// flips the focused button (Yes ↔ No). Otherwise it cycles the global
+// pane focus ring (sidebar → table → palette).
+func megaTabRouted(m MegaModel) MegaModel {
+    if m.ConfirmAction != "" {
+        return m.Copy(ConfirmYes = !m.ConfirmYes)
+    }
+    return m.Copy(Focus = m.Focus.Next())
 }
 
 func megaEsc(m MegaModel) MegaModel {
@@ -397,17 +411,17 @@ func megaHeader(m MegaModel, th Theme) Widget {
         Flex(1, Gauge(pct)),
     ))
     val breadcrumb = TextStyled(
-        s"  path: ${m.Screens.Breadcrumb()} ",
+        s" ${m.Screens.Breadcrumb()} ",
         DefaultStyle().WithDim(),
     )
-    val runningLabel = s"  active: $activeBuilds   tick: ${m.Tick}  "
+    val runningLabel = s" active: $activeBuilds  tick: ${m.Tick} "
     val info = TextStyled(runningLabel, DefaultStyle().WithDim())
     val inside = Row(ArrayOf[LayoutChild](
-        Fixed(30, title),
-        Fixed(2, Text("")),
-        Flex(2, breadcrumb),
+        Fixed(28, title),
+        Fixed(1, Text("")),
+        Flex(3, breadcrumb),
         Fixed(2, spin),
-        Fixed(25, info),
+        Fixed(20, info),
         Flex(3, gauge),
     ))
     return BorderOf(PaddingHV(0, 1, inside), ThickBorder())
@@ -463,7 +477,7 @@ func megaOverviewMain(m MegaModel, th Theme) Widget {
     ))
     val summary = megaSummaryTiles(m, th)
     return Column(ArrayOf[LayoutChild](
-        Fixed(3, BorderOf(spark, th.BorderKind)),
+        Fixed(4, BorderOf(spark, th.BorderKind)),
         Fixed(9, BorderOf(line, th.BorderKind)),
         Flex(1, BorderOf(summary, th.BorderKind)),
     ))
@@ -504,7 +518,7 @@ func megaFooter(m MegaModel, th Theme) Widget {
     val focusName = m.Focus.Current()
     val themeName = megaThemeName(m.ActiveTheme)
     val left = TextStyled(
-        s" focus: $focusName   theme: $themeName   v0.33.0 ",
+        s" focus: $focusName   theme: $themeName ",
         th.Selected,
     )
     val right = TextStyled(
@@ -536,8 +550,8 @@ func megaLayerConfirm(below Widget, m MegaModel) Widget =
         below,
         Modal(50, 7, ConfirmDialog(
             "Confirm action",
-            m.ConfirmAction + "? Press Enter to confirm, Esc to cancel.",
-            true,
+            m.ConfirmAction + "? Tab to switch, Enter to commit, Esc to cancel.",
+            m.ConfirmYes,
         )),
     ))
 

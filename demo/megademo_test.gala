@@ -519,6 +519,70 @@ func TestMegaFocusNextRotates(t T) T {
     return IsTrue(t, m1.Focus.Current() != m0.Focus.Current())
 }
 
+func TestMegaFocusCyclesBackToFirst(t T) T {
+    var m = NewMegaModel()
+    val first = m.Focus.Current()
+    val n = 3   // sidebar → table → palette → sidebar
+    var i = 0
+    for i < n {
+        val (mNext, _) = MegaUpdate(m, MegaFocusNext())
+        m = mNext
+        i = i + 1
+    }
+    return Eq(t, m.Focus.Current(), first)
+}
+
+// While the confirm modal is open Tab does NOT rotate the global focus
+// ring — it flips Yes/No inside the modal. This is the focus-routing
+// behavior that makes the buttons actually interactive.
+func TestMegaTabInsideConfirmFlipsButtons(t T) T {
+    val (mConfirm, _) = MegaUpdate(NewMegaModel(),
+        MegaShowConfirm(Action = "Deploy"))
+    val t1 = IsTrue(t, mConfirm.ConfirmYes)
+    val (mFlipped, _) = MegaUpdate(mConfirm, MegaFocusNext())
+    val t2 = IsTrue(t1, !mFlipped.ConfirmYes)
+    val (mFlippedAgain, _) = MegaUpdate(mFlipped, MegaFocusNext())
+    return IsTrue(t2, mFlippedAgain.ConfirmYes)
+}
+
+// Tab inside confirm should not advance the global focus ring.
+func TestMegaTabInsideConfirmDoesNotMoveGlobalFocus(t T) T {
+    val (mConfirm, _) = MegaUpdate(NewMegaModel(),
+        MegaShowConfirm(Action = "Deploy"))
+    val before = mConfirm.Focus.Current()
+    val (mFlipped, _) = MegaUpdate(mConfirm, MegaFocusNext())
+    return Eq(t, mFlipped.Focus.Current(), before)
+}
+
+// Enter on confirm picks whichever button is focused.
+func TestMegaEnterOnConfirmWithYesFocusedCommits(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "Deploy"))
+    val toastsBefore = m1.Toasts.Length()
+    val (m2, _) = MegaUpdate(m1, MegaKeyEnter())
+    val t1 = Eq(t, m2.ConfirmAction, "")
+    return IsTrue(t1, m2.Toasts.Length() > toastsBefore)
+}
+
+func TestMegaEnterOnConfirmWithNoFocusedCancels(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "Deploy"))
+    val (m2, _) = MegaUpdate(m1, MegaFocusNext())  // No focused
+    val toastsBefore = m2.Toasts.Length()
+    val (m3, _) = MegaUpdate(m2, MegaKeyEnter())
+    val t1 = Eq(t, m3.ConfirmAction, "")
+    return Eq(t1, m3.Toasts.Length(), toastsBefore)
+}
+
+// Each fresh confirm dialog opens with Yes focused, regardless of how
+// the previous dialog was dismissed. Otherwise, repeated deploys would
+// silently land on whichever side the user last cancelled with.
+func TestMegaConfirmFreshDialogStartsOnYes(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "X"))
+    val (m2, _) = MegaUpdate(m1, MegaFocusNext())   // flip to No
+    val (m3, _) = MegaUpdate(m2, MegaConfirmNo())   // dismiss with No
+    val (m4, _) = MegaUpdate(m3, MegaShowConfirm(Action = "Y"))
+    return IsTrue(t, m4.ConfirmYes)
+}
+
 func TestMegaTabNextCyclesThroughThree(t T) T {
     var m = NewMegaModel()
     val t1 = Eq(t, m.BuildTab, 0)

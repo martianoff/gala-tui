@@ -65,53 +65,53 @@ are plaintext-only so they fit in a README.
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  ⛩   gala-tui build server        path: overvi⠋   active: 2   tick: 0     #4211 0%               ┃
+┃  ⛩   gala-tui build server    overview             ⠋  active: 2  tick: 0  #4211 0%               ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ╭──────────────────────────╮╭──────────────────────────────────────────────────────────────────────╮
 │  Nav                     ││ Build Duration (last 40)                                             │
-│   Overview               │╰──────────────────────────────────────────────────────────────────────╯
-│   Builds                 │╭──────────────────────────────────────────────────────────────────────╮
-│   Pipelines              ││ Load Average (5-min ticks)                                           │
-│   Logs                   ││ ▁   ▆    ▂   ▇    ▂   █    ▃                                         │
-│   Help                   ││ █   █▄   █   █▅   █▁  █▆   █▂                                        │
-│                          ││ █▇  ██▃  ██  ██▄  ██  ██▅  ██                                        │
-│  Throughput (7d)         ││ ██▆ ███▂ ██▇ ███▃ ███ ███▃ ██                                        │
-│ backend  ███████████████ ││ ███▅████ ███▅████▁███▆████▂██                                        │
-│ frontend █████████▊      ││                                                                      │
-│ infra    █████▎          │╰──────────────────────────────────────────────────────────────────────╯
+│   Overview               ││▂█▇▇▇▇▇▇▇▇▇▇▇▆▆▆▆▆▆▆▆▆▆▆▅▅▅▅▅▅▅▅▅▅▅▄▄▄▄▄                              │
+│   Builds                 │╰──────────────────────────────────────────────────────────────────────╯
+│   Pipelines              │╭──────────────────────────────────────────────────────────────────────╮
+│   Logs                   ││ Load Average (5-min ticks)                                           │
+│   Help                   ││ ▁   ▆    ▂   ▇    ▂   █    ▃                                         │
+│                          ││ █   █▄   █   █▅   █▁  █▆   █▂                                        │
+│  Throughput (7d)         ││ █▇  ██▃  ██  ██▄  ██  ██▅  ██                                        │
+│ backend  ███████████████ ││ ██▆ ███▂ ██▇ ███▃ ███ ███▃ ██                                        │
+│ frontend █████████▊      ││ ███▅████ ███▅████▁███▆████▂██                                        │
+│ infra    █████▎          ││                                                                      │
+│                          │╰──────────────────────────────────────────────────────────────────────╯
 │                          │╭──────────────────────────────────────────────────────────────────────╮
 │                          ││ Recent Builds                                                        │
-│                          ││ #4211  feat/async  Running  00:02:14                                 │
-│ ▼ Pipelines              ││ #4210  fix/race  Succeeded  00:01:47                                 │
-│   ▼ backend              ││ #4209  main  Succeeded  00:03:22                                     │
-│     • unit-tests         ││ #4208  feat/mega-dashboard  Running  00:00:43                        │
-│     • integration-tests  ││                                                                      │
+│ ▼ Pipelines              ││ #4211  feat/async  Running  00:02:14                                 │
+│   ▼ backend              ││ #4210  fix/race  Succeeded  00:01:47                                 │
+│     • unit-tests         ││ #4209  main  Succeeded  00:03:22                                     │
+│     • integration-tests  ││ #4208  feat/mega-dashboard  Running  00:00:43                        │
 ╰──────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
- focus: sidebar   theme: dark   v0.33.0       ^P palette   ^/ logs   ?  help   Tab cycle   q quit
+ focus: sidebar   theme: dark                 ^P palette   ^/ logs   ?  help   Tab cycle   q quit
 ```
 
 ### Builds screen — sortable, filterable DataTable with tabs
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  ⛩   gala-tui build server        path: overvi⠋   active: 2   tick: 0     #4211 0%               ┃
+┃  ⛩   gala-tui build server    overview › builds    ⠋  active: 2  tick: 0  #4211 0%               ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
 │  Running  Succeeded  Failed                                                                      │
-│ #    Branch                              Status    Duration Author                               │
+│ #      Branch                            Status     Duration  Author                             │
 │ ──────────────────────────────────────────────────────────────────────────────────────────────── │
-│ #4211feat/async                          Running   00:02:14 alice                                │
-│ #4208feat/mega-dashboard                 Running   00:00:43 max                                  │
+│ #4211  feat/async                        Running    00:02:14  alice                              │
+│ #4208  feat/mega-dashboard               Running    00:00:43  max                                │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- focus: sidebar   theme: dark   v0.33.0       ^P palette   ^/ logs   ?  help   Tab cycle   q quit
+ focus: sidebar   theme: dark                 ^P palette   ^/ logs   ?  help   Tab cycle   q quit
 ```
 
 ### Pipelines — collapsible Tree
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃  ⛩   gala-tui build server        path: overvi⠋   active: 2   tick: 0     #4211 0%               ┃
+┃  ⛩   gala-tui build server    overview › pipelines ⠋  active: 2  tick: 0  #4211 0%               ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ ▼ Pipelines                                                                                      │
@@ -125,7 +125,7 @@ are plaintext-only so they fit in a README.
 │     • prod                                                                                       │
 │                                                                                                  │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
- focus: sidebar   theme: dark   v0.33.0       ^P palette   ^/ logs   ?  help   Tab cycle   q quit
+ focus: sidebar   theme: dark                 ^P palette   ^/ logs   ?  help   Tab cycle   q quit
 ```
 
 ### Command palette (Ctrl-P) — fuzzy search
@@ -145,14 +145,14 @@ are plaintext-only so they fit in a README.
                     └──────────────────────────────────────────────────────────┘
 ```
 
-### Confirm dialog (`d` key)
+### Confirm dialog (`d` key) — Tab toggles Yes / No
 
 ```
                          ┌────────────────────────────────────────────────┐
                          │  Confirm action                                │
                          │                                                │
-                         │ Deploy to Prod? Press Enter to confirm, Esc to │
-                         │ cancel.                                        │
+                         │ Deploy to Prod? Tab to switch, Enter to        │
+                         │ commit, Esc to cancel.                         │
                          │                [ Yes ]  [ No ]                 │
                          └────────────────────────────────────────────────┘
 ```
@@ -163,7 +163,7 @@ are plaintext-only so they fit in a README.
 |---|---|
 | `Ctrl-P` | command palette (fuzzy search) |
 | `↑ / ↓` | move selection / cycle screens |
-| `Tab` | cycle focus pane |
+| `Tab` | cycle focus pane (or, in confirm modal, flip Yes ↔ No) |
 | `Enter` | confirm |
 | `Esc` | close overlay / go back |
 | `?` | toggle help (markdown overlay) |
@@ -177,11 +177,12 @@ are plaintext-only so they fit in a README.
 
 - [Getting Started](docs/GETTING_STARTED.md) — build a counter, an input form, and a fetcher app from scratch
 - [Widget catalog](docs/WIDGETS.md) — every widget the framework ships, grouped by purpose
+- [Cookbook](docs/COOKBOOK.md) — confirm-on-quit, debounced search, virtualized lists, draggable splitters, async fan-out
 - [Project structure](STRUCTURE.md) — where each file lives in this repo
 
 ## Status
 
-- 546 tests passing
+- 554 tests passing
 - Builds against GALA 0.34.1+
 
 Source-code contributions and bug reports welcome.
