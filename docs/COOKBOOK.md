@@ -19,6 +19,8 @@ and `Update` are.
 8. [Save / restore window state on quit](#save--restore-window-state-on-quit)
 9. [A draggable horizontal splitter](#a-draggable-horizontal-splitter)
 10. [Test an Update without booting a terminal](#test-an-update-without-booting-a-terminal)
+11. [Route arrow keys to the focused pane](#route-arrow-keys-to-the-focused-pane)
+12. [Visible focus on every interactive widget](#visible-focus-on-every-interactive-widget)
 
 ---
 
@@ -323,3 +325,104 @@ func TestIncrementsThenQuits(t T) T {
 
 For visual regressions: render `view(model)` to a string with `Snapshot`
 and compare against a fixture. See [GETTING_STARTED.md § 5](GETTING_STARTED.md#5-testing).
+
+## Route arrow keys to the focused pane
+
+Apps with multiple focusable panes (sidebar / data table / log drawer /
+modal buttons / ...) all face the same problem: an arrow key means
+something different to each pane. Hand-rolling the switch on every
+update is error-prone — and makes it easy to leave a pane with no
+handler at all (the bug that made arrow keys "do nothing" on the
+demo's table view for one whole release).
+
+Use `state.Routed[T]` instead. Pass an array of `(paneID, handler)` cases
+and a fallback. The first case whose pane matches the FocusManager's
+current pane fires; the fallback runs if nothing matches.
+
+```gala
+import . "github.com/martianoff/gala-tui"
+import "github.com/martianoff/gala-tui/state"
+
+func arrowDown(m AppModel) AppModel =
+    state.Routed[AppModel](m.Focus, ArrayOf[state.FocusedCase[AppModel]](
+        state.FocusedCase[AppModel](
+            Pane    = "sidebar",
+            Handler = () => moveSidebar(m, +1),
+        ),
+        state.FocusedCase[AppModel](
+            Pane    = "table",
+            Handler = () => moveTableCursor(m, +1),
+        ),
+        state.FocusedCase[AppModel](
+            Pane    = "drawer",
+            Handler = () => scrollDrawer(m, +1),
+        ),
+    ), m)   // fallback: unchanged model when no pane matches
+```
+
+Each handler is a thunk so closures capture whatever they need. The
+result type `T` is whatever the caller wants — `AppModel`, `AppMsg`,
+`Tuple[AppModel, Cmd[AppMsg]]`, etc.
+
+For the simpler "is THIS one pane focused?" case, use
+`state.WhenFocused[T]` instead:
+
+```gala
+val onEsc = state.WhenFocused[AppModel](
+    m.Focus, "drawer",
+    () => m.Copy(ShowDrawer = false),
+    m,
+)
+```
+
+The naming convention (`Pane = "sidebar"`) is just a string — it must
+match the pane IDs you registered with `state.NewFocusManager(...)`.
+
+## Visible focus on every interactive widget
+
+Every interactive widget ships with a `focused bool = false` parameter
+that brightens the cursor row when keyboard focus is on that widget:
+
+```gala
+val isFocused = m.Focus.IsFocused("table")
+
+val table = DataTableView(m.BuildsTable, isFocused)
+val list  = SelectListOf(m.Items, m.Sel, isFocused)
+val tree  = TreeFocused(m.Pipelines, m.Cursor, isFocused)
+val menu  = MenuView(m.Menu, isFocused)
+val cal   = CalendarView(m.Cal, isFocused)
+val files = FileBrowserView(m.Browser, isFocused)
+val form  = FormView(m.Form, isFocused)
+val tabs  = Tabs(titles, bodies, m.Tab, isFocused)
+val input = Input(m.Value, m.Cursor, "type here", isFocused)
+val drop  = DropdownView(m.Drop, isFocused)
+val pal   = PaletteView(m.Palette, isFocused)   // defaults to true — palette is modal
+```
+
+Default `false` keeps existing call sites working. When `focused = true`,
+the cursor row uses `BrightYellow + Bold + Reverse` so the user sees at
+a glance which widget the keyboard is driving.
+
+Combine with `state.Routed` for the full pattern:
+
+```gala
+// Update side — arrows route to the focused pane.
+func arrowDown(m AppModel) AppModel =
+    state.Routed[AppModel](m.Focus, ArrayOf[state.FocusedCase[AppModel]](
+        state.FocusedCase[AppModel](Pane = "sidebar", Handler = () => moveSidebar(m, +1)),
+        state.FocusedCase[AppModel](Pane = "table",   Handler = () => moveTable(m, +1)),
+    ), m)
+
+// View side — every interactive widget reflects current focus.
+func view(m AppModel) Widget {
+    val sidebarFocused = m.Focus.IsFocused("sidebar")
+    val tableFocused   = m.Focus.IsFocused("table")
+    return Row(ArrayOf[LayoutChild](
+        Fixed(20, SelectListOf(m.NavItems, m.NavSel, sidebarFocused)),
+        Flex(1,  DataTableView(m.Table, tableFocused)),
+    ))
+}
+```
+
+That's the entire keyboard-and-visual focus contract — three calls
+(`Routed` in update, `IsFocused` + a widget arg in view).

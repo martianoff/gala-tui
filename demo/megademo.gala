@@ -114,7 +114,7 @@ func NewMegaModel() MegaModel {
         Focus          = state.NewFocusManager(ArrayOf[string]("sidebar", "table")),
         Palette        = NewPalette[MegaMsg](megaPaletteActions()),
         PaletteOpen    = false,
-        BuildsTable    = megaInitialBuildsTable(),
+        BuildsTable    = DataTableUpdate(megaInitialBuildsTable(), DTFilter(Query = "Running")),
         Pipelines      = megaInitialPipelines(),
         Logs           = seedInitialLogs(NewLogPanel(80)),
         ShowLogs       = false,
@@ -221,7 +221,7 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaKeyEsc()              => (megaEsc(m), NoCmd[MegaMsg]())
         case MegaPushScreen(r)         => (megaPushScreen(m, r), NoCmd[MegaMsg]())
         case MegaPopScreen()           => (m.Copy(Screens = m.Screens.Pop()), NoCmd[MegaMsg]())
-        case MegaTabNext()             => (m.Copy(BuildTab = (m.BuildTab + 1) % 3), NoCmd[MegaMsg]())
+        case MegaTabNext()             => (megaTabNextFiltered(m), NoCmd[MegaMsg]())
         case MegaToggleLogs()          => (m.Copy(ShowLogs = !m.ShowLogs, LogScroll = 0), NoCmd[MegaMsg]())
         case MegaToggleHelp()          => (m.Copy(ShowHelp = !m.ShowHelp), NoCmd[MegaMsg]())
         case MegaCycleTheme()          => (m.Copy(ActiveTheme = megaCycleTheme(m.ActiveTheme)), NoCmd[MegaMsg]())
@@ -331,10 +331,26 @@ func megaMoveSidebarSel(m MegaModel, delta int) MegaModel {
 
 // megaJumpToSidebar commits the tentative SidebarSel: replaces the top
 // screen with the chosen route. Called from Enter when focus = sidebar.
+// megaTabNextFiltered cycles BuildTab and re-filters the BuildsTable to
+// match the new tab's status — keeping the filter on the *model* (not
+// re-applying it at render time, which would reset the cursor to row 0
+// every paint).
+func megaTabNextFiltered(m MegaModel) MegaModel {
+    val nextTab = (m.BuildTab + 1) % 3
+    val statuses = ArrayOf[string]("Running", "Succeeded", "Failed")
+    val filtered = DataTableUpdate(m.BuildsTable, DTFilter(Query = statuses.Get(nextTab)))
+    return m.Copy(BuildTab = nextTab, BuildsTable = filtered)
+}
+
 func megaJumpToSidebar(m MegaModel) MegaModel {
     val screens = ArrayOf[string]("overview", "builds", "pipelines", "logs")
     val route = screens.Get(m.SidebarSel)
-    return m.Copy(Screens = m.Screens.Replace(route))
+    // Shift focus to the main pane so arrows work immediately on the
+    // newly-active screen (no extra Tab needed).
+    return m.Copy(
+        Screens = m.Screens.Replace(route),
+        Focus   = m.Focus.FocusOn("table"),
+    )
 }
 
 func megaEnter(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
@@ -600,22 +616,19 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
 
 func megaBuildsBody(m MegaModel, th Theme) Widget {
     val focused = m.Focus.IsFocused("table")
+    // The filter is applied to m.BuildsTable in update(), so the view
+    // can render it directly without re-filtering (which would reset
+    // the cursor every paint).
+    val table = DataTableView(m.BuildsTable, focused)
     val tabs = Tabs(
         ArrayOf[string]("Running", "Succeeded", "Failed"),
-        ArrayOf[Widget](
-            megaBuildsForStatus(m, "Running", focused),
-            megaBuildsForStatus(m, "Succeeded", focused),
-            megaBuildsForStatus(m, "Failed", focused),
-        ),
+        ArrayOf[Widget](table, table, table),
         m.BuildTab,
         focused,
     )
     val borderKind = if (focused) ThickBorder() else th.BorderKind
     return BorderOf(PaddingHV(0, 1, tabs), borderKind)
 }
-
-func megaBuildsForStatus(m MegaModel, status string, focused bool) Widget =
-    DataTableView(DataTableUpdate(m.BuildsTable, DTFilter(Query = status)), focused)
 
 func megaPipelinesBody(m MegaModel, th Theme) Widget {
     val focused = m.Focus.IsFocused("table")

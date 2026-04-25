@@ -122,6 +122,202 @@ func TestTreeToggleAtLeafDoesNotChangeFlatRowCount(t T) T {
     return Eq(t, after, before)
 }
 
+// ----------------------------------------------------------------------------
+// Regression tests for user-reported issues.
+//
+// Every bug the user reported gets a test here so we can't silently
+// re-introduce the same UX regression.
+// ----------------------------------------------------------------------------
+
+// "When Nav is focused arrows don't do anything" — the sidebar must
+// react to arrow keys and produce visible state change.
+func TestRegressionSidebarFocusedArrowMovesCursor(t T) T {
+    val m0 = NewMegaModel()
+    val t1 = Eq(t, m0.Focus.Current(), "sidebar")  // default focus
+    val (m1, _) = MegaUpdate(m0, MegaKeyDown())
+    return IsTrue(t1, m1.SidebarSel != m0.SidebarSel)
+}
+
+// "Navigation is still a problem ... no action on arrows in table view" —
+// the focus ring used to include "palette", a dead pane that swallowed
+// Tab. Now Tab from "table" returns straight to "sidebar".
+func TestRegressionFocusRingIsExactlySidebarAndTable(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaFocusNext())   // sidebar → table
+    val t1 = Eq(t, m1.Focus.Current(), "table")
+    val (m2, _) = MegaUpdate(m1, MegaFocusNext())                // table → sidebar
+    return Eq(t1, m2.Focus.Current(), "sidebar")
+}
+
+// On the builds screen with focus = table, ↓ must drive the table cursor.
+// (User saw nothing happen because focus was on the dead "palette" pane.)
+func TestRegressionTableFocusArrowMovesBuildsCursor(t T) T {
+    val (mBuilds, _)  = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    val (mFocused, _) = MegaUpdate(mBuilds, MegaFocusNext())  // → table focus
+    val before = mFocused.BuildsTable.Selected
+    val (mDown, _) = MegaUpdate(mFocused, MegaKeyDown())
+    return IsTrue(t, mDown.BuildsTable.Selected > before)
+}
+
+// On the builds screen with focus = table, Enter must do something
+// (copy the row).
+func TestRegressionTableFocusEnterTriggersAction(t T) T {
+    val (mBuilds, _)  = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    val (mFocused, _) = MegaUpdate(mBuilds, MegaFocusNext())
+    val toastsBefore = mFocused.Toasts.Length()
+    val (mAfter, _) = MegaUpdate(mFocused, MegaKeyEnter())
+    return IsTrue(t, mAfter.Toasts.Length() > toastsBefore)
+}
+
+// "Tree expand/collapse — tried Enter and Space, neither worked."
+// Enter on the pipelines tree must change the visible row count.
+func TestRegressionTreeEnterTogglesExpand(t T) T {
+    val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())
+    val rowsBefore = TreeFlatRowCount(mFocused.Pipelines)
+    val (mToggled, _) = MegaUpdate(mFocused, MegaKeyEnter())
+    val rowsAfter = TreeFlatRowCount(mToggled.Pipelines)
+    return IsTrue(t, rowsAfter != rowsBefore)
+}
+
+func TestRegressionTreeSpaceTogglesExpand(t T) T {
+    val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())
+    val rowsBefore = TreeFlatRowCount(mFocused.Pipelines)
+    val msg = MegaKeyToMsg(PlainKey(Space()))
+    val (mToggled, _) = MegaUpdate(mFocused, msg)
+    val rowsAfter = TreeFlatRowCount(mToggled.Pipelines)
+    return IsTrue(t, rowsAfter != rowsBefore)
+}
+
+// "Focus doesn't work in datatable (no visualization)" — render a focused
+// DataTable and assert the cursor row uses BrightYellow foreground; an
+// unfocused render must not.
+func TestRegressionDataTableFocusedCursorPaintsBrightYellow(t T) T {
+    val dt = NewDataTable(
+        ArrayOf[string]("col"),
+        ArrayOf[Constraint](Fill(1)),
+        ArrayOf[Array[string]](ArrayOf[string]("hello")),
+    )
+    val buf = NewBuffer(20, 4)
+    RenderTo(DataTableView(dt, true),
+        Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
+    // Row 0 = header, row 1 = horizontal rule, row 2 = data.
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 2).Fg, BrightYellow()))
+}
+
+func TestRegressionDataTableUnfocusedCursorIsNotBrightYellow(t T) T {
+    val dt = NewDataTable(
+        ArrayOf[string]("col"),
+        ArrayOf[Constraint](Fill(1)),
+        ArrayOf[Array[string]](ArrayOf[string]("hello")),
+    )
+    val buf = NewBuffer(20, 4)
+    RenderTo(DataTableView(dt, false),
+        Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
+    return IsFalse(t, ColorEq(buf.StyleAt(0, 2).Fg, BrightYellow()))
+}
+
+// "Same thing in tree view" — TreeFocused must visibly highlight the
+// cursor row when focused.
+func TestRegressionTreeFocusedHighlightsCursorBrightYellow(t T) T {
+    val tree = NewTreeBranchExpanded("root", ArrayOf[TreeNode](
+        NewTreeLeaf("alpha"),
+        NewTreeLeaf("beta"),
+    ))
+    val buf = NewBuffer(20, 4)
+    RenderTo(TreeFocused(tree, 1, true),
+        Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
+    // Cursor at flat row 1 — that's "  • alpha" inside the expanded root.
+    return IsTrue(t, ColorEq(buf.StyleAt(2, 1).Fg, BrightYellow()))
+}
+
+func TestRegressionTreeFocusedUnfocusedCursorIsNotBrightYellow(t T) T {
+    val tree = NewTreeBranchExpanded("root", ArrayOf[TreeNode](
+        NewTreeLeaf("alpha"),
+        NewTreeLeaf("beta"),
+    ))
+    val buf = NewBuffer(20, 4)
+    RenderTo(TreeFocused(tree, 1, false),
+        Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
+    return IsFalse(t, ColorEq(buf.StyleAt(2, 1).Fg, BrightYellow()))
+}
+
+// "Arrows and Enter don't do anything in the table view" — verify in
+// the *rendered* output, not just the model: render the builds view,
+// press ↓, render again, assert the bright-yellow cursor row moved
+// down. This is the test that would have caught the per-render filter
+// reset bug.
+func TestRegressionBuildsCursorVisiblyMovesOnArrowDown(t T) T {
+    val (mBuilds, _)  = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    val (mFocused, _) = MegaUpdate(mBuilds, MegaFocusNext())  // → table focus
+
+    val w = 100
+    val h = 24
+
+    // Render the *whole* megademo body for the builds screen, then find
+    // the y of the first row containing a bright-yellow-styled cell.
+    // Skip past the demo's header (3 rows), border (1), tabs header
+    // (1) — the table data rows start around y=7. Pass 7 as startY so
+    // we find the table cursor, not the focused tab header.
+    val tableStartY = 7
+
+    val buf1 = NewBuffer(w, h)
+    RenderTo(MegaView(mFocused), Rect(X = 0, Y = 0, Width = w, Height = h), buf1)
+    val firstRow = megaFindBrightYellowRowAfter(buf1, w, h, tableStartY)
+
+    val (mDown, _) = MegaUpdate(mFocused, MegaKeyDown())
+    val buf2 = NewBuffer(w, h)
+    RenderTo(MegaView(mDown), Rect(X = 0, Y = 0, Width = w, Height = h), buf2)
+    val secondRow = megaFindBrightYellowRowAfter(buf2, w, h, tableStartY)
+
+    val t1 = IsTrue(t, firstRow >= 0)            // we found a cursor row
+    val t2 = IsTrue(t1, secondRow >= 0)
+    return IsTrue(t2, secondRow > firstRow)      // cursor advanced visibly
+}
+
+// "Tree expand/collapse — tried Enter and Space, neither worked" —
+// verify in the rendered output that pressing Enter on the pipelines
+// tree actually changes the visible row count.
+func TestRegressionTreeEnterChangesRenderedRowCount(t T) T {
+    val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())
+
+    val w = 100
+    val h = 24
+
+    val buf1 = NewBuffer(w, h)
+    RenderTo(MegaView(mFocused), Rect(X = 0, Y = 0, Width = w, Height = h), buf1)
+    val occupiedBefore = megaCountNonBlankRowsInTreePane(buf1, w, h)
+
+    val (mToggled, _) = MegaUpdate(mFocused, MegaKeyEnter())
+    val buf2 = NewBuffer(w, h)
+    RenderTo(MegaView(mToggled), Rect(X = 0, Y = 0, Width = w, Height = h), buf2)
+    val occupiedAfter = megaCountNonBlankRowsInTreePane(buf2, w, h)
+
+    return IsTrue(t, occupiedBefore != occupiedAfter)
+}
+
+// Sidebar's "(Enter to jump)" hint shows only when sidebar is focused.
+func TestRegressionSidebarFocusedShowsHint(t T) T {
+    var buf = NewBuffer(60, 30)
+    RenderTo(MegaView(NewMegaModel()),
+        Rect(X = 0, Y = 0, Width = 60, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "Enter to jump"))
+}
+
+func TestRegressionSidebarUnfocusedHidesHint(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaFocusNext())  // → table
+    var buf = NewBuffer(60, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 60, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsFalse(t, megaStringHas(joined, "Enter to jump"))
+}
+
+// ----------------------------------------------------------------------------
+// (test below is unrelated — kept original location.)
+// ----------------------------------------------------------------------------
+
 func TestTreeToggleAtBranchCollapsesChildren(t T) T {
     val tree = NewTreeBranchExpanded("root", ArrayOf[TreeNode](
         NewTreeBranchExpanded("inner", ArrayOf[TreeNode](
@@ -904,6 +1100,49 @@ func megaStringHas(hay string, needle string) bool {
         i = i + 1
     }
     return false
+}
+
+// megaFindBrightYellowRowAfter returns the y of the FIRST row at or
+// after `startY` that contains any cell with BrightYellow foreground.
+// Tests pass startY past the tab header (which is also bright-yellow
+// when focused) so they find the table-cursor row, not the tab cursor.
+//
+// Returns -1 if no such row is found.
+func megaFindBrightYellowRowAfter(buf *Buffer, w int, h int, startY int) int {
+    var y = startY
+    for y < h {
+        var x = 0
+        for x < w {
+            if ColorEq(buf.StyleAt(x, y).Fg, BrightYellow()) {
+                return y
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return -1
+}
+
+// megaCountNonBlankRowsInTreePane counts how many rows in the body area
+// (skipping the header / footer) have at least one non-space cell.
+// Used to detect tree expand/collapse changing the visible row count.
+func megaCountNonBlankRowsInTreePane(buf *Buffer, w int, h int) int {
+    var count = 0
+    var y = 4   // skip the title bar (rows 0–2) + the body's top border
+    val maxY = h - 2   // skip footer
+    for y < maxY {
+        var hasContent = false
+        var x = 2   // skip the left border + indent
+        val maxX = w - 2
+        for x < maxX && !hasContent {
+            val c = buf.CharAt(x, y)
+            if c != ' ' && c != '│' && c != ' ' { hasContent = true }
+            x = x + 1
+        }
+        if hasContent { count = count + 1 }
+        y = y + 1
+    }
+    return count
 }
 
 func megaTestRunes(s string) Array[rune] {

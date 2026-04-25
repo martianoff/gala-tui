@@ -4,6 +4,18 @@ Every widget gala-tui exposes, grouped by purpose. Each entry has the
 constructor signature and a one-line example. For deeper docs on any
 widget, read the source — every public function has a docstring.
 
+## A note on focus
+
+Every interactive widget ships with a `focused bool = false` last
+parameter. Pass `true` (or `m.Focus.IsFocused("paneID")`) when the
+widget is the keyboard target — the cursor row gets a `BrightYellow +
+Bold + Reverse` accent so the user sees at a glance which widget the
+keyboard is driving. Default is `false`, so existing call sites are
+back-compatible.
+
+For routing arrow keys to the focused pane, see the [Cookbook §
+"Route arrow keys to the focused pane"](COOKBOOK.md#route-arrow-keys-to-the-focused-pane).
+
 ## Primitives
 
 | Widget | Signature | Notes |
@@ -78,7 +90,8 @@ BarChart(ArrayOf[BarChartDatum](
 | `SelectListOf(labels, selected)` | `(Array[string], int) Widget` | Convenience over `SelectList` when you only need labels. |
 | `Table(data)` | `(TableData) Widget` | Fixed grid; pre-sized columns. |
 | `DataTableView(dt)` | `(DataTable) Widget` | Sortable + filterable. State in `DataTable` model — drive with `DataTableUpdate`. |
-| `Tree(root)` | `(TreeNode) Widget` | Collapsible tree. Build with `NewTreeBranch`/`NewTreeBranchExpanded`/`NewTreeLeaf`. |
+| `Tree(root)` | `(TreeNode) Widget` | Static collapsible tree. Build with `NewTreeBranch`/`NewTreeBranchExpanded`/`NewTreeLeaf`. |
+| `TreeFocused(root, cursor, focused = false)` | `(TreeNode, int, bool) Widget` | Interactive variant — cursor highlight + focus accent. Pair with `TreeFlatRowCount` for clamping and `TreeToggleAt` for expand/collapse. |
 
 ```gala
 val initial = NewDataTable(

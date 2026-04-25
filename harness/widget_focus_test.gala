@@ -1,0 +1,175 @@
+package harness
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Focus + navigation tests for every standard interactive widget.
+//
+// Each test uses the harness helpers `AssertFocusedRendersDifferently`
+// and `AssertNavigationAdvancesCursor` to enforce two contracts:
+//
+//   1. The widget's `focused = true` rendering visibly differs from
+//      its `focused = false` rendering (the user can see where the
+//      keyboard cursor is).
+//   2. The widget's Update API advances its cursor when given a
+//      "move forward" message.
+//
+// Adding a new interactive widget? Add a row to this file. The test
+// helpers do the heavy lifting — each widget needs ~10 lines.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// DataTable
+// ----------------------------------------------------------------------------
+
+func sampleDataTable() DataTable = NewDataTable(
+    ArrayOf[string]("Name", "Status"),
+    ArrayOf[Constraint](Fill(2), Length(10)),
+    ArrayOf[Array[string]](
+        ArrayOf[string]("alice", "online"),
+        ArrayOf[string]("bob",   "away"),
+        ArrayOf[string]("carol", "online"),
+    ),
+)
+
+func TestDataTableFocusedRendersDifferently(t T) T =
+    AssertFocusedRendersDifferently(t,
+        DataTableView(sampleDataTable(), false),
+        DataTableView(sampleDataTable(), true),
+        40, 6)
+
+func TestDataTableFocusedShowsBrightYellow(t T) T =
+    AssertFocusedShowsBrightYellow(t,
+        DataTableView(sampleDataTable(), true),
+        40, 6)
+
+func TestDataTableArrowDownAdvancesCursor(t T) T =
+    AssertNavigationAdvancesCursor[DataTable](t,
+        sampleDataTable(),
+        (x) => DataTableUpdate(x, DTCursorDown()),
+        (x) => x.Selected)
+
+// ----------------------------------------------------------------------------
+// SelectList / SelectListOf
+// ----------------------------------------------------------------------------
+
+func sampleListLabels() Array[string] =
+    ArrayOf[string]("apple", "banana", "cherry")
+
+func TestSelectListOfFocusedRendersDifferently(t T) T =
+    AssertFocusedRendersDifferently(t,
+        SelectListOf(sampleListLabels(), 1, false),
+        SelectListOf(sampleListLabels(), 1, true),
+        20, 4)
+
+func TestSelectListOfFocusedShowsBrightYellow(t T) T =
+    AssertFocusedShowsBrightYellow(t,
+        SelectListOf(sampleListLabels(), 1, true),
+        20, 4)
+
+// ----------------------------------------------------------------------------
+// MenuView
+// ----------------------------------------------------------------------------
+
+func sampleMenu() Menu =
+    NewMenu(ArrayOf[MenuItem](
+        NewMenuItem("File"),
+        NewMenuItem("Edit"),
+        NewMenuItem("View"),
+    ))
+
+func TestMenuViewFocusedRendersDifferently(t T) T =
+    AssertFocusedRendersDifferently(t,
+        MenuView(sampleMenu(), false),
+        MenuView(sampleMenu(), true),
+        20, 4)
+
+func TestMenuViewFocusedShowsBrightYellow(t T) T =
+    AssertFocusedShowsBrightYellow(t,
+        MenuView(sampleMenu(), true),
+        20, 4)
+
+func TestMenuArrowDownAdvancesCursor(t T) T =
+    AssertNavigationAdvancesCursor[Menu](t,
+        sampleMenu(),
+        (m) => MenuUpdate(m, MenuNext()),
+        (m) => m.Selected)
+
+// ----------------------------------------------------------------------------
+// CalendarView
+// ----------------------------------------------------------------------------
+
+func sampleCalendar() Calendar = NewCalendarAt(2026, 4, 15)
+
+func TestCalendarViewFocusedRendersDifferently(t T) T =
+    AssertFocusedRendersDifferently(t,
+        CalendarView(sampleCalendar(), false),
+        CalendarView(sampleCalendar(), true),
+        30, 10)
+
+func TestCalendarViewFocusedShowsBrightYellow(t T) T =
+    AssertFocusedShowsBrightYellow(t,
+        CalendarView(sampleCalendar(), true),
+        30, 10)
+
+func TestCalendarArrowAdvancesCursor(t T) T =
+    AssertNavigationAdvancesCursor[Calendar](t,
+        sampleCalendar(),
+        (c) => CalendarUpdate(c, CalDayRight()),
+        (c) => c.SelDay)
+
+// ----------------------------------------------------------------------------
+// Tabs
+// ----------------------------------------------------------------------------
+
+func TestTabsFocusedRendersDifferently(t T) T {
+    val titles = ArrayOf[string]("First", "Second", "Third")
+    val bodies = ArrayOf[Widget](Text("a"), Text("b"), Text("c"))
+    return AssertFocusedRendersDifferently(t,
+        Tabs(titles, bodies, 0, false),
+        Tabs(titles, bodies, 0, true),
+        40, 4)
+}
+
+func TestTabsFocusedShowsBrightYellow(t T) T {
+    val titles = ArrayOf[string]("First", "Second", "Third")
+    val bodies = ArrayOf[Widget](Text("a"), Text("b"), Text("c"))
+    return AssertFocusedShowsBrightYellow(t,
+        Tabs(titles, bodies, 0, true),
+        40, 4)
+}
+
+// ----------------------------------------------------------------------------
+// Tree (interactive variant)
+// ----------------------------------------------------------------------------
+
+func sampleTree() TreeNode =
+    NewTreeBranchExpanded("root", ArrayOf[TreeNode](
+        NewTreeLeaf("alpha"),
+        NewTreeLeaf("beta"),
+    ))
+
+func TestTreeFocusedRendersDifferently(t T) T =
+    AssertFocusedRendersDifferently(t,
+        TreeFocused(sampleTree(), 1, false),
+        TreeFocused(sampleTree(), 1, true),
+        20, 4)
+
+func TestTreeFocusedShowsBrightYellow(t T) T =
+    AssertFocusedShowsBrightYellow(t,
+        TreeFocused(sampleTree(), 1, true),
+        20, 4)
+
+// ----------------------------------------------------------------------------
+// Input
+// ----------------------------------------------------------------------------
+
+func TestInputFocusedRendersDifferently(t T) T =
+    AssertFocusedRendersDifferently(t,
+        Input("hello", 5, "type…", false),
+        Input("hello", 5, "type…", true),
+        20, 1)

@@ -1,0 +1,136 @@
+package harness
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Focus + navigation test helpers — every interactive widget should
+// have a test that uses these.
+//
+// The contract for a focusable widget is:
+//
+//   1. The view function takes a `focused bool` argument (default false).
+//   2. When `focused = true`, the rendered Buffer differs from the
+//      `focused = false` rendering — at minimum, the cursor row gets a
+//      bright accent so the user knows where keyboard focus landed.
+//   3. The widget exposes an Update function that consumes a navigation
+//      message (DTCursorDown for DataTable, CalDayDown for Calendar,
+//      MenuNext for Menu, …) and returns a new state with the cursor
+//      advanced.
+//
+// This file gives each test a one-liner for points (2) and (3).
+// ============================================================================
+
+// AssertFocusedRendersDifferently renders `unfocused` and `focused` to
+// equal-sized buffers and asserts they differ in at least one cell or
+// style attribute.
+//
+// This is the minimum viable check that a widget's `focused` parameter
+// is wired through — no need to know which specific style changed,
+// just that *something* did.
+//
+// Usage:
+//
+//     func TestDataTableFocusedRenders(t T) T {
+//         val dt = NewDataTable(headers, widths, rows)
+//         return AssertFocusedRendersDifferently(t,
+//             DataTableView(dt, false),
+//             DataTableView(dt, true),
+//             40, 8)
+//     }
+func AssertFocusedRendersDifferently(
+    t T,
+    unfocused Widget,
+    focused Widget,
+    width int, height int,
+) T {
+    val area = Rect(X = 0, Y = 0, Width = width, Height = height)
+    val buf1 = NewBuffer(width, height)
+    RenderTo(unfocused, area, buf1)
+    val buf2 = NewBuffer(width, height)
+    RenderTo(focused, area, buf2)
+    return IsFalse(t, buffersFullyEqual(buf1, buf2, width, height))
+}
+
+// AssertFocusedShowsBrightYellow renders `widget` and asserts at least
+// one cell in the buffer carries the BrightYellow foreground that the
+// framework uses for "this is the focused cursor row".
+//
+// Stronger than AssertFocusedRendersDifferently because it pins down
+// the *specific* visual treatment the framework promises — useful when
+// auditing whether a widget actually adopted the focus convention or
+// just happens to render differently for some other reason.
+func AssertFocusedShowsBrightYellow(
+    t T,
+    widget Widget,
+    width int, height int,
+) T {
+    val area = Rect(X = 0, Y = 0, Width = width, Height = height)
+    val buf = NewBuffer(width, height)
+    RenderTo(widget, area, buf)
+    var y = 0
+    var found = false
+    for y < height && !found {
+        var x = 0
+        for x < width && !found {
+            if ColorEq(buf.StyleAt(x, y).Fg, BrightYellow()) {
+                found = true
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return IsTrue(t, found)
+}
+
+// AssertNavigationAdvancesCursor is a generic navigation test: take a
+// state, apply a "move cursor forward" transformation, and assert the
+// cursor changed in some observable way.
+//
+// `extractCursor` is what the test cares about — typically
+// `(s) => s.Selected` for a DataTable, `(c) => c.SelDay` for a
+// Calendar, etc. The helper just compares before/after.
+//
+// Usage:
+//
+//     func TestDataTableArrowDownAdvances(t T) T {
+//         val dt = NewDataTable(headers, widths, rows)
+//         return AssertNavigationAdvancesCursor(t, dt,
+//             (x) => DataTableUpdate(x, DTCursorDown()),
+//             (x) => x.Selected)
+//     }
+func AssertNavigationAdvancesCursor[S any](
+    t T,
+    initial S,
+    advance func(S) S,
+    extractCursor func(S) int,
+) T {
+    val before = extractCursor(initial)
+    val after  = extractCursor(advance(initial))
+    return IsTrue(t, after != before)
+}
+
+// buffersFullyEqual compares two buffers cell-by-cell — char + every
+// visible style attribute. Used by AssertFocusedRendersDifferently.
+func buffersFullyEqual(a *Buffer, b *Buffer, w int, h int) bool {
+    var y = 0
+    for y < h {
+        var x = 0
+        for x < w {
+            if a.CharAt(x, y) != b.CharAt(x, y) { return false }
+            val sa = a.StyleAt(x, y)
+            val sb = b.StyleAt(x, y)
+            if !ColorEq(sa.Fg, sb.Fg) { return false }
+            if !ColorEq(sa.Bg, sb.Bg) { return false }
+            if sa.Bold != sb.Bold { return false }
+            if sa.Reverse != sb.Reverse { return false }
+            if sa.Underline != sb.Underline { return false }
+            if sa.Dim != sb.Dim { return false }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return true
+}
