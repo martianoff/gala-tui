@@ -1,0 +1,221 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// LineChart — 2D line plot rendered as styled rows of block characters.
+//
+// Each column of the chart area holds one sample from `values`. The sample's
+// proportional height within the chart's row count is rendered using Unicode
+// block glyphs (' ', ▁, ▂, ▃, ▄, ▅, ▆, ▇, █) — eight sub-row fill levels give
+// roughly 8× vertical resolution per cell, so even a five-row chart can show
+// ~40 distinct value steps.
+//
+// Implementation is a simple composition: LineChart produces a Widget that,
+// given any rendering area, walks each cell (x, y), computes whether the
+// column's value reaches that row, and paints the appropriate glyph. No
+// new Widget variants — we produce a Column of Text rows at render time
+// via a wrapper function on the caller.
+//
+// Because this composes existing widgets, the chart picks up the ambient
+// Style (e.g., BrightGreen for "uptime", BrightRed for "anomaly") via the
+// fluent `.WithFg(...)` method on the returned Widget.
+// ============================================================================
+
+// LineChart produces a chart widget with the default style (bright green).
+// The chart's size is whatever area it's allocated — nominal width ≥ 1,
+// height ≥ 1. For explicit control over bounds (so two charts share a
+// y-axis) use LineChartBounded.
+func LineChart(values Array[int]) Widget =
+    LineChartStyled(values, DefaultStyle().WithFg(BrightGreen()))
+
+// LineChartStyled renders with a caller-chosen style.
+func LineChartStyled(values Array[int], style Style) Widget =
+    LineChartBounded(values, style, LineChartAutoBounds(values))
+
+// LineChartBounded is the explicit-range form — use this to keep two charts
+// on a common y-axis so comparisons are meaningful.
+func LineChartBounded(values Array[int], style Style, bounds LineChartBounds) Widget {
+    if values.IsEmpty() { return Empty() }
+    // The lazy-row-of-text approach would recompute per render — instead,
+    // we precompute for a reasonable default height (5 rows) and let the
+    // RowWidget constraint machinery handle column sizing. This makes the
+    // chart a fixed-intrinsic widget; for dynamic heights, apps can call
+    // LineChartRows directly and wrap in whatever layout makes sense.
+    return LineChartAtHeight(values, style, bounds, 5)
+}
+
+// LineChartAtHeight returns a chart with an explicit number of rows — useful
+// when the enclosing layout is known (e.g., "give me a 3-row trend line" or
+// "fill the whole 12-row panel").
+func LineChartAtHeight(values Array[int], style Style, bounds LineChartBounds, rows int) Widget {
+    if rows <= 0 || values.IsEmpty() { return Empty() }
+    val lines = LineChartRows(values, bounds, rows)
+    val children = lines.Map((line) => Fixed(1, TextStyled(line, style)))
+    return Column(children)
+}
+
+// LineChartRows converts a value array into `rows` strings of block glyphs,
+// topmost row first. Exposed so apps can embed the raw text in custom layouts
+// (e.g., with an axis label to the left). Thread-safe, pure.
+func LineChartRows(values Array[int], bounds LineChartBounds, rows int) Array[string] {
+    val lo = bounds.Min
+    val hi = bounds.Max
+    val span = maxInt(1, hi - lo)
+    val total = rows * 8                          // eighths per column
+    var out = EmptyArray[string]()
+    var y = 0
+    for y < rows {
+        // `y = 0` is the top row (height = rows); we convert to a "band
+        // threshold" in eighths where `topEighths` is the upper edge of the
+        // row and `bottomEighths` the lower edge.
+        val topEighths    = (rows - y) * 8
+        val bottomEighths = topEighths - 8
+        var line = ""
+        var i = 0
+        val n = values.Length()
+        for i < n {
+            val v = values.Get(i)
+            val clamped = clampIntLC(v, lo, hi)
+            val sampleEighths = ((clamped - lo) * total) / span
+            if sampleEighths >= topEighths {
+                line = line + "█"
+            } else {
+                if sampleEighths <= bottomEighths {
+                    line = line + " "
+                } else {
+                    val frac = sampleEighths - bottomEighths
+                    line = line + string(chartGlyph(frac))
+                }
+            }
+            i = i + 1
+        }
+        out = out.Append(line)
+        y = y + 1
+    }
+    return out
+}
+
+// chartGlyph picks a partial-block glyph for an eighths-of-cell value.
+// `frac` is 0..7 where 0 = nothing, 7 = nearly full.
+func chartGlyph(frac int) rune {
+    if frac <= 0 { return ' ' }
+    if frac == 1 { return '▁' }
+    if frac == 2 { return '▂' }
+    if frac == 3 { return '▃' }
+    if frac == 4 { return '▄' }
+    if frac == 5 { return '▅' }
+    if frac == 6 { return '▆' }
+    return '▇'
+}
+
+func clampIntLC(v int, lo int, hi int) int {
+    if v < lo { return lo }
+    if v > hi { return hi }
+    return v
+}
+
+// ----------------------------------------------------------------------------
+// Bounds
+// ----------------------------------------------------------------------------
+
+struct LineChartBounds(
+    Min int,
+    Max int,
+)
+
+// LineChartAutoBounds returns tight min/max for a series. A flat line
+// (all values equal) gets an artificial +1 max so the renderer's division
+// by (max - min) is safe.
+func LineChartAutoBounds(values Array[int]) LineChartBounds {
+    if values.IsEmpty() {
+        return LineChartBounds(Min = 0, Max = 1)
+    }
+    val first = values.Get(0)
+    var lo = first
+    var hi = first
+    var i = 1
+    val n = values.Length()
+    for i < n {
+        val v = values.Get(i)
+        if v < lo { lo = v }
+        if v > hi { hi = v }
+        i = i + 1
+    }
+    if hi == lo {
+        return LineChartBounds(Min = lo, Max = lo + 1)
+    }
+    return LineChartBounds(Min = lo, Max = hi)
+}
+
+// ----------------------------------------------------------------------------
+// MultiLineChart — overlay several series on a shared y-axis.
+//
+// Because our chart is a plain glyph matrix, two series overlapping on the
+// same cell collide: only one glyph can live there. We resolve by painting
+// series in order — later series win the collision, so it's idiomatic to
+// draw the primary series last. Each series gets its own style; callers
+// that want the same style across all series can pass an Array with one
+// repeated style.
+// ----------------------------------------------------------------------------
+
+// MultiLineChart overlays several series on a shared y-axis. `styles` must
+// be at least as long as `series` — extra styles are ignored, missing ones
+// default to the first style.
+func MultiLineChart(series Array[Array[int]], styles Array[Style]) Widget =
+    MultiLineChartAtHeight(series, styles, 5)
+
+// MultiLineChartAtHeight lets callers fix the row count.
+func MultiLineChartAtHeight(series Array[Array[int]], styles Array[Style], rows int) Widget {
+    if series.IsEmpty() || rows <= 0 { return Empty() }
+    val bounds = multiBounds(series)
+    // Build each layer as its own LineChart and stack them. StackWidget
+    // draws layers in order; last-drawn wins. The effect: every series is
+    // visible except where one overwrites another.
+    var layers = EmptyArray[Widget]()
+    var i = 0
+    val n = series.Length()
+    for i < n {
+        val s = series.Get(i)
+        val style = if (i < styles.Length()) styles.Get(i) else defaultSeriesStyle(i)
+        layers = layers.Append(LineChartAtHeight(s, style, bounds, rows))
+        i = i + 1
+    }
+    return Stack(layers)
+}
+
+func multiBounds(series Array[Array[int]]) LineChartBounds {
+    var lo = 0
+    var hi = 1
+    var first = true
+    var i = 0
+    val n = series.Length()
+    for i < n {
+        val s = series.Get(i)
+        if s.NonEmpty() {
+            val b = LineChartAutoBounds(s)
+            if first {
+                lo = b.Min
+                hi = b.Max
+                first = false
+            } else {
+                if b.Min < lo { lo = b.Min }
+                if b.Max > hi { hi = b.Max }
+            }
+        }
+        i = i + 1
+    }
+    if hi == lo { hi = lo + 1 }
+    return LineChartBounds(Min = lo, Max = hi)
+}
+
+// defaultSeriesStyle cycles through a handful of distinct colors for callers
+// that didn't pass a styles array.
+func defaultSeriesStyle(i int) Style {
+    val colors = ArrayOf[Color](BrightGreen(), BrightCyan(), BrightYellow(),
+                                 BrightMagenta(), BrightRed(), BrightBlue())
+    val c = colors.Get(i % colors.Length())
+    return DefaultStyle().WithFg(c)
+}

@@ -1,0 +1,84 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for the Theme system.
+//
+// The public contract is: each built-in theme produces a Theme value with
+// distinct SGR output for at least a few of its roles. Users swapping a
+// theme should see visually-different output on screen.
+// ============================================================================
+
+func TestDefaultThemeEmitsNoFgBg(t T) T {
+    val th = DefaultTheme()
+    // Default Text style should be the raw DefaultStyle — empty SGR.
+    return Eq(t, th.Text.ToSgr(), "")
+}
+
+func TestDarkThemeHeadingIsBoldCyan(t T) T {
+    val th = DarkTheme()
+    // Bold = SGR 1, BrightCyan fg = 96.
+    val sgr = th.Heading.ToSgr()
+    return IsTrue(t, sgr == "\x1b[1;96m")
+}
+
+func TestLightThemeErrorIsBoldRed(t T) T {
+    val th = LightTheme()
+    // Bold = 1, Red fg = 31.
+    val sgr = th.Error.ToSgr()
+    return IsTrue(t, sgr == "\x1b[1;31m")
+}
+
+func TestHighContrastThemeUsesThickBorder(t T) T {
+    val th = HighContrastTheme()
+    return IsTrue(t, borderKindIs(th.BorderKind, "thick"))
+}
+
+func TestDarkAndLightHeadingsDiffer(t T) T {
+    val darkHeading  = DarkTheme().Heading.ToSgr()
+    val lightHeading = LightTheme().Heading.ToSgr()
+    return IsFalse(t, darkHeading == lightHeading)
+}
+
+func TestHeadingTHelperPaintsBoldCell(t T) T {
+    val th = DarkTheme()
+    var buf = NewBuffer(5, 1)
+    RenderTo(HeadingT(th, "hi"), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), 'h')
+    return IsTrue(t1, buf.StyleAt(0, 0).Bold)
+}
+
+func TestMutedTHelperPaintsDimCell(t T) T {
+    val th = DefaultTheme()
+    var buf = NewBuffer(3, 1)
+    RenderTo(MutedT(th, "x"), Rect(X = 0, Y = 0, Width = 3, Height = 1), buf)
+    return IsTrue(t, buf.StyleAt(0, 0).Dim)
+}
+
+func TestBackgroundTCoversArea(t T) T {
+    val th = HighContrastTheme()
+    var buf = NewBuffer(4, 2)
+    RenderTo(BackgroundT(th, Text("hi")), Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
+    // Background color is Black() for HighContrastTheme. Cell (3, 1) was not
+    // touched by the Text overlay so its Bg should match theme.Background.
+    return IsTrue(t, colorsEqual(buf.StyleAt(3, 1).Bg, Black()))
+}
+
+// ----------------------------------------------------------------------------
+// Test helpers.
+// ----------------------------------------------------------------------------
+
+func borderKindIs(k BorderKind, name string) bool {
+    return k match {
+        case SingleBorder()  => name == "single"
+        case DoubleBorder()  => name == "double"
+        case RoundedBorder() => name == "rounded"
+        case ThickBorder()   => name == "thick"
+        case AsciiBorder()   => name == "ascii"
+    }
+}
+
+func colorsEqual(a Color, b Color) bool = ColorEq(a, b)

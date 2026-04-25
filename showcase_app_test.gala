@@ -1,0 +1,225 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// Tests for the bundled system-monitor showcase. These exercise the same
+// code path that `gala build ./demo` compiles — so a passing suite here
+// means the bundled demo app's logic is correct too.
+
+// ----------------------------------------------------------------------------
+// Rendering smoke tests — the whole 120x30 dashboard must paint without
+// panicking and include the most prominent labels from every pane.
+// ----------------------------------------------------------------------------
+
+func TestShowcaseRendersWithoutCrashing(t T) T {
+    val m = NewShowcaseModel()
+    var buf = NewBuffer(120, 30)
+    RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    // Header's thick top border uses ┏ at the top-left.
+    val row0 = BufferText(buf, 0)
+    return IsTrue(t, showcaseContainsRune(row0, '┏'))
+}
+
+func TestShowcaseRendersSidebarMenu(t T) T {
+    val m = NewShowcaseModel()
+    var buf = NewBuffer(120, 30)
+    RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    return IsTrue(t, showcaseContains(buf, "Overview"))
+}
+
+func TestShowcaseRendersProcessTable(t T) T {
+    val m = NewShowcaseModel()
+    var buf = NewBuffer(120, 30)
+    RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val t1 = IsTrue(t, showcaseContains(buf, "postgres"))
+    return IsTrue(t1, showcaseContains(buf, "PID"))
+}
+
+// ----------------------------------------------------------------------------
+// Update / reducer behavior.
+// ----------------------------------------------------------------------------
+
+func TestShowcaseFocusCyclesBackToStart(t T) T {
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeyTab())
+    val (m2, _) = ShowcaseUpdate(m1, ShKeyTab())
+    val (m3, _) = ShowcaseUpdate(m2, ShKeyTab())
+    val t1 = Eq(t, ShowcaseFocusTag(m0.Focus), "sidebar")
+    val t2 = Eq(t1, ShowcaseFocusTag(m1.Focus), "table")
+    val t3 = Eq(t2, ShowcaseFocusTag(m2.Focus), "palette")
+    return Eq(t3, ShowcaseFocusTag(m3.Focus), "sidebar")
+}
+
+func TestShowcaseSidebarUpAtZeroStaysZero(t T) T {
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeyUp())
+    return Eq(t, m1.SidebarSel, 0)
+}
+
+func TestShowcaseSidebarDownAdvances(t T) T {
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeyDown())
+    val (m2, _) = ShowcaseUpdate(m1, ShKeyDown())
+    return Eq(t, m2.SidebarSel, 2)
+}
+
+func TestShowcaseTableDownOnlyWithTableFocus(t T) T {
+    // Tab once → table focus. Down twice → TableSel == 2.
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeyTab())
+    val (m2, _) = ShowcaseUpdate(m1, ShKeyDown())
+    val (m3, _) = ShowcaseUpdate(m2, ShKeyDown())
+    val t1 = Eq(t, ShowcaseFocusTag(m3.Focus), "table")
+    return Eq(t1, m3.TableSel, 2)
+}
+
+func TestShowcasePaletteAcceptsChars(t T) T {
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeyTab())
+    val (m2, _) = ShowcaseUpdate(m1, ShKeyTab())       // palette focus
+    val (m3, _) = ShowcaseUpdate(m2, ShKeyChar('h'))
+    val (m4, _) = ShowcaseUpdate(m3, ShKeyChar('i'))
+    return Eq(t, m4.Palette, "hi")
+}
+
+func TestShowcasePaletteEnterSubmitsAndClears(t T) T {
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeyTab())
+    val (m2, _) = ShowcaseUpdate(m1, ShKeyTab())
+    val (m3, _) = ShowcaseUpdate(m2, ShKeyChar('p'))
+    val (m4, _) = ShowcaseUpdate(m3, ShKeyChar('s'))
+    val (m5, _) = ShowcaseUpdate(m4, ShKeyEnter())
+    val t1 = Eq(t, m5.Palette, "")
+    return Eq(t1, m5.PaletteLog.Length(), 1)
+}
+
+func TestShowcasePaletteBackspaceDropsOneRune(t T) T {
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeyTab())
+    val (m2, _) = ShowcaseUpdate(m1, ShKeyTab())
+    val (m3, _) = ShowcaseUpdate(m2, ShKeyChar('a'))
+    val (m4, _) = ShowcaseUpdate(m3, ShKeyChar('b'))
+    val (m5, _) = ShowcaseUpdate(m4, ShKeyBackspace())
+    return Eq(t, m5.Palette, "a")
+}
+
+func TestShowcaseTickFillsSpark(t T) T {
+    var m = NewShowcaseModel()
+    var i = 0
+    for i < 5 {
+        val (nm, _) = ShowcaseUpdate(m, ShTick())
+        m = nm
+        i = i + 1
+    }
+    val t1 = Eq(t, m.Tick, 5)
+    return Eq(t1, m.Spark.Length(), 5)
+}
+
+func TestShowcasePauseFreezesTick(t T) T {
+    val m0 = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m0, ShKeySpace())     // sidebar focus → toggle pause
+    val (m2, _) = ShowcaseUpdate(m1, ShTick())         // tick no-op while paused
+    val t1 = IsTrue(t, m1.Paused)
+    return Eq(t1, m2.Tick, 0)
+}
+
+func TestShowcaseRResetsSparkOnSidebar(t T) T {
+    var m = NewShowcaseModel()
+    val (m1, _) = ShowcaseUpdate(m, ShTick())
+    val (m2, _) = ShowcaseUpdate(m1, ShTick())
+    val t1 = Eq(t, m2.Spark.Length(), 2)
+    val (m3, _) = ShowcaseUpdate(m2, ShKeyChar('r'))   // sidebar focus → reset
+    return Eq(t1, m3.Spark.Length(), 0)
+}
+
+// ----------------------------------------------------------------------------
+// Key decoding.
+// ----------------------------------------------------------------------------
+
+func TestShowcaseKeyQIsQuit(t T) T {
+    val msg = ShowcaseKeyToMsg(PlainKey(Char('q')))
+    return IsTrue(t, showcaseIsQuit(msg))
+}
+
+func TestShowcaseCtrlCIsQuit(t T) T {
+    val msg = ShowcaseKeyToMsg(Ctrl(Char('c')))
+    return IsTrue(t, showcaseIsQuit(msg))
+}
+
+func TestShowcasePlainCharBecomesKeyChar(t T) T {
+    val msg = ShowcaseKeyToMsg(PlainKey(Char('a')))
+    val matched = msg match {
+        case ShKeyChar(c) => c == 'a'
+        case _            => false
+    }
+    return IsTrue(t, matched)
+}
+
+// ----------------------------------------------------------------------------
+// Helpers.
+// ----------------------------------------------------------------------------
+
+func showcaseIsQuit(m ShowcaseMsg) bool {
+    return m match {
+        case ShQuit() => true
+        case _        => false
+    }
+}
+
+func showcaseContains(buf *Buffer, needle string) bool {
+    var y = 0
+    for y < buf.Height {
+        if showcaseRowContains(BufferText(buf, y), needle) {
+            return true
+        }
+        y = y + 1
+    }
+    return false
+}
+
+func showcaseRowContains(hay string, needle string) bool {
+    val hr = showcaseToRunes(hay)
+    val nr = showcaseToRunes(needle)
+    val hn = hr.Length()
+    val nn = nr.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        if showcaseRunesEqAt(hr, nr, i) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func showcaseContainsRune(s string, target rune) bool {
+    for _, c := range s {
+        if c == target {
+            return true
+        }
+    }
+    return false
+}
+
+func showcaseToRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
+func showcaseRunesEqAt(hay Array[rune], needle Array[rune], offset int) bool {
+    val n = needle.Length()
+    var j = 0
+    for j < n {
+        if hay.Get(offset + j) != needle.Get(j) {
+            return false
+        }
+        j = j + 1
+    }
+    return true
+}

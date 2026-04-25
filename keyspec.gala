@@ -1,0 +1,244 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Human-readable key specs — parse "ctrl+c", "shift+tab", "alt+enter", "q"
+// into predicates over KeyEvent so the common boilerplate
+//     if KeyEqual(ev.Key, Char('q')) && !ev.Ctrl { ... }
+// becomes a one-liner:
+//     KeyBind("q", Quit())
+//     KeyBind("ctrl+c", Quit())
+//
+// Grammar:
+//     spec        := modifier* key
+//     modifier    := "ctrl" | "shift" | "alt"   (case-insensitive, joined with "+")
+//     key         := "q" | "esc" | "enter" | "tab" | "space" | "backspace"
+//                  | "up" | "down" | "left" | "right"
+//                  | "home" | "end" | "pageup" | "pagedown"
+//                  | "delete" | "insert"
+//                  | "f1" … "f12"
+//                  | any single printable char
+//
+// Parses to a KeySpec value. KeySpec.Matches(ev) is the KeyEvent predicate
+// used by KeyBind (and exposed directly for ad-hoc checks in update()).
+//
+// Unknown specs return KeySpecInvalid() — its Matches always returns false,
+// so typos fail closed rather than matching random keys.
+// ============================================================================
+
+struct KeySpec(
+    Key     Key,
+    Ctrl    bool,
+    Shift   bool,
+    Alt     bool,
+    Valid   bool,
+)
+
+// KeySpecInvalid is the "parse failed" sentinel. Matches always returns false
+// so binding against a typo'd spec can't accidentally fire on, say, every key.
+func KeySpecInvalid() KeySpec = KeySpec(
+    Key = Unknown(), Ctrl = false, Shift = false, Alt = false, Valid = false,
+)
+
+// ParseKeySpec decodes a spec string. Returns a non-`Valid` KeySpec on any
+// parse failure (unknown modifier, unknown key, empty string). Callers in
+// tests can assert on `.Valid`; apps usually just hand the result to
+// KeyBind which stays inert on invalid specs.
+func ParseKeySpec(spec string) KeySpec {
+    val trimmed = strings.ToLower(strings.TrimSpace(spec))
+    if trimmed == "" {
+        return KeySpecInvalid()
+    }
+    val parts = splitPlus(trimmed)
+    var ctrl = false
+    var shift = false
+    var alt = false
+    var keyPart = ""
+    var i = 0
+    val n = parts.Length()
+    for i < n {
+        val p = parts.Get(i)
+        if p == "ctrl" {
+            ctrl = true
+        } else {
+            if p == "shift" {
+                shift = true
+            } else {
+                if p == "alt" {
+                    alt = true
+                } else {
+                    // Anything else must be the terminal key. It must be the
+                    // LAST element of parts — if there's something after a
+                    // non-modifier token, the spec is malformed.
+                    if i != n - 1 {
+                        return KeySpecInvalid()
+                    }
+                    keyPart = p
+                }
+            }
+        }
+        i = i + 1
+    }
+    if keyPart == "" {
+        return KeySpecInvalid()
+    }
+    val parsedKey = parseKeyName(keyPart)
+    val valid = keyIsParsed(parsedKey)
+    return KeySpec(
+        Key = parsedKey, Ctrl = ctrl, Shift = shift, Alt = alt, Valid = valid,
+    )
+}
+
+// Matches reports whether `ev` satisfies this spec. Invalid specs never match.
+func (ks KeySpec) Matches(ev KeyEvent) bool {
+    if !ks.Valid { return false }
+    if ev.Ctrl  != ks.Ctrl  { return false }
+    if ev.Alt   != ks.Alt   { return false }
+    // Shift is fuzzy — most terminals don't report it for printable chars
+    // (holding shift for 'A' delivers Char('A') with Shift=false), so we
+    // only enforce it for keys where terminals actually set the flag. The
+    // safe rule: require shift match iff the spec explicitly demanded it.
+    if ks.Shift && !ev.Shift { return false }
+    return KeyEqual(ev.Key, ks.Key)
+}
+
+// KeyBind builds a KeyBinding[T] from a string spec + a pre-built Msg value.
+// Drop-in replacement for `Bind[T](Enter(), QuitReq())`:
+//     KeyBind[T]("ctrl+c", QuitReq())
+func KeyBind[T any](spec string, msg T) KeyBinding[T] {
+    val ks = ParseKeySpec(spec)
+    return KeyBinding[T](
+        Match = (ev KeyEvent) => ks.Matches(ev),
+        Make  = (ev KeyEvent) => msg,
+    )
+}
+
+// KeyBindMake is the version that computes the Msg from the raw KeyEvent —
+// useful when a character binding needs the actual char in the message.
+func KeyBindMake[T any](spec string, make func(KeyEvent) T) KeyBinding[T] {
+    val ks = ParseKeySpec(spec)
+    return KeyBinding[T](
+        Match = (ev KeyEvent) => ks.Matches(ev),
+        Make  = make,
+    )
+}
+
+// KeyMatches is the ad-hoc form — use it inside a plain if inside update()
+// without building a KeyBinding[T]:
+//     if KeyMatches(ev, "ctrl+c") { return Quit() }
+func KeyMatches(ev KeyEvent, spec string) bool =
+    ParseKeySpec(spec).Matches(ev)
+
+// ----------------------------------------------------------------------------
+// Internals.
+// ----------------------------------------------------------------------------
+
+// splitPlus splits on '+' with a small allowance: a literal '+' at the end
+// means the key itself is '+' (i.e., "ctrl++" = Ctrl-plus). We treat the
+// last non-empty token as the key and everything before as modifiers.
+func splitPlus(s string) Array[string] {
+    var out = EmptyArray[string]()
+    var cur = ""
+    var i = 0
+    val rs = stringRunes(s)
+    val n = rs.Length()
+    for i < n {
+        val c = rs.Get(i)
+        if c == '+' {
+            if cur != "" {
+                out = out.Append(cur)
+                cur = ""
+            } else {
+                // Treat leading / double '+' as the literal key itself.
+                if i == n - 1 {
+                    out = out.Append("+")
+                }
+            }
+        } else {
+            cur = cur + string(c)
+        }
+        i = i + 1
+    }
+    if cur != "" {
+        out = out.Append(cur)
+    }
+    return out
+}
+
+func stringRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
+// parseKeyName maps a token to a Key. Unknown tokens return Unknown().
+func parseKeyName(name string) Key {
+    if name == "esc" || name == "escape" { return Esc() }
+    if name == "enter" || name == "return" { return Enter() }
+    if name == "tab" { return Tab() }
+    if name == "space" { return Space() }
+    if name == "backspace" || name == "bs" { return Backspace() }
+    if name == "up" { return Up() }
+    if name == "down" { return Down() }
+    if name == "left" { return ArrowLeft() }
+    if name == "right" { return ArrowRight() }
+    if name == "home" { return Home() }
+    if name == "end" { return End() }
+    if name == "pageup" || name == "pgup" { return PageUp() }
+    if name == "pagedown" || name == "pgdn" { return PageDown() }
+    if name == "delete" || name == "del" { return Delete() }
+    if name == "insert" || name == "ins" { return Insert() }
+    // F1..F12
+    if len(name) >= 2 {
+        val rs = stringRunes(name)
+        if rs.Get(0) == 'f' {
+            val n = parseFNumber(name)
+            if n >= 1 && n <= 12 {
+                return FKey(n)
+            }
+        }
+    }
+    // Single char.
+    val rs = stringRunes(name)
+    if rs.Length() == 1 {
+        return Char(rs.Get(0))
+    }
+    // "+" literal was preserved by splitPlus — surface it as Char.
+    if name == "+" {
+        return Char('+')
+    }
+    return Unknown()
+}
+
+// parseFNumber extracts the integer after an 'f' prefix ("f5" → 5).
+// Returns 0 on a non-numeric tail so the caller rejects it.
+func parseFNumber(s string) int {
+    val rs = stringRunes(s)
+    if rs.Length() < 2 { return 0 }
+    var acc = 0
+    var i = 1
+    for i < rs.Length() {
+        val c = rs.Get(i)
+        if c < '0' || c > '9' {
+            return 0
+        }
+        acc = acc * 10 + int(c - '0')
+        i = i + 1
+    }
+    return acc
+}
+
+// keyIsParsed returns false only for Unknown() — every other variant is a
+// successful parse.
+func keyIsParsed(k Key) bool {
+    return k match {
+        case Unknown() => false
+        case _         => true
+    }
+}

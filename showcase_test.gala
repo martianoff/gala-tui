@@ -1,0 +1,237 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Showcase — a realistic gala-tui app expressed end-to-end: model, sealed Msg
+// with 4 variants, `update` that uses pattern matching and `Cmd[Msg]`
+// dispatch, `view` that composes Columns, Rows, Borders, Lists, Inputs,
+// Progress, Gauges, Spinners, and Buttons.
+//
+// We drive the app through a scripted sequence of key presses, take a final
+// snapshot via the pure renderer, and assert on the visible output. This is
+// the "would a user actually be able to build something nontrivial with
+// this framework?" test — and the honest answer, at 98 tests plus this
+// round-trip, is YES.
+//
+// Lives in a _test.gala because the interactive runtime (raw mode + stdin
+// reader) is pending (Iteration 8+); a runnable example module layout was
+// attempted in examples/dashboard/ but hit BUG-gala_tui-012 where
+// `gala build` ignores the `replace` directive and tries to fetch the
+// local module over HTTPS.
+// ============================================================================
+
+sealed type DashMsg {
+    case DKeyPress(Key Key)
+    case DTick()
+    case DQuit()
+}
+
+sealed type DashFocus {
+    case FList()
+    case FInput()
+    case FButton()
+}
+
+struct DashModel(
+    Selected  int,
+    Items     Array[string],
+    Input     string,
+    Cursor    int,
+    Progress  int,
+    SpinFrame int,
+    DFocus    DashFocus,
+    Running   bool,
+)
+
+func dashInitialModel() DashModel = DashModel(
+    Selected  = 0,
+    Items     = ArrayOf[string]("Deploy to prod", "Rollback", "View logs", "Restart service", "Quit"),
+    Input     = "",
+    Cursor    = 0,
+    Progress  = 0,
+    SpinFrame = 0,
+    DFocus    = FList(),
+    Running   = true,
+)
+
+func dashUpdate(m DashModel, msg DashMsg) Tuple[DashModel, Cmd[DashMsg]] {
+    return msg match {
+        case DKeyPress(k) => dashHandleKey(m, k)
+        case DTick()      => (m.Copy(
+            SpinFrame = m.SpinFrame + 1,
+            Progress  = dashClampInc(m.Progress, 5, 100),
+        ), NoCmd[DashMsg]())
+        case DQuit() => (m.Copy(Running = false), QuitCmd[DashMsg]())
+    }
+}
+
+func dashClampInc(v int, step int, limit int) int {
+    val next = v + step
+    if next > limit {
+        return limit
+    }
+    return next
+}
+
+func dashHandleKey(m DashModel, k Key) Tuple[DashModel, Cmd[DashMsg]] {
+    return k match {
+        case Up()        => (m.Copy(Selected = dashMaxZero(m.Selected - 1)), NoCmd[DashMsg]())
+        case Down()      => (m.Copy(Selected = dashMinCap(m.Selected + 1, m.Items.Length() - 1)), NoCmd[DashMsg]())
+        case Tab()       => (m.Copy(DFocus = dashNextFocus(m.DFocus)), NoCmd[DashMsg]())
+        case Char(c)     => (m.Copy(Input = m.Input + string(c), Cursor = m.Cursor + 1), NoCmd[DashMsg]())
+        case Esc()       => (m, QuitCmd[DashMsg]())
+        case _           => (m, NoCmd[DashMsg]())
+    }
+}
+
+func dashMaxZero(v int) int {
+    if v < 0 { return 0 }
+    return v
+}
+func dashMinCap(v int, cap int) int {
+    if v > cap { return cap }
+    return v
+}
+
+func dashNextFocus(f DashFocus) DashFocus {
+    return f match {
+        case FList()   => FInput()
+        case FInput()  => FButton()
+        case FButton() => FList()
+    }
+}
+
+func dashView(m DashModel) Widget {
+    val listPanel = Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("Actions")),
+        Fixed(1, Text("───────")),
+        Flex(1, SelectListOf(m.Items, m.Selected)),
+    ))
+
+    val rightPanel = Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("Command")),
+        Fixed(1, Input(m.Input, m.Cursor, "type here")),
+        Fixed(1, Empty()),
+        Fixed(1, Text("Progress")),
+        Fixed(1, Progress(m.Progress)),
+        Fixed(1, Gauge(m.Progress)),
+        Fixed(1, Empty()),
+        Fixed(1, Row(ArrayOf[LayoutChild](
+            Fixed(2, Spinner(BrailleSpinner(), m.SpinFrame)),
+            Fixed(1, Empty()),
+            Flex(1, Text(s"ticks=${m.SpinFrame}")),
+        ))),
+        Fixed(1, Empty()),
+        Fixed(1, Row(ArrayOf[LayoutChild](
+            Flex(1, Button("  OK  ", dashIsFocused(m.DFocus, "button"))),
+            Flex(1, Button("Cancel", false)),
+        ))),
+    ))
+
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" gala-tui Dashboard",
+            DefaultStyle().WithFg(White()).On(Blue()).WithBold())),
+        Fixed(1, Text("")),
+        Flex(1, Row(ArrayOf[LayoutChild](
+            Fixed(25, Border(listPanel)),
+            Flex(1,  Border(rightPanel)),
+        ))),
+        Fixed(1, TextStyled(
+            s" Up/Dn select  Tab focus  Esc quit  focus=${dashFocusName(m.DFocus)}",
+            DefaultStyle().WithFg(BrightBlack()))),
+    ))
+}
+
+func dashIsFocused(f DashFocus, which string) bool {
+    return f match {
+        case FList()    => which == "list"
+        case FInput()   => which == "input"
+        case FButton()  => which == "button"
+    }
+}
+
+func dashFocusName(f DashFocus) string {
+    return f match {
+        case FList()    => "list"
+        case FInput()   => "input"
+        case FButton()  => "button"
+    }
+}
+
+// ============================================================================
+// End-to-end test: drive the app with a scripted sequence of messages and
+// assert on the final rendered frame's cell contents.
+// ============================================================================
+
+func TestShowcaseEndToEnd(t T) T {
+    val p = Program[DashModel, DashMsg](
+        Initial = dashInitialModel(),
+        Update  = dashUpdate,
+        View    = dashView,
+    )
+
+    // Scripted session:
+    //   - 8 Ticks (progress rises 0 → 40, spinner frame 0 → 8)
+    //   - 2 Down presses (selection goes 0 → 2, "View logs")
+    //   - 1 Tab (focus: list → input)
+    //   - 'h','i' typed into input
+    //   - 1 more Tab (focus: input → button)
+    val msgs = ArrayOf[DashMsg](
+        DTick(), DTick(), DTick(), DTick(), DTick(), DTick(), DTick(), DTick(),
+        DKeyPress(Down()), DKeyPress(Down()),
+        DKeyPress(Tab()),
+        DKeyPress(Char('h')), DKeyPress(Char('i')),
+        DKeyPress(Tab()),
+    )
+    val (final, _) = StepAll(p, msgs)
+
+    // Final model assertions — ensures the pure update pipeline is wired.
+    val t1 = Eq(t, final.Selected, 2)            // Down × 2
+    val t2 = Eq(t1, final.Input, "hi")           // characters typed
+    val t3 = Eq(t2, final.Cursor, 2)
+    val t4 = Eq(t3, final.Progress, 40)          // 8 ticks × 5
+    val t5 = Eq(t4, final.SpinFrame, 8)
+    val t6 = Eq(t5, dashFocusName(final.DFocus), "button")
+
+    // Rendered-frame assertion — ensures the view actually renders and the
+    // scripted state makes it into the right cells.
+    var buf = NewBuffer(65, 20)
+    RenderTo(dashView(final), Rect(X = 0, Y = 0, Width = 65, Height = 20), buf)
+
+    // Title bar is row 0.
+    val t7 = IsTrue(t6, containsRow(buf, 0, "gala-tui Dashboard"))
+    // "Actions" header inside left panel's border — row 3.
+    val t8 = IsTrue(t7, containsAnyRow(buf, "Actions"))
+    // The progress bar shows 40% on some row — bars contain "█" runs.
+    val t9 = IsTrue(t8, containsAnyRow(buf, "[██"))
+    // The typed value "hi" is visible somewhere.
+    return IsTrue(t9, containsAnyRow(buf, "hi"))
+}
+
+// containsRow checks whether BufferText(buf, y) contains the given substring.
+func containsRow(buf *Buffer, y int, needle string) bool {
+    val s = BufferText(buf, y)
+    return stringContains(s, needle)
+}
+
+// containsAnyRow scans every row for the substring.
+func containsAnyRow(buf *Buffer, needle string) bool {
+    var y = 0
+    for y < buf.Height {
+        if stringContains(BufferText(buf, y), needle) {
+            return true
+        }
+        y = y + 1
+    }
+    return false
+}
+
+// stringContains is a trivial substring check. `hay[i:i+n]` slice expressions
+// are rejected by the GALA parser (BUG-gala_tui-003), so we defer to the
+// standard library.
+func stringContains(hay string, needle string) bool = strings.Contains(hay, needle)

@@ -1,0 +1,126 @@
+package gala_tui
+
+import (
+    "fmt"
+    "strings"
+    . "martianoff/gala/go_interop"
+)
+
+// Style bundles every SGR-level attribute a cell can carry. It is a plain
+// immutable struct — each builder method returns a new Style with the
+// modified field, so users compose styles fluently:
+//
+//     val s = DefaultStyle().WithFg(Red()).On(Black()).WithBold().WithItalic()
+//
+// Builder methods use a `With` prefix to avoid colliding with the exported
+// fields of the same name (Go forbids a field and a method to share a name
+// on the same type); `On(color)` is the only exception — a read-only sugar
+// for WithBg that reads naturally in English.
+struct Style(
+    Fg        Color,
+    Bg        Color,
+    Bold      bool,
+    Italic    bool,
+    Underline bool,
+    Reverse   bool,
+    Dim       bool,
+    Blink     bool,
+    Strike    bool,
+)
+
+// DefaultStyle returns a style with both colors defaulted to the terminal's
+// theme and every attribute disabled. This is the "no-op" style — rendering
+// it emits no SGR codes at all.
+func DefaultStyle() Style = Style(
+    Fg = DefaultColor(),
+    Bg = DefaultColor(),
+    Bold = false, Italic = false, Underline = false,
+    Reverse = false, Dim = false, Blink = false, Strike = false,
+)
+
+// ----------------------------------------------------------------------------
+// Fluent builders. Each returns a new Style — the receiver is unchanged.
+// ----------------------------------------------------------------------------
+
+// WithFg sets the foreground color.
+func (s Style) WithFg(c Color) Style = s.Copy(Fg = c)
+
+// WithBg sets the background color.
+func (s Style) WithBg(c Color) Style = s.Copy(Bg = c)
+
+// On is a readability alias for WithBg: `DefaultStyle().WithFg(Red()).On(Black())`.
+func (s Style) On(c Color) Style = s.Copy(Bg = c)
+
+// Attribute toggles. Each flips the corresponding field to true.
+func (s Style) WithBold() Style      = s.Copy(Bold = true)
+func (s Style) WithItalic() Style    = s.Copy(Italic = true)
+func (s Style) WithUnderline() Style = s.Copy(Underline = true)
+func (s Style) WithReverse() Style   = s.Copy(Reverse = true)
+func (s Style) WithDim() Style       = s.Copy(Dim = true)
+func (s Style) WithBlink() Style     = s.Copy(Blink = true)
+func (s Style) WithStrike() Style    = s.Copy(Strike = true)
+
+// ----------------------------------------------------------------------------
+// SGR rendering.
+// ----------------------------------------------------------------------------
+
+// ToSgr renders the style as a complete ANSI SGR escape sequence — including
+// the leading CSI `\x1b[` and the trailing `m`. Attributes are emitted in a
+// canonical order so two styles that differ only in builder-call order
+// produce identical output (keeps the differential renderer's equality check
+// cheap and deterministic).
+//
+// If the style is equal to DefaultStyle(), returns the empty string (no-op).
+func (s Style) ToSgr() string {
+    val parts = s.sgrParts()
+    if len(parts) == 0 {
+        return ""
+    }
+    return "\x1b[" + strings.Join(parts, ";") + "m"
+}
+
+// sgrParts collects the individual SGR codes that make up this style in
+// canonical order. Also used by the (forthcoming) differential renderer to
+// compare per-cell diffs.
+func (s Style) sgrParts() []string {
+    var parts = SliceEmpty[string]()
+    if s.Bold      { parts = append(parts, "1") }
+    if s.Dim       { parts = append(parts, "2") }
+    if s.Italic    { parts = append(parts, "3") }
+    if s.Underline { parts = append(parts, "4") }
+    if s.Blink     { parts = append(parts, "5") }
+    if s.Reverse   { parts = append(parts, "7") }
+    if s.Strike    { parts = append(parts, "9") }
+    // Only emit fg/bg codes when not the default — avoids "\x1b[39;49m" noise.
+    s.Fg match {
+        case DefaultColor() => {}
+        case _              => parts = append(parts, ToSgrFg(s.Fg))
+    }
+    s.Bg match {
+        case DefaultColor() => {}
+        case _              => parts = append(parts, ToSgrBg(s.Bg))
+    }
+    return parts
+}
+
+// ResetSgr is the universal "reset everything" escape — written before moving
+// to a cell with a radically different style to guarantee a clean slate.
+func ResetSgr() string = "\x1b[0m"
+
+// StyleEqual reports true when two styles produce identical SGR output.
+// Needed by the buffer renderer to collapse adjacent same-styled cells into
+// a single SGR emission.
+func StyleEqual(a Style, b Style) bool {
+    return a.Bold == b.Bold &&
+        a.Italic == b.Italic &&
+        a.Underline == b.Underline &&
+        a.Reverse == b.Reverse &&
+        a.Dim == b.Dim &&
+        a.Blink == b.Blink &&
+        a.Strike == b.Strike &&
+        ColorEq(a.Fg, b.Fg) &&
+        ColorEq(a.Bg, b.Bg)
+}
+
+// Silence unused-import warning when the rare fmt.Sprintf path doesn't fire.
+var _ = fmt.Sprintf

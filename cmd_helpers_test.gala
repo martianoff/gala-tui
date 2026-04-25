@@ -1,0 +1,138 @@
+package gala_tui
+
+import (
+    "os"
+    . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
+)
+
+sealed type HMsg {
+    case HVal(V int)
+    case HOk(Contents string)
+    case HErr(Msg string)
+    case HDone()
+}
+
+// ----------------------------------------------------------------------------
+// AfterDelay — produces a Cmd that fires after the specified duration.
+// ----------------------------------------------------------------------------
+
+func TestAfterDelayYieldsFutureCmd(t T) T {
+    val cmd = AfterDelay[HMsg](Milliseconds(5), () => HDone())
+    return Eq(t, PendingFutures(cmd).Length(), 1)
+}
+
+func TestAfterDelayCompletesOnAwait(t T) T {
+    val cmd = AfterDelay[HMsg](Milliseconds(5), () => HVal(V = 42))
+    val futures = PendingFutures(cmd)
+    // Await the underlying future — the helper was supposed to resolve to HVal(42).
+    val tr = futures.Get(0).Await()
+    val t1 = IsTrue(t, tr.IsSuccess())
+    val msg = tr.Get()
+    return IsTrue(t1, isHValEqual(msg, 42))
+}
+
+// ----------------------------------------------------------------------------
+// Async — fire-and-forget background compute.
+// ----------------------------------------------------------------------------
+
+func TestAsyncComputesAndWrapsResult(t T) T {
+    val cmd = Async[int, HMsg](() => 7 * 6, (n) => HVal(V = n))
+    val futures = PendingFutures(cmd)
+    val tr = futures.Get(0).Await()
+    val msg = tr.Get()
+    return IsTrue(t, isHValEqual(msg, 42))
+}
+
+// ----------------------------------------------------------------------------
+// AsyncTry — explicit success + failure paths.
+// ----------------------------------------------------------------------------
+
+func TestAsyncTryOkRoute(t T) T {
+    val cmd = AsyncTry[string, HMsg](
+        () => "hello",
+        (s) => HOk(Contents = s),
+        (e) => HErr(Msg = e.Error()),
+    )
+    val tr = PendingFutures(cmd).Get(0).Await()
+    val msg = tr.Get()
+    val isOk = msg match {
+        case HOk(c) => c == "hello"
+        case _      => false
+    }
+    return IsTrue(t, isOk)
+}
+
+func TestAsyncTryFailurePathRecovers(t T) T {
+    val cmd = AsyncTry[int, HMsg](
+        () => panickingComputation(),
+        (n) => HVal(V = n),
+        (e) => HErr(Msg = e.Error()),
+    )
+    val tr = PendingFutures(cmd).Get(0).Await()
+    // Recover means the future should still be successful — but carry HErr.
+    val t1 = IsTrue(t, tr.IsSuccess())
+    val msg = tr.Get()
+    val isErr = msg match {
+        case HErr(_) => true
+        case _       => false
+    }
+    return IsTrue(t1, isErr)
+}
+
+// ----------------------------------------------------------------------------
+// ReadFileCmd / WriteFileCmd — round-trip through a temp file.
+// ----------------------------------------------------------------------------
+
+func TestWriteThenReadFileCmd(t T) T {
+    val path = tempFilePath("gala_tui_hcmd_test")
+    val writeCmd = WriteFileCmd[HMsg](path, "gala rocks",
+        () => HDone(), (e) => HErr(Msg = e.Error()))
+    val wTr = PendingFutures(writeCmd).Get(0).Await()
+    val t1 = IsTrue(t, wTr.IsSuccess())
+
+    val readCmd = ReadFileCmd[HMsg](path,
+        (s) => HOk(Contents = s), (e) => HErr(Msg = e.Error()))
+    val rTr = PendingFutures(readCmd).Get(0).Await()
+    val msg = rTr.Get()
+    val isHelloPayload = msg match {
+        case HOk(c) => c == "gala rocks"
+        case _      => false
+    }
+    // Clean up.
+    os.Remove(path)
+    return IsTrue(t1, isHelloPayload)
+}
+
+func TestReadFileCmdMissingFileRoutesErr(t T) T {
+    val readCmd = ReadFileCmd[HMsg]("no/such/file.txt.xyz",
+        (s) => HOk(Contents = s), (e) => HErr(Msg = e.Error()))
+    val tr = PendingFutures(readCmd).Get(0).Await()
+    val msg = tr.Get()
+    val isErr = msg match {
+        case HErr(_) => true
+        case _       => false
+    }
+    return IsTrue(t, isErr)
+}
+
+// ----------------------------------------------------------------------------
+// Helpers.
+// ----------------------------------------------------------------------------
+
+func isHValEqual(m HMsg, v int) bool {
+    return m match {
+        case HVal(n) => n == v
+        case _       => false
+    }
+}
+
+func panickingComputation() int {
+    panic("boom")
+    return 0
+}
+
+func tempFilePath(name string) string {
+    var dir = os.TempDir()
+    return dir + "/" + name + ".tmp"
+}

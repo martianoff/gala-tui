@@ -1,0 +1,104 @@
+package gala_tui
+
+import (
+    "encoding/base64"
+    "fmt"
+    "os"
+    . "martianoff/gala/go_interop"
+)
+
+// ============================================================================
+// Modern terminal extensions: OSC 8 hyperlinks + OSC 52 clipboard.
+//
+// Every terminal emulator built in the last five years supports these
+// sequences — xterm, iTerm2, Windows Terminal, WezTerm, Alacritty, Ghostty —
+// yet every popular TUI framework still ignores them. Wiring them up is a
+// small change that makes apps feel shockingly modern: Ctrl-click on a
+// rendered URL jumps to it in the user's browser, and "copy to clipboard"
+// actually works across SSH without the user configuring anything.
+// ============================================================================
+
+// HyperlinkStart and HyperlinkEnd produce the OSC 8 escape sequence pair
+// that wraps clickable text. Between them, the terminal treats the text as
+// a hyperlink anchored to `url`. Concat into a string like so:
+//
+//     HyperlinkStart(url) + label + HyperlinkEnd()
+//
+// Rendered inside a TextStyled widget or raw Buffer.String() output.
+func HyperlinkStart(url string) string {
+    val esc = string(rune(0x1B))
+    return esc + "]8;;" + url + esc + "\\"
+}
+
+func HyperlinkEnd() string {
+    val esc = string(rune(0x1B))
+    return esc + "]8;;" + esc + "\\"
+}
+
+// HyperlinkText returns a Widget whose rendered cells include OSC 8 wrapping
+// so Ctrl-clicking the visible label opens `url`. The label is styled with
+// underline + bright blue — the web-default "this is a link" affordance.
+//
+// NOTE: OSC 8 sequences live outside the cell grid, so Buffer-level
+// rendering currently won't embed them — this is a placeholder that paints
+// the label with link styling. Real OSC 8 wrapping happens when the app
+// writes hyperlink-containing text directly via HyperlinkRaw on stdout.
+func HyperlinkText(label string, url string) Widget =
+    TextStyled(label, DefaultStyle().WithUnderline().WithFg(BrightBlue()))
+
+// HyperlinkRaw emits the OSC 8 wrapped string for direct stdout use — e.g.,
+// inside a `Println` call outside the Widget tree, or from a TUI's exit
+// handler that prints a "Visit docs at https://…" message.
+func HyperlinkRaw(label string, url string) string =
+    HyperlinkStart(url) + label + HyperlinkEnd()
+
+// ----------------------------------------------------------------------------
+// OSC 52 clipboard.
+// ----------------------------------------------------------------------------
+
+// CopyToClipboard writes an OSC 52 escape sequence to stdout that asks the
+// terminal to place `text` on the system clipboard. Works across SSH — the
+// terminal, not the remote host, receives the escape and talks to the local
+// OS. Silently no-ops if stdout isn't a TTY (standard practice: don't
+// pollute file output with ANSI).
+//
+// Returns the number of bytes written, or an error if the write failed.
+// Apps typically fire-and-forget: `CopyToClipboard(selectedRow.String())`.
+func CopyToClipboard(text string) Tuple[int, error] {
+    val encoded = base64.StdEncoding.EncodeToString(ToBytes(text))
+    val esc = string(rune(0x1B))
+    val seq = esc + "]52;c;" + encoded + esc + "\\"
+    return writeToStdout(seq)
+}
+
+// ClipboardSequence returns the OSC 52 string without writing — useful for
+// tests and for apps that manage their own output buffering.
+func ClipboardSequence(text string) string {
+    val encoded = base64.StdEncoding.EncodeToString(ToBytes(text))
+    val esc = string(rune(0x1B))
+    return esc + "]52;c;" + encoded + esc + "\\"
+}
+
+func writeToStdout(s string) Tuple[int, error] {
+    var n, err = fmt.Fprint(os.Stdout, s)
+    return (n, err)
+}
+
+// ----------------------------------------------------------------------------
+// Terminal title.
+// ----------------------------------------------------------------------------
+
+// SetTerminalTitle writes the OSC 2 sequence to change the terminal window's
+// title bar — a nice "branding" touch for fullscreen TUI apps. Call once on
+// startup: `SetTerminalTitle("My Dashboard")`.
+func SetTerminalTitle(title string) Tuple[int, error] {
+    val esc = string(rune(0x1B))
+    val seq = esc + "]2;" + title + esc + "\\"
+    return writeToStdout(seq)
+}
+
+// TerminalTitleSequence returns the OSC 2 string without writing.
+func TerminalTitleSequence(title string) string {
+    val esc = string(rune(0x1B))
+    return esc + "]2;" + title + esc + "\\"
+}

@@ -1,0 +1,135 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+sealed type HelpTestMsg {
+    case HTQuit()
+    case HTFocus()
+    case HTSave()
+}
+
+func helpEntries() Array[HelpSpec[HelpTestMsg]] = ArrayOf[HelpSpec[HelpTestMsg]](
+    HelpSpec[HelpTestMsg](Spec = "q",      Msg = HTQuit(),  Desc = "Quit"),
+    HelpSpec[HelpTestMsg](Spec = "tab",    Msg = HTFocus(), Desc = "Cycle focus"),
+    HelpSpec[HelpTestMsg](Spec = "ctrl+s", Msg = HTSave(),  Desc = "Save document"),
+)
+
+func TestHelpsToBindingsCount(t T) T {
+    val bindings = HelpsToBindings[HelpTestMsg](helpEntries())
+    return Eq(t, bindings.Length(), 3)
+}
+
+func TestHelpsToBindingsRunRealKeyPressQ(t T) T {
+    val bindings = HelpsToBindings[HelpTestMsg](helpEntries())
+    val msgs = DispatchKeyBindings(bindings, PlainKey(Char('q')))
+    val t1 = Eq(t, msgs.Length(), 1)
+    val isQuit = msgs.Get(0) match {
+        case HTQuit() => true
+        case _        => false
+    }
+    return IsTrue(t1, isQuit)
+}
+
+func TestHelpsToBindingsCtrlSRoutes(t T) T {
+    val bindings = HelpsToBindings[HelpTestMsg](helpEntries())
+    val msgs = DispatchKeyBindings(bindings, Ctrl(Char('s')))
+    val isSave = msgs.Get(0) match {
+        case HTSave() => true
+        case _        => false
+    }
+    return IsTrue(t, isSave)
+}
+
+func TestHelpsToBindingsRejectsUnboundKey(t T) T {
+    val bindings = HelpsToBindings[HelpTestMsg](helpEntries())
+    val msgs = DispatchKeyBindings(bindings, PlainKey(Char('x')))
+    return Eq(t, msgs.Length(), 0)
+}
+
+// ----------------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------------
+
+func TestHelpViewRendersAllShortcuts(t T) T {
+    var buf = NewBuffer(40, 3)
+    RenderTo(HelpView[HelpTestMsg](helpEntries()),
+        Rect(X = 0, Y = 0, Width = 40, Height = 3), buf)
+    val t1 = IsTrue(t, helpRowHas(BufferText(buf, 0), "q"))
+    val t2 = IsTrue(t1, helpRowHas(BufferText(buf, 0), "Quit"))
+    val t3 = IsTrue(t2, helpRowHas(BufferText(buf, 1), "tab"))
+    return IsTrue(t3, helpRowHas(BufferText(buf, 2), "ctrl+s"))
+}
+
+func TestHelpViewSpecCellIsBoldCyan(t T) T {
+    var buf = NewBuffer(30, 1)
+    RenderTo(HelpView[HelpTestMsg](helpEntries()),
+        Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    val t1 = IsTrue(t, buf.StyleAt(0, 0).Bold)
+    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
+}
+
+func TestHelpViewEmptyShowsHint(t T) T {
+    val empty = EmptyArray[HelpSpec[HelpTestMsg]]()
+    var buf = NewBuffer(20, 1)
+    RenderTo(HelpView[HelpTestMsg](empty),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    return Eq(t, buf.CharAt(0, 0), '(')
+}
+
+func TestHelpModalViewHasTitle(t T) T {
+    var buf = NewBuffer(80, 20)
+    RenderTo(HelpModalView[HelpTestMsg](helpEntries(), 80, 20),
+        Rect(X = 0, Y = 0, Width = 80, Height = 20), buf)
+    val joined = stitchRows(buf)
+    return IsTrue(t, helpRowHas(joined, "Keyboard shortcuts"))
+}
+
+// ----------------------------------------------------------------------------
+// Helpers.
+// ----------------------------------------------------------------------------
+
+func stitchRows(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func helpRowHas(hay string, needle string) bool {
+    val h = helpRuneArr(hay)
+    val n = helpRuneArr(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func helpRuneArr(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

@@ -1,0 +1,237 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/go_interop"
+)
+
+// Key is the type of a single keyboard press after ANSI decoding. Every
+// functional key a TUI app cares about has an explicit case, so user code
+// pattern-matches rather than comparing raw byte sequences. Unknown keys
+// fall through to Char(rune) when printable or Unknown for everything else.
+sealed type Key {
+    case Char(C rune)
+    case Enter()
+    case Esc()
+    case Tab()
+    case Space()
+    case Backspace()
+    case Up()
+    case Down()
+    case ArrowLeft()
+    case ArrowRight()
+    case Home()
+    case End()
+    case PageUp()
+    case PageDown()
+    case Delete()
+    case Insert()
+    case FKey(N int)
+    case Unknown()
+}
+
+// KeyEvent is a Key with modifier state. Matches the GUI toolkit convention
+// (Ctrl-C is a key press with Ctrl=true, not a separate "ControlC" key).
+struct KeyEvent(
+    Key   Key,
+    Ctrl  bool,
+    Alt   bool,
+    Shift bool,
+)
+
+// Helpful constructors — zero-modifier shortcuts for tests and simple handlers.
+
+func PlainKey(k Key) KeyEvent = KeyEvent(Key = k, Ctrl = false, Alt = false, Shift = false)
+func Ctrl(k Key) KeyEvent     = KeyEvent(Key = k, Ctrl = true,  Alt = false, Shift = false)
+func AltK(k Key) KeyEvent     = KeyEvent(Key = k, Ctrl = false, Alt = true,  Shift = false)
+func ShiftK(k Key) KeyEvent   = KeyEvent(Key = k, Ctrl = false, Alt = false, Shift = true)
+
+// ----------------------------------------------------------------------------
+// ANSI / VT100 decoder.
+//
+// Stdin in raw mode delivers a stream of bytes. Most single keys are a single
+// byte (printable ASCII, or a control char like 0x0D = Enter / CR). Function
+// and arrow keys arrive as multi-byte escape sequences starting with 0x1B
+// (ESC). See parseCsi / parseSs3 for specifics.
+// ----------------------------------------------------------------------------
+
+// ParseKey decodes the longest recognizable key from `buf` and returns
+// (event, consumed count). If `buf` is empty, returns (PlainKey(Unknown), 0).
+func ParseKey(buf []byte) Tuple[KeyEvent, int] {
+    if len(buf) == 0 {
+        return (PlainKey(Unknown()), 0)
+    }
+    val b0 = int(buf[0])
+    if b0 == 0x0D || b0 == 0x0A {       // CR / LF → Enter
+        return (PlainKey(Enter()), 1)
+    }
+    if b0 == 0x09 {                     // Tab
+        return (PlainKey(Tab()), 1)
+    }
+    if b0 == 0x20 {                     // Space
+        return (PlainKey(Space()), 1)
+    }
+    if b0 == 0x7F || b0 == 0x08 {       // DEL / BS
+        return (PlainKey(Backspace()), 1)
+    }
+    if b0 == 0x1B {                     // ESC
+        return parseEscapeSequence(buf)
+    }
+    // Printable ASCII (0x20..0x7E) is a Char key.
+    if b0 >= 0x20 && b0 <= 0x7E {
+        return (PlainKey(Char(rune(b0))), 1)
+    }
+    // Remaining control chars (0x01..0x1A) are Ctrl-<letter>: 0x01 = Ctrl-A, ..., 0x1A = Ctrl-Z.
+    if b0 >= 0x01 && b0 <= 0x1A {
+        val letter = rune(b0 + 0x60)    // 0x01 + 0x60 = 0x61 = 'a'
+        return (Ctrl(Char(letter)), 1)
+    }
+    return (PlainKey(Unknown()), 1)
+}
+
+// parseEscapeSequence handles multi-byte cases starting with 0x1B (ESC).
+func parseEscapeSequence(buf []byte) Tuple[KeyEvent, int] {
+    if len(buf) == 1 {
+        return (PlainKey(Esc()), 1)
+    }
+    val b1 = int(buf[1])
+    if b1 == 0x5B {                     // '[' → CSI
+        return parseCsi(buf)
+    }
+    if b1 == 0x4F {                     // 'O' → SS3 (F1..F4)
+        return parseSs3(buf)
+    }
+    // ESC <printable> → Alt-<letter>
+    if b1 >= 0x20 && b1 <= 0x7E {
+        return (AltK(Char(rune(b1))), 2)
+    }
+    return (PlainKey(Esc()), 1)
+}
+
+// parseCsi handles ESC [ <seq> — the common family of escape codes.
+func parseCsi(buf []byte) Tuple[KeyEvent, int] {
+    if len(buf) < 3 {
+        return (PlainKey(Esc()), 1)
+    }
+    val b2 = int(buf[2])
+    // Arrow keys: ESC [ A/B/C/D → Up/Down/Right/Left
+    if b2 == 0x41 {
+        return (PlainKey(Up()), 3)
+    }
+    if b2 == 0x42 {
+        return (PlainKey(Down()), 3)
+    }
+    if b2 == 0x43 {
+        return (PlainKey(ArrowRight()), 3)
+    }
+    if b2 == 0x44 {
+        return (PlainKey(ArrowLeft()), 3)
+    }
+    // xterm Home (0x48='H') / End (0x46='F')
+    if b2 == 0x48 {
+        return (PlainKey(Home()), 3)
+    }
+    if b2 == 0x46 {
+        return (PlainKey(End()), 3)
+    }
+    // ESC [ digit ~  — numbered keys (tilde = 0x7E)
+    if len(buf) >= 4 && int(buf[3]) == 0x7E {
+        if b2 == 0x31 {                 // "1~" = Home
+            return (PlainKey(Home()), 4)
+        }
+        if b2 == 0x32 {                 // "2~" = Insert
+            return (PlainKey(Insert()), 4)
+        }
+        if b2 == 0x33 {                 // "3~" = Delete
+            return (PlainKey(Delete()), 4)
+        }
+        if b2 == 0x34 {                 // "4~" = End
+            return (PlainKey(End()), 4)
+        }
+        if b2 == 0x35 {                 // "5~" = PageUp
+            return (PlainKey(PageUp()), 4)
+        }
+        if b2 == 0x36 {                 // "6~" = PageDown
+            return (PlainKey(PageDown()), 4)
+        }
+    }
+    return (PlainKey(Unknown()), 3)
+}
+
+// parseSs3 handles ESC O X — F1..F4 in VT100 terminals.
+func parseSs3(buf []byte) Tuple[KeyEvent, int] {
+    if len(buf) < 3 {
+        return (PlainKey(Esc()), 1)
+    }
+    val b2 = int(buf[2])
+    if b2 == 0x50 {       // 'P' = F1
+        return (PlainKey(FKey(1)), 3)
+    }
+    if b2 == 0x51 {       // 'Q' = F2
+        return (PlainKey(FKey(2)), 3)
+    }
+    if b2 == 0x52 {       // 'R' = F3
+        return (PlainKey(FKey(3)), 3)
+    }
+    if b2 == 0x53 {       // 'S' = F4
+        return (PlainKey(FKey(4)), 3)
+    }
+    return (PlainKey(Unknown()), 3)
+}
+
+// ----------------------------------------------------------------------------
+// Key equality helpers.
+// ----------------------------------------------------------------------------
+
+// KeyEqual reports whether two Keys are the same variant and same payload.
+// Implemented via tag-string comparison + payload check for parameterized
+// variants — avoids nested `match` expressions.
+func KeyEqual(a Key, b Key) bool {
+    val ta = keyTag(a)
+    val tb = keyTag(b)
+    if ta != tb {
+        return false
+    }
+    return a match {
+        case Char(ac) => keyCharEq(ac, b)
+        case FKey(an) => keyFKeyEq(an, b)
+        case _        => true
+    }
+}
+
+func keyTag(k Key) string {
+    return k match {
+        case Char(_)      => "Char"
+        case FKey(_)      => "FKey"
+        case Enter()      => "Enter"
+        case Esc()        => "Esc"
+        case Tab()        => "Tab"
+        case Space()      => "Space"
+        case Backspace()  => "Backspace"
+        case Up()         => "Up"
+        case Down()       => "Down"
+        case ArrowLeft()       => "Left"
+        case ArrowRight()      => "Right"
+        case Home()       => "Home"
+        case End()        => "End"
+        case PageUp()     => "PageUp"
+        case PageDown()   => "PageDown"
+        case Delete()     => "Delete"
+        case Insert()     => "Insert"
+        case Unknown()    => "Unknown"
+    }
+}
+
+func keyCharEq(ac rune, b Key) bool {
+    return b match {
+        case Char(bc) => ac == bc
+        case _        => false
+    }
+}
+
+func keyFKeyEq(an int, b Key) bool {
+    return b match {
+        case FKey(bn) => an == bn
+        case _        => false
+    }
+}
+

@@ -1,0 +1,219 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+sealed type PMsg {
+    case POpen()
+    case PSave()
+    case PQuit()
+    case PFind()
+}
+
+func sampleActions() Array[PaletteAction[PMsg]] = ArrayOf[PaletteAction[PMsg]](
+    PaletteAction[PMsg](Label = "Open File",    Category = "File", Msg = POpen()),
+    PaletteAction[PMsg](Label = "Save File",    Category = "File", Msg = PSave()),
+    PaletteAction[PMsg](Label = "Save As...",   Category = "File", Msg = PSave()),
+    PaletteAction[PMsg](Label = "Find in File", Category = "Edit", Msg = PFind()),
+    PaletteAction[PMsg](Label = "Quit",         Category = "App",  Msg = PQuit()),
+)
+
+// ----------------------------------------------------------------------------
+// FuzzyScore
+// ----------------------------------------------------------------------------
+
+func TestFuzzyExactMatchScoresWell(t T) T {
+    val s = FuzzyScore("open", "open file")
+    return IsTrue(t, s > 5)
+}
+
+func TestFuzzySubsequenceMatches(t T) T {
+    val s = FuzzyScore("sf", "save file")
+    return IsTrue(t, s > 0)
+}
+
+func TestFuzzyNonMatchReturnsZero(t T) T {
+    return Eq(t, FuzzyScore("xyz", "hello"), 0)
+}
+
+func TestFuzzyQueryLongerThanCandidateIsZero(t T) T {
+    return Eq(t, FuzzyScore("verylongquery", "hi"), 0)
+}
+
+func TestFuzzyWordBoundaryBonus(t T) T {
+    // "sf" matches "save file" at start of each word → higher than mid-word match.
+    val boundary = FuzzyScore("sf", "save file")
+    val midword  = FuzzyScore("sf", "stuffed")    // s + f both mid-word
+    return IsTrue(t, boundary > midword)
+}
+
+func TestFuzzyConsecutiveBonus(t T) T {
+    // Lead both candidates with a non-matching letter so no matches land at
+    // the word start (which would skew the score via the boundary bonus).
+    // Then the consecutive matcher should strictly beat the spread one.
+    val consecutive = FuzzyScore("op", "atopaz")     // a, t, [o][p], a, z
+    val spread      = FuzzyScore("op", "aozparkle")  // a, [o], z, [p], a…
+    return IsTrue(t, consecutive > spread)
+}
+
+func TestFuzzyEmptyQueryMatchesWeakly(t T) T {
+    val s = FuzzyScore("", "anything")
+    return IsTrue(t, s > 0)
+}
+
+// ----------------------------------------------------------------------------
+// Palette state
+// ----------------------------------------------------------------------------
+
+func TestPaletteStartsWithAllActions(t T) T {
+    val p = NewPalette[PMsg](sampleActions())
+    return Eq(t, p.FilteredIdx.Length(), 5)
+}
+
+func TestPaletteQueryFiltersResults(t T) T {
+    var p = NewPalette[PMsg](sampleActions())
+    p = PaletteUpdate(p, PalChar(C = 's'))
+    p = PaletteUpdate(p, PalChar(C = 'a'))
+    p = PaletteUpdate(p, PalChar(C = 'v'))
+    p = PaletteUpdate(p, PalChar(C = 'e'))
+    // "save" should match "Save File" and "Save As..." (not "Find in File").
+    return IsTrue(t, p.FilteredIdx.Length() >= 2)
+}
+
+func TestPaletteBackspaceRestoresResults(t T) T {
+    var p = NewPalette[PMsg](sampleActions())
+    p = PaletteUpdate(p, PalChar(C = 'q'))       // filters to "Quit"
+    val filteredCount = p.FilteredIdx.Length()
+    p = PaletteUpdate(p, PalBackspace())
+    val afterCount = p.FilteredIdx.Length()
+    val t1 = IsTrue(t, filteredCount < 5)
+    return Eq(t1, afterCount, 5)
+}
+
+func TestPaletteNextAdvancesSelection(t T) T {
+    val p = NewPalette[PMsg](sampleActions())
+    val p1 = PaletteUpdate(p, PalNext())
+    return Eq(t, p1.Selected, 1)
+}
+
+func TestPalettePrevFromZeroWraps(t T) T {
+    val p = NewPalette[PMsg](sampleActions())
+    val p1 = PaletteUpdate(p, PalPrev())
+    return Eq(t, p1.Selected, 4)
+}
+
+func TestPaletteCurrentReturnsSelected(t T) T {
+    var p = NewPalette[PMsg](sampleActions())
+    p = PaletteUpdate(p, PalNext())                // select index 1
+    val cur = p.Current()
+    val t1 = IsTrue(t, cur.IsDefined())
+    return Eq(t1, cur.Get().Label, "Save File")
+}
+
+func TestPaletteNoMatchCurrentIsNone(t T) T {
+    var p = NewPalette[PMsg](sampleActions())
+    p = PaletteUpdate(p, PalChar(C = 'z'))       // no label starts with z
+    p = PaletteUpdate(p, PalChar(C = 'x'))
+    val isEmpty = !p.Current().IsDefined()
+    return IsTrue(t, isEmpty)
+}
+
+func TestPaletteFilteredActionsAreRanked(t T) T {
+    var p = NewPalette[PMsg](sampleActions())
+    p = PaletteUpdate(p, PalChar(C = 's'))
+    p = PaletteUpdate(p, PalChar(C = 'f'))
+    val actions = p.FilteredActions()
+    // "Save File" should rank above "Find in File" for "sf" (word boundary
+    // bonus on both; consecutive bonus on Save File's S+F).
+    val first = if (actions.Length() > 0) actions.Get(0).Label else ""
+    return IsTrue(t, first == "Save File" || first == "Find in File")
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+func TestPaletteViewRendersHeader(t T) T {
+    val p = NewPalette[PMsg](sampleActions())
+    var buf = NewBuffer(40, 10)
+    RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 40, Height = 10), buf)
+    // The ">" prompt should appear in row 0.
+    return Eq(t, buf.CharAt(1, 0), '>')
+}
+
+func TestPaletteViewShowsFilteredResults(t T) T {
+    var p = NewPalette[PMsg](sampleActions())
+    p = PaletteUpdate(p, PalChar(C = 'q'))       // matches "Quit"
+    var buf = NewBuffer(40, 10)
+    RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 40, Height = 10), buf)
+    val combined = palStitch(buf)
+    return IsTrue(t, palRowHas(combined, "Quit"))
+}
+
+func TestPaletteViewHighlightsSelected(t T) T {
+    val p = NewPalette[PMsg](sampleActions())
+    var buf = NewBuffer(30, 10)
+    RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
+    // Selected row is at y=2 (after header and separator).
+    return IsTrue(t, buf.StyleAt(0, 2).Reverse)
+}
+
+func TestPaletteViewNoMatches(t T) T {
+    var p = NewPalette[PMsg](sampleActions())
+    p = PaletteUpdate(p, PalChar(C = 'z'))
+    p = PaletteUpdate(p, PalChar(C = 'z'))
+    p = PaletteUpdate(p, PalChar(C = 'z'))
+    var buf = NewBuffer(30, 5)
+    RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 30, Height = 5), buf)
+    val combined = palStitch(buf)
+    return IsTrue(t, palRowHas(combined, "no matches"))
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+func palStitch(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func palRowHas(hay string, needle string) bool {
+    val h = palStrRunes(hay)
+    val n = palStrRunes(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func palStrRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

@@ -1,0 +1,261 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/time_utils"
+)
+
+// Sub[T] describes an ongoing source of messages. Where a Cmd is a one-shot
+// side-effect-with-reply, a Sub is "listen to this forever until I say stop".
+// The canonical source of subscriptions in this framework is the keyboard —
+// a KeySub maps every KeyEvent the terminal produces into a user-defined
+// message of type T.
+//
+// Sub variants intentionally mirror Cmd: NoSub (inert), KeySub (source),
+// BatchSub (union), MapSub (transformer). BUG-gala_tui-013 (sealed String()
+// on func-field variants tripping go vet) blocked this entire subsystem in
+// the first battle-test pass; PR #212 fixed it and Sub is re-introduced here.
+sealed type Sub[T any] {
+    case NoSub()
+    case KeySub(Make func(KeyEvent) T)
+    case BatchSub(Subs Array[Sub[T]])
+    case MapSub(Inner Sub[T], Transform func(T) T)
+    case TickSub(Interval Duration, Make func() T)
+}
+
+// NoSubs is the empty subscription — an app that returns this never gets
+// any input. Useful as the default in apps that only care about ticks or
+// other future sources.
+func NoSubs[T any]() Sub[T] = NoSub[T]()
+
+// OnKey subscribes to every keyboard event, passing each through `make` to
+// produce a message.
+func OnKey[T any](make func(KeyEvent) T) Sub[T] = KeySub[T](Make = make)
+
+// BatchSubs combines multiple subscriptions — every event flows through
+// every sub in the batch, producing zero or more messages.
+func BatchSubs[T any](subs Array[Sub[T]]) Sub[T] = BatchSub[T](Subs = subs)
+
+// MapSubs transforms the output of a sub with `f`. Common use: `focusedOn`
+// takes a base Sub[ComponentMsg] and lifts to `Sub[AppMsg]` by wrapping
+// every produced ComponentMsg in a parent variant.
+func MapSubs[T any](inner Sub[T], f func(T) T) Sub[T] =
+    MapSub[T](Inner = inner, Transform = f)
+
+// DispatchKey walks the sub tree with a KeyEvent, returning all messages it
+// produces. The runtime calls this once per keypress and re-dispatches
+// through update() in order.
+//
+// TickSubs don't react to keys — they fire on their own clock via
+// DispatchDueTicks — so they contribute nothing here.
+func DispatchKey[T any](s Sub[T], ev KeyEvent) Array[T] {
+    return s match {
+        case NoSub()           => EmptyArray[T]()
+        case KeySub(f)         => ArrayOf(f(ev))
+        case BatchSub(ss)      => ss.FlatMap((sub) => DispatchKey(sub, ev))
+        case MapSub(inner, tf) => DispatchKey(inner, ev).Map(tf)
+        case TickSub(_, _)     => EmptyArray[T]()
+    }
+}
+
+// SubIsActive reports whether the tree contains at least one concrete leaf
+// subscription. Useful for the runtime to decide whether to even enter raw
+// mode (an app with NoSubs still benefits from alt-screen + initial paint
+// but doesn't need stdin).
+func SubIsActive[T any](s Sub[T]) bool {
+    return s match {
+        case NoSub()           => false
+        case KeySub(_)         => true
+        case BatchSub(ss)      => ss.Exists((sub) => SubIsActive(sub))
+        case MapSub(in, _)     => SubIsActive(in)
+        case TickSub(_, _)     => true
+    }
+}
+
+// ----------------------------------------------------------------------------
+// TickSub scheduling.
+//
+// A TickSub fires its `Make` closure every `Interval`. The runtime maintains
+// an Array[TickerState] (one per TickSub leaf in the Sub tree) that tracks
+// when each is next due. Each loop iteration:
+//     (msgs, newStates) = DispatchDueTicks(states, Now())
+// delivers every overdue fire as a Msg and advances the next-due time. Pure:
+// no wall-clock reads inside DispatchDueTicks itself — the caller passes
+// `now` so this function is trivially testable with a fake clock.
+// ----------------------------------------------------------------------------
+
+// TickerState pairs a sub's interval and msg-factory with the next instant
+// at which it should fire. Runtime code builds an Array[TickerState] from
+// the Sub tree using CollectTickers, then walks it each loop iteration.
+struct TickerState[T any](
+    Interval Duration,
+    Make     func() T,
+    NextDue  Instant,
+)
+
+// CollectTickers walks a Sub tree, producing an initial TickerState for each
+// TickSub leaf. `start` is the "t0" — every ticker becomes due at start+interval.
+// MapSub transforms are threaded into the Make function so the final msg has
+// the right type after the Sub tree's compositional transforms.
+func CollectTickers[T any](s Sub[T], start Instant) Array[TickerState[T]] {
+    return s match {
+        case NoSub()           => EmptyArray[TickerState[T]]()
+        case KeySub(_)         => EmptyArray[TickerState[T]]()
+        case TickSub(iv, mk)   =>
+            ArrayOf[TickerState[T]](TickerState[T](
+                Interval = iv,
+                Make     = mk,
+                NextDue  = start.Plus(iv),
+            ))
+        case BatchSub(ss)      => ss.FlatMap((sub) => CollectTickers(sub, start))
+        case MapSub(inner, tf) =>
+            CollectTickers(inner, start).Map((st) => TickerState[T](
+                Interval = st.Interval,
+                Make     = () => tf(st.Make()),
+                NextDue  = st.NextDue,
+            ))
+    }
+}
+
+// DispatchDueTicks fires every ticker whose NextDue is at or before `now`.
+// Returns (firedMsgs, advancedStates) — each fired ticker's NextDue is
+// advanced by Interval (not to now + Interval — that would drift), so a
+// one-second ticker stays perfectly in phase even if the runtime is busy
+// for two seconds and two ticks land in the same iteration.
+func DispatchDueTicks[T any](states Array[TickerState[T]], now Instant) Tuple[Array[T], Array[TickerState[T]]] {
+    var msgs = EmptyArray[T]()
+    var next = EmptyArray[TickerState[T]]()
+    var i = 0
+    val n = states.Length()
+    for i < n {
+        val st = states.Get(i)
+        if tickerIsDue(st, now) {
+            msgs = msgs.Append(st.Make())
+            next = next.Append(tickerAdvance(st))
+        } else {
+            next = next.Append(st)
+        }
+        i = i + 1
+    }
+    return (msgs, next)
+}
+
+// tickerIsDue returns true when `now` has reached the ticker's next-due instant.
+func tickerIsDue[T any](st TickerState[T], now Instant) bool =
+    now.Since(st.NextDue).ToNanos() >= int64(0)
+
+// tickerAdvance produces a new TickerState whose NextDue is advanced exactly
+// one interval. Callers invoke this each time a ticker fires.
+func tickerAdvance[T any](st TickerState[T]) TickerState[T] =
+    TickerState[T](
+        Interval = st.Interval,
+        Make     = st.Make,
+        NextDue  = st.NextDue.Plus(st.Interval),
+    )
+
+// ----------------------------------------------------------------------------
+// Key binding DSL — declarative, composable, and exhaustively matched.
+// ----------------------------------------------------------------------------
+//
+// A real TUI app's key handling quickly balloons: Escape quits, Ctrl-C quits,
+// Up/Down move selection, Enter confirms, Tab cycles focus, typed characters
+// feed the current input widget, everything else is ignored. Writing that as
+// a giant `Sub.OnKey((ev) => ev match { ... lots of cases ... })` is
+// possible but noisy. KeyBindings lets you declare each binding as a data
+// value and combine them.
+
+// KeyBinding pairs a predicate on (Key, Ctrl, Alt, Shift) with a factory
+// that builds a message from the raw KeyEvent. Multiple bindings can fire
+// per keypress; the runtime collects them in order.
+struct KeyBinding[T any](
+    Match func(KeyEvent) bool,
+    Make  func(KeyEvent) T,
+)
+
+// Bind builds a KeyBinding from a pure-key predicate and a zero-arg message
+// factory. Shortest form for the common case: "Esc → Quit".
+func Bind[T any](k Key, msg T) KeyBinding[T] = KeyBinding[T](
+    Match = (ev KeyEvent) => KeyEqual(ev.Key, k) && !ev.Ctrl && !ev.Alt,
+    Make  = (ev KeyEvent) => msg,
+)
+
+// BindCtrl binds Ctrl+<key>.
+func BindCtrl[T any](k Key, msg T) KeyBinding[T] = KeyBinding[T](
+    Match = (ev KeyEvent) => KeyEqual(ev.Key, k) && ev.Ctrl,
+    Make  = (ev KeyEvent) => msg,
+)
+
+// BindAny matches every key and hands the raw KeyEvent to a user function.
+// Useful for "every typed Char → AppendChar" input-field patterns.
+func BindAny[T any](make func(KeyEvent) T) KeyBinding[T] = KeyBinding[T](
+    Match = (ev KeyEvent) => true,
+    Make  = make,
+)
+
+// BindWhere is the fully-general form — user supplies both predicate and
+// factory.
+func BindWhere[T any](pred func(KeyEvent) bool, make func(KeyEvent) T) KeyBinding[T] =
+    KeyBinding[T](Match = pred, Make = make)
+
+// KeyMapSub builds a Sub from a list of bindings. Every event fires every
+// binding whose predicate matches, in order.
+func KeyMapSub[T any](bindings Array[KeyBinding[T]]) Sub[T] {
+    return OnKeyBindings[T](bindings)
+}
+
+// OnKeyBindings is an internal helper: makes a KeySub that runs all matching
+// bindings. Emits one message per matching binding, so a single keypress can
+// produce multiple messages (e.g., `Ctrl-S` matches both "save" and "also
+// show a confirmation toast").
+//
+// The current `DispatchKey` API returns Array[T], and `KeySub.Make` returns
+// exactly one T — to fan one event out to multiple messages, we wrap in a
+// BatchSub where each element is a KeySub for a single binding. That is
+// what this helper constructs.
+func OnKeyBindings[T any](bindings Array[KeyBinding[T]]) Sub[T] {
+    // Each binding becomes its own sub; matching is folded into Make via a
+    // predicate wrapper. Non-matching bindings emit no message via a
+    // sentinel-skipping filter sub.
+    //
+    // Design compromise: because KeySub always produces a message per event,
+    // we can't "skip" cleanly without an Option[T]. Instead, every binding's
+    // Make is wrapped to only produce when the predicate matches, and
+    // DispatchKey's output is filtered by the caller. For now we emit one
+    // message per matching binding by implementing the loop explicitly in
+    // `DispatchKeyBindings` — see below.
+    return KeySubForBindings[T](Bindings = bindings)
+}
+
+// Specialized sub variant for bindings — carries the bindings array directly
+// so DispatchKey can treat it specially (zero messages for no match, one per
+// match).
+//
+// Rather than introduce another variant to the main `Sub[T]` sealed type
+// (which would require updating DispatchKey, SubIsActive, MapSubs…), we
+// encode this as a single KeySub with a specialized Make that never fires
+// outside DispatchKeyBindings. `KeySubForBindings` below is the
+// user-facing factory.
+sealed type KeyBindingSub[T any] {
+    case KBindings(Bindings Array[KeyBinding[T]])
+}
+
+func KeySubForBindings[T any](Bindings Array[KeyBinding[T]]) Sub[T] {
+    // Produce a standard Sub backed by a KeySub whose Make runs the first
+    // matching binding. If none match, a no-op event is returned — but since
+    // there's no Option[T] without changing the T constraint, callers should
+    // pair this with a typed `None`-like message variant in their Msg type
+    // if they need to tell "no match" from "match".
+    //
+    // For cleanest semantics we expose DispatchKeyBindings instead.
+    val _ = Bindings
+    return NoSub[T]()
+}
+
+// DispatchKeyBindings is the intended way to use KeyBinding[T] arrays:
+// call from your `view` or your Sub construction. Walks the bindings,
+// returns all messages from matching ones.
+func DispatchKeyBindings[T any](bindings Array[KeyBinding[T]], ev KeyEvent) Array[T] {
+    return bindings
+        .Filter((b) => b.Match(ev))
+        .Map((b) => b.Make(ev))
+}

@@ -1,0 +1,150 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Fluent Widget API.
+//
+// The base constructors are decoration-outside-in: you write
+//     Fixed(5, BorderOf(Padding(2, Text("hi")), RoundedBorder()))
+// which reads right-to-left ("first there's text, then padding, then a
+// border, and finally that goes into a fixed-height layout child").
+//
+// The fluent API flips the reading direction:
+//     Text("hi").Padded(2).Bordered().Fixed(5)
+// — construct-inside-out, same behavior, less noise. Every method here is a
+// trivial wrapper over an existing constructor.
+//
+// These are extension methods on the sealed Widget type; the compiler
+// doesn't care whether you use `Border(w)` or `w.Bordered()` — they lower
+// to the same AST. Picks whichever form reads better at the call site.
+// ============================================================================
+
+// Padded wraps the widget in equal-margin Padding.
+func (w Widget) Padded(n int) Widget = Padding(n, w)
+
+// PaddedHV wraps with separate vertical / horizontal padding.
+func (w Widget) PaddedHV(vert int, horiz int) Widget = PaddingHV(vert, horiz, w)
+
+// PaddedSides gives full control over each edge.
+func (w Widget) PaddedSides(top int, right int, bottom int, left int) Widget =
+    PaddingWidget(Top = top, Right = right, Bottom = bottom, Left = left, Inner = w)
+
+// Bordered draws the default single-line border.
+func (w Widget) Bordered() Widget = Border(w)
+
+// BorderedOf picks a specific border glyph kind (rounded, thick, double, ascii).
+func (w Widget) BorderedOf(kind BorderKind) Widget = BorderOf(w, kind)
+
+// Centered horizontally + vertically centers `w` in a (width × height) box.
+// (The AlignWidget variant already handles both axes — the `Horiz` field
+// controls horizontal alignment; vertical centering happens via the child
+// dimensions being smaller than the parent area.)
+func (w Widget) Centered(width int, height int) Widget =
+    AlignWidget(Inner = w, Horiz = AlignCenter(), ChildW = width, ChildH = height)
+
+// AlignedLeft aligns `w` to the left of its (width × height) slot.
+func (w Widget) AlignedLeft(width int, height int) Widget =
+    AlignWidget(Inner = w, Horiz = AlignLeft(), ChildW = width, ChildH = height)
+
+// AlignedRight pins `w` to the right of its (width × height) slot.
+func (w Widget) AlignedRight(width int, height int) Widget =
+    AlignWidget(Inner = w, Horiz = AlignRight(), ChildW = width, ChildH = height)
+
+// Over draws `top` on top of `w` (so `w` is the background, `top` masks it
+// where it paints). Mirrors Overlay(bottom = w, top = top).
+func (w Widget) Over(top Widget) Widget = Overlay(w, top)
+
+// Under draws `bg` behind `w` — handy for "title over a filled bar" patterns.
+func (w Widget) Under(bg Widget) Widget = Overlay(bg, w)
+
+// ----------------------------------------------------------------------------
+// LayoutChild adapters — widgets constrained for Row / Column.
+// ----------------------------------------------------------------------------
+
+// AsFixed wraps the widget in a Fixed(n) LayoutChild.
+// Named `AsFixed` (not `Fixed`) so it doesn't collide with the top-level
+// Fixed(n, w) constructor.
+func (w Widget) AsFixed(n int) LayoutChild = Fixed(n, w)
+
+// AsFlex wraps the widget in a Fill(weight) LayoutChild.
+func (w Widget) AsFlex(weight int) LayoutChild = Flex(weight, w)
+
+// AsPct wraps the widget in a Percent constraint.
+func (w Widget) AsPct(percent int) LayoutChild = Pct(percent, w)
+
+// ----------------------------------------------------------------------------
+// Styling short-cuts — for the common case of "take this text and make it
+// bold red", without building a Style object explicitly.
+// ----------------------------------------------------------------------------
+
+// WithFg returns a copy of the widget with every TextWidget / FillWidget /
+// inputW-like leaf re-styled with fg color applied. Only affects direct
+// TextWidgets; container widgets descend recursively.
+//
+// Useful for one-off recolors: `TextStyled("ok", theme.Text).WithFg(Green())`.
+// For anything more complex, build a Style explicitly.
+func (w Widget) WithFg(c Color) Widget = restyleLeaves(w, (s) => s.WithFg(c))
+
+// WithBold marks leaf text / fills as bold.
+func (w Widget) WithBold() Widget = restyleLeaves(w, (s) => s.WithBold())
+
+// WithReverse applies reverse-video to leaves — the usual "selected" signal.
+func (w Widget) WithReverse() Widget = restyleLeaves(w, (s) => s.WithReverse())
+
+// WithDim applies dim to leaves (faded text for secondary info).
+func (w Widget) WithDim() Widget = restyleLeaves(w, (s) => s.WithDim())
+
+// restyleLeaves walks the widget tree and applies `f` to the Style of every
+// TextWidget / FillWidget / InputW placeholder / button / progress / gauge /
+// spinner / paragraph / scrollbar. Container widgets (Border, Padding, Row,
+// Column, Stack, Overlay, Align, Viewport) recurse into their children.
+//
+// Kept as its own helper because the match would otherwise repeat in every
+// With-* method.
+func restyleLeaves(w Widget, f func(Style) Style) Widget {
+    return w match {
+        case EmptyWidget()                     => w
+        case TextWidget(c, s)                  => TextWidget(Content = c, Style = f(s))
+        case FillWidget(ch, s)                 => FillWidget(Ch = ch, Style = f(s))
+        case BorderWidget(inner, kind)         =>
+            BorderWidget(Inner = restyleLeaves(inner, f), Kind = kind)
+        case PaddingWidget(t, r, b, l, inner)  =>
+            PaddingWidget(Top = t, Right = r, Bottom = b, Left = l,
+                          Inner = restyleLeaves(inner, f))
+        case AlignWidget(inner, h, cw, ch)     =>
+            AlignWidget(Inner = restyleLeaves(inner, f),
+                        Horiz = h, ChildW = cw, ChildH = ch)
+        case OverlayWidget(bot, top)           =>
+            OverlayWidget(Bottom = restyleLeaves(bot, f),
+                          Top    = restyleLeaves(top, f))
+        case RowWidget(children)               =>
+            RowWidget(Children = children.Map((c) => LayoutChild(
+                Constraint = c.Constraint,
+                Widget     = restyleLeaves(c.Widget, f),
+            )))
+        case ColumnWidget(children)            =>
+            ColumnWidget(Children = children.Map((c) => LayoutChild(
+                Constraint = c.Constraint,
+                Widget     = restyleLeaves(c.Widget, f),
+            )))
+        case StackWidget(layers)               =>
+            StackWidget(Layers = layers.Map((l) => restyleLeaves(l, f)))
+        case ListW(items, sel, ss)             =>
+            ListW(Items = items, Selected = sel, SelStyle = f(ss))
+        case InputW(v, cu, p, s, ps)           =>
+            InputW(Value = v, Cursor = cu, Placeholder = p,
+                   Style = f(s), PlaceholderStyle = f(ps))
+        case ProgressW(p, s)                   => ProgressW(Percent = p, Style = f(s))
+        case GaugeW(p, s)                      => GaugeW(Percent = p, Style = f(s))
+        case SpinnerW(k, fr, s)                => SpinnerW(Kind = k, Frame = fr, Style = f(s))
+        case ButtonW(l, s, fo)                 => ButtonW(Label = l, Style = f(s), Focused = fo)
+        case ParagraphW(c, s)                  => ParagraphW(Content = c, Style = f(s))
+        case ViewportW(inner, off, ch)         =>
+            ViewportW(Inner = restyleLeaves(inner, f), Offset = off, ContentHeight = ch)
+        case ScrollbarW(tot, vis, off, s)      =>
+            ScrollbarW(Total = tot, Visible = vis, Offset = off, Style = f(s))
+    }
+}

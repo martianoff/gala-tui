@@ -1,0 +1,113 @@
+package gala_tui
+
+import (
+    "os"
+    "time"
+    "martianoff/gala/concurrent"
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// Cmd helpers.
+//
+// update() functions produce Cmd values; common operations (delay, background
+// compute, file IO) all reduce to "build a Future[T], wrap it in FutureCmd".
+// These helpers make the common cases one-liners.
+//
+// Every helper returns a Cmd[T] ready to return from update(). The runtime
+// picks up the embedded Future via PendingFutures and polls it each frame
+// until it resolves, at which point T gets dispatched as a Msg.
+// ============================================================================
+
+// AfterDelay produces a Cmd that fires `msg` after `d` has elapsed.
+// Canonical use: `case StartTimer() => (m, AfterDelay[Msg](Seconds(3), () => TimeoutFired()))`.
+func AfterDelay[T any](d Duration, make func() T) Cmd[T] {
+    val fut = concurrent.FutureApply[T](() => {
+        time.Sleep(d.ToGoDuration())
+        return make()
+    })
+    return FutureCmd[T](Fut = fut)
+}
+
+// Async runs `compute` on the Future's execution context and dispatches
+// `onResult(result)` as a Msg when it completes. Does NOT support failure
+// paths — if `compute` panics, the Future fails and no Msg is delivered.
+// For explicit failure handling, build a Future directly and wrap both
+// success/failure values in a Msg variant before wrapping in FutureCmd.
+func Async[R any, T any](compute func() R, onResult func(R) T) Cmd[T] {
+    val fut = concurrent.FutureApply[T](() => onResult(compute()))
+    return FutureCmd[T](Fut = fut)
+}
+
+// AsyncTry runs `compute` and dispatches either `onOk(value)` or
+// `onErr(err)` — symmetrical Try-style handling. Lets apps carry the error
+// into update() as a first-class Msg:
+//
+//     AsyncTry(
+//         () => readConfig(),
+//         (c) => ConfigLoaded(c),
+//         (e) => ConfigFailed(e.Error()),
+//     )
+func AsyncTry[R any, T any](
+    compute func() R,
+    onOk func(R) T,
+    onErr func(error) T,
+) Cmd[T] {
+    val fut = concurrent.FutureApply[T](() => onOk(compute()))
+    val recovered = fut.Recover((e error) => onErr(e))
+    return FutureCmd[T](Fut = recovered)
+}
+
+// ReadFileCmd reads `path` in the background. `onOk(contents)` fires on
+// success, `onErr(error)` on failure.
+func ReadFileCmd[T any](
+    path string,
+    onOk func(string) T,
+    onErr func(error) T,
+) Cmd[T] {
+    return AsyncTry[string, T](
+        () => readFileOrPanic(path),
+        onOk,
+        onErr,
+    )
+}
+
+// WriteFileCmd writes `content` to `path`. `onOk()` fires when the write
+// succeeds (no return value needed — the result is the side effect);
+// `onErr(error)` on failure.
+func WriteFileCmd[T any](
+    path string,
+    content string,
+    onOk func() T,
+    onErr func(error) T,
+) Cmd[T] {
+    return AsyncTry[bool, T](
+        () => writeFileOrPanic(path, content),
+        (_) => onOk(),
+        onErr,
+    )
+}
+
+// ----------------------------------------------------------------------------
+// Internals — thin wrappers around os.ReadFile / os.WriteFile that turn
+// Go's (T, error) returns into panic-or-value so they slot into FutureApply.
+// Future's Recover translates the panic into a Failure(error), which
+// AsyncTry then routes to onErr.
+// ----------------------------------------------------------------------------
+
+func readFileOrPanic(path string) string {
+    var data, err = os.ReadFile(path)
+    if err != nil {
+        panic(err.Error())
+    }
+    return string(data)
+}
+
+func writeFileOrPanic(path string, content string) bool {
+    var err = os.WriteFile(path, ToBytes(content), os.FileMode(0644))
+    if err != nil {
+        panic(err.Error())
+    }
+    return true
+}

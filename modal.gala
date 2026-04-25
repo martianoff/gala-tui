@@ -1,0 +1,105 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Modal / dialog overlay.
+//
+// A Modal is a centered widget rendered on top of a dimmed backdrop. The
+// backdrop fills the entire parent area with a dim space; the modal body is
+// drawn as a bordered panel at the center.
+//
+// Modal is a pure widget — it doesn't intercept keys by itself. The app's
+// update() pattern-matches on its model to decide whether to show the modal
+// and whether Enter/Esc should dismiss it. Because it's just a Widget tree,
+// it composes into anything (Stack, Overlay, Column).
+//
+// Usage:
+//     if m.ShowConfirm {
+//         Stack(ArrayOf(
+//             mainView(m),
+//             Modal(m.ScreenW, m.ScreenH, ConfirmPanel(...)),
+//         ))
+//     } else { mainView(m) }
+// ============================================================================
+
+// Modal centers `body` inside a `width × height` area with a dim backdrop
+// fill. Picks the default single border and default heading style.
+func Modal(width int, height int, body Widget) Widget =
+    ModalStyled(width, height, body, DefaultStyle().WithDim(), SingleBorder())
+
+// ModalStyled lets callers pick the backdrop style and border kind. Useful
+// for themes: e.g., RoundedBorder on DarkTheme, ThickBorder on HighContrast.
+func ModalStyled(width int, height int, body Widget, backdrop Style, border BorderKind) Widget {
+    val dim = FillChStyled(' ', backdrop)
+    val panel = centerPanel(width, height, BorderOf(body, border))
+    return Overlay(dim, panel)
+}
+
+// centerPanel wraps `body` in an AlignWidget that centers it horizontally
+// and vertically within whatever area the renderer gives us. We compose
+// horizontal Align with a Column that pads top and bottom.
+func centerPanel(width int, height int, body Widget) Widget {
+    val horizCentered = AlignWidget(
+        Inner  = body,
+        Horiz  = AlignCenter(),
+        ChildW = width,
+        ChildH = height,
+    )
+    // Vertical centering = Column[ flexTop, fixed(height, ...), flexBottom ]
+    return Column(ArrayOf[LayoutChild](
+        Flex(1, Empty()),
+        Fixed(height, horizCentered),
+        Flex(1, Empty()),
+    ))
+}
+
+// ConfirmDialog is the canonical "Yes / No" modal: a heading, a message
+// body, and two buttons at the bottom. `yesFocused` controls which button
+// shows the focused style; the app toggles it on left/right arrows.
+//
+// Keyboard handling is the caller's responsibility — this helper only
+// produces the visual.
+func ConfirmDialog(title string, message string, yesFocused bool) Widget {
+    val header = TextStyled(" " + title + " ",
+        DefaultStyle().WithBold().WithReverse())
+    val msg = Paragraph(message)
+    val yes = Button("Yes", yesFocused)
+    val no  = Button("No", !yesFocused)
+    val buttons = Row(ArrayOf[LayoutChild](
+        Flex(1, Empty()),
+        Fixed(7, yes),
+        Fixed(2, Empty()),
+        Fixed(6, no),
+        Flex(1, Empty()),
+    ))
+    val body = Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, Empty()),
+        Flex(1, msg),
+        Fixed(1, buttons),
+    ))
+    return PaddingHV(0, 1, body)
+}
+
+// AlertDialog is a single-button "OK" modal — one message, one confirmation.
+func AlertDialog(title string, message string) Widget {
+    val header = TextStyled(" " + title + " ",
+        DefaultStyle().WithBold().WithReverse())
+    val msg = Paragraph(message)
+    val ok = Button("OK", true)
+    val footer = Row(ArrayOf[LayoutChild](
+        Flex(1, Empty()),
+        Fixed(6, ok),
+        Flex(1, Empty()),
+    ))
+    val body = Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, Empty()),
+        Flex(1, msg),
+        Fixed(1, footer),
+    ))
+    return PaddingHV(0, 1, body)
+}

@@ -1,0 +1,22 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+)
+
+// Thin runnable wrapper that launches the mega demo — a maximalist build
+// server dashboard exercising every feature of gala-tui: router, command
+// palette, DataTable with sort/filter, tabs, markdown help, themes,
+// animations, toasts, log drawer, modal confirmations, and more.
+//
+// Build + run:
+//   gala build ./demo       # produces gala_tui.exe next to this file
+//   ./gala_tui.exe          # launches the dashboard — q quits
+//   Ctrl+P                  # opens the command palette (fuzzy action search)
+//   ?                       # toggles the help overlay
+//   F12 or /                # toggles the log drawer
+//   t                       # cycles themes
+
+func main() {
+    val _ = RunMegaDemo()
+}

@@ -1,0 +1,127 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ----------------------------------------------------------------------------
+// Bounds
+// ----------------------------------------------------------------------------
+
+func TestLineChartAutoBoundsPicksMinMax(t T) T {
+    val b = LineChartAutoBounds(ArrayOf(5, 3, 9, 1, 7))
+    val t1 = Eq(t, b.Min, 1)
+    return Eq(t1, b.Max, 9)
+}
+
+func TestLineChartAutoBoundsFlatLineHasRange(t T) T {
+    val b = LineChartAutoBounds(ArrayOf(5, 5, 5))
+    return IsTrue(t, b.Max > b.Min)
+}
+
+func TestLineChartAutoBoundsEmpty(t T) T {
+    val b = LineChartAutoBounds(EmptyArray[int]())
+    // Placeholder — just exists so divison-by-zero isn't possible downstream.
+    return IsTrue(t, b.Max > b.Min)
+}
+
+// ----------------------------------------------------------------------------
+// Row production
+// ----------------------------------------------------------------------------
+
+func TestLineChartRowsSingleValueFullTopFilled(t T) T {
+    val rows = LineChartRows(ArrayOf(10),
+        LineChartBounds(Min = 0, Max = 10), 3)
+    val t1 = Eq(t, rows.Length(), 3)
+    // All three rows filled in column 0 (value hits max).
+    val t2 = Eq(t1, rows.Get(0), "█")
+    val t3 = Eq(t2, rows.Get(1), "█")
+    return Eq(t3, rows.Get(2), "█")
+}
+
+func TestLineChartRowsValueAtMinBottomEmpty(t T) T {
+    val rows = LineChartRows(ArrayOf(0),
+        LineChartBounds(Min = 0, Max = 10), 3)
+    // Value at min → no fill anywhere.
+    val t1 = Eq(t, rows.Get(0), " ")
+    return Eq(t1, rows.Get(2), " ")
+}
+
+func TestLineChartRowsAscendingLine(t T) T {
+    val rows = LineChartRows(ArrayOf(0, 2, 4, 6, 8, 10),
+        LineChartBounds(Min = 0, Max = 10), 4)
+    // Sanity: first column empty, last column full-height.
+    val row0 = rows.Get(0)  // topmost row
+    val rowN = rows.Get(3)  // bottommost row
+    val t1 = IsTrue(t, firstRune(row0) == ' ')    // column 0, topmost → empty
+    return IsTrue(t1, lastRune(rowN) == '█')      // column 5, bottommost → full
+}
+
+// ----------------------------------------------------------------------------
+// Widget rendering
+// ----------------------------------------------------------------------------
+
+func TestLineChartRendersCells(t T) T {
+    val values = ArrayOf(0, 5, 10)
+    val chart = LineChartAtHeight(values, DefaultStyle(),
+        LineChartBounds(Min = 0, Max = 10), 3)
+    var buf = NewBuffer(3, 3)
+    RenderTo(chart, Rect(X = 0, Y = 0, Width = 3, Height = 3), buf)
+    // At height 3, max value column should have all three rows filled with █.
+    val t1 = Eq(t, buf.CharAt(2, 0), '█')
+    val t2 = Eq(t1, buf.CharAt(2, 1), '█')
+    return Eq(t2, buf.CharAt(2, 2), '█')
+}
+
+func TestLineChartPicksStyle(t T) T {
+    val chart = LineChartStyled(ArrayOf(10),
+        DefaultStyle().WithFg(BrightCyan()))
+    var buf = NewBuffer(1, 3)
+    RenderTo(chart, Rect(X = 0, Y = 0, Width = 1, Height = 3), buf)
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
+}
+
+func TestLineChartEmptyIsNoOp(t T) T {
+    val chart = LineChart(EmptyArray[int]())
+    var buf = NewBuffer(5, 3)
+    RenderTo(chart, Rect(X = 0, Y = 0, Width = 5, Height = 3), buf)
+    // Buffer stays blank — no glyphs painted.
+    return Eq(t, buf.CharAt(0, 0), ' ')
+}
+
+// ----------------------------------------------------------------------------
+// MultiLineChart
+// ----------------------------------------------------------------------------
+
+func TestMultiLineChartSharesBounds(t T) T {
+    val series = ArrayOf[Array[int]](ArrayOf(0, 5), ArrayOf(5, 10))
+    val chart = MultiLineChartAtHeight(series,
+        ArrayOf[Style](DefaultStyle().WithFg(Green()),
+                       DefaultStyle().WithFg(Red())),
+        3)
+    var buf = NewBuffer(2, 3)
+    RenderTo(chart, Rect(X = 0, Y = 0, Width = 2, Height = 3), buf)
+    // Column 1 of series-2 carries value 10 (shared max) → last row full █.
+    return Eq(t, buf.CharAt(1, 2), '█')
+}
+
+func TestMultiLineChartEmpty(t T) T {
+    val chart = MultiLineChart(EmptyArray[Array[int]](), EmptyArray[Style]())
+    return Eq(t, defaultRenderWidth(chart), 0)
+}
+
+// ----------------------------------------------------------------------------
+// Helpers.
+// ----------------------------------------------------------------------------
+
+func firstRune(s string) rune {
+    for _, c := range s { return c }
+    return ' '
+}
+
+func lastRune(s string) rune {
+    var last rune = ' '
+    for _, c := range s { last = c }
+    return last
+}

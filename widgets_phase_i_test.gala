@@ -1,0 +1,199 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for Phase I widgets: Paragraph, ScrollableViewport, Tabs, Scrollbar.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Paragraph
+// ----------------------------------------------------------------------------
+
+func TestParagraphWrapsOnSpaces(t T) T {
+    var buf = NewBuffer(10, 3)
+    RenderTo(Paragraph("hello world from gala"),
+        Rect(X = 0, Y = 0, Width = 10, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "hello     ")   // "hello world" (11) > 10; "hello " stays
+    // row 0 should hold the first fitting run. "hello" + " " + "world" = 11 > 10.
+    // So row 0 = "hello" padded; row 1 = "world from" (10 fits); row 2 = "gala".
+    val t2 = Eq(t1, BufferText(buf, 1), "world from")
+    return Eq(t2, BufferText(buf, 2), "gala      ")
+}
+
+func TestParagraphRespectsExplicitNewlines(t T) T {
+    var buf = NewBuffer(12, 3)
+    RenderTo(Paragraph("line1\nline2\nline3"),
+        Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "line1       ")
+    val t2 = Eq(t1, BufferText(buf, 1), "line2       ")
+    return Eq(t2, BufferText(buf, 2), "line3       ")
+}
+
+func TestParagraphClipsOverflow(t T) T {
+    var buf = NewBuffer(5, 2)
+    RenderTo(Paragraph("aaa bbb ccc ddd"),
+        Rect(X = 0, Y = 0, Width = 5, Height = 2), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "aaa  ")
+    return Eq(t1, BufferText(buf, 1), "bbb  ")
+}
+
+// ----------------------------------------------------------------------------
+// ScrollableViewport
+// ----------------------------------------------------------------------------
+
+func TestViewportShowsTopSlice(t T) T {
+    // Build a column of 6 rows. Viewport with contentHeight=6, offset=0,
+    // visible height=3 → shows first 3 rows.
+    val content = Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("line-a")),
+        Fixed(1, Text("line-b")),
+        Fixed(1, Text("line-c")),
+        Fixed(1, Text("line-d")),
+        Fixed(1, Text("line-e")),
+        Fixed(1, Text("line-f")),
+    ))
+    val vp = ScrollableViewport(content, 0, 6)
+    var buf = NewBuffer(6, 3)
+    RenderTo(vp, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "line-a")
+    val t2 = Eq(t1, BufferText(buf, 1), "line-b")
+    return Eq(t2, BufferText(buf, 2), "line-c")
+}
+
+func TestViewportScrollsByOffset(t T) T {
+    val content = Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("line-a")),
+        Fixed(1, Text("line-b")),
+        Fixed(1, Text("line-c")),
+        Fixed(1, Text("line-d")),
+        Fixed(1, Text("line-e")),
+        Fixed(1, Text("line-f")),
+    ))
+    val vp = ScrollableViewport(content, 2, 6)   // skip first two
+    var buf = NewBuffer(6, 3)
+    RenderTo(vp, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "line-c")
+    val t2 = Eq(t1, BufferText(buf, 1), "line-d")
+    return Eq(t2, BufferText(buf, 2), "line-e")
+}
+
+func TestViewportClampsExcessiveOffset(t T) T {
+    val content = Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("1")),
+        Fixed(1, Text("2")),
+        Fixed(1, Text("3")),
+    ))
+    // offset=99 with contentHeight=3 and visible=2 → clamps to offset=1.
+    val vp = ScrollableViewport(content, 99, 3)
+    var buf = NewBuffer(3, 2)
+    RenderTo(vp, Rect(X = 0, Y = 0, Width = 3, Height = 2), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "2  ")
+    return Eq(t1, BufferText(buf, 1), "3  ")
+}
+
+// ----------------------------------------------------------------------------
+// Tabs
+// ----------------------------------------------------------------------------
+
+func TestTabsRendersHeaderAndSelectedBody(t T) T {
+    val tabs = Tabs(
+        ArrayOf[string]("One", "Two", "Three"),
+        ArrayOf[Widget](Text("body-1"), Text("body-2"), Text("body-3")),
+        1,   // select the second tab
+    )
+    var buf = NewBuffer(20, 2)
+    RenderTo(tabs, Rect(X = 0, Y = 0, Width = 20, Height = 2), buf)
+    // Header row contains all three titles
+    val row0 = BufferText(buf, 0)
+    val t1 = IsTrue(t, stringHasSub(row0, "One"))
+    val t2 = IsTrue(t1, stringHasSub(row0, "Two"))
+    val t3 = IsTrue(t2, stringHasSub(row0, "Three"))
+    // Body row shows the second tab's content
+    return Eq(t3, BufferText(buf, 1), "body-2              ")
+}
+
+func TestTabsSelectedHasReverseStyle(t T) T {
+    val tabs = Tabs(
+        ArrayOf[string]("A", "B"),
+        ArrayOf[Widget](Text("x"), Text("y")),
+        0,
+    )
+    var buf = NewBuffer(10, 2)
+    RenderTo(tabs, Rect(X = 0, Y = 0, Width = 10, Height = 2), buf)
+    // The first header cell (" A ") begins at col 0 with reverse style.
+    return IsTrue(t, buf.StyleAt(0, 0).Reverse)
+}
+
+// ----------------------------------------------------------------------------
+// Scrollbar
+// ----------------------------------------------------------------------------
+
+func TestScrollbarFullWhenContentFitsViewport(t T) T {
+    // total=5, visible=5 → thumb fills entire track.
+    var buf = NewBuffer(1, 5)
+    RenderTo(Scrollbar(5, 5, 0), Rect(X = 0, Y = 0, Width = 1, Height = 5), buf)
+    var y = 0
+    var allFull = true
+    for y < 5 {
+        if buf.CharAt(0, y) != '█' {
+            allFull = false
+        }
+        y = y + 1
+    }
+    return IsTrue(t, allFull)
+}
+
+func TestScrollbarThumbAtTopForZeroOffset(t T) T {
+    // total=10, visible=2, offset=0 — thumb at top (row 0), track dim elsewhere.
+    var buf = NewBuffer(1, 10)
+    RenderTo(Scrollbar(10, 2, 0), Rect(X = 0, Y = 0, Width = 1, Height = 10), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), '█')
+    return Eq(t1, buf.CharAt(0, 9), '│')
+}
+
+func TestScrollbarThumbAtBottomForMaxOffset(t T) T {
+    // total=10, visible=2, offset=8 (max). Thumb should occupy last row(s).
+    var buf = NewBuffer(1, 10)
+    RenderTo(Scrollbar(10, 2, 8), Rect(X = 0, Y = 0, Width = 1, Height = 10), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), '│')
+    return Eq(t1, buf.CharAt(0, 9), '█')
+}
+
+// Reuse BufferText + a small string-sub helper local to this file.
+
+func stringHasSub(s string, needle string) bool {
+    val ha = stringToArr(s)
+    val ne = stringToArr(needle)
+    val hn = ha.Length()
+    val nn = ne.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if ha.Get(i + j) != ne.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func stringToArr(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

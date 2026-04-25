@@ -1,0 +1,91 @@
+package gala_tui
+
+// Color represents a terminal foreground or background color.
+//
+// Four variants cover the full spectrum of terminal color support:
+//   - DefaultColor:  the terminal's theme default (SGR 39/49)
+//   - NamedColor:    one of the 16 named ANSI colors (Black..BrightWhite)
+//   - Indexed:       xterm 256-color palette (0..255)
+//   - RGB:           24-bit TrueColor
+//
+// The renderer emits the correct SGR sequence for each variant via ToSgrFg /
+// ToSgrBg; widgets only see the sealed type and never touch raw escape codes.
+sealed type Color {
+    case DefaultColor()
+    case NamedColor(Idx int)
+    case Indexed(Idx int)
+    case RGB(R int, G int, B int)
+}
+
+// Eight standard ANSI colors (0–7) + eight bright variants (8–15) — the
+// classic 4-bit palette supported by every VT100-compatible terminal.
+//
+// Exposed as zero-arg functions rather than top-level `val` bindings because
+// GALA currently wraps top-level `val` in `std.Immutable[T]`, which is NOT
+// assignable to the un-wrapped `Color` type the renderer expects
+// (see BUG-gala_tui-008). A zero-arg function is the idiomatic workaround.
+func Black() Color         = NamedColor(0)
+func Red() Color           = NamedColor(1)
+func Green() Color         = NamedColor(2)
+func Yellow() Color        = NamedColor(3)
+func Blue() Color          = NamedColor(4)
+func Magenta() Color       = NamedColor(5)
+func Cyan() Color          = NamedColor(6)
+func White() Color         = NamedColor(7)
+func BrightBlack() Color   = NamedColor(8)
+func BrightRed() Color     = NamedColor(9)
+func BrightGreen() Color   = NamedColor(10)
+func BrightYellow() Color  = NamedColor(11)
+func BrightBlue() Color    = NamedColor(12)
+func BrightMagenta() Color = NamedColor(13)
+func BrightCyan() Color    = NamedColor(14)
+func BrightWhite() Color   = NamedColor(15)
+
+// ToSgrFg renders the color as the fragment of a SGR (Set Graphic Rendition)
+// escape sequence that sets the foreground. It does NOT include the leading
+// `\x1b[` or trailing `m` — the caller concatenates these for full styles.
+//
+// Examples: `NamedColor(1)` → "31", `Indexed(200)` → "38;5;200",
+// `RGB(255,128,0)` → "38;2;255;128;0", `DefaultColor()` → "39".
+func ToSgrFg(c Color) string {
+    return c match {
+        case DefaultColor()  => "39"
+        case NamedColor(idx) => namedSgr(idx, 30, 90)
+        case Indexed(idx)    => s"38;5;$idx"
+        case RGB(r, g, b)    => s"38;2;$r;$g;$b"
+    }
+}
+
+// ToSgrBg mirrors ToSgrFg but for background colors.
+// Background codes are foreground + 10 (40s vs 30s, 100s vs 90s).
+func ToSgrBg(c Color) string {
+    return c match {
+        case DefaultColor()  => "49"
+        case NamedColor(idx) => namedSgr(idx, 40, 100)
+        case Indexed(idx)    => s"48;5;$idx"
+        case RGB(r, g, b)    => s"48;2;$r;$g;$b"
+    }
+}
+
+// namedSgr maps a 16-color index to its SGR base. 0–7 go at `base`, 8–15 at
+// `bright`. For out-of-range indexes, falls back to default (idx 7 / 15).
+func namedSgr(idx int, base int, bright int) string {
+    if idx < 0 {
+        val n = base + 7
+        return s"$n"
+    }
+    if idx < 8 {
+        val n = base + idx
+        return s"$n"
+    }
+    if idx < 16 {
+        val n = bright + (idx - 8)
+        return s"$n"
+    }
+    val n = base + 7
+    return s"$n"
+}
+
+// ColorEq reports whether two colors produce the same SGR output. Useful when
+// diffing cells during incremental render (next iteration).
+func ColorEq(a Color, b Color) bool = ToSgrFg(a) == ToSgrFg(b)

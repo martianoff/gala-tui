@@ -1,0 +1,482 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// gala-tui showcase — a live system-monitor dashboard, offered as a built-in
+// demo so anyone evaluating the framework can launch one command and see
+// every widget at once.
+//
+// Every widget in the framework appears here at least once:
+//   - Row / Column layout with a Constraint mix (Fixed, Flex, Pct)
+//   - Border (rounded, thick), Padding, Align
+//   - Text with fluent Styles (Bold, Fg, Bg, Reverse, Dim)
+//   - Sparkline (CPU timeline, rolling 40-sample window)
+//   - BarChart (memory per process)
+//   - Gauge (global load)
+//   - Spinner (live activity indicator)
+//   - Table with headers + selected-row highlight
+//   - Tree (filesystem hierarchy, expanded / collapsed)
+//   - SelectList (sidebar menu with selection)
+//   - Input (command palette)
+//
+// Keys:
+//   q / Esc / Ctrl-C         quit
+//   ↑ / ↓                    move selection in focused pane
+//   Tab                      cycle focus (sidebar → table → palette)
+//   space                    toggle pause
+//   r                        reset the sparkline
+//   enter                    submit the palette input
+//   backspace                delete last palette rune
+//   any printable char       append to the palette input (when focused)
+//
+// The model is named ShowcaseModel (not Model) to avoid collisions with user
+// code that chooses its own "Model" struct; same for ShowcaseMsg /
+// ShowcaseFocus. RunShowcase() is the one-call entry point.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Messages — one case per "thing that can happen" in the showcase.
+// ----------------------------------------------------------------------------
+
+sealed type ShowcaseMsg {
+    case ShQuit()
+    case ShTick()
+    case ShKeyUp()
+    case ShKeyDown()
+    case ShKeyTab()
+    case ShKeySpace()
+    case ShKeyEnter()
+    case ShKeyBackspace()
+    case ShKeyChar(C rune)
+    case ShTogglePause()
+    case ShResetSpark()
+    case ShNoOp()
+}
+
+// ----------------------------------------------------------------------------
+// Focus — which pane key input targets + how borders render.
+// ----------------------------------------------------------------------------
+
+sealed type ShowcaseFocus {
+    case ShFocusSidebar()
+    case ShFocusTable()
+    case ShFocusPalette()
+}
+
+// ----------------------------------------------------------------------------
+// Model — entire showcase state.
+// ----------------------------------------------------------------------------
+
+struct ShowcaseModel(
+    Tick       int,
+    Paused     bool,
+    Focus      ShowcaseFocus,
+    SidebarSel int,
+    TableSel   int,
+    Palette    string,
+    PaletteLog Array[string],
+    Spark      Array[int],
+)
+
+func NewShowcaseModel() ShowcaseModel = ShowcaseModel(
+    Tick       = 0,
+    Paused     = false,
+    Focus      = ShFocusSidebar(),
+    SidebarSel = 0,
+    TableSel   = 0,
+    Palette    = "",
+    PaletteLog = EmptyArray[string](),
+    Spark      = EmptyArray[int](),
+)
+
+// ----------------------------------------------------------------------------
+// Static fixtures.
+// ----------------------------------------------------------------------------
+
+func showcaseSidebarItems() Array[string] = ArrayOf[string](
+    "  Overview",
+    "  Processes",
+    "  Filesystem",
+    "  Network",
+    "  Logs",
+    "  Settings",
+)
+
+func showcaseProcessRows() Array[Array[string]] = ArrayOf[Array[string]](
+    ArrayOf[string]("1",    "init",     "0.1%", "2.3 MB"),
+    ArrayOf[string]("742",  "systemd",  "0.4%", "15.8 MB"),
+    ArrayOf[string]("1203", "sshd",     "0.0%", "4.1 MB"),
+    ArrayOf[string]("1847", "postgres", "3.2%", "128.0 MB"),
+    ArrayOf[string]("2019", "redis",    "0.8%", "32.5 MB"),
+    ArrayOf[string]("2211", "nginx",    "1.1%", "24.3 MB"),
+    ArrayOf[string]("3104", "gala-tui", "5.2%", "18.7 MB"),
+)
+
+func showcaseMemoryByProcess() Array[BarChartDatum] = ArrayOf[BarChartDatum](
+    BarChartDatum(Label = "postgres", Value = 128),
+    BarChartDatum(Label = "redis",    Value = 32),
+    BarChartDatum(Label = "nginx",    Value = 24),
+    BarChartDatum(Label = "gala-tui", Value = 18),
+    BarChartDatum(Label = "systemd",  Value = 15),
+    BarChartDatum(Label = "sshd",     Value = 4),
+)
+
+func showcaseFilesystemTree() TreeNode = NewTreeBranchExpanded("/", ArrayOf[TreeNode](
+    NewTreeBranchExpanded("var", ArrayOf[TreeNode](
+        NewTreeBranch("log", ArrayOf[TreeNode](
+            NewTreeLeaf("syslog"),
+            NewTreeLeaf("auth.log"),
+        )),
+        NewTreeLeaf("run"),
+    )),
+    NewTreeBranch("usr", ArrayOf[TreeNode](
+        NewTreeLeaf("bin"),
+        NewTreeLeaf("share"),
+    )),
+    NewTreeLeaf("etc"),
+    NewTreeLeaf("home"),
+))
+
+// ----------------------------------------------------------------------------
+// Update — pure reducer.
+// ----------------------------------------------------------------------------
+
+func ShowcaseUpdate(m ShowcaseModel, msg ShowcaseMsg) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    return msg match {
+        case ShQuit()         => (m, QuitCmd[ShowcaseMsg]())
+        case ShTick()         => showcaseTick(m)
+        case ShKeyTab()       => showcaseCycleFocus(m)
+        case ShKeyUp()        => showcaseUp(m)
+        case ShKeyDown()      => showcaseDown(m)
+        case ShKeySpace()     => showcaseSpace(m)
+        case ShKeyEnter()     => showcaseEnter(m)
+        case ShKeyBackspace() => showcaseBackspace(m)
+        case ShKeyChar(c)     => showcaseChar(m, c)
+        case ShTogglePause()  => (m.Copy(Paused = !m.Paused), NoCmd[ShowcaseMsg]())
+        case ShResetSpark()   => (m.Copy(Spark = EmptyArray[int]()), NoCmd[ShowcaseMsg]())
+        case ShNoOp()         => (m, NoCmd[ShowcaseMsg]())
+    }
+}
+
+func showcaseTick(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    if m.Paused {
+        return (m, NoCmd[ShowcaseMsg]())
+    }
+    val newTick = m.Tick + 1
+    val sample = 40 + ((newTick * 13) % 55)
+    val ring = showcaseAppendRing(m.Spark, sample, 40)
+    return (m.Copy(Tick = newTick, Spark = ring), NoCmd[ShowcaseMsg]())
+}
+
+func showcaseCycleFocus(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    val next = m.Focus match {
+        case ShFocusSidebar() => ShFocusTable()
+        case ShFocusTable()   => ShFocusPalette()
+        case ShFocusPalette() => ShFocusSidebar()
+    }
+    return (m.Copy(Focus = next), NoCmd[ShowcaseMsg]())
+}
+
+func showcaseUp(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    return m.Focus match {
+        case ShFocusTable() =>
+            (m.Copy(TableSel = showcaseMaxZero(m.TableSel - 1)), NoCmd[ShowcaseMsg]())
+        case _ =>
+            (m.Copy(SidebarSel = showcaseMaxZero(m.SidebarSel - 1)), NoCmd[ShowcaseMsg]())
+    }
+}
+
+func showcaseDown(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    return m.Focus match {
+        case ShFocusTable() => showcaseTableDown(m)
+        case _              => showcaseSidebarDown(m)
+    }
+}
+
+func showcaseTableDown(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    val n = showcaseProcessRows().Length()
+    return (m.Copy(TableSel = showcaseMinN(m.TableSel + 1, n - 1)), NoCmd[ShowcaseMsg]())
+}
+
+func showcaseSidebarDown(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    val n = showcaseSidebarItems().Length()
+    return (m.Copy(SidebarSel = showcaseMinN(m.SidebarSel + 1, n - 1)), NoCmd[ShowcaseMsg]())
+}
+
+func showcaseSpace(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    return m.Focus match {
+        case ShFocusPalette() => showcaseAppendPalette(m, ' ')
+        case _                => (m.Copy(Paused = !m.Paused), NoCmd[ShowcaseMsg]())
+    }
+}
+
+func showcaseEnter(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    return m.Focus match {
+        case ShFocusPalette() => showcaseSubmitPalette(m)
+        case _                => (m, NoCmd[ShowcaseMsg]())
+    }
+}
+
+func showcaseBackspace(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    return m.Focus match {
+        case ShFocusPalette() => showcaseBackspacePalette(m)
+        case _                => (m, NoCmd[ShowcaseMsg]())
+    }
+}
+
+func showcaseChar(m ShowcaseModel, c rune) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    return m.Focus match {
+        case ShFocusPalette() => showcaseAppendPalette(m, c)
+        case _                => showcaseGlobalChar(m, c)
+    }
+}
+
+func showcaseGlobalChar(m ShowcaseModel, c rune) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    if c == 'r' {
+        return (m.Copy(Spark = EmptyArray[int]()), NoCmd[ShowcaseMsg]())
+    }
+    return (m, NoCmd[ShowcaseMsg]())
+}
+
+func showcaseAppendPalette(m ShowcaseModel, c rune) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] =
+    (m.Copy(Palette = m.Palette + string(c)), NoCmd[ShowcaseMsg]())
+
+func showcaseBackspacePalette(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    if m.Palette == "" {
+        return (m, NoCmd[ShowcaseMsg]())
+    }
+    return (m.Copy(Palette = showcaseDropLastRune(m.Palette)), NoCmd[ShowcaseMsg]())
+}
+
+func showcaseSubmitPalette(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
+    if m.Palette == "" {
+        return (m, NoCmd[ShowcaseMsg]())
+    }
+    val log = ArrayOf[string](m.Palette).AppendAll(m.PaletteLog)
+    return (m.Copy(Palette = "", PaletteLog = log), NoCmd[ShowcaseMsg]())
+}
+
+// showcaseAppendRing keeps the last `cap` entries in a rolling window.
+func showcaseAppendRing(xs Array[int], v int, cap int) Array[int] {
+    val next = xs.Append(v)
+    if next.Length() <= cap {
+        return next
+    }
+    return next.Slice(next.Length() - cap, next.Length())
+}
+
+func showcaseDropLastRune(s string) string {
+    val total = runeCount(s)
+    if total == 0 {
+        return s
+    }
+    var kept = ""
+    var seen = 0
+    for _, c := range s {
+        if seen < total - 1 {
+            kept = kept + string(c)
+        }
+        seen = seen + 1
+    }
+    return kept
+}
+
+func showcaseMaxZero(n int) int {
+    if n < 0 { return 0 }
+    return n
+}
+
+func showcaseMinN(n int, ub int) int {
+    if n > ub { return ub }
+    return n
+}
+
+// ----------------------------------------------------------------------------
+// View — whole dashboard rebuilt per frame.
+// ----------------------------------------------------------------------------
+
+func ShowcaseView(m ShowcaseModel) Widget {
+    return Column(ArrayOf[LayoutChild](
+        Fixed(3, showcaseHeader(m)),
+        Flex(1, showcaseBody(m)),
+        Fixed(1, showcaseStatusBar(m)),
+    ))
+}
+
+func showcaseHeader(m ShowcaseModel) Widget {
+    val title = TextStyled(
+        " ⛩  gala-tui — system monitor ",
+        DefaultStyle().WithBold().WithFg(BrightCyan()).On(Blue()),
+    )
+    val spinLabel = if (m.Paused) "paused" else s"tick $m.Tick"
+    val spin = Row(ArrayOf[LayoutChild](
+        Fixed(1, Spinner(BrailleSpinner(), m.Tick)),
+        Fixed(1, Text(" ")),
+        Flex(1, TextStyled(spinLabel, DefaultStyle().WithDim())),
+    ))
+    val loadPct = (m.Tick * 7) % 100
+    val load = Row(ArrayOf[LayoutChild](
+        Fixed(5, TextStyled("load ", DefaultStyle().WithBold())),
+        Flex(1, Gauge(loadPct)),
+    ))
+    val inside = Row(ArrayOf[LayoutChild](
+        Fixed(34, title),
+        Fixed(14, spin),
+        Flex(1, load),
+    ))
+    return BorderOf(PaddingHV(0, 1, inside), ThickBorder())
+}
+
+func showcaseBody(m ShowcaseModel) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(22, showcaseSidebar(m)),
+        Flex(3,  showcaseCenter(m)),
+        Flex(2,  showcaseRightPanel(m)),
+    ))
+
+func showcaseSidebar(m ShowcaseModel) Widget {
+    val menu = SelectListOf(showcaseSidebarItems(), m.SidebarSel)
+    val tree = Tree(showcaseFilesystemTree())
+    val inside = Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" Menu", showcaseHeading())),
+        Fixed(showcaseSidebarItems().Length(), menu),
+        Fixed(1, Text("")),
+        Fixed(1, TextStyled(" Filesystem", showcaseHeading())),
+        Flex(1, tree),
+    ))
+    val kind = if (showcaseIsFocus(m.Focus, ShFocusSidebar())) ThickBorder() else RoundedBorder()
+    return BorderOf(PaddingHV(0, 1, inside), kind)
+}
+
+func showcaseCenter(m ShowcaseModel) Widget {
+    val spark = Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" CPU (last 40 ticks)", showcaseHeading())),
+        Fixed(1, SparklineStyled(m.Spark, DefaultStyle().WithFg(BrightGreen()))),
+    ))
+    val bars = Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" Memory by process (MB)", showcaseHeading())),
+        Flex(1, BarChart(showcaseMemoryByProcess())),
+    ))
+    val processes = showcaseProcessTable(m)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(3, BorderOf(spark, RoundedBorder())),
+        Fixed(9, BorderOf(bars, RoundedBorder())),
+        Flex(1, processes),
+    ))
+}
+
+func showcaseProcessTable(m ShowcaseModel) Widget {
+    val headers = ArrayOf[string]("PID", "Command", "CPU", "Mem")
+    val widths = ArrayOf[Constraint](Length(6), Fill(2), Length(6), Fill(1))
+    val data = NewTableWithHeaders(headers, widths, showcaseProcessRows(), m.TableSel)
+    val kind = if (showcaseIsFocus(m.Focus, ShFocusTable())) ThickBorder() else RoundedBorder()
+    return BorderOf(Table(data), kind)
+}
+
+func showcaseRightPanel(m ShowcaseModel) Widget {
+    val prompt = TextStyled(" » ", DefaultStyle().WithBold().WithFg(BrightYellow()))
+    val input = Input(m.Palette, runeCount(m.Palette), "type a command…")
+    val promptRow = Row(ArrayOf[LayoutChild](
+        Fixed(3, prompt),
+        Flex(1, input),
+    ))
+    val history = showcaseHistory(m.PaletteLog)
+    val inside = Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" Command palette", showcaseHeading())),
+        Fixed(1, promptRow),
+        Fixed(1, Text("")),
+        Fixed(1, TextStyled(" Recent", showcaseHeading())),
+        Flex(1, history),
+    ))
+    val kind = if (showcaseIsFocus(m.Focus, ShFocusPalette())) ThickBorder() else RoundedBorder()
+    return BorderOf(PaddingHV(0, 1, inside), kind)
+}
+
+func showcaseHistory(log Array[string]) Widget {
+    if log.IsEmpty() {
+        return TextStyled("  (empty)", DefaultStyle().WithDim())
+    }
+    val items = log.Map((entry) => Fixed(1, TextStyled("  " + entry, DefaultStyle())))
+    return Column(items)
+}
+
+func showcaseStatusBar(m ShowcaseModel) Widget {
+    val focusName = ShowcaseFocusTag(m.Focus)
+    val logLen = m.PaletteLog.Length()
+    val left = TextStyled(
+        s" focus: $focusName  •  row: $m.TableSel  •  entries: $logLen ",
+        DefaultStyle().WithFg(Black()).On(BrightCyan()),
+    )
+    val right = TextStyled(
+        "↑↓ move  Tab cycle  Space pause  r reset  Enter submit  q quit ",
+        DefaultStyle().WithFg(Black()).On(BrightCyan()),
+    )
+    return Row(ArrayOf[LayoutChild](
+        Flex(2, left),
+        Fixed(66, right),
+    ))
+}
+
+func showcaseHeading() Style = DefaultStyle().WithBold().WithFg(BrightMagenta())
+
+func ShowcaseFocusTag(f ShowcaseFocus) string {
+    return f match {
+        case ShFocusSidebar() => "sidebar"
+        case ShFocusTable()   => "table"
+        case ShFocusPalette() => "palette"
+    }
+}
+
+func showcaseIsFocus(a ShowcaseFocus, b ShowcaseFocus) bool =
+    ShowcaseFocusTag(a) == ShowcaseFocusTag(b)
+
+// ----------------------------------------------------------------------------
+// Key decoding. Focus-agnostic: ShowcaseUpdate routes arrows / chars based
+// on the current focus pane.
+// ----------------------------------------------------------------------------
+
+func ShowcaseKeyToMsg(ev KeyEvent) ShowcaseMsg {
+    if ev.Ctrl {
+        return ev.Key match {
+            case Char(c) => showcaseCtrlCharMsg(c)
+            case _       => ShNoOp()
+        }
+    }
+    return ev.Key match {
+        case Char(c)     => showcasePlainCharMsg(c)
+        case Esc()       => ShQuit()
+        case Tab()       => ShKeyTab()
+        case Up()        => ShKeyUp()
+        case Down()      => ShKeyDown()
+        case Enter()     => ShKeyEnter()
+        case Space()     => ShKeySpace()
+        case Backspace() => ShKeyBackspace()
+        case _           => ShNoOp()
+    }
+}
+
+func showcaseCtrlCharMsg(c rune) ShowcaseMsg {
+    if c == 'c' { return ShQuit() }
+    return ShNoOp()
+}
+
+func showcasePlainCharMsg(c rune) ShowcaseMsg {
+    if c == 'q' { return ShQuit() }
+    return ShKeyChar(c)
+}
+
+// ----------------------------------------------------------------------------
+// Public one-call entry point. Spawns the runtime against the showcase.
+// ----------------------------------------------------------------------------
+
+func RunShowcase() ShowcaseModel {
+    val program = Program[ShowcaseModel, ShowcaseMsg](
+        Initial = NewShowcaseModel(),
+        Update  = (m, msg) => ShowcaseUpdate(m, msg),
+        View    = (m) => ShowcaseView(m),
+    )
+    return Run[ShowcaseModel, ShowcaseMsg](program, (ev) => ShowcaseKeyToMsg(ev))
+}

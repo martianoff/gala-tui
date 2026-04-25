@@ -1,0 +1,598 @@
+package gala_tui
+
+import (
+    "fmt"
+    "io"
+    "os"
+    "golang.org/x/term"
+    . "martianoff/gala/collection_immutable"
+    "martianoff/gala/concurrent"
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/std"
+    . "martianoff/gala/time_utils"
+)
+
+// The runtime drives a Program end-to-end against a real terminal:
+// enters raw mode, hides the cursor, switches to the alternate screen,
+// reads stdin byte-by-byte, dispatches parsed Keys to update(), paints
+// the view into the main screen buffer, and writes ANSI escape output
+// to stdout. On quit, it restores everything cleanly.
+//
+// This is the "actually-usable TUI" layer. Every iteration up to this
+// file was pure data (testable without any terminal); this file is the
+// one IO-heavy seam that turns the pure model into a live app a user can
+// drive with their keyboard.
+//
+// One read loop per program. Timer and async subscriptions plug in via the
+// Future[T]-based RunRich entry point below — stdin reads are themselves
+// wrapped in a Future so the loop can interleave input with timers and
+// user-supplied async Cmds without blocking.
+
+// ansi control sequences as named helpers — no magic escape strings
+// scattered through the file.
+func ansiAltScreenOn() string  = "\x1b[?1049h"
+func ansiAltScreenOff() string = "\x1b[?1049l"
+func ansiCursorHide() string   = "\x1b[?25l"
+func ansiCursorShow() string   = "\x1b[?25h"
+func ansiClear() string        = "\x1b[2J"
+func ansiHome() string         = "\x1b[H"
+
+// TermSize returns the current terminal width and height in cells.
+// Falls back to 80x24 if the detection fails (e.g., not a tty).
+func TermSize() Tuple[int, int] {
+    var w, h, err = term.GetSize(int(os.Stdin.Fd()))
+    if err != nil {
+        return (80, 24)
+    }
+    return (w, h)
+}
+
+// Run drives `program` against the user's terminal until an update() returns
+// a QuitCmd (or the user presses Ctrl-C, which the runtime translates into
+// QuitCmd unconditionally so Ctrl-C always exits even if the app forgot to
+// wire it up).
+//
+// Flow per frame:
+//   1. read up to 8 bytes from stdin (enough for any escape sequence)
+//   2. ParseKey → KeyEvent
+//   3. user's makeKeyMsg function converts KeyEvent → T (app message)
+//   4. update(model, msg) → (newModel, Cmd[T])
+//   5. render view(newModel) into a Buffer sized to the terminal
+//   6. write Buffer.String() to stdout, prefixed with cursor-home
+//   7. if Cmd is Quit, break and clean up
+//
+// Takes `makeKeyMsg` so different apps can shape messages their own way:
+// some map every KeyEvent to a `KeyPress(ev)`; others discriminate on the
+// key's Key variant and emit semantic events (e.g., `Increment()` for Down).
+func Run[M any, T any](
+    program Program[M, T],
+    makeKeyMsg func(KeyEvent) T,
+) M {
+    val fd = int(os.Stdin.Fd())
+    var state, err = term.MakeRaw(fd)
+    if err != nil {
+        // Not a tty or no raw mode available — fall back to the pure
+        // StepAll harness so at least one frame is drawn.
+        fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
+        return program.Initial
+    }
+    // Guarantee restoration on every exit path.
+    defer term.Restore(fd, state)
+
+    // Enter the alt screen so our UI doesn't trash the user's shell history.
+    fmt.Fprint(os.Stdout, ansiAltScreenOn())
+    fmt.Fprint(os.Stdout, ansiCursorHide())
+    defer fmt.Fprint(os.Stdout, ansiCursorShow())
+    defer fmt.Fprint(os.Stdout, ansiAltScreenOff())
+
+    var model = program.Initial
+
+    // First paint — the initial model before any input.
+    paintFrame(program.View(model))
+
+    // Read buffer sized to the longest escape sequence we handle (ESC [ digit ~
+    // = 4 bytes; 8 is ample with slack for multi-byte UTF-8 sequences).
+    var readBuf = SliceWithSize[byte](8)
+    for {
+        var n, rerr = os.Stdin.Read(readBuf)
+        if rerr != nil {
+            if rerr == io.EOF {
+                return model
+            }
+            fmt.Fprintln(os.Stderr, "gala-tui: stdin read failed:", rerr)
+            return model
+        }
+        if n == 0 {
+            continue
+        }
+
+        // Parse the bytes we got. If multiple key events are buffered (the
+        // user mashed keys), ParseKey consumes one at a time; loop on the
+        // remaining slice. This is why readBuf can be multi-key.
+        var consumed = 0
+        for consumed < n {
+            val (ev, c) = ParseKey(Slice(readBuf, consumed, n))
+            if c == 0 {
+                // Defensive: ParseKey returned no progress. Drop the byte
+                // to avoid an infinite loop rather than hang the app.
+                consumed = consumed + 1
+                continue
+            }
+            consumed = consumed + c
+
+            // Ctrl-C shortcut: the runtime forces a quit so the user always
+            // has an escape hatch even if the app's update() misses it.
+            if ev.Ctrl && keyIsCharC(ev.Key) {
+                return model
+            }
+
+            val msg = makeKeyMsg(ev)
+            val (newModel, cmd) = program.Update(model, msg)
+            model = newModel
+
+            if IsQuit(cmd) {
+                return model
+            }
+
+            // Any synchronously-emitted messages are dispatched in-line, same
+            // as StepAll's behavior — supports `Cmd.MsgCmd(x)` chaining.
+            val emitted = PendingMsgs(cmd)
+            var i = 0
+            for i < emitted.Length() {
+                val (nm, nc) = program.Update(model, emitted.Get(i))
+                model = nm
+                if IsQuit(nc) {
+                    return model
+                }
+                i = i + 1
+            }
+
+            paintFrame(program.View(model))
+        }
+    }
+    return model
+}
+
+// keyIsCharC tests whether the key is the literal 'c' rune — used for the
+// forced Ctrl-C quit handler. Kept as a helper because pattern matching on
+// Char(c) + comparing against 'c' inside an if-expression is a bit nested
+// and reads better as a named predicate.
+func keyIsCharC(k Key) bool {
+    return k match {
+        case Char(c) => c == 'c'
+        case _       => false
+    }
+}
+
+// ----------------------------------------------------------------------------
+// RunRich — the async-aware runtime.
+//
+// Supports everything Run does, plus:
+//   - FutureCmd commands in the Cmd tree are tracked and polled every
+//     iteration; their resolved values are dispatched as Msgs.
+//   - TickSub subscriptions fire on their own clocks; each fire is dispatched
+//     through update() just like a keypress.
+//
+// Stdin reads are wrapped in a concurrent.Future that the loop checks with a
+// short timeout, so tickers and futures can fire between keypresses without
+// blocking. No user-visible concurrency primitives — all async runs through
+// Future[T] and its ExecutionContext.
+//
+// The loop body:
+//   1. Drain any completed pending futures; dispatch their values as Msgs.
+//   2. Fire any due tickers; dispatch their values as Msgs.
+//   3. Launch a stdin-read Future if none is in flight; await up to 50ms.
+//   4. If the read completed, parse the buffered bytes into KeyEvents and
+//      dispatch through update().
+//   5. Repaint.
+// ----------------------------------------------------------------------------
+
+// ReadResult bundles the bytes and byte count returned by a non-blocking
+// stdin read inside a Future. Kept as a struct so the Future's T parameter
+// is a named type — GALA inference copes with that more reliably than a
+// naked Tuple[[]byte, int].
+struct ReadResult(
+    Buf []byte,
+    N   int,
+    Err bool,     // true iff the read failed (e.g., EOF) — caller should exit.
+)
+
+func stdinReadFuture() concurrent.Future[ReadResult] {
+    return concurrent.FutureApply[ReadResult](() => {
+        var buf = SliceWithSize[byte](8)
+        var n, err = os.Stdin.Read(buf)
+        if err != nil {
+            return ReadResult(Buf = buf, N = 0, Err = true)
+        }
+        return ReadResult(Buf = buf, N = n, Err = false)
+    })
+}
+
+func RunRich[M any, T any](
+    program Program[M, T],
+    makeKeyMsg func(KeyEvent) T,
+    initialSub Sub[T],
+) M {
+    val fd = int(os.Stdin.Fd())
+    var state, err = term.MakeRaw(fd)
+    if err != nil {
+        fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
+        return program.Initial
+    }
+    defer term.Restore(fd, state)
+
+    fmt.Fprint(os.Stdout, ansiAltScreenOn())
+    fmt.Fprint(os.Stdout, ansiCursorHide())
+    defer fmt.Fprint(os.Stdout, ansiCursorShow())
+    defer fmt.Fprint(os.Stdout, ansiAltScreenOff())
+
+    var model = program.Initial
+    var pending = EmptyArray[concurrent.Future[T]]()
+    var tickers = CollectTickers(initialSub, Now())
+    var readFut = None[concurrent.Future[ReadResult]]()
+
+    paintFrame(program.View(model))
+
+    for {
+        // 1. Drain ready async Cmds.
+        val (asyncMsgs, stillPending) = PollFutures(pending)
+        pending = stillPending
+        val asyncRes = dispatchAll(program, model, asyncMsgs)
+        model = asyncRes.Model
+        pending = pending.AppendAll(asyncRes.NewFutures)
+        if asyncRes.Quit {
+            return model
+        }
+
+        // 2. Fire due tickers.
+        val (tickMsgs, advanced) = DispatchDueTicks(tickers, Now())
+        tickers = advanced
+        val tickRes = dispatchAll(program, model, tickMsgs)
+        model = tickRes.Model
+        pending = pending.AppendAll(tickRes.NewFutures)
+        if tickRes.Quit {
+            return model
+        }
+
+        // If anything above changed the model, paint before blocking on the
+        // next input event.
+        if asyncMsgs.NonEmpty() || tickMsgs.NonEmpty() {
+            paintFrame(program.View(model))
+        }
+
+        // 3. Ensure a stdin read future is in flight.
+        if readFut.IsEmpty() {
+            readFut = Some[concurrent.Future[ReadResult]](stdinReadFuture())
+        }
+
+        // 4. Wait up to 50ms for it to complete.
+        val got = readFut.Get().AwaitFor(Milliseconds(50))
+        if got.IsEmpty() {
+            // Timed out — go back to the top so tickers and futures get a
+            // chance to fire. The read future keeps running in the background
+            // and we'll poll it again next iteration.
+            continue
+        }
+
+        // The read completed — clear the slot so a fresh read is launched
+        // next time.
+        val tr = got.Get()
+        readFut = None[concurrent.Future[ReadResult]]()
+        if tr.IsFailure() {
+            fmt.Fprintln(os.Stderr, "gala-tui: stdin read future failed:", tr.GetError())
+            return model
+        }
+        val rr = tr.Get()
+        if rr.Err {
+            fmt.Fprintln(os.Stderr, "gala-tui: stdin read returned error/EOF")
+            if rr.N == 0 {
+                return model
+            }
+        }
+        if rr.N == 0 {
+            continue
+        }
+
+        // 5. Process all buffered key bytes.
+        val exitNow = processKeyBytes(program, &model, &pending, rr.Buf, rr.N, makeKeyMsg)
+        if exitNow {
+            return model
+        }
+
+        paintFrame(program.View(model))
+    }
+    return model
+}
+
+// ----------------------------------------------------------------------------
+// RunFull — the maximal entry point.
+//
+// Extends RunRich with:
+//   - mouse events (SGR mode \x1b[?1006h enabled on entry, cleared on exit)
+//   - terminal resize detection (polled once per loop iteration)
+//
+// `makeInputMsg` receives a unified InputEvent (Key | Mouse | Resize | Unknown)
+// and returns the app's Msg. Apps that don't care about mouse/resize return a
+// NoOp msg for those cases — the runtime dispatches whatever comes back.
+// ----------------------------------------------------------------------------
+
+func RunFull[M any, T any](
+    program Program[M, T],
+    makeInputMsg func(InputEvent) T,
+    initialSub Sub[T],
+) M {
+    val fd = int(os.Stdin.Fd())
+    var state, err = term.MakeRaw(fd)
+    if err != nil {
+        fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
+        return program.Initial
+    }
+    defer term.Restore(fd, state)
+
+    fmt.Fprint(os.Stdout, ansiAltScreenOn())
+    fmt.Fprint(os.Stdout, ansiCursorHide())
+    fmt.Fprint(os.Stdout, ansiMouseOn())
+    defer fmt.Fprint(os.Stdout, ansiMouseOff())
+    defer fmt.Fprint(os.Stdout, ansiCursorShow())
+    defer fmt.Fprint(os.Stdout, ansiAltScreenOff())
+
+    var model = program.Initial
+    var pending = EmptyArray[concurrent.Future[T]]()
+    var tickers = CollectTickers(initialSub, Now())
+    var readFut = None[concurrent.Future[ReadResult]]()
+    val (initW, initH) = TermSize()
+    var lastW = initW
+    var lastH = initH
+    var prevFrame = paintFrameDiff(program.View(model), nil)
+
+    for {
+        // 1. Drain ready async Cmds.
+        val (asyncMsgs, stillPending) = PollFutures(pending)
+        pending = stillPending
+        val asyncRes = dispatchAll(program, model, asyncMsgs)
+        model = asyncRes.Model
+        pending = pending.AppendAll(asyncRes.NewFutures)
+        if asyncRes.Quit {
+            return model
+        }
+
+        // 2. Fire due tickers.
+        val (tickMsgs, advanced) = DispatchDueTicks(tickers, Now())
+        tickers = advanced
+        val tickRes = dispatchAll(program, model, tickMsgs)
+        model = tickRes.Model
+        pending = pending.AppendAll(tickRes.NewFutures)
+        if tickRes.Quit {
+            return model
+        }
+
+        // 3. Detect resize and dispatch it as a ResizeInput event.
+        val (curW, curH) = TermSize()
+        var resizeMsgs = EmptyArray[T]()
+        if curW != lastW || curH != lastH {
+            lastW = curW
+            lastH = curH
+            resizeMsgs = resizeMsgs.Append(makeInputMsg(ResizeInput(W = curW, H = curH)))
+        }
+        val resRes = dispatchAll(program, model, resizeMsgs)
+        model = resRes.Model
+        pending = pending.AppendAll(resRes.NewFutures)
+        if resRes.Quit {
+            return model
+        }
+
+        if asyncMsgs.NonEmpty() || tickMsgs.NonEmpty() || resizeMsgs.NonEmpty() {
+            prevFrame = paintFrameDiff(program.View(model), prevFrame)
+        }
+
+        // 4. Ensure a stdin read future is in flight and wait briefly for it.
+        if readFut.IsEmpty() {
+            readFut = Some[concurrent.Future[ReadResult]](stdinReadFuture())
+        }
+        val got = readFut.Get().AwaitFor(Milliseconds(50))
+        if got.IsEmpty() {
+            continue
+        }
+        val tr = got.Get()
+        readFut = None[concurrent.Future[ReadResult]]()
+        if tr.IsFailure() {
+            fmt.Fprintln(os.Stderr, "gala-tui: stdin read future failed:", tr.GetError())
+            return model
+        }
+        val rr = tr.Get()
+        if rr.Err && rr.N == 0 {
+            fmt.Fprintln(os.Stderr, "gala-tui: stdin read returned error/EOF")
+            return model
+        }
+        if rr.N == 0 {
+            continue
+        }
+
+        // 5. Dispatch buffered input bytes — mouse, keys, resize — through
+        //    ParseInput so mouse packets take their dedicated path.
+        val exitNow = processInputBytes(program, &model, &pending, rr.Buf, rr.N, makeInputMsg)
+        if exitNow {
+            return model
+        }
+
+        prevFrame = paintFrameDiff(program.View(model), prevFrame)
+    }
+    return model
+}
+
+// processInputBytes is the InputEvent analogue of processKeyBytes. It walks
+// the read buffer calling ParseInput and dispatches each event as a Msg.
+func processInputBytes[M any, T any](
+    program Program[M, T],
+    model *M,
+    pending *Array[concurrent.Future[T]],
+    buf []byte,
+    n int,
+    makeInputMsg func(InputEvent) T,
+) bool {
+    var consumed = 0
+    for consumed < n {
+        val (ev, c) = ParseInput(Slice(buf, consumed, n))
+        if c == 0 {
+            // Incomplete sequence — stop here; next read will bring the rest.
+            return false
+        }
+        consumed = consumed + c
+
+        if isForcedQuit(ev) {
+            return true
+        }
+
+        val msg = makeInputMsg(ev)
+        val (newModel, cmd) = program.Update(*model, msg)
+        *model = newModel
+        if IsQuit(cmd) {
+            return true
+        }
+        *pending = pending.AppendAll(PendingFutures(cmd))
+
+        val emitted = PendingMsgs(cmd)
+        var i = 0
+        for i < emitted.Length() {
+            val (nm, nc) = program.Update(*model, emitted.Get(i))
+            *model = nm
+            if IsQuit(nc) {
+                return true
+            }
+            *pending = pending.AppendAll(PendingFutures(nc))
+            i = i + 1
+        }
+    }
+    return false
+}
+
+// isForcedQuit recognises Ctrl-C so the runtime always has an escape hatch,
+// regardless of what the app's update() decides.
+func isForcedQuit(ev InputEvent) bool {
+    return ev match {
+        case KeyInput(k)    => k.Ctrl && keyIsCharC(k.Key)
+        case MouseInput(_)  => false
+        case ResizeInput(_, _) => false
+        case UnknownInput() => false
+    }
+}
+
+// DispatchResult bundles the outcome of dispatching a batch of messages.
+// Consumed by both the async-Cmd and tick-Sub paths in RunRich.
+struct DispatchResult[M any, T any](
+    Model      M,
+    NewFutures Array[concurrent.Future[T]],
+    Quit       bool,
+)
+
+// dispatchAll walks `msgs`, calling program.Update for each, and threads the
+// model + pending-futures list forward. Stops short if any update() returns
+// QuitCmd.
+func dispatchAll[M any, T any](
+    program Program[M, T],
+    start M,
+    msgs Array[T],
+) DispatchResult[M, T] {
+    var model = start
+    var futures = EmptyArray[concurrent.Future[T]]()
+    var i = 0
+    val n = msgs.Length()
+    for i < n {
+        val (nm, cmd) = program.Update(model, msgs.Get(i))
+        model = nm
+        if IsQuit(cmd) {
+            return DispatchResult[M, T](Model = model, NewFutures = futures, Quit = true)
+        }
+        futures = futures.AppendAll(PendingFutures(cmd))
+        // Inline synchronous re-dispatch for MsgCmd chains.
+        val emitted = PendingMsgs(cmd)
+        var j = 0
+        for j < emitted.Length() {
+            val (nm2, cmd2) = program.Update(model, emitted.Get(j))
+            model = nm2
+            if IsQuit(cmd2) {
+                return DispatchResult[M, T](Model = model, NewFutures = futures, Quit = true)
+            }
+            futures = futures.AppendAll(PendingFutures(cmd2))
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return DispatchResult[M, T](Model = model, NewFutures = futures, Quit = false)
+}
+
+// processKeyBytes consumes the bytes produced by a stdin read, dispatches
+// each parsed KeyEvent through update(), and returns true if the app should
+// exit (Ctrl-C or Quit cmd). Writes through the `model` / `pending` pointers
+// so the caller sees updated state.
+func processKeyBytes[M any, T any](
+    program Program[M, T],
+    model *M,
+    pending *Array[concurrent.Future[T]],
+    buf []byte,
+    n int,
+    makeKeyMsg func(KeyEvent) T,
+) bool {
+    var consumed = 0
+    for consumed < n {
+        val (ev, c) = ParseKey(Slice(buf, consumed, n))
+        if c == 0 {
+            consumed = consumed + 1
+            continue
+        }
+        consumed = consumed + c
+
+        if ev.Ctrl && keyIsCharC(ev.Key) {
+            return true
+        }
+
+        val msg = makeKeyMsg(ev)
+        val (newModel, cmd) = program.Update(*model, msg)
+        *model = newModel
+        if IsQuit(cmd) {
+            return true
+        }
+        *pending = pending.AppendAll(PendingFutures(cmd))
+
+        val emitted = PendingMsgs(cmd)
+        var i = 0
+        for i < emitted.Length() {
+            val (nm, nc) = program.Update(*model, emitted.Get(i))
+            *model = nm
+            if IsQuit(nc) {
+                return true
+            }
+            *pending = pending.AppendAll(PendingFutures(nc))
+            i = i + 1
+        }
+    }
+    return false
+}
+
+// paintFrame sizes a Buffer to the current terminal, asks the Widget tree to
+// render into it, then writes the ANSI-escape text to stdout preceded by
+// cursor-home. Full repaint every frame — kept for the simple `Run` path
+// that doesn't care about bandwidth.
+func paintFrame(w Widget) {
+    val (width, height) = TermSize()
+    var buf = NewBuffer(width, height)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
+    fmt.Fprint(os.Stdout, ansiHome())
+    fmt.Fprint(os.Stdout, buf.String())
+}
+
+// paintFrameDiff renders into a fresh buffer, then writes ONLY the cells that
+// differ from `prev` (or does a full paint if `prev` is nil or the terminal
+// was resized). Returns the newly-rendered buffer so the caller threads it
+// forward as the next frame's `prev`.
+//
+// This is what keeps the wire traffic down when only a spinner frame or a
+// highlighted row moves: typical diff is 80–200 bytes versus a few KB for a
+// full repaint.
+func paintFrameDiff(w Widget, prev *Buffer) *Buffer {
+    val (width, height) = TermSize()
+    var buf = NewBuffer(width, height)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
+    fmt.Fprint(os.Stdout, buf.DiffString(prev))
+    return buf
+}

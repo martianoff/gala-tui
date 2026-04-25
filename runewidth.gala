@@ -1,0 +1,108 @@
+package gala_tui
+
+// ============================================================================
+// Grapheme-aware display widths.
+//
+// The framework historically counted every rune as one cell — fine for
+// ASCII, wrong for:
+//
+//   - **CJK ideographs** (U+4E00..U+9FFF and friends) render at DOUBLE width
+//   - **Emoji** (U+1F300..U+1FAFF, plus misc symbols) render at DOUBLE width
+//   - **Zero-width combiners** (U+0300..U+036F, U+FE00..U+FE0F, ZWJ) render
+//     at ZERO width — they modify the preceding grapheme
+//   - **Fullwidth forms** (U+FF00..U+FFEF) render at DOUBLE width
+//   - **Hangul syllables** (U+AC00..U+D7A3) render at DOUBLE width
+//
+// RuneCellWidth(r) returns the display width of a single code point.
+// StringCellWidth(s) sums the widths of every rune in `s`, giving the
+// correct cell count the string will occupy when rendered.
+//
+// This is the practical subset of Unicode East Asian Width + emoji width
+// rules; a full implementation would require a giant generated table
+// (tens of KB). Our approach covers the common cases with a compact
+// rune-range classifier — any app that needs 100% coverage of rare blocks
+// can swap in `github.com/mattn/go-runewidth` via a tiny shim.
+// ============================================================================
+
+// RuneCellWidth returns how many terminal cells `r` occupies.
+//   0 = zero-width (combining mark, variation selector, ZWJ)
+//   1 = narrow (ASCII, Latin-1, most European scripts)
+//   2 = wide (CJK, emoji, fullwidth forms)
+func RuneCellWidth(r rune) int {
+    // Fast path: basic ASCII printable + space.
+    if r >= 0x20 && r < 0x7F { return 1 }
+    // Control characters render as 0 cells in our model — the renderer
+    // skips them so this is safe.
+    if r < 0x20 || r == 0x7F { return 0 }
+
+    // Zero-width combining marks.
+    if r >= 0x0300 && r <= 0x036F { return 0 }     // Combining Diacritical Marks
+    if r >= 0x1AB0 && r <= 0x1AFF { return 0 }     // Combining Diacritical Marks Extended
+    if r >= 0x1DC0 && r <= 0x1DFF { return 0 }     // Combining Diacritical Marks Supplement
+    if r >= 0x20D0 && r <= 0x20FF { return 0 }     // Combining Diacritical Marks for Symbols
+    if r >= 0xFE20 && r <= 0xFE2F { return 0 }     // Combining Half Marks
+    if r == 0x200D { return 0 }                    // Zero Width Joiner
+    if r == 0x200C { return 0 }                    // Zero Width Non-Joiner
+    if r == 0x200B { return 0 }                    // Zero Width Space
+    if r == 0xFEFF { return 0 }                    // Byte Order Mark
+    if r >= 0xFE00 && r <= 0xFE0F { return 0 }     // Variation Selectors
+    if r >= int32(0xE0100) && r <= int32(0xE01EF) { return 0 }   // Variation Selectors Supplement
+
+    // Double-width ranges.
+    if r >= 0x1100 && r <= 0x115F { return 2 }     // Hangul Jamo
+    if r >= 0x2E80 && r <= 0x303E { return 2 }     // CJK Radicals Supplement, Kangxi
+    if r >= 0x3041 && r <= 0x33FF { return 2 }     // Hiragana, Katakana, Bopomofo, etc.
+    if r >= 0x3400 && r <= 0x4DBF { return 2 }     // CJK Unified Ideographs Extension A
+    if r >= 0x4E00 && r <= 0x9FFF { return 2 }     // CJK Unified Ideographs
+    if r >= 0xA000 && r <= 0xA4CF { return 2 }     // Yi Syllables, Yi Radicals
+    if r >= 0xAC00 && r <= 0xD7A3 { return 2 }     // Hangul Syllables
+    if r >= 0xF900 && r <= 0xFAFF { return 2 }     // CJK Compatibility Ideographs
+    if r >= 0xFE30 && r <= 0xFE4F { return 2 }     // CJK Compatibility Forms
+    if r >= 0xFF00 && r <= 0xFF60 { return 2 }     // Fullwidth Forms (ASCII range)
+    if r >= 0xFFE0 && r <= 0xFFE6 { return 2 }     // Fullwidth signs
+
+    // Emoji and pictographs — 16-bit ranges.
+    if r >= 0x2600 && r <= 0x26FF { return 2 }     // Miscellaneous Symbols
+    if r >= 0x2700 && r <= 0x27BF { return 2 }     // Dingbats
+
+    // Emoji — supplementary planes.
+    if r >= int32(0x1F300) && r <= int32(0x1F64F) { return 2 }   // Symbols + emoticons
+    if r >= int32(0x1F680) && r <= int32(0x1F6FF) { return 2 }   // Transport + Map Symbols
+    if r >= int32(0x1F900) && r <= int32(0x1F9FF) { return 2 }   // Supplemental Symbols
+    if r >= int32(0x1FA00) && r <= int32(0x1FAFF) { return 2 }   // Symbols and Pictographs Ext-A
+    if r >= int32(0x20000) && r <= int32(0x2FFFD) { return 2 }   // CJK Extensions B–F
+    if r >= int32(0x30000) && r <= int32(0x3FFFD) { return 2 }   // CJK Extension G
+    if r >= int32(0xE0000) && r <= int32(0xE0FFF) { return 0 }   // Tags (zero-width)
+
+    // Default: narrow (one cell).
+    return 1
+}
+
+// StringCellWidth returns the total cell count the string `s` will occupy
+// when rendered on a grid-based terminal. Equivalent to the sum of
+// RuneCellWidth across all runes — runs in O(n) with a single pass.
+func StringCellWidth(s string) int {
+    var w = 0
+    for _, r := range s {
+        w = w + RuneCellWidth(r)
+    }
+    return w
+}
+
+// StringCellTruncate returns a prefix of `s` whose cell width is ≤ `maxW`.
+// Never breaks a double-width rune in half — if adding the next rune would
+// overflow, the truncation stops just before it. Useful for fitting a
+// title into a fixed-width slot.
+func StringCellTruncate(s string, maxW int) string {
+    var out = ""
+    var w = 0
+    for _, r := range s {
+        val rw = RuneCellWidth(r)
+        if w + rw > maxW {
+            return out
+        }
+        out = out + string(r)
+        w = w + rw
+    }
+    return out
+}

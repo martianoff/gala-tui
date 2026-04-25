@@ -1,0 +1,173 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for SGR mouse parsing + InputEvent dispatch helpers.
+//
+// Test vectors are synthesized as raw byte sequences so the parser is exercised
+// exactly the same way stdin feeds it at runtime.
+// ============================================================================
+
+// Build an SGR mouse packet: ESC [ < btn ; x ; y M|m
+func mousePacket(btn int, x int, y int, press bool) []byte {
+    var bs = SliceEmpty[byte]()
+    bs = append(bs, byte(0x1B), byte('['), byte('<'))
+    for _, c := range intToDecimalRunes(btn) { bs = append(bs, byte(c)) }
+    bs = append(bs, byte(';'))
+    for _, c := range intToDecimalRunes(x) { bs = append(bs, byte(c)) }
+    bs = append(bs, byte(';'))
+    for _, c := range intToDecimalRunes(y) { bs = append(bs, byte(c)) }
+    if press {
+        bs = append(bs, byte('M'))
+    } else {
+        bs = append(bs, byte('m'))
+    }
+    return bs
+}
+
+func intToDecimalRunes(n int) []rune {
+    if n == 0 {
+        var zero = SliceEmpty[rune]()
+        return append(zero, rune('0'))
+    }
+    var neg = false
+    var v = n
+    if v < 0 {
+        neg = true
+        v = -v
+    }
+    var rev = SliceEmpty[rune]()
+    for v > 0 {
+        val d = v % 10
+        rev = append(rev, rune('0' + d))
+        v = v / 10
+    }
+    var out = SliceEmpty[rune]()
+    if neg {
+        out = append(out, rune('-'))
+    }
+    var i = len(rev) - 1
+    for i >= 0 {
+        out = append(out, rev[i])
+        i = i - 1
+    }
+    return out
+}
+
+// ----------------------------------------------------------------------------
+// Mouse packet parsing
+// ----------------------------------------------------------------------------
+
+func TestParseInputMouseLeftPress(t T) T {
+    val buf = mousePacket(0, 5, 7, true)
+    val (ev, n) = ParseInput(buf)
+    val isMouse = ev match {
+        case MouseInput(_) => true
+        case _             => false
+    }
+    val t1 = IsTrue(t, isMouse)
+    return IsTrue(t1, n == len(buf))
+}
+
+func TestParseInputMouseCoordsAreZeroIndexed(t T) T {
+    // Mouse packet at SGR-1-indexed (5, 7) → we expose (4, 6).
+    val buf = mousePacket(0, 5, 7, true)
+    val (ev, _) = ParseInput(buf)
+    val (x, y) = ev match {
+        case MouseInput(m) => (m.X, m.Y)
+        case _             => (-1, -1)
+    }
+    val t1 = Eq(t, x, 4)
+    return Eq(t1, y, 6)
+}
+
+func TestParseInputMouseReleaseFlag(t T) T {
+    val buf = mousePacket(0, 1, 1, false)
+    val (ev, _) = ParseInput(buf)
+    val released = ev match {
+        case MouseInput(m) => !m.Pressed
+        case _             => false
+    }
+    return IsTrue(t, released)
+}
+
+func TestParseInputMouseButtonMiddle(t T) T {
+    val buf = mousePacket(1, 2, 3, true)
+    val (ev, _) = ParseInput(buf)
+    val isMid = ev match {
+        case MouseInput(m) => mouseBtnIs(m.Btn, "middle")
+        case _             => false
+    }
+    return IsTrue(t, isMid)
+}
+
+func TestParseInputMouseButtonRight(t T) T {
+    val buf = mousePacket(2, 2, 3, true)
+    val (ev, _) = ParseInput(buf)
+    val isR = ev match {
+        case MouseInput(m) => mouseBtnIs(m.Btn, "right")
+        case _             => false
+    }
+    return IsTrue(t, isR)
+}
+
+func TestParseInputMouseScrollUp(t T) T {
+    val buf = mousePacket(64, 10, 10, true)
+    val (ev, _) = ParseInput(buf)
+    val isUp = ev match {
+        case MouseInput(m) => mouseBtnIs(m.Btn, "scroll-up")
+        case _             => false
+    }
+    return IsTrue(t, isUp)
+}
+
+func TestParseInputMouseScrollDown(t T) T {
+    val buf = mousePacket(65, 10, 10, true)
+    val (ev, _) = ParseInput(buf)
+    val isDn = ev match {
+        case MouseInput(m) => mouseBtnIs(m.Btn, "scroll-down")
+        case _             => false
+    }
+    return IsTrue(t, isDn)
+}
+
+func TestParseInputKeyFallthrough(t T) T {
+    // Plain ASCII 'a' should flow through as KeyInput.
+    var bs = SliceEmpty[byte]()
+    bs = append(bs, byte('a'))
+    val (ev, n) = ParseInput(bs)
+    val isKey = ev match {
+        case KeyInput(_) => true
+        case _           => false
+    }
+    val t1 = IsTrue(t, isKey)
+    return Eq(t1, n, 1)
+}
+
+func TestParseInputIncompleteMouseReturnsZeroConsumed(t T) T {
+    // Only the prefix ESC [ < with no terminator — parser should request more.
+    var bs = SliceEmpty[byte]()
+    bs = append(bs, byte(0x1B), byte('['), byte('<'), byte('0'))
+    val (_, n) = ParseInput(bs)
+    return Eq(t, n, 0)
+}
+
+// ----------------------------------------------------------------------------
+// MouseButton tag helper — isolates the sealed match so callers don't
+// duplicate the boilerplate.
+// ----------------------------------------------------------------------------
+
+func mouseBtnIs(b MouseButton, name string) bool {
+    return b match {
+        case MouseLeft()        => name == "left"
+        case MouseMiddle()      => name == "middle"
+        case MouseRight()       => name == "right"
+        case MouseScrollUp()    => name == "scroll-up"
+        case MouseScrollDown()  => name == "scroll-down"
+        case MouseButtonNone()  => name == "none"
+    }
+}

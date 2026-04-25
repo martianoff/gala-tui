@@ -1,0 +1,164 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// Toast + StatusBar — transient notifications and a persistent footer bar.
+//
+// Toast is the "Saved!" / "Error: timeout" popup that appears briefly and
+// fades out. Every toast carries an expiration Instant; ToastPrune removes
+// expired entries given the current time (driven by a TickSub in the app).
+//
+// StatusBar is the always-visible bottom bar with three slots: left, center,
+// right. Apps render their own small widgets into each slot — typical
+// content is focus name, current document, row:col, time.
+// ============================================================================
+
+sealed type ToastLevel {
+    case ToastInfo()
+    case ToastSuccess()
+    case ToastWarn()
+    case ToastError()
+}
+
+struct Toast(
+    Message   string,
+    Level     ToastLevel,
+    ExpiresAt Instant,
+)
+
+struct ToastQueue(
+    Items Array[Toast],
+    Max   int,
+)
+
+// NewToastQueue builds an empty queue keeping at most `max` active toasts
+// before the oldest are dropped.
+func NewToastQueue(max int) ToastQueue =
+    ToastQueue(Items = EmptyArray[Toast](), Max = max)
+
+// Push appends a toast with the given expiration instant. Tests supply a
+// deterministic `expiresAt`; apps use one of the helper methods below.
+func (q ToastQueue) Push(t Toast) ToastQueue {
+    val next = q.Items.Append(t)
+    if next.Length() <= q.Max {
+        return q.Copy(Items = next)
+    }
+    return q.Copy(Items = next.Slice(next.Length() - q.Max, next.Length()))
+}
+
+// PushInfo / PushSuccess / PushWarn / PushError build and push a level-tagged
+// toast that expires `ttl` after `now`.
+func (q ToastQueue) PushInfo(msg string, now Instant, ttl Duration) ToastQueue =
+    q.Push(Toast(Message = msg, Level = ToastInfo(),    ExpiresAt = now.Plus(ttl)))
+
+func (q ToastQueue) PushSuccess(msg string, now Instant, ttl Duration) ToastQueue =
+    q.Push(Toast(Message = msg, Level = ToastSuccess(), ExpiresAt = now.Plus(ttl)))
+
+func (q ToastQueue) PushWarn(msg string, now Instant, ttl Duration) ToastQueue =
+    q.Push(Toast(Message = msg, Level = ToastWarn(),    ExpiresAt = now.Plus(ttl)))
+
+func (q ToastQueue) PushError(msg string, now Instant, ttl Duration) ToastQueue =
+    q.Push(Toast(Message = msg, Level = ToastError(),   ExpiresAt = now.Plus(ttl)))
+
+// Prune drops every toast whose ExpiresAt is <= `now`. The app calls this
+// on each TickSub fire to keep the queue fresh.
+func (q ToastQueue) Prune(now Instant) ToastQueue {
+    val kept = q.Items.Filter((t) => t.ExpiresAt.Since(now).ToNanos() > int64(0))
+    return q.Copy(Items = kept)
+}
+
+// Length reports the number of active toasts.
+func (q ToastQueue) Length() int = q.Items.Length()
+
+// IsEmpty reports whether the queue has any live toasts.
+func (q ToastQueue) IsEmpty() bool = q.Items.IsEmpty()
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// ToastView renders the MOST RECENT toast as a styled banner. Returns an
+// Empty widget when the queue is empty. Apps typically position this with
+// a Stack or Overlay so it appears at a corner without reflowing the main
+// layout.
+func ToastView(q ToastQueue) Widget {
+    if q.IsEmpty() { return Empty() }
+    val last = q.Items.Get(q.Items.Length() - 1)
+    val style = toastStyle(last.Level)
+    val prefix = toastPrefix(last.Level)
+    return TextStyled(" " + prefix + " " + last.Message + " ", style)
+}
+
+// ToastStackView renders ALL active toasts as a vertical column — useful
+// when an app wants to see multiple recent notifications at once.
+func ToastStackView(q ToastQueue) Widget {
+    if q.IsEmpty() { return Empty() }
+    val rows = q.Items.Map((t) => {
+        val style = toastStyle(t.Level)
+        val prefix = toastPrefix(t.Level)
+        return Fixed(1, TextStyled(" " + prefix + " " + t.Message + " ", style))
+    })
+    return Column(rows)
+}
+
+func toastStyle(l ToastLevel) Style {
+    return l match {
+        case ToastInfo()    => DefaultStyle().WithFg(Black()).On(BrightCyan())
+        case ToastSuccess() => DefaultStyle().WithBold().WithFg(Black()).On(BrightGreen())
+        case ToastWarn()    => DefaultStyle().WithBold().WithFg(Black()).On(BrightYellow())
+        case ToastError()   => DefaultStyle().WithBold().WithFg(BrightWhite()).On(BrightRed())
+    }
+}
+
+func toastPrefix(l ToastLevel) string {
+    return l match {
+        case ToastInfo()    => "i"
+        case ToastSuccess() => "✓"
+        case ToastWarn()    => "!"
+        case ToastError()   => "✕"
+    }
+}
+
+// ============================================================================
+// StatusBar — persistent bottom-of-screen bar with three slots.
+// ============================================================================
+
+struct StatusBar(
+    Left   Widget,
+    Center Widget,
+    Right  Widget,
+    Style  Style,
+)
+
+// NewStatusBar builds a bar with the given slot widgets. Use Empty() for
+// any unused slot.
+func NewStatusBar(left Widget, center Widget, right Widget) StatusBar =
+    StatusBar(
+        Left   = left,
+        Center = center,
+        Right  = right,
+        Style  = DefaultStyle().WithFg(Black()).On(BrightCyan()),
+    )
+
+// NewStatusBarStyled lets callers pick a custom style — useful for themes.
+func NewStatusBarStyled(left Widget, center Widget, right Widget, style Style) StatusBar =
+    StatusBar(Left = left, Center = center, Right = right, Style = style)
+
+// StatusBarView lays out the bar as a three-segment row. Left and right
+// are sized to their intrinsic widths; the center takes the remaining
+// space. The whole row is painted with the bar's style.
+func StatusBarView(bar StatusBar) Widget {
+    val leftW   = defaultRenderWidth(bar.Left)
+    val rightW  = defaultRenderWidth(bar.Right)
+    val bg = FillChStyled(' ', bar.Style)
+    val content = Row(ArrayOf[LayoutChild](
+        Fixed(leftW, bar.Left),
+        Flex(1, bar.Center),
+        Fixed(rightW, bar.Right),
+    ))
+    return Overlay(bg, content)
+}

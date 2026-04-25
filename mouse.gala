@@ -1,0 +1,156 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/go_interop"
+)
+
+// ============================================================================
+// Mouse + input-event model.
+//
+// The terminal sends mouse presses, releases, and scroll as CSI escape
+// sequences once the app requests it via the enable strings defined below.
+// We implement SGR mouse mode (`\x1b[?1006h`) exclusively because it supports
+// arbitrary (x, y) coordinates up to 32767 whereas the legacy `\x1b[?1000h`
+// mode encodes coords as bytes and tops out at 223.
+//
+// A mouse packet in SGR mode looks like:
+//     ESC [ < btnCode ; x ; y ; (M|m)
+//   - M = press, m = release
+//   - x, y are 1-indexed; subtract 1 on ingest so everything downstream is
+//     0-indexed to match our Rect/Cell coordinates.
+//
+// InputEvent unifies keys, mouse, and resize into one sealed sum so the
+// `RunFull` entry point can funnel them through a single `func(InputEvent) T`
+// translator (the same shape as `makeKeyMsg` in Run/RunRich).
+// ============================================================================
+
+sealed type MouseButton {
+    case MouseLeft()
+    case MouseMiddle()
+    case MouseRight()
+    case MouseScrollUp()
+    case MouseScrollDown()
+    case MouseButtonNone()          // motion-only event or unknown code
+}
+
+struct MouseEvent(
+    Btn     MouseButton,
+    X       int,                    // 0-indexed column
+    Y       int,                    // 0-indexed row
+    Pressed bool,                   // true = press, false = release
+)
+
+sealed type InputEvent {
+    case KeyInput(Ev KeyEvent)
+    case MouseInput(Ev MouseEvent)
+    case ResizeInput(W int, H int)
+    case UnknownInput()
+}
+
+// ANSI enable/disable strings — written to stdout on runtime entry and exit.
+func ansiMouseOn() string  = "\x1b[?1000h\x1b[?1006h"
+func ansiMouseOff() string = "\x1b[?1006l\x1b[?1000l"
+
+// ----------------------------------------------------------------------------
+// Parsing
+// ----------------------------------------------------------------------------
+
+// ParseInput reads one InputEvent from the front of `buf`. It first checks
+// for an SGR mouse packet (ESC [ <) and falls back to ParseKey for everything
+// else, wrapping the resulting KeyEvent in KeyInput.
+//
+// Returns (event, bytesConsumed). bytesConsumed = 0 signals "incomplete —
+// buffer more bytes before calling again" — the runtime treats this as a
+// request to defer until the next read.
+func ParseInput(buf []byte) Tuple[InputEvent, int] {
+    if len(buf) >= 4 && isMouseSgrPrefix(buf) {
+        return parseSgrMouse(buf)
+    }
+    val (kev, n) = ParseKey(buf)
+    if n == 0 {
+        return (UnknownInput(), 0)
+    }
+    return (KeyInput(Ev = kev), n)
+}
+
+func isMouseSgrPrefix(buf []byte) bool =
+    int(buf[0]) == 0x1B && int(buf[1]) == 0x5B && int(buf[2]) == 0x3C
+
+// parseSgrMouse consumes an ESC [ < … (M|m) packet. Malformed packets advance
+// one byte and report UnknownInput so the runtime can keep making progress.
+func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
+    var i = 3                       // past ESC [ <
+    val n = len(buf)
+    var btnNum = 0
+    var x = 0
+    var y = 0
+    var field = 0                   // 0 = btn, 1 = x, 2 = y
+    var pressed = true
+    var done = false
+    for i < n {
+        if done {
+            break
+        }
+        val c = int(buf[i])
+        if c >= 0x30 && c <= 0x39 {
+            val v = c - 0x30
+            if field == 0 {
+                btnNum = btnNum * 10 + v
+            } else {
+                if field == 1 {
+                    x = x * 10 + v
+                } else {
+                    y = y * 10 + v
+                }
+            }
+            i = i + 1
+        } else {
+            if c == 0x3B {          // ';'
+                field = field + 1
+                i = i + 1
+            } else {
+                if c == 0x4D {      // 'M' = press
+                    pressed = true
+                    done = true
+                    i = i + 1
+                } else {
+                    if c == 0x6D {  // 'm' = release
+                        pressed = false
+                        done = true
+                        i = i + 1
+                    } else {
+                        // Unexpected byte — drop the prefix.
+                        return (UnknownInput(), 3)
+                    }
+                }
+            }
+        }
+    }
+    if !done {
+        // Incomplete — wait for more bytes next read.
+        return (UnknownInput(), 0)
+    }
+    return (MouseInput(Ev = MouseEvent(
+        Btn     = mouseBtnFromCode(btnNum),
+        X       = x - 1,
+        Y       = y - 1,
+        Pressed = pressed,
+    )), i)
+}
+
+// mouseBtnFromCode maps an SGR button code to a MouseButton variant.
+// xterm codes:
+//   0 = left, 1 = middle, 2 = right
+//   64 = scroll up, 65 = scroll down
+// Bit 5 (32) signals motion — we mask it out; bit 2 (4) = shift, bit 3 (8) =
+// alt, bit 4 (16) = ctrl — also masked out for now. Future iterations can
+// expose modifier bits if needed.
+func mouseBtnFromCode(code int) MouseButton {
+    val masked = code & 0xC3
+    if masked == 0  { return MouseLeft() }
+    if masked == 1  { return MouseMiddle() }
+    if masked == 2  { return MouseRight() }
+    if masked == 64 { return MouseScrollUp() }
+    if masked == 65 { return MouseScrollDown() }
+    return MouseButtonNone()
+}

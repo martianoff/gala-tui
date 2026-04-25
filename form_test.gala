@@ -1,0 +1,178 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// FormState tests — verify update semantics and validator behavior.
+// ============================================================================
+
+func sampleForm() FormState = NewForm(ArrayOf[FormField](
+    NewFieldRequired("name", "Name", "your name"),
+    NewFieldRequired("email", "Email", "you@example.com"),
+))
+
+func TestFormStartsWithFocusAtZero(t T) T {
+    return Eq(t, sampleForm().Focused, 0)
+}
+
+func TestFormCharInsertAppendsToFocusedField(t T) T {
+    val f1 = FormUpdate(sampleForm(), FEChar(C = 'A'))
+    val f2 = FormUpdate(f1, FEChar(C = 'l'))
+    val f3 = FormUpdate(f2, FEChar(C = 'i'))
+    return Eq(t, FormValue(f3, "name"), "Ali")
+}
+
+func TestFormBackspaceDropsOneRune(t T) T {
+    val f1 = FormUpdate(sampleForm(), FEChar(C = 'A'))
+    val f2 = FormUpdate(f1, FEChar(C = 'B'))
+    val f3 = FormUpdate(f2, FEBackspace())
+    return Eq(t, FormValue(f3, "name"), "A")
+}
+
+func TestFormBackspaceOnEmptyIsNoOp(t T) T {
+    val f = FormUpdate(sampleForm(), FEBackspace())
+    return Eq(t, FormValue(f, "name"), "")
+}
+
+func TestFormNextCyclesFocus(t T) T {
+    val f1 = FormUpdate(sampleForm(), FENext())
+    val t1 = Eq(t, f1.Focused, 1)
+    val f2 = FormUpdate(f1, FENext())
+    return Eq(t1, f2.Focused, 0)
+}
+
+func TestFormPrevWrapsAround(t T) T {
+    val f = FormUpdate(sampleForm(), FEPrev())
+    return Eq(t, f.Focused, 1)
+}
+
+func TestFormTypingIntoSecondField(t T) T {
+    val f0 = sampleForm()
+    val f1 = FormUpdate(f0, FENext())          // focus email
+    val f2 = FormUpdate(f1, FEChar(C = 'a'))
+    val f3 = FormUpdate(f2, FEChar(C = '@'))
+    val f4 = FormUpdate(f3, FEChar(C = 'b'))
+    val t1 = Eq(t, FormValue(f4, "name"), "")
+    return Eq(t1, FormValue(f4, "email"), "a@b")
+}
+
+func TestFormInvalidSubmitJumpsToFirstInvalid(t T) T {
+    // Both fields empty — first invalid is "name" (index 0). Focus starts
+    // there, so submitting while empty keeps focus at 0 and leaves
+    // Submitted = false.
+    val f0 = FormUpdate(sampleForm(), FENext())   // focus the second one
+    val f1 = FormUpdate(f0, FESubmit())
+    val t1 = IsFalse(t, f1.Submitted)
+    return Eq(t1, f1.Focused, 0)
+}
+
+func TestFormValidSubmitMarksSubmitted(t T) T {
+    var f = sampleForm()
+    // Fill both fields with any non-empty value.
+    f = FormUpdate(f, FEChar(C = 'A'))
+    f = FormUpdate(f, FENext())
+    f = FormUpdate(f, FEChar(C = 'B'))
+    val submitted = FormUpdate(f, FESubmit())
+    return IsTrue(t, submitted.Submitted)
+}
+
+func TestFormIsValidFalseWhenAnyInvalid(t T) T {
+    val f1 = FormUpdate(sampleForm(), FEChar(C = 'A'))  // name set
+    return IsFalse(t, FormIsValid(f1))   // email still empty → invalid
+}
+
+func TestFormValueOptMissingFieldReturnsNone(t T) T {
+    val missing = FormValueOpt(sampleForm(), "nonexistent")
+    return IsFalse(t, missing.IsDefined())
+}
+
+func TestFormCustomValidator(t T) T {
+    val emailValidator = (v string) => {
+        if v == "" {
+            return Some[string]("required")
+        }
+        // Look for '@'.
+        var hasAt = false
+        for _, c := range v {
+            if c == '@' { hasAt = true }
+        }
+        if !hasAt {
+            return Some[string]("missing @")
+        }
+        return None[string]()
+    }
+    val custom = NewForm(ArrayOf[FormField](
+        NewFieldValidated("email", "Email", "you@…", emailValidator),
+    ))
+    var f = custom
+    f = FormUpdate(f, FEChar(C = 'b'))
+    f = FormUpdate(f, FEChar(C = 'a'))
+    f = FormUpdate(f, FEChar(C = 'd'))
+    // "bad" has no '@' — should be invalid.
+    val t1 = IsFalse(t, FormIsValid(f))
+    f = FormUpdate(f, FEChar(C = '@'))
+    // "bad@" has '@' — now valid.
+    return IsTrue(t1, FormIsValid(f))
+}
+
+// ----------------------------------------------------------------------------
+// View rendering
+// ----------------------------------------------------------------------------
+
+func TestFormViewRendersLabelsAndErrors(t T) T {
+    val f = sampleForm()
+    var buf = NewBuffer(30, 9)
+    RenderTo(FormView(f), Rect(X = 0, Y = 0, Width = 30, Height = 9), buf)
+    val joined = joinAllRows(buf)
+    val t1 = IsTrue(t, rowTextContains(joined, "Name"))
+    val t2 = IsTrue(t1, rowTextContains(joined, "Email"))
+    // Required error should appear on the first field (empty).
+    return IsTrue(t2, rowTextContains(joined, "required"))
+}
+
+func joinAllRows(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func rowTextContains(hay string, needle string) bool {
+    val ha = runeArr(hay)
+    val ne = runeArr(needle)
+    val hn = ha.Length()
+    val nn = ne.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if ha.Get(i + j) != ne.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func runeArr(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

@@ -1,0 +1,138 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/concurrent"
+    . "martianoff/gala/std"
+)
+
+// Cmd describes a side effect for the runtime to perform. The runtime executes
+// the command and, when it produces a message, delivers it to the next update().
+//
+// Commands are data, not executed closures. A pure update() returns a Cmd that
+// the runtime interprets — the Elm Architecture pattern. This keeps update()
+// testable without mocking any IO.
+//
+// FutureCmd wraps a Future[T] produced by FutureApply / NewPromise; the runtime
+// polls it each frame via `future.Value()` and dispatches the contained Msg
+// (or an error-wrapper Msg on failure) through update() once it completes.
+// This is how every non-trivial TUI moves blocking IO off the event loop —
+// update() stays pure, the Future's own execution context handles the wait.
+sealed type Cmd[T any] {
+    case NoCmd()
+    case QuitCmd()
+    case MsgCmd(Msg T)
+    case BatchCmd(Cmds Array[Cmd[T]])
+    case FutureCmd(Fut Future[T])
+}
+
+// IsQuit walks a command tree and reports whether any branch is a QuitCmd.
+func IsQuit[T any](c Cmd[T]) bool {
+    return c match {
+        case QuitCmd()      => true
+        case BatchCmd(cmds) => cmds.Exists((inner) => IsQuit(inner))
+        case _              => false
+    }
+}
+
+// PendingMsgs walks a command tree and returns all messages a pure runtime
+// would immediately re-dispatch. Non-synchronous commands (like FutureCmd)
+// don't yield here — they go through PendingFutures / PollFutures instead.
+func PendingMsgs[T any](c Cmd[T]) Array[T] {
+    return c match {
+        case MsgCmd(m)      => ArrayOf(m)
+        case BatchCmd(cmds) => cmds.FlatMap((inner) => PendingMsgs(inner))
+        case _              => EmptyArray[T]()
+    }
+}
+
+// PendingFutures walks a command tree and collects every Future[T] the runtime
+// must poll until completion. The runtime enqueues these into its
+// "awaiting-async" list right after each update() call.
+func PendingFutures[T any](c Cmd[T]) Array[Future[T]] {
+    return c match {
+        case FutureCmd(fut) => ArrayOf[Future[T]](fut)
+        case BatchCmd(cmds) => cmds.FlatMap((inner) => PendingFutures(inner))
+        case _              => EmptyArray[Future[T]]()
+    }
+}
+
+// PollFutures inspects each future in `pending` non-blockingly. Returns
+// (completedMsgs, stillPending): any future whose `.Value()` is Some(Success)
+// contributes its value to completedMsgs and is dropped from stillPending;
+// failures are silently dropped in this simple core (user apps that want
+// error delivery can wrap their own `Future[T]` via Future[U].Map/Recover to
+// produce a Msg variant carrying the error).
+//
+// Pure — no blocking, no side effects on the input. The runtime calls this
+// every loop iteration so long-running IO (HTTP, DB, file read) becomes a
+// natural part of the event flow.
+func PollFutures[T any](pending Array[Future[T]]) Tuple[Array[T], Array[Future[T]]] {
+    var done = EmptyArray[T]()
+    var still = EmptyArray[Future[T]]()
+    var i = 0
+    val n = pending.Length()
+    for i < n {
+        val fut = pending.Get(i)
+        val v = fut.Value()
+        if v.IsDefined() {
+            val tr = v.Get()
+            if tr.IsSuccess() {
+                done = done.Append(tr.Get())
+            }
+            // Failure: drop; the app can wire its own failure path by mapping
+            // the Future through Recover / OnFailure before handing it off.
+        } else {
+            still = still.Append(fut)
+        }
+        i = i + 1
+    }
+    return (done, still)
+}
+
+// Program is the Elm/TEA triple: initial model, update, and view.
+// The runtime drives it: start with Initial, feed events into Update,
+// call View to produce a rendering after every state change.
+//
+// Update returns a Tuple because GALA function types do not support Go-style
+// multi-value returns — see `docs/GALA.MD` § "Multiple Return Values".
+type Program[M any, T any] struct {
+    Initial M
+    Update  func(M, T) Tuple[M, Cmd[T]]
+    View    func(M) Widget
+}
+
+// Step applies a single message to the program and returns the new model
+// plus the command emitted by update(). Pure — no IO.
+func Step[M any, T any](p Program[M, T], model M, msg T) Tuple[M, Cmd[T]] =
+    p.Update(model, msg)
+
+// StepAll drives a program through a sequence of messages. Each yielded Cmd
+// whose PendingMsgs are non-empty is re-dispatched immediately (synchronous
+// emission). Returns the final model and an Array of all commands emitted,
+// in the order they were produced.
+//
+// Workhorse test harness: apps that react to counter increments, forms that
+// validate input, FSMs that accept/reject transitions — all exercised here
+// without a terminal.
+func StepAll[M any, T any](p Program[M, T], msgs Array[T]) Tuple[M, Array[Cmd[T]]] {
+    var model = p.Initial
+    var cmds = EmptyArray[Cmd[T]]()
+    var queue = msgs
+    var i = 0
+    for i < queue.Length() {
+        val head = queue.Get(i)
+        i = i + 1
+        val (newModel, cmd) = p.Update(model, head)
+        model = newModel
+        cmds = cmds.Append(cmd)
+        val emitted = PendingMsgs(cmd)
+        if emitted.NonEmpty() {
+            queue = queue.AppendAll(emitted)
+        }
+        if IsQuit(cmd) {
+            return (model, cmds)
+        }
+    }
+    return (model, cmds)
+}

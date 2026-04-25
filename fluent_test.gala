@@ -1,0 +1,94 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Fluent API tests — every chainable method must produce the same rendered
+// output as its non-chained counterpart.
+// ============================================================================
+
+func TestFluentPaddedEquivalentToPadding(t T) T {
+    var a = NewBuffer(5, 3)
+    var b = NewBuffer(5, 3)
+    RenderTo(Padding(1, Text("hi")),      Rect(X = 0, Y = 0, Width = 5, Height = 3), a)
+    RenderTo(Text("hi").Padded(1),        Rect(X = 0, Y = 0, Width = 5, Height = 3), b)
+    return IsTrue(t, a.ContentsEqual(b))
+}
+
+func TestFluentBorderedEquivalent(t T) T {
+    var a = NewBuffer(6, 3)
+    var b = NewBuffer(6, 3)
+    RenderTo(Border(Text("hi")),          Rect(X = 0, Y = 0, Width = 6, Height = 3), a)
+    RenderTo(Text("hi").Bordered(),       Rect(X = 0, Y = 0, Width = 6, Height = 3), b)
+    return IsTrue(t, a.ContentsEqual(b))
+}
+
+func TestFluentBorderedOfPicksKind(t T) T {
+    var buf = NewBuffer(5, 3)
+    RenderTo(Text("hi").BorderedOf(DoubleBorder()),
+        Rect(X = 0, Y = 0, Width = 5, Height = 3), buf)
+    return Eq(t, buf.CharAt(0, 0), '╔')
+}
+
+func TestFluentCenteredPositionsChild(t T) T {
+    var buf = NewBuffer(10, 1)
+    RenderTo(Text("ab").Centered(2, 1),
+        Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    // 2 chars in a 10 cell area → center = col 4
+    val t1 = Eq(t, buf.CharAt(4, 0), 'a')
+    return Eq(t1, buf.CharAt(5, 0), 'b')
+}
+
+func TestFluentAsFixedProducesLayoutChild(t T) T =
+    IsTrue(t, constraintIsLength(Text("x").AsFixed(3), 3))
+
+func TestFluentAsFlexProducesFillConstraint(t T) T =
+    IsTrue(t, constraintIsFillWeight(Text("x").AsFlex(2), 2))
+
+func constraintIsLength(lc LayoutChild, n int) bool {
+    return lc.Constraint match {
+        case Length(v) => v == n
+        case _         => false
+    }
+}
+
+func constraintIsFillWeight(lc LayoutChild, w int) bool {
+    return lc.Constraint match {
+        case Fill(v) => v == w
+        case _       => false
+    }
+}
+
+func TestFluentWithFgAppliesToLeafText(t T) T {
+    var buf = NewBuffer(4, 1)
+    RenderTo(Text("ok").WithFg(Red()),
+        Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
+}
+
+func TestFluentWithBoldAppliesToLeafText(t T) T {
+    var buf = NewBuffer(4, 1)
+    RenderTo(Text("ok").WithBold(),
+        Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    return IsTrue(t, buf.StyleAt(0, 0).Bold)
+}
+
+func TestFluentWithFgRecursesThroughBorder(t T) T {
+    var buf = NewBuffer(5, 3)
+    RenderTo(Text("ok").Bordered().WithFg(Green()),
+        Rect(X = 0, Y = 0, Width = 5, Height = 3), buf)
+    // Inner text at (1, 1) should have green fg.
+    return IsTrue(t, ColorEq(buf.StyleAt(1, 1).Fg, Green()))
+}
+
+func TestFluentChainComposesCorrectly(t T) T {
+    var buf = NewBuffer(10, 5)
+    // Fluent: text, padded 1, bordered, centered in 6x3
+    RenderTo(Text("hi").Padded(1).Bordered().Centered(6, 3),
+        Rect(X = 0, Y = 0, Width = 10, Height = 5), buf)
+    // Border top-left lands at col 2 (center offset for 6-wide in 10) on row 0
+    // (AlignWidget only affects horizontal here)
+    return Eq(t, buf.CharAt(2, 0), '┌')
+}

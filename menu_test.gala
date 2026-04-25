@@ -1,0 +1,210 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Menu + Dropdown tests.
+// ============================================================================
+
+func threeItemMenu() Menu = NewMenu(ArrayOf[MenuItem](
+    NewMenuItem("Open"),
+    NewMenuItem("Save"),
+    NewMenuItem("Quit"),
+))
+
+func menuWithDisabled() Menu = NewMenu(ArrayOf[MenuItem](
+    NewMenuItem("Available"),
+    NewMenuItemDisabled("Unavailable"),
+    NewMenuItem("AlsoAvailable"),
+))
+
+// ----------------------------------------------------------------------------
+// Selection
+// ----------------------------------------------------------------------------
+
+func TestMenuStartsAtFirstItem(t T) T {
+    return Eq(t, threeItemMenu().Selected, 0)
+}
+
+func TestMenuNextAdvances(t T) T {
+    val m = MenuUpdate(threeItemMenu(), MenuNext())
+    return Eq(t, m.Selected, 1)
+}
+
+func TestMenuNextWraps(t T) T {
+    var m = threeItemMenu()
+    m = MenuUpdate(m, MenuNext())
+    m = MenuUpdate(m, MenuNext())
+    m = MenuUpdate(m, MenuNext())
+    return Eq(t, m.Selected, 0)
+}
+
+func TestMenuPrevWraps(t T) T {
+    val m = MenuUpdate(threeItemMenu(), MenuPrev())
+    return Eq(t, m.Selected, 2)
+}
+
+func TestMenuSkipsDisabledOnNext(t T) T {
+    val m = MenuUpdate(menuWithDisabled(), MenuNext())
+    // Index 1 is disabled, so Next from 0 should land on 2.
+    return Eq(t, m.Selected, 2)
+}
+
+func TestMenuSkipsDisabledOnPrev(t T) T {
+    val m = MenuUpdate(menuWithDisabled(), MenuPrev())
+    // Prev from 0 wraps to 2 (enabled).
+    return Eq(t, m.Selected, 2)
+}
+
+func TestMenuAllDisabledIsStable(t T) T {
+    val menu = NewMenu(ArrayOf[MenuItem](
+        NewMenuItemDisabled("a"),
+        NewMenuItemDisabled("b"),
+    ))
+    val next = MenuUpdate(menu, MenuNext())
+    return Eq(t, next.Selected, menu.Selected)
+}
+
+func TestMenuCurrentItemReturnsSelected(t T) T {
+    val m = MenuUpdate(threeItemMenu(), MenuNext())
+    return Eq(t, CurrentItem(m).Label, "Save")
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+func TestMenuVerticalViewRendersOneItemPerRow(t T) T {
+    var buf = NewBuffer(12, 3)
+    RenderTo(MenuView(threeItemMenu()),
+        Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
+    val r0 = BufferText(buf, 0)
+    val r1 = BufferText(buf, 1)
+    val r2 = BufferText(buf, 2)
+    val t1 = IsTrue(t, menuRowHas(r0, "Open"))
+    val t2 = IsTrue(t1, menuRowHas(r1, "Save"))
+    return IsTrue(t2, menuRowHas(r2, "Quit"))
+}
+
+func TestMenuSelectedRowIsReverse(t T) T {
+    var buf = NewBuffer(12, 3)
+    RenderTo(MenuView(threeItemMenu()),
+        Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
+    // First row is selected by default → reverse style.
+    return IsTrue(t, buf.StyleAt(0, 0).Reverse)
+}
+
+func TestMenuDisabledRowIsDim(t T) T {
+    var buf = NewBuffer(15, 3)
+    RenderTo(MenuView(menuWithDisabled()),
+        Rect(X = 0, Y = 0, Width = 15, Height = 3), buf)
+    // Row 1 is disabled.
+    return IsTrue(t, buf.StyleAt(0, 1).Dim)
+}
+
+func TestMenuHorizontalRendersInline(t T) T {
+    val m = NewHorizontalMenu(ArrayOf[MenuItem](
+        NewMenuItem("A"),
+        NewMenuItem("B"),
+        NewMenuItem("C"),
+    ))
+    var buf = NewBuffer(20, 1)
+    RenderTo(MenuView(m), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, menuRowHas(row, "A"))
+    val t2 = IsTrue(t1, menuRowHas(row, "B"))
+    return IsTrue(t2, menuRowHas(row, "C"))
+}
+
+func TestMenuItemHintRendersRightAligned(t T) T {
+    val m = NewMenu(ArrayOf[MenuItem](
+        NewMenuItemWithHint("Save", "Ctrl+S"),
+    ))
+    var buf = NewBuffer(20, 1)
+    RenderTo(MenuView(m), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, menuRowHas(row, "Save"))
+    return IsTrue(t1, menuRowHas(row, "Ctrl+S"))
+}
+
+// ----------------------------------------------------------------------------
+// Dropdown
+// ----------------------------------------------------------------------------
+
+func TestDropdownClosedShowsTriggerOnly(t T) T {
+    val d = Dropdown(
+        Trigger = TextStyled("[▼ Pick]", DefaultStyle().WithBold()),
+        Menu    = threeItemMenu(),
+        Open    = false,
+        Width   = 12,
+    )
+    var buf = NewBuffer(12, 4)
+    RenderTo(DropdownView(d), Rect(X = 0, Y = 0, Width = 12, Height = 4), buf)
+    // Only the trigger renders — row 1 should be blank.
+    val row1 = BufferText(buf, 1)
+    return Eq(t, row1, "            ")
+}
+
+func TestDropdownOpenShowsMenuBelowTrigger(t T) T {
+    val d = Dropdown(
+        Trigger = Text("[Pick]"),
+        Menu    = threeItemMenu(),
+        Open    = true,
+        Width   = 15,
+    )
+    var buf = NewBuffer(15, 8)
+    RenderTo(DropdownView(d), Rect(X = 0, Y = 0, Width = 15, Height = 8), buf)
+    val joined = allMenuRows(buf)
+    val t1 = IsTrue(t, menuRowHas(joined, "Pick"))
+    return IsTrue(t1, menuRowHas(joined, "Save"))
+}
+
+// ----------------------------------------------------------------------------
+// Helpers.
+// ----------------------------------------------------------------------------
+
+func allMenuRows(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func menuRowHas(hay string, needle string) bool {
+    val h = menuRuneArr(hay)
+    val n = menuRuneArr(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func menuRuneArr(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

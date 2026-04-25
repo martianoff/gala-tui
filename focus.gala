@@ -1,0 +1,89 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// FocusManager — immutable focus-cycle helper.
+//
+// Apps with several focusable panes (sidebar, main, palette, status bar,
+// dialog buttons, ...) usually hand-roll a `Focus` sealed enum plus an
+// update() arm for Tab / Shift-Tab. FocusManager is a reusable helper that
+// tracks the focus ring as an Array[string] of pane IDs plus a current index.
+//
+// Every mutation returns a new FocusManager — it is a value, not a handle.
+// Copy / compare / persist freely.
+//
+// Usage:
+//     val fm = NewFocusManager(ArrayOf("sidebar", "table", "palette"))
+//     case KeyTab()   => m.Copy(Focus = m.Focus.Next())
+//     case KeyShiftTab() => m.Copy(Focus = m.Focus.Prev())
+//     // Then in view():
+//     val kind = if (fm.IsFocused("sidebar")) ThickBorder() else RoundedBorder()
+// ============================================================================
+
+struct FocusManager(
+    Panes Array[string],
+    Idx   int,
+)
+
+// NewFocusManager builds a manager from an ordered list of pane IDs. The
+// first pane starts focused (idx = 0). Panes must be non-empty — an empty
+// ring would leave `IsFocused` always false which is usually a bug.
+func NewFocusManager(panes Array[string]) FocusManager {
+    val startIdx = if (panes.IsEmpty()) 0 else 0
+    return FocusManager(Panes = panes, Idx = startIdx)
+}
+
+// NewFocusManagerAt builds a manager starting on a chosen pane; useful for
+// restoring state from a persisted snapshot.
+func NewFocusManagerAt(panes Array[string], startId string) FocusManager {
+    val idx = indexOfPane(panes, startId)
+    val resolvedIdx = if (idx >= 0) idx else 0
+    return FocusManager(Panes = panes, Idx = resolvedIdx)
+}
+
+// Next advances focus one step in the ring. Wraps around.
+func (f FocusManager) Next() FocusManager {
+    val n = f.Panes.Length()
+    if n == 0 { return f }
+    return f.Copy(Idx = (f.Idx + 1) % n)
+}
+
+// Prev steps focus backward. Wraps around.
+func (f FocusManager) Prev() FocusManager {
+    val n = f.Panes.Length()
+    if n == 0 { return f }
+    return f.Copy(Idx = (f.Idx - 1 + n) % n)
+}
+
+// FocusOn moves focus to the named pane if present; returns unchanged on miss.
+func (f FocusManager) FocusOn(id string) FocusManager {
+    val idx = indexOfPane(f.Panes, id)
+    if idx < 0 { return f }
+    return f.Copy(Idx = idx)
+}
+
+// Current returns the currently-focused pane's ID, or "" if the ring is empty.
+func (f FocusManager) Current() string {
+    if f.Panes.IsEmpty() { return "" }
+    return f.Panes.Get(f.Idx)
+}
+
+// IsFocused is the view-layer predicate: "is the pane with this id in focus?"
+func (f FocusManager) IsFocused(id string) bool = f.Current() == id
+
+// indexOfPane is a small helper — Array[string] doesn't have IndexOf exposed
+// on this battle-tests build, so we implement it directly.
+func indexOfPane(panes Array[string], id string) int {
+    var i = 0
+    val n = panes.Length()
+    for i < n {
+        if panes.Get(i) == id {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}

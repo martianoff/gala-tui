@@ -1,0 +1,97 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+sealed type KsMsg {
+    case KQuit()
+    case KSomething()
+}
+
+// ----------------------------------------------------------------------------
+// ParseKeySpec
+// ----------------------------------------------------------------------------
+
+func TestKeySpecParsesSingleChar(t T) T {
+    val ks = ParseKeySpec("q")
+    val t1 = IsTrue(t, ks.Valid)
+    return IsTrue(t1, ks.Matches(PlainKey(Char('q'))))
+}
+
+func TestKeySpecParsesCtrlC(t T) T {
+    val ks = ParseKeySpec("ctrl+c")
+    val t1 = IsTrue(t, ks.Valid)
+    val t2 = IsTrue(t1, ks.Matches(Ctrl(Char('c'))))
+    return IsFalse(t2, ks.Matches(PlainKey(Char('c'))))
+}
+
+func TestKeySpecRejectsCtrlModifierMismatch(t T) T {
+    val ks = ParseKeySpec("q")
+    // Plain spec should NOT match Ctrl-q.
+    return IsFalse(t, ks.Matches(Ctrl(Char('q'))))
+}
+
+func TestKeySpecNamedKeys(t T) T {
+    val esc = ParseKeySpec("esc")
+    val ent = ParseKeySpec("enter")
+    val tab = ParseKeySpec("tab")
+    val t1 = IsTrue(t, esc.Matches(PlainKey(Esc())))
+    val t2 = IsTrue(t1, ent.Matches(PlainKey(Enter())))
+    return IsTrue(t2, tab.Matches(PlainKey(Tab())))
+}
+
+func TestKeySpecArrowKeys(t T) T {
+    val t1 = IsTrue(t, ParseKeySpec("up").Matches(PlainKey(Up())))
+    val t2 = IsTrue(t1, ParseKeySpec("down").Matches(PlainKey(Down())))
+    val t3 = IsTrue(t2, ParseKeySpec("left").Matches(PlainKey(ArrowLeft())))
+    return IsTrue(t3, ParseKeySpec("right").Matches(PlainKey(ArrowRight())))
+}
+
+func TestKeySpecFunctionKeys(t T) T {
+    val f5 = ParseKeySpec("f5")
+    return IsTrue(t, f5.Matches(PlainKey(FKey(5))))
+}
+
+func TestKeySpecIsCaseInsensitive(t T) T {
+    val ks = ParseKeySpec("Ctrl+C")
+    return IsTrue(t, ks.Matches(Ctrl(Char('c'))))
+}
+
+func TestKeySpecMultipleModifiers(t T) T {
+    val ks = ParseKeySpec("ctrl+alt+q")
+    val t1 = IsTrue(t, ks.Valid)
+    return IsTrue(t1, ks.Matches(KeyEvent(Key = Char('q'), Ctrl = true, Alt = true, Shift = false)))
+}
+
+func TestKeySpecInvalidReturnsNonMatching(t T) T {
+    val ks = ParseKeySpec("bogus_key_name_never")
+    val t1 = IsFalse(t, ks.Valid)
+    return IsFalse(t1, ks.Matches(PlainKey(Char('a'))))
+}
+
+func TestKeySpecEmptyStringIsInvalid(t T) T {
+    return IsFalse(t, ParseKeySpec("").Valid)
+}
+
+// ----------------------------------------------------------------------------
+// KeyBind / KeyMatches
+// ----------------------------------------------------------------------------
+
+func TestKeyBindProducesBinding(t T) T {
+    val b = KeyBind[KsMsg]("esc", KQuit())
+    val evEsc = PlainKey(Esc())
+    val evA = PlainKey(Char('a'))
+    val t1 = IsTrue(t, b.Match(evEsc))
+    return IsFalse(t1, b.Match(evA))
+}
+
+func TestKeyMatchesAdHoc(t T) T {
+    val t1 = IsTrue(t, KeyMatches(Ctrl(Char('c')), "ctrl+c"))
+    return IsFalse(t1, KeyMatches(PlainKey(Char('c')), "ctrl+c"))
+}
+
+func TestKeyBindMakeReceivesEvent(t T) T {
+    val b = KeyBindMake[KsMsg]("enter", (ev) => KSomething())
+    return IsTrue(t, b.Match(PlainKey(Enter())))
+}

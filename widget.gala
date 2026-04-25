@@ -1,0 +1,838 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// Widget is the user-facing rendering primitive. A widget is a pure
+// description — a value, not a handle — that the renderer walks to paint
+// cells into a Buffer. The Widget *tree* is what the user composes; the
+// Buffer is just the pixel-level output.
+//
+// All variants are intentionally data-only (no closures, no mutable state)
+// so view(model) can be called many times per frame without side effects.
+// This is what lets GALA's sealed-type exhaustiveness carry real safety
+// — adding a new widget kind is a compile-time forcing function on every
+// renderer that dispatches on the Widget type.
+//
+// Every container carries its children as `Array[T]` (immutable, functional) —
+// user code can `.Map`, `.Filter`, `.FoldLeft` over a widget's children.
+sealed type Widget {
+    case EmptyWidget()
+    case TextWidget(Content string, Style Style)
+    case FillWidget(Ch rune, Style Style)
+    case BorderWidget(Inner Widget, Kind BorderKind)
+    case PaddingWidget(Top int, Right int, Bottom int, Left int, Inner Widget)
+    case AlignWidget(Inner Widget, Horiz Align, ChildW int, ChildH int)
+    case OverlayWidget(Bottom Widget, Top Widget)
+    case RowWidget(Children Array[LayoutChild])
+    case ColumnWidget(Children Array[LayoutChild])
+    case StackWidget(Layers Array[Widget])
+    case ListW(Items Array[ListItem], Selected int, SelStyle Style)
+    case InputW(Value string, Cursor int, Placeholder string, Style Style, PlaceholderStyle Style)
+    case ProgressW(Percent int, Style Style)
+    case GaugeW(Percent int, Style Style)
+    case SpinnerW(Kind SpinnerKind, Frame int, Style Style)
+    case ButtonW(Label string, Style Style, Focused bool)
+    case ParagraphW(Content string, Style Style)
+    case ViewportW(Inner Widget, Offset int, ContentHeight int)
+    case ScrollbarW(Total int, Visible int, Offset int, Style Style)
+}
+
+// LayoutChild binds a widget to the Constraint Row/Column use when
+// sub-allocating their area. Example:
+//   Row(ArrayOf(
+//       LayoutChild(Constraint = Length(3), Widget = Text("ID")),
+//       LayoutChild(Constraint = Fill(1),   Widget = Text("body")),
+//   ))
+struct LayoutChild(
+    Constraint Constraint,
+    Widget     Widget,
+)
+
+// BorderKind selects the glyph set used for a BorderWidget. ASCII-only drops
+// back to `-`, `|`, `+` for teletype-compatible terminals; the others emit
+// Unicode box-drawing characters.
+sealed type BorderKind {
+    case SingleBorder()
+    case DoubleBorder()
+    case RoundedBorder()
+    case ThickBorder()
+    case AsciiBorder()
+}
+
+// Align picks the horizontal position of an Align'd child inside its parent
+// area. Vertical alignment follows the same principle — for simplicity this
+// iteration ships horizontal-only; vertical arrives with the Stack layout.
+sealed type Align {
+    case AlignLeft()
+    case AlignCenter()
+    case AlignRight()
+}
+
+// ----------------------------------------------------------------------------
+// Constructor helpers — shorter, more English-like than naming variants directly.
+// ----------------------------------------------------------------------------
+
+// Empty is the no-op widget — draws nothing.
+func Empty() Widget = EmptyWidget()
+
+// Text wraps a plain string using the default style.
+func Text(content string) Widget = TextWidget(Content = content, Style = DefaultStyle())
+
+// TextStyled wraps a string with an explicit style.
+func TextStyled(content string, style Style) Widget =
+    TextWidget(Content = content, Style = style)
+
+// FillCh paints the entire area with `ch` in the default style.
+// Useful as a background / spacer. Named FillCh because Fill is already the
+// name of the Fill(weight) Constraint variant — shared package namespace.
+func FillCh(ch rune) Widget = FillWidget(Ch = ch, Style = DefaultStyle())
+
+// FillChStyled fills with an explicit style — commonly used for themed
+// backgrounds (e.g., `FillChStyled(' ', DefaultStyle().On(Blue()))`).
+func FillChStyled(ch rune, style Style) Widget =
+    FillWidget(Ch = ch, Style = style)
+
+// Border draws a single-line box around `inner`. Most common border; the
+// default. For other glyph sets use BorderOf.
+func Border(inner Widget) Widget =
+    BorderWidget(Inner = inner, Kind = SingleBorder())
+
+// BorderOf draws a border of a chosen kind around `inner`.
+func BorderOf(inner Widget, kind BorderKind) Widget =
+    BorderWidget(Inner = inner, Kind = kind)
+
+// Padding adds `n` cells of padding on every side of `inner`.
+func Padding(n int, inner Widget) Widget =
+    PaddingWidget(Top = n, Right = n, Bottom = n, Left = n, Inner = inner)
+
+// PaddingHV gives different horizontal and vertical padding.
+func PaddingHV(v int, h int, inner Widget) Widget =
+    PaddingWidget(Top = v, Right = h, Bottom = v, Left = h, Inner = inner)
+
+// Overlay stacks `top` over `bottom` — `top` is drawn after, so it masks the
+// cells of `bottom` wherever it paints.
+func Overlay(bottom Widget, top Widget) Widget =
+    OverlayWidget(Bottom = bottom, Top = top)
+
+// Row lays children left-to-right, sub-allocating its area with the
+// constraints on each child.
+func Row(children Array[LayoutChild]) Widget = RowWidget(Children = children)
+
+// Column lays children top-to-bottom with the same constraint model.
+func Column(children Array[LayoutChild]) Widget = ColumnWidget(Children = children)
+
+// Stack overlays every widget on the same area — useful for modal-over-page,
+// tooltip-over-widget, or a backdrop-tint effect.
+func Stack(layers Array[Widget]) Widget = StackWidget(Layers = layers)
+
+// Fixed builds a LayoutChild with a Length constraint — the most common form.
+func Fixed(n int, w Widget) LayoutChild =
+    LayoutChild(Constraint = Length(n), Widget = w)
+
+// Flex builds a LayoutChild with a Fill(weight) constraint.
+func Flex(weight int, w Widget) LayoutChild =
+    LayoutChild(Constraint = Fill(weight), Widget = w)
+
+// Pct builds a LayoutChild with a Percent constraint.
+func Pct(p int, w Widget) LayoutChild =
+    LayoutChild(Constraint = Percent(p), Widget = w)
+
+// ----------------------------------------------------------------------------
+// Interactive widget constructors.
+// ----------------------------------------------------------------------------
+
+// SelectList renders a vertical, selectable list. `selected` is the index
+// (0-based) of the highlighted row. The list scrolls its viewport automatically
+// so the selected row is always visible. Named SelectList (not List) because
+// collection_immutable already exports `List[T]` as a functional linked-list
+// type; this widget is about *selection* over a visible menu.
+func SelectList(items Array[ListItem], selected int) Widget =
+    ListW(Items = items, Selected = selected,
+          SelStyle = DefaultStyle().WithReverse())
+
+// SelectListOf is a convenience wrapper when your items are plain strings.
+func SelectListOf(labels Array[string], selected int) Widget =
+    SelectList(labels.Map((l) => NewListItem(l)), selected)
+
+// Input renders a single-line text input. `cursor` is the 0-based column of
+// the insertion point. Empty value shows `placeholder` in a dimmed style.
+func Input(value string, cursor int, placeholder string) Widget =
+    InputW(Value = value, Cursor = cursor, Placeholder = placeholder,
+           Style = DefaultStyle(),
+           PlaceholderStyle = DefaultStyle().WithDim())
+
+// Progress renders a horizontal progress bar `[████░░░░]  pct%`.
+func Progress(percent int) Widget =
+    ProgressW(Percent = percent, Style = DefaultStyle())
+
+// Gauge renders a smooth-edged bar using Unicode partial blocks.
+func Gauge(percent int) Widget =
+    GaugeW(Percent = percent, Style = DefaultStyle())
+
+// Spinner renders a single-cell animated glyph.
+func Spinner(kind SpinnerKind, frame int) Widget =
+    SpinnerW(Kind = kind, Frame = frame, Style = DefaultStyle())
+
+// Button renders a labeled button. When `focused`, a reverse style signals
+// selection — pair with Enter in the user's update() to fire the action.
+func Button(label string, focused bool) Widget {
+    var style = DefaultStyle()
+    if focused {
+        style = style.WithReverse().WithBold()
+    }
+    return ButtonW(Label = label, Style = style, Focused = focused)
+}
+
+// Paragraph renders multi-line text with word-wrapping within the allocated
+// width. Overflow beyond the allocated height is clipped. Long runs of
+// non-whitespace that exceed the width break on rune boundaries so nothing
+// is dropped.
+func Paragraph(content string) Widget =
+    ParagraphW(Content = content, Style = DefaultStyle())
+
+// ParagraphStyled is Paragraph with an explicit style.
+func ParagraphStyled(content string, style Style) Widget =
+    ParagraphW(Content = content, Style = style)
+
+// ScrollableViewport wraps `inner` so only rows [offset, offset+visibleHeight)
+// of its content are shown. `contentHeight` is what the caller expects the
+// inner widget to render at full size; the runtime allocates a hidden buffer
+// of that height, renders the inner into it, and copies the visible slice.
+func ScrollableViewport(inner Widget, offset int, contentHeight int) Widget =
+    ViewportW(Inner = inner, Offset = offset, ContentHeight = contentHeight)
+
+// Scrollbar renders a vertical indicator showing position in a larger
+// document. `total` is the document's total row count, `visible` is how many
+// rows fit in the viewport, `offset` is the topmost visible row. If
+// `total <= visible` the bar renders fully filled (no scroll needed).
+func Scrollbar(total int, visible int, offset int) Widget =
+    ScrollbarW(Total = total, Visible = visible, Offset = offset, Style = DefaultStyle())
+
+// ScrollbarStyled is Scrollbar with explicit colors (e.g., dim when the
+// viewport isn't focused).
+func ScrollbarStyled(total int, visible int, offset int, style Style) Widget =
+    ScrollbarW(Total = total, Visible = visible, Offset = offset, Style = style)
+
+// ----------------------------------------------------------------------------
+// Tabs
+// ----------------------------------------------------------------------------
+//
+// Tabs doesn't need its own Widget variant — it's a Column of a header row
+// (constrained to 1 line) and the selected body widget below. `Tabs` is a
+// plain helper; apps wire it in directly.
+
+// Tabs builds a two-row layout: a one-line tab bar on top, then `bodies[sel]`
+// below. The non-selected titles render dim, the selected one bold-reverse.
+// `sel` is the selected index — callers bump it on Tab/arrow keys.
+func Tabs(titles Array[string], bodies Array[Widget], sel int) Widget {
+    val header = tabHeaderRow(titles, sel)
+    val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Flex(1, body),
+    ))
+}
+
+func tabHeaderRow(titles Array[string], sel int) Widget {
+    val selStyle = DefaultStyle().WithBold().WithReverse()
+    val idleStyle = DefaultStyle().WithDim()
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = titles.Length()
+    for i < n {
+        val title = " " + titles.Get(i) + " "
+        val style = if (i == sel) selStyle else idleStyle
+        cells = cells.Append(Fixed(runeCount(title), TextStyled(title, style)))
+        i = i + 1
+    }
+    cells = cells.Append(Flex(1, FillCh(' ')))
+    return Row(cells)
+}
+
+// ----------------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------------
+
+// Render renders `w` into a freshly-allocated Buffer sized to `area`. Pure:
+// any side effects live in the runtime, not here.
+func Render(w Widget) string {
+    val buf = NewBuffer(defaultRenderWidth(w), defaultRenderHeight(w))
+    RenderTo(w, Rect(X = 0, Y = 0, Width = buf.Width, Height = buf.Height), buf)
+    return buf.String()
+}
+
+// RenderTo paints `w` into `buf`, restricted to the given `area`.
+//
+// NOTE: FIX-010 (match as statement) and FIX-009 (pointer-receiver type
+// inference) interact badly — bare statement-style `match` over Widget with
+// calls that take `*Buffer` arguments panics the transpiler at
+// type_inference_calls.go:333 (filed as BUG-gala_tui-014). Until that is
+// fixed, each arm returns a `true` sentinel and the whole match is wrapped
+// in `val _ = ...`.
+func RenderTo(w Widget, area Rect, buf *Buffer) {
+    if area.Zero() {
+        return
+    }
+    val _ = w match {
+        case EmptyWidget() => true
+        case TextWidget(content, style) => {
+            renderText(content, style, area, buf)
+            true
+        }
+        case FillWidget(ch, style) => {
+            renderFill(ch, style, area, buf)
+            true
+        }
+        case BorderWidget(inner, kind) => {
+            renderBorder(inner, kind, area, buf)
+            true
+        }
+        case PaddingWidget(top, right, bottom, left, inner) => {
+            renderPadding(top, right, bottom, left, inner, area, buf)
+            true
+        }
+        case AlignWidget(inner, horiz, cw, ch) => {
+            renderAlign(inner, horiz, cw, ch, area, buf)
+            true
+        }
+        case OverlayWidget(bottom, top) => {
+            RenderTo(bottom, area, buf)
+            RenderTo(top, area, buf)
+            true
+        }
+        case RowWidget(children) => {
+            renderRow(children, area, buf)
+            true
+        }
+        case ColumnWidget(children) => {
+            renderColumn(children, area, buf)
+            true
+        }
+        case StackWidget(layers) => {
+            layers.ForEach((layer) => RenderTo(layer, area, buf))
+            true
+        }
+        case ListW(items, sel, selStyle) => {
+            renderList(items, sel, selStyle, area, buf)
+            true
+        }
+        case InputW(value, cursor, placeholder, style, phStyle) => {
+            renderInput(value, cursor, placeholder, style, phStyle, area, buf)
+            true
+        }
+        case ProgressW(pct, style) => {
+            val bar = renderProgressBar(pct, area.Width, '█', '░')
+            renderText(bar, style, area, buf)
+            true
+        }
+        case GaugeW(pct, style) => {
+            val g = renderGauge(pct, area.Width)
+            renderText(g, style, area, buf)
+            true
+        }
+        case SpinnerW(kind, frame, style) => {
+            buf.Set(area.X, area.Y, Cell(Ch = SpinnerGlyph(kind, frame), St = style))
+            true
+        }
+        case ButtonW(label, style, _) => {
+            val padded = "[ " + label + " ]"
+            renderText(padded, style, area, buf)
+            true
+        }
+        case ParagraphW(content, style) => {
+            renderParagraph(content, style, area, buf)
+            true
+        }
+        case ViewportW(inner, offset, ch) => {
+            renderViewport(inner, offset, ch, area, buf)
+            true
+        }
+        case ScrollbarW(total, visible, offset, style) => {
+            renderScrollbar(total, visible, offset, style, area, buf)
+            true
+        }
+    }
+}
+
+// renderParagraph word-wraps `content` into the area. Words are ASCII-space
+// separated; very long words that exceed area.Width break at rune boundaries.
+func renderParagraph(content string, style Style, area Rect, buf *Buffer) {
+    if area.Width <= 0 || area.Height <= 0 {
+        return
+    }
+    val lines = wrapParagraph(content, area.Width)
+    var y = 0
+    val limit = minInt(lines.Length(), area.Height)
+    for y < limit {
+        renderText(lines.Get(y), style, Rect(
+            X = area.X, Y = area.Y + y,
+            Width = area.Width, Height = 1,
+        ), buf)
+        y = y + 1
+    }
+}
+
+// wrapParagraph does greedy word-wrap: accumulate words on the current line
+// until adding the next one would exceed `width`, then start a new line.
+// A word longer than `width` is hard-split at the width boundary.
+// Newlines in the input force a line break.
+func wrapParagraph(content string, width int) Array[string] {
+    var out = EmptyArray[string]()
+    var line = ""
+    var word = ""
+    // Iterate rune by rune so we handle multibyte UTF-8 and explicit \n.
+    for _, c := range content {
+        if c == '\n' {
+            // Commit any pending word + line.
+            if word != "" {
+                if runeCount(line) == 0 {
+                    line = word
+                } else {
+                    if runeCount(line) + 1 + runeCount(word) <= width {
+                        line = line + " " + word
+                    } else {
+                        out = out.Append(line)
+                        line = word
+                    }
+                }
+                word = ""
+            }
+            out = out.Append(line)
+            line = ""
+        } else {
+            if c == ' ' {
+                if word != "" {
+                    if runeCount(line) == 0 {
+                        line = word
+                    } else {
+                        if runeCount(line) + 1 + runeCount(word) <= width {
+                            line = line + " " + word
+                        } else {
+                            out = out.Append(line)
+                            line = word
+                        }
+                    }
+                    word = ""
+                }
+                // If we already have a line and adding any more is possible,
+                // continue; the space between words is inserted on commit.
+            } else {
+                // Regular rune. Break a pathologically long word if it alone
+                // would overflow the current line.
+                if runeCount(word) + 1 > width {
+                    if runeCount(line) > 0 {
+                        out = out.Append(line)
+                    }
+                    out = out.Append(word)
+                    word = string(c)
+                    line = ""
+                } else {
+                    word = word + string(c)
+                }
+            }
+        }
+    }
+    // Flush trailing word + line.
+    if word != "" {
+        if runeCount(line) == 0 {
+            line = word
+        } else {
+            if runeCount(line) + 1 + runeCount(word) <= width {
+                line = line + " " + word
+            } else {
+                out = out.Append(line)
+                line = word
+            }
+        }
+    }
+    if line != "" || out.IsEmpty() {
+        out = out.Append(line)
+    }
+    return out
+}
+
+// renderViewport renders `inner` into a pseudo-buffer sized to the content
+// height, then copies the slice `[offset, offset+area.Height)` into the
+// viewport area. Simple, correct; fine for content sizes up to a few thousand
+// rows.
+func renderViewport(inner Widget, offset int, contentHeight int, area Rect, buf *Buffer) {
+    if area.Width <= 0 || area.Height <= 0 {
+        return
+    }
+    val ch = maxInt(area.Height, contentHeight)
+    var hidden = NewBuffer(area.Width, ch)
+    RenderTo(inner, Rect(X = 0, Y = 0, Width = area.Width, Height = ch), hidden)
+    val clampedOffset = clampInt(offset, 0, maxInt(0, ch - area.Height))
+    var y = 0
+    for y < area.Height {
+        val srcY = clampedOffset + y
+        if srcY >= ch {
+            y = y + 1
+            continue
+        }
+        var x = 0
+        for x < area.Width {
+            buf.Set(area.X + x, area.Y + y, hidden.Get(x, srcY))
+            x = x + 1
+        }
+        y = y + 1
+    }
+}
+
+// renderScrollbar paints a vertical track of the given area.Height with a
+// highlighted "thumb" whose size is proportional to visible/total and whose
+// position is proportional to offset/total.
+func renderScrollbar(total int, visible int, offset int, style Style, area Rect, buf *Buffer) {
+    if area.Width <= 0 || area.Height <= 0 {
+        return
+    }
+    // Fill the whole track with dim vertical bar.
+    val track = DefaultStyle().WithDim()
+    var y = 0
+    for y < area.Height {
+        buf.Set(area.X, area.Y + y, Cell(Ch = '│', St = track))
+        y = y + 1
+    }
+    if total <= visible || total <= 0 {
+        // Entire doc fits — draw a solid full-height thumb.
+        y = 0
+        for y < area.Height {
+            buf.Set(area.X, area.Y + y, Cell(Ch = '█', St = style))
+            y = y + 1
+        }
+        return
+    }
+    val thumbSize = maxInt(1, area.Height * visible / total)
+    val maxOffset = total - visible
+    val clamped = clampInt(offset, 0, maxOffset)
+    val thumbStart = clamped * (area.Height - thumbSize) / maxOffset
+    var yy = 0
+    for yy < thumbSize {
+        buf.Set(area.X, area.Y + thumbStart + yy, Cell(Ch = '█', St = style))
+        yy = yy + 1
+    }
+}
+
+func clampInt(v int, lo int, hi int) int {
+    if v < lo { return lo }
+    if v > hi { return hi }
+    return v
+}
+
+// renderList paints each visible item into `area`. The viewport scrolls so
+// that `sel` is always in view.
+func renderList(items Array[ListItem], sel int, selStyle Style, area Rect, buf *Buffer) {
+    val n = items.Length()
+    if n == 0 {
+        return
+    }
+    val offset = listViewportOffset(n, sel, area.Height)
+    var row = 0
+    for row < area.Height {
+        val idx = offset + row
+        if idx >= n {
+            row = row + 1
+            continue
+        }
+        val item = items.Get(idx)
+        var style = item.Style
+        if idx == sel {
+            style = selStyle
+        }
+        // Clear the row to the area width (with the style) so selected
+        // highlighting extends across the whole row.
+        var x = area.X
+        val xEnd = area.X + area.Width
+        for x < xEnd {
+            buf.Set(x, area.Y + row, Cell(Ch = ' ', St = style))
+            x = x + 1
+        }
+        // Then draw the label, clipped to width.
+        renderText(item.Label, style, Rect(
+            X = area.X, Y = area.Y + row,
+            Width = area.Width, Height = 1,
+        ), buf)
+        row = row + 1
+    }
+}
+
+// listViewportOffset computes the top-of-viewport index so that `sel` is
+// on-screen. Simple top-or-bottom anchor.
+func listViewportOffset(n int, sel int, height int) int {
+    if height <= 0 || n <= height {
+        return 0
+    }
+    if sel < height {
+        return 0
+    }
+    val max = n - height
+    val anchored = sel - height + 1
+    if anchored > max {
+        return max
+    }
+    return anchored
+}
+
+// renderInput paints a value or a placeholder, plus a visible cursor.
+func renderInput(value string, cursor int, placeholder string, style Style, phStyle Style, area Rect, buf *Buffer) {
+    if value == "" && placeholder != "" {
+        renderText(placeholder, phStyle, area, buf)
+        return
+    }
+    renderText(value, style, area, buf)
+    val cx = area.X + cursor
+    if cx >= area.X && cx < area.X + area.Width {
+        val ch = buf.CharAt(cx, area.Y)
+        buf.Set(cx, area.Y, Cell(Ch = ch, St = style.WithReverse()))
+    }
+}
+
+// renderRow walks children left-to-right, handing each a Rect whose width
+// comes from the Constraint solver.
+func renderRow(children Array[LayoutChild], area Rect, buf *Buffer) {
+    val widths = Solve(area.Width, children.Map((c) => c.Constraint))
+    var x = area.X
+    var i = 0
+    val n = children.Length()
+    for i < n {
+        val child = children.Get(i)
+        val w = widths.Get(i)
+        RenderTo(child.Widget, Rect(X = x, Y = area.Y, Width = w, Height = area.Height), buf)
+        x = x + w
+        i = i + 1
+    }
+}
+
+// renderColumn is the vertical twin of renderRow.
+func renderColumn(children Array[LayoutChild], area Rect, buf *Buffer) {
+    val heights = Solve(area.Height, children.Map((c) => c.Constraint))
+    var y = area.Y
+    var i = 0
+    val n = children.Length()
+    for i < n {
+        val child = children.Get(i)
+        val h = heights.Get(i)
+        RenderTo(child.Widget, Rect(X = area.X, Y = y, Width = area.Width, Height = h), buf)
+        y = y + h
+        i = i + 1
+    }
+}
+
+// renderText lays out `content` on a single line, clipped to the area width.
+func renderText(content string, style Style, area Rect, buf *Buffer) {
+    var x = area.X
+    val maxX = area.X + area.Width
+    for _, r := range content {
+        if x >= maxX {
+            return
+        }
+        buf.Set(x, area.Y, Cell(Ch = r, St = style))
+        x = x + 1
+    }
+}
+
+// renderFill paints the whole area with the fill cell.
+func renderFill(ch rune, style Style, area Rect, buf *Buffer) {
+    buf.Fill(area, Cell(Ch = ch, St = style))
+}
+
+// renderBorder paints a 4-corner + 4-edge frame using the glyph set chosen
+// by `kind`, then recurses into the inner widget on the 1-cell-inset area.
+func renderBorder(inner Widget, kind BorderKind, area Rect, buf *Buffer) {
+    val g = borderGlyphs(kind)
+    val st = DefaultStyle()
+    // Corners
+    buf.Set(area.X,               area.Y,                Cell(Ch = g.TL, St = st))
+    buf.Set(area.X+area.Width-1,  area.Y,                Cell(Ch = g.TR, St = st))
+    buf.Set(area.X,               area.Y+area.Height-1,  Cell(Ch = g.BL, St = st))
+    buf.Set(area.X+area.Width-1,  area.Y+area.Height-1,  Cell(Ch = g.BR, St = st))
+    // Top / bottom edges
+    var x = area.X + 1
+    val xEnd = area.X + area.Width - 1
+    for x < xEnd {
+        buf.Set(x, area.Y,                Cell(Ch = g.H, St = st))
+        buf.Set(x, area.Y+area.Height-1,  Cell(Ch = g.H, St = st))
+        x = x + 1
+    }
+    // Left / right edges
+    var y = area.Y + 1
+    val yEnd = area.Y + area.Height - 1
+    for y < yEnd {
+        buf.Set(area.X,               y, Cell(Ch = g.V, St = st))
+        buf.Set(area.X+area.Width-1,  y, Cell(Ch = g.V, St = st))
+        y = y + 1
+    }
+    // Inner area — 1-cell inset.
+    if area.Width >= 2 && area.Height >= 2 {
+        val inside = Rect(
+            X      = area.X + 1,
+            Y      = area.Y + 1,
+            Width  = area.Width - 2,
+            Height = area.Height - 2,
+        )
+        RenderTo(inner, inside, buf)
+    }
+}
+
+// renderPadding reduces the area by the padding values and recurses.
+func renderPadding(top int, right int, bottom int, left int, inner Widget, area Rect, buf *Buffer) {
+    val newW = maxInt(0, area.Width - left - right)
+    val newH = maxInt(0, area.Height - top - bottom)
+    RenderTo(inner, Rect(
+        X      = area.X + left,
+        Y      = area.Y + top,
+        Width  = newW,
+        Height = newH,
+    ), buf)
+}
+
+// renderAlign picks the horizontal position of an inner widget.
+func renderAlign(inner Widget, horiz Align, cw int, ch int, area Rect, buf *Buffer) {
+    val dx = horiz match {
+        case AlignLeft()   => 0
+        case AlignCenter() => maxInt(0, (area.Width - cw) / 2)
+        case AlignRight()  => maxInt(0, area.Width - cw)
+    }
+    RenderTo(inner, Rect(
+        X      = area.X + dx,
+        Y      = area.Y,
+        Width  = minInt(cw, area.Width - dx),
+        Height = minInt(ch, area.Height),
+    ), buf)
+}
+
+// borderGlyphs is a tuple-ish holder for the six glyphs a border uses.
+type BorderGlyphs struct {
+    TL rune
+    TR rune
+    BL rune
+    BR rune
+    H  rune
+    V  rune
+}
+
+// borderGlyphs maps a BorderKind to its glyph set.
+func borderGlyphs(k BorderKind) BorderGlyphs {
+    return k match {
+        case SingleBorder()  =>
+            BorderGlyphs{TL: '┌', TR: '┐', BL: '└', BR: '┘', H: '─', V: '│'}
+        case DoubleBorder()  =>
+            BorderGlyphs{TL: '╔', TR: '╗', BL: '╚', BR: '╝', H: '═', V: '║'}
+        case RoundedBorder() =>
+            BorderGlyphs{TL: '╭', TR: '╮', BL: '╰', BR: '╯', H: '─', V: '│'}
+        case ThickBorder()   =>
+            BorderGlyphs{TL: '┏', TR: '┓', BL: '┗', BR: '┛', H: '━', V: '┃'}
+        case AsciiBorder()   =>
+            BorderGlyphs{TL: '+', TR: '+', BL: '+', BR: '+', H: '-', V: '|'}
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Intrinsic-size helpers — used by Render() when no explicit area is given.
+// ----------------------------------------------------------------------------
+
+func defaultRenderWidth(w Widget) int {
+    return w match {
+        case EmptyWidget()                     => 0
+        case TextWidget(content, _)            => runeCount(content)
+        case FillWidget(_, _)                  => 1
+        case BorderWidget(inner, _)            => defaultRenderWidth(inner) + 2
+        case PaddingWidget(_, r, _, l, inner)  => defaultRenderWidth(inner) + l + r
+        case AlignWidget(_, _, cw, _)          => cw
+        case OverlayWidget(bottom, top)        =>
+            maxInt(defaultRenderWidth(bottom), defaultRenderWidth(top))
+        case RowWidget(children)               =>
+            children.FoldLeft(0, (acc, c) => acc + defaultRenderWidth(c.Widget))
+        case ColumnWidget(children)            =>
+            children.FoldLeft(0, (acc, c) => maxInt(acc, defaultRenderWidth(c.Widget)))
+        case StackWidget(layers)               =>
+            layers.FoldLeft(0, (acc, w) => maxInt(acc, defaultRenderWidth(w)))
+        case ListW(items, _, _)                =>
+            items.FoldLeft(0, (acc, it) => maxInt(acc, runeCount(it.Label)))
+        case InputW(value, _, ph, _, _)        => maxInt(runeCount(value), runeCount(ph))
+        case ProgressW(_, _)                   => 20
+        case GaugeW(_, _)                      => 20
+        case SpinnerW(_, _, _)                 => 1
+        case ButtonW(label, _, _)              => runeCount(label) + 4
+        case ParagraphW(content, _)            => paragraphIntrinsicWidth(content)
+        case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
+        case ScrollbarW(_, _, _, _)            => 1
+    }
+}
+
+func defaultRenderHeight(w Widget) int {
+    return w match {
+        case EmptyWidget()                     => 0
+        case TextWidget(_, _)                  => 1
+        case FillWidget(_, _)                  => 1
+        case BorderWidget(inner, _)            => defaultRenderHeight(inner) + 2
+        case PaddingWidget(t, _, b, _, inner)  => defaultRenderHeight(inner) + t + b
+        case AlignWidget(_, _, _, ch)          => ch
+        case OverlayWidget(bottom, top)        =>
+            maxInt(defaultRenderHeight(bottom), defaultRenderHeight(top))
+        case RowWidget(children)               =>
+            children.FoldLeft(0, (acc, c) => maxInt(acc, defaultRenderHeight(c.Widget)))
+        case ColumnWidget(children)            =>
+            children.FoldLeft(0, (acc, c) => acc + defaultRenderHeight(c.Widget))
+        case StackWidget(layers)               =>
+            layers.FoldLeft(0, (acc, w) => maxInt(acc, defaultRenderHeight(w)))
+        case ListW(items, _, _)                => maxInt(1, items.Length())
+        case InputW(_, _, _, _, _)             => 1
+        case ProgressW(_, _)                   => 1
+        case GaugeW(_, _)                      => 1
+        case SpinnerW(_, _, _)                 => 1
+        case ButtonW(_, _, _)                  => 1
+        case ParagraphW(content, _)            => paragraphIntrinsicHeight(content)
+        case ViewportW(_, _, _)                => 1
+        case ScrollbarW(_, _, _, _)            => 1
+    }
+}
+
+// paragraphIntrinsicWidth returns the widest line in `content` (split on
+// newlines) — what a fully-expanded Paragraph would want as its natural
+// width before any wrap happens.
+func paragraphIntrinsicWidth(content string) int {
+    var width = 0
+    var current = 0
+    for _, c := range content {
+        if c == '\n' {
+            if current > width { width = current }
+            current = 0
+        } else {
+            current = current + 1
+        }
+    }
+    if current > width { width = current }
+    return width
+}
+
+// paragraphIntrinsicHeight counts lines (newlines + 1, with a floor of 1).
+func paragraphIntrinsicHeight(content string) int {
+    if content == "" { return 1 }
+    var n = 1
+    for _, c := range content {
+        if c == '\n' { n = n + 1 }
+    }
+    return n
+}
+
+// runeCount returns the number of Unicode code points in `s`.
+func runeCount(s string) int {
+    var n = 0
+    for _ = range s {
+        n = n + 1
+    }
+    return n
+}
+
+func maxInt(a int, b int) int {
+    if a > b { return a }
+    return b
+}
+
+func minInt(a int, b int) int {
+    if a < b { return a }
+    return b
+}

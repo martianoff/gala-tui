@@ -1,0 +1,198 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Widget rendering tests — each test constructs a widget, renders it into a
+// fixed-size Buffer, and asserts on the resulting cell contents.
+//
+// Using CharAt() (the raw-rune accessor on Buffer) lets us inspect individual
+// glyphs without getting tangled up in Immutable[rune] wrapping. Reading off
+// every other rune of a rendered buffer is how every real TUI library's tests
+// work — this isn't boilerplate specific to GALA.
+// ============================================================================
+
+// BufferText reads one row of the buffer as a raw string, trimming nothing.
+// Used to check "what's on row N in columns 0..Width-1".
+func BufferText(b *Buffer, y int) string {
+    var sb = ""
+    var x = 0
+    for x < b.Width {
+        sb = sb + string(b.CharAt(x, y))
+        x = x + 1
+    }
+    return sb
+}
+
+// ----------------------------------------------------------------------------
+// Text & Fill — leaf widgets
+// ----------------------------------------------------------------------------
+
+func TestTextWidgetRenders(t T) T {
+    var buf = NewBuffer(10, 1)
+    RenderTo(Text("hello"), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "hello     ")
+}
+
+func TestTextWidgetClipsToArea(t T) T {
+    var buf = NewBuffer(10, 1)
+    RenderTo(Text("hello world!"), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    // Only the first 5 chars fit; remaining 5 of the buffer stay blank.
+    return Eq(t, BufferText(buf, 0), "hello     ")
+}
+
+func TestTextStyledPropagatesStyle(t T) T {
+    var buf = NewBuffer(5, 1)
+    val red = DefaultStyle().WithFg(Red())
+    RenderTo(TextStyled("boom!", red), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    // The rune is 'b' and its style is red.
+    val t1 = Eq(t, BufferText(buf, 0), "boom!")
+    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
+}
+
+func TestFillCoversArea(t T) T {
+    var buf = NewBuffer(4, 2)
+    RenderTo(FillCh('.'), Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "....")
+    return Eq(t1, BufferText(buf, 1), "....")
+}
+
+// ----------------------------------------------------------------------------
+// Border — 4 corners + 4 edges + inner paint
+// ----------------------------------------------------------------------------
+
+func TestBorderSingleFrame(t T) T {
+    var buf = NewBuffer(4, 3)
+    RenderTo(Border(Empty()), Rect(X = 0, Y = 0, Width = 4, Height = 3), buf)
+    // Expected: ┌──┐
+    //           │  │
+    //           └──┘
+    val t1 = Eq(t, BufferText(buf, 0), "┌──┐")
+    val t2 = Eq(t1, BufferText(buf, 1), "│  │")
+    return Eq(t2, BufferText(buf, 2), "└──┘")
+}
+
+func TestBorderAsciiFrame(t T) T {
+    var buf = NewBuffer(4, 3)
+    RenderTo(BorderOf(Empty(), AsciiBorder()), Rect(X = 0, Y = 0, Width = 4, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "+--+")
+    val t2 = Eq(t1, BufferText(buf, 1), "|  |")
+    return Eq(t2, BufferText(buf, 2), "+--+")
+}
+
+func TestBorderDoubleFrame(t T) T {
+    var buf = NewBuffer(3, 3)
+    RenderTo(BorderOf(Empty(), DoubleBorder()), Rect(X = 0, Y = 0, Width = 3, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "╔═╗")
+    return Eq(t1, BufferText(buf, 2), "╚═╝")
+}
+
+func TestBorderWrapsInnerText(t T) T {
+    var buf = NewBuffer(7, 3)
+    RenderTo(Border(Text("hi")), Rect(X = 0, Y = 0, Width = 7, Height = 3), buf)
+    // Expected:   ┌─────┐
+    //             │hi   │
+    //             └─────┘
+    val t1 = Eq(t, BufferText(buf, 0), "┌─────┐")
+    val t2 = Eq(t1, BufferText(buf, 1), "│hi   │")
+    return Eq(t2, BufferText(buf, 2), "└─────┘")
+}
+
+// ----------------------------------------------------------------------------
+// Padding — area-shrinking container
+// ----------------------------------------------------------------------------
+
+func TestPaddingOffsetsInner(t T) T {
+    var buf = NewBuffer(8, 3)
+    RenderTo(Padding(1, Text("hi")), Rect(X = 0, Y = 0, Width = 8, Height = 3), buf)
+    // Row 0 is padding (empty); row 1 has "hi" starting at col 1; row 2 is padding.
+    val t1 = Eq(t, BufferText(buf, 0), "        ")
+    val t2 = Eq(t1, BufferText(buf, 1), " hi     ")
+    return Eq(t2, BufferText(buf, 2), "        ")
+}
+
+func TestPaddingHVAsymmetric(t T) T {
+    var buf = NewBuffer(8, 3)
+    RenderTo(PaddingHV(0, 2, Text("abc")), Rect(X = 0, Y = 0, Width = 8, Height = 3), buf)
+    // Horizontal padding = 2; vertical = 0 → "abc" starts at col 2.
+    return Eq(t, BufferText(buf, 0), "  abc   ")
+}
+
+func TestPaddingLargerThanAreaNoOp(t T) T {
+    var buf = NewBuffer(4, 2)
+    RenderTo(Padding(5, Text("hello")), Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
+    // Padding exceeds area — inner area is clamped to zero, nothing drawn.
+    return Eq(t, BufferText(buf, 0), "    ")
+}
+
+// ----------------------------------------------------------------------------
+// Align — horizontal positioning
+// ----------------------------------------------------------------------------
+
+func TestAlignLeft(t T) T {
+    var buf = NewBuffer(10, 1)
+    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignLeft(), ChildW = 3, ChildH = 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "abc       ")
+}
+
+func TestAlignCenter(t T) T {
+    var buf = NewBuffer(10, 1)
+    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignCenter(), ChildW = 3, ChildH = 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    // (10-3)/2 = 3 cells of left padding → "   abc    "
+    return Eq(t, BufferText(buf, 0), "   abc    ")
+}
+
+func TestAlignRight(t T) T {
+    var buf = NewBuffer(10, 1)
+    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignRight(), ChildW = 3, ChildH = 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "       abc")
+}
+
+// ----------------------------------------------------------------------------
+// Overlay — z-order
+// ----------------------------------------------------------------------------
+
+func TestOverlayMasksBottom(t T) T {
+    var buf = NewBuffer(5, 1)
+    // Bottom draws "aaaaa", top draws "X" in col 0 — only col 0 changes.
+    val w = Overlay(FillCh('a'), Text("X"))
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "Xaaaa")
+}
+
+// ----------------------------------------------------------------------------
+// Composition — the real value proposition. A user-authored view can combine
+// Border + Padding + Text + Align + Fill and each widget's contract holds.
+// ----------------------------------------------------------------------------
+
+func TestComposedBorderPaddingText(t T) T {
+    var buf = NewBuffer(12, 5)
+    val w = Border(Padding(1, Text("nested")))
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 12, Height = 5), buf)
+    // Row 0: top border
+    val t1 = Eq(t, BufferText(buf, 0), "┌──────────┐")
+    // Row 1: padding (just frame walls)
+    val t2 = Eq(t1, BufferText(buf, 1), "│          │")
+    // Row 2: "nested" centred inside padding
+    val t3 = Eq(t2, BufferText(buf, 2), "│ nested   │")
+    // Row 3: padding
+    val t4 = Eq(t3, BufferText(buf, 3), "│          │")
+    // Row 4: bottom border
+    return Eq(t4, BufferText(buf, 4), "└──────────┘")
+}
+
+func TestIntrinsicSizeOfBorderedText(t T) T {
+    // Border adds +2 in each direction; Text's intrinsic width is len.
+    val t1 = Eq(t, defaultRenderWidth(Border(Text("hi"))), 4)   // 2 + 2
+    return Eq(t1, defaultRenderHeight(Border(Text("hi"))), 3)   // 1 + 2
+}
+
+func TestIntrinsicSizeOfPaddingText(t T) T {
+    val t1 = Eq(t, defaultRenderWidth(Padding(2, Text("abc"))), 7)   // 3 + 2*2
+    return Eq(t1, defaultRenderHeight(Padding(2, Text("abc"))), 5)   // 1 + 2*2
+}

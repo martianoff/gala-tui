@@ -1,0 +1,110 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// ScreenStack — a navigation-stack primitive for multi-screen TUI apps.
+//
+// Most non-trivial TUIs have several "pages" (a list view, a detail view,
+// a settings screen, a help overlay). Tracking the active screen and
+// providing "back" semantics out of the box means every app avoids
+// reimplementing the same state machine.
+//
+// ScreenStack holds an ordered `Array[string]` of route tokens. The last
+// entry is the current screen; Push adds a screen on top, Pop peels one off
+// (never below the root), Replace swaps the top, Reset returns to a given
+// root. Everything is immutable — every operation returns a new
+// ScreenStack.
+//
+// Common patterns:
+//   - "press Enter on a list item" → `Push("detail")`
+//   - "press Esc"                    → `Pop()`
+//   - "press ?"                      → `Push("help")`
+//   - "press Ctrl-Home"               → `Reset("home")`
+// ============================================================================
+
+struct ScreenStack(
+    Stack Array[string],
+)
+
+// NewScreenStack starts a stack with a single root screen.
+func NewScreenStack(root string) ScreenStack =
+    ScreenStack(Stack = ArrayOf[string](root))
+
+// Push adds `route` on top of the current screen.
+func (s ScreenStack) Push(route string) ScreenStack =
+    s.Copy(Stack = s.Stack.Append(route))
+
+// Pop peels off the topmost screen. Popping the root is a no-op — apps
+// always have at least one screen visible.
+func (s ScreenStack) Pop() ScreenStack {
+    val n = s.Stack.Length()
+    if n <= 1 { return s }
+    return s.Copy(Stack = s.Stack.Slice(0, n - 1))
+}
+
+// Replace swaps the topmost screen for `route`, preserving the stack depth.
+// Useful for "redirect after submit" flows where you don't want the user to
+// go back to the form they just submitted.
+func (s ScreenStack) Replace(route string) ScreenStack {
+    val n = s.Stack.Length()
+    if n == 0 { return s.Copy(Stack = ArrayOf[string](route)) }
+    return s.Copy(Stack = s.Stack.Slice(0, n - 1).Append(route))
+}
+
+// Reset clears the entire stack down to a single `root` screen.
+func (s ScreenStack) Reset(root string) ScreenStack =
+    s.Copy(Stack = ArrayOf[string](root))
+
+// Current returns the top-of-stack screen — the one the user is looking at.
+// Returns "" for an empty stack (unreachable in normal use because
+// NewScreenStack always seeds a root).
+func (s ScreenStack) Current() string {
+    val n = s.Stack.Length()
+    if n == 0 { return "" }
+    return s.Stack.Get(n - 1)
+}
+
+// Depth reports how many screens deep the user is (1 = root).
+func (s ScreenStack) Depth() int = s.Stack.Length()
+
+// CanGoBack reports whether `Pop()` would actually change state.
+func (s ScreenStack) CanGoBack() bool = s.Stack.Length() > 1
+
+// Previous returns the screen *below* the current one, or None if we're at
+// the root. Useful for "press X to return to list" labels.
+func (s ScreenStack) Previous() Option[string] {
+    val n = s.Stack.Length()
+    if n <= 1 { return None[string]() }
+    return Some[string](s.Stack.Get(n - 2))
+}
+
+// Contains reports whether `route` appears anywhere in the stack. Useful
+// for "am I nested inside a help overlay?" checks.
+func (s ScreenStack) Contains(route string) bool {
+    var i = 0
+    val n = s.Stack.Length()
+    for i < n {
+        if s.Stack.Get(i) == route { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// Breadcrumb returns the stack as a " › "-joined string — handy for
+// rendering a "Home › Settings › Profile"-style breadcrumb at the top of
+// a view.
+func (s ScreenStack) Breadcrumb() string {
+    if s.Stack.IsEmpty() { return "" }
+    var out = s.Stack.Get(0)
+    var i = 1
+    val n = s.Stack.Length()
+    for i < n {
+        out = out + " › " + s.Stack.Get(i)
+        i = i + 1
+    }
+    return out
+}

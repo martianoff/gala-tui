@@ -1,0 +1,148 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Table tests
+// ============================================================================
+
+func TestTableWithHeadersRenders(t T) T {
+    val data = NewTableWithHeaders(
+        ArrayOf[string]("Name", "Age"),
+        ArrayOf[Constraint](Length(5), Length(5)),
+        ArrayOf[Array[string]](
+            ArrayOf[string]("Alice", "30"),
+            ArrayOf[string]("Bob",   "25"),
+        ),
+        -1,
+    )
+    var buf = NewBuffer(10, 4)
+    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 10, Height = 4), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "Name Age  ")
+    val t2 = Eq(t1, BufferText(buf, 1), "──────────")
+    val t3 = Eq(t2, BufferText(buf, 2), "Alice30   ")
+    return Eq(t3, BufferText(buf, 3), "Bob  25   ")
+}
+
+func TestTableSelectionHighlight(t T) T {
+    // Length(4) + Length(2) → row 0 renders as "one " + "1 " = "one 1 "
+    val data = NewTable(
+        ArrayOf[Constraint](Length(4), Length(2)),
+        ArrayOf[Array[string]](
+            ArrayOf[string]("one", "1"),
+            ArrayOf[string]("two", "2"),
+        ),
+        1,
+    )
+    var buf = NewBuffer(6, 2)
+    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 6, Height = 2), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "one 1 ")
+    // Second row should be reverse-video (the selected row).
+    return IsTrue(t1, buf.StyleAt(0, 1).Reverse)
+}
+
+func TestTableEmpty(t T) T {
+    val data = NewTable(EmptyArray[Constraint](), EmptyArray[Array[string]](), -1)
+    var buf = NewBuffer(5, 2)
+    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 5, Height = 2), buf)
+    return Eq(t, BufferText(buf, 0), "     ")
+}
+
+// ============================================================================
+// Sparkline tests
+// ============================================================================
+
+func TestSparklineRendersBlocks(t T) T {
+    var buf = NewBuffer(6, 1)
+    val w = Sparkline(ArrayOf(0, 1, 2, 4, 6, 8))
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
+    // Values 0..8 with max=8 give ratios 0/1/2/4/6/8 eighths → glyphs
+    // ' ' '▁' '▂' '▄' '▆' '█'
+    return Eq(t, BufferText(buf, 0), " ▁▂▄▆█")
+}
+
+func TestSparklineEmptyIsNothing(t T) T {
+    var buf = NewBuffer(4, 1)
+    val w = Sparkline(EmptyArray[int]())
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "    ")
+}
+
+func TestSparklineAllZerosIsBlank(t T) T {
+    var buf = NewBuffer(4, 1)
+    val w = Sparkline(ArrayOf(0, 0, 0, 0))
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    // All zero → sparklineBarString uses max=1 to avoid div-by-zero; values
+    // are 0/1 which rounds to 0 eighths = ' '.
+    return Eq(t, BufferText(buf, 0), "    ")
+}
+
+// ============================================================================
+// BarChart tests
+// ============================================================================
+
+func TestBarChartRendersRows(t T) T {
+    val data = ArrayOf[BarChartDatum](
+        BarChartDatum(Label = "A", Value = 10),
+        BarChartDatum(Label = "B", Value = 5),
+    )
+    var buf = NewBuffer(12, 2)
+    RenderTo(BarChart(data), Rect(X = 0, Y = 0, Width = 12, Height = 2), buf)
+    // Row 0: "A " label (2 cells) + Gauge(100) for 10 wide = all full
+    // Row 1: "B " label + Gauge(50) for 10 wide = 5 full + 5 empty
+    val t1 = IsTrue(t, strings.HasPrefix(BufferText(buf, 0), "A "))
+    return IsTrue(t1, strings.HasPrefix(BufferText(buf, 1), "B "))
+}
+
+// ============================================================================
+// Tree tests
+// ============================================================================
+
+func TestTreeRendersCollapsed(t T) T {
+    val root = NewTreeBranch("root", ArrayOf(
+        NewTreeLeaf("child1"),
+        NewTreeLeaf("child2"),
+    ))
+    var buf = NewBuffer(15, 3)
+    RenderTo(Tree(root), Rect(X = 0, Y = 0, Width = 15, Height = 3), buf)
+    // Collapsed: only root visible, with ▶ marker.
+    val t1 = IsTrue(t, strings.Contains(BufferText(buf, 0), "▶ root"))
+    // Child rows should NOT appear.
+    return IsFalse(t1, strings.Contains(BufferText(buf, 1), "child"))
+}
+
+func TestTreeRendersExpanded(t T) T {
+    val root = NewTreeBranchExpanded("root", ArrayOf(
+        NewTreeLeaf("child1"),
+        NewTreeLeaf("child2"),
+    ))
+    var buf = NewBuffer(15, 3)
+    RenderTo(Tree(root), Rect(X = 0, Y = 0, Width = 15, Height = 3), buf)
+    val t1 = IsTrue(t, strings.Contains(BufferText(buf, 0), "▼ root"))
+    val t2 = IsTrue(t1, strings.Contains(BufferText(buf, 1), "child1"))
+    return IsTrue(t2, strings.Contains(BufferText(buf, 2), "child2"))
+}
+
+func TestTreeLeafMarker(t T) T {
+    val leaf = NewTreeLeaf("alone")
+    var buf = NewBuffer(10, 1)
+    RenderTo(Tree(leaf), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    // Leaf uses • marker.
+    return IsTrue(t, strings.Contains(BufferText(buf, 0), "• alone"))
+}
+
+func TestTreeDeepIndentation(t T) T {
+    val deep = NewTreeBranchExpanded("a", ArrayOf(
+        NewTreeBranchExpanded("b", ArrayOf(
+            NewTreeLeaf("c"),
+        )),
+    ))
+    var buf = NewBuffer(12, 3)
+    RenderTo(Tree(deep), Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
+    // "c" is indented 2 levels — 4 spaces of leading whitespace.
+    return IsTrue(t, strings.HasPrefix(BufferText(buf, 2), "    • c"))
+}

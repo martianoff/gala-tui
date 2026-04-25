@@ -1,0 +1,24 @@
+# Build artifacts
+*.exe
+gala_tui
+gala_tui.exe
+
+# GALA build workspace (managed by `gala`)
+.gala/
+.gala-cache/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+NUL
+
+# Test outputs
+*.test
+*.out.tmp
+v.txt
+*.gen.go

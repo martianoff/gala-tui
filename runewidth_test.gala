@@ -1,0 +1,111 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Grapheme width tests.
+// ============================================================================
+
+func TestRuneWidthAsciiIsOne(t T) T {
+    return Eq(t, RuneCellWidth('A'), 1)
+}
+
+func TestRuneWidthSpaceIsOne(t T) T {
+    return Eq(t, RuneCellWidth(' '), 1)
+}
+
+func TestRuneWidthCjkIsTwo(t T) T {
+    // 中 = U+4E2D
+    return Eq(t, RuneCellWidth(rune(0x4E2D)), 2)
+}
+
+func TestRuneWidthHiraganaIsTwo(t T) T {
+    // あ = U+3042
+    return Eq(t, RuneCellWidth(rune(0x3042)), 2)
+}
+
+func TestRuneWidthHangulSyllableIsTwo(t T) T {
+    // 한 = U+D55C
+    return Eq(t, RuneCellWidth(rune(0xD55C)), 2)
+}
+
+func TestRuneWidthFullwidthFormIsTwo(t T) T {
+    // ! (fullwidth) = U+FF01
+    return Eq(t, RuneCellWidth(rune(0xFF01)), 2)
+}
+
+func TestRuneWidthEmojiIsTwo(t T) T {
+    // 🔥 = U+1F525
+    return Eq(t, RuneCellWidth(rune(0x1F525)), 2)
+}
+
+func TestRuneWidthCombiningMarkIsZero(t T) T {
+    // Combining acute accent = U+0301
+    return Eq(t, RuneCellWidth(rune(0x0301)), 0)
+}
+
+func TestRuneWidthZwjIsZero(t T) T {
+    // Zero Width Joiner = U+200D
+    return Eq(t, RuneCellWidth(rune(0x200D)), 0)
+}
+
+func TestRuneWidthVariationSelectorIsZero(t T) T {
+    // VS16 = U+FE0F
+    return Eq(t, RuneCellWidth(rune(0xFE0F)), 0)
+}
+
+func TestRuneWidthControlIsZero(t T) T {
+    return Eq(t, RuneCellWidth(rune(0x01)), 0)
+}
+
+// ----------------------------------------------------------------------------
+// StringCellWidth
+// ----------------------------------------------------------------------------
+
+func TestStringCellWidthPureAscii(t T) T {
+    return Eq(t, StringCellWidth("hello"), 5)
+}
+
+func TestStringCellWidthMixedAsciiCjk(t T) T {
+    // "hi中国" → 1+1+2+2 = 6
+    return Eq(t, StringCellWidth("hi中国"), 6)
+}
+
+func TestStringCellWidthEmoji(t T) T {
+    // "A🔥B" → 1+2+1 = 4
+    return Eq(t, StringCellWidth("A🔥B"), 4)
+}
+
+func TestStringCellWidthCombining(t T) T {
+    // "e" + combining acute (U+0301) renders as a single cell.
+    val combined = "e" + string(rune(0x0301))
+    return Eq(t, StringCellWidth(combined), 1)
+}
+
+func TestStringCellWidthEmpty(t T) T {
+    return Eq(t, StringCellWidth(""), 0)
+}
+
+// ----------------------------------------------------------------------------
+// StringCellTruncate
+// ----------------------------------------------------------------------------
+
+func TestStringCellTruncateAscii(t T) T {
+    return Eq(t, StringCellTruncate("hello world", 5), "hello")
+}
+
+func TestStringCellTruncateStopsBeforeOverflowingWideRune(t T) T {
+    // "a中b": 1+2+1 = 4. Truncate to 2 → keep "a" (adding 中 would overflow).
+    return Eq(t, StringCellTruncate("a中b", 2), "a")
+}
+
+func TestStringCellTruncateKeepsWideRuneAtBoundary(t T) T {
+    // "a中b", maxW = 3 → "a中" (exactly fits).
+    return Eq(t, StringCellTruncate("a中b", 3), "a中")
+}
+
+func TestStringCellTruncateZero(t T) T {
+    return Eq(t, StringCellTruncate("anything", 0), "")
+}

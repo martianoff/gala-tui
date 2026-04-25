@@ -1,0 +1,471 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Markdown rendering.
+//
+// MarkdownView renders a subset of CommonMark sufficient for TUI help
+// screens, changelogs, and documentation popups:
+//
+//   - Headings: `# H1`, `## H2`, `### H3`
+//   - Bold:     `**bold**`
+//   - Italic:   `_italic_` or `*italic*`
+//   - Code:     `` `inline code` ``
+//   - Links:    `[label](url)` — rendered as underlined label (URL available
+//               via the returned markdown model for OSC 8 promotion later)
+//   - Bullets:  `- item` or `* item`
+//   - Numbered: `1. item`
+//   - Rules:    `---` or `***`
+//   - Paragraphs separated by blank lines
+//
+// The renderer is two-pass:
+//   1. Parse → Array[MdBlock], each block carries its kind and its
+//      inline runs (Array[MdInline]).
+//   2. Render → Widget (Column of per-block widgets).
+//
+// Inline styling is flat (bold/italic/code/link don't nest in v1).
+// ============================================================================
+
+sealed type MdBlock {
+    case MdHeading(Level int, Inlines Array[MdInline])
+    case MdParagraph(Inlines Array[MdInline])
+    case MdBullet(Inlines Array[MdInline])
+    case MdNumbered(Num int, Inlines Array[MdInline])
+    case MdRule()
+    case MdBlank()
+}
+
+sealed type MdInline {
+    case MdText(Text string)
+    case MdBold(Text string)
+    case MdItalic(Text string)
+    case MdCode(Text string)
+    case MdLink(Label string, Url string)
+}
+
+// ParseMarkdown splits `source` into a sequence of blocks. The block-level
+// parser recognises the prefixes listed above; everything else becomes a
+// paragraph. Inline parsing runs per-block.
+func ParseMarkdown(source string) Array[MdBlock] {
+    val lines = mdSplitLines(source)
+    var out = EmptyArray[MdBlock]()
+    var i = 0
+    val n = lines.Length()
+    var paragraphBuf = ""
+    for i < n {
+        val line = lines.Get(i)
+        if line == "" {
+            if paragraphBuf != "" {
+                out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+                paragraphBuf = ""
+            }
+            out = out.Append(MdBlank())
+        } else {
+            if mdIsRule(line) {
+                if paragraphBuf != "" {
+                    out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+                    paragraphBuf = ""
+                }
+                out = out.Append(MdRule())
+            } else {
+                val headingLevel = mdHeadingLevel(line)
+                if headingLevel > 0 {
+                    if paragraphBuf != "" {
+                        out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+                        paragraphBuf = ""
+                    }
+                    val rest = mdStripHeading(line, headingLevel)
+                    out = out.Append(MdHeading(Level = headingLevel, Inlines = parseInlines(rest)))
+                } else {
+                    if mdIsBullet(line) {
+                        if paragraphBuf != "" {
+                            out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+                            paragraphBuf = ""
+                        }
+                        val rest = mdStripBulletPrefix(line)
+                        out = out.Append(MdBullet(Inlines = parseInlines(rest)))
+                    } else {
+                        val numMaybe = mdNumberedPrefix(line)
+                        if numMaybe >= 0 {
+                            if paragraphBuf != "" {
+                                out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+                                paragraphBuf = ""
+                            }
+                            val rest = mdStripNumberedPrefix(line)
+                            out = out.Append(MdNumbered(Num = numMaybe, Inlines = parseInlines(rest)))
+                        } else {
+                            if paragraphBuf == "" {
+                                paragraphBuf = line
+                            } else {
+                                paragraphBuf = paragraphBuf + " " + line
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    if paragraphBuf != "" {
+        out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+    }
+    return out
+}
+
+// ----------------------------------------------------------------------------
+// Block-prefix detection
+// ----------------------------------------------------------------------------
+
+func mdHeadingLevel(line string) int {
+    var lvl = 0
+    var i = 0
+    val rs = mdRunes(line)
+    val n = rs.Length()
+    for i < n && lvl < 6 {
+        if rs.Get(i) == '#' {
+            lvl = lvl + 1
+            i = i + 1
+        } else {
+            if lvl > 0 && rs.Get(i) == ' ' {
+                return lvl
+            }
+            return 0
+        }
+    }
+    return 0
+}
+
+func mdStripHeading(line string, level int) string {
+    val rs = mdRunes(line)
+    var out = ""
+    var i = level + 1          // level '#' chars + mandatory space
+    val n = rs.Length()
+    for i < n {
+        out = out + string(rs.Get(i))
+        i = i + 1
+    }
+    return out
+}
+
+func mdIsBullet(line string) bool {
+    val rs = mdRunes(line)
+    if rs.Length() < 2 { return false }
+    val first = rs.Get(0)
+    return (first == '-' || first == '*') && rs.Get(1) == ' '
+}
+
+func mdStripBulletPrefix(line string) string {
+    val rs = mdRunes(line)
+    var out = ""
+    var i = 2
+    val n = rs.Length()
+    for i < n {
+        out = out + string(rs.Get(i))
+        i = i + 1
+    }
+    return out
+}
+
+// mdNumberedPrefix returns the integer prefix for "N. rest" (e.g., "1. Hello"),
+// or -1 if the line doesn't start with a number followed by ". ".
+func mdNumberedPrefix(line string) int {
+    val rs = mdRunes(line)
+    val n = rs.Length()
+    if n < 3 { return -1 }
+    var i = 0
+    var num = 0
+    for i < n {
+        val c = rs.Get(i)
+        if c >= '0' && c <= '9' {
+            num = num * 10 + int(c - '0')
+            i = i + 1
+        } else {
+            if i > 0 && c == '.' && i + 1 < n && rs.Get(i + 1) == ' ' {
+                return num
+            }
+            return -1
+        }
+    }
+    return -1
+}
+
+func mdStripNumberedPrefix(line string) string {
+    val rs = mdRunes(line)
+    var dotIdx = -1
+    var i = 0
+    val n = rs.Length()
+    for i < n && dotIdx < 0 {
+        if rs.Get(i) == '.' {
+            dotIdx = i
+        }
+        i = i + 1
+    }
+    if dotIdx < 0 { return line }
+    var out = ""
+    var j = dotIdx + 2
+    for j < n {
+        out = out + string(rs.Get(j))
+        j = j + 1
+    }
+    return out
+}
+
+func mdIsRule(line string) bool {
+    if line != "---" && line != "***" { return false }
+    return true
+}
+
+func mdSplitLines(s string) Array[string] {
+    var out = EmptyArray[string]()
+    var cur = ""
+    for _, c := range s {
+        if c == '\n' {
+            out = out.Append(cur)
+            cur = ""
+        } else {
+            cur = cur + string(c)
+        }
+    }
+    if cur != "" {
+        out = out.Append(cur)
+    }
+    return out
+}
+
+func mdRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
+// ----------------------------------------------------------------------------
+// Inline parser
+// ----------------------------------------------------------------------------
+
+// parseInlines walks the string character by character, emitting an MdInline
+// sequence. Delimiters: `**bold**`, `_italic_` or `*italic*`, `` `code` ``,
+// `[label](url)`. Unmatched delimiters become literal text.
+func parseInlines(s string) Array[MdInline] {
+    var out = EmptyArray[MdInline]()
+    var buf = ""
+    val rs = mdRunes(s)
+    var i = 0
+    val n = rs.Length()
+    for i < n {
+        val c = rs.Get(i)
+        if c == '`' {
+            if buf != "" {
+                out = out.Append(MdText(Text = buf))
+                buf = ""
+            }
+            val end = mdFindRune(rs, '`', i + 1)
+            if end < 0 {
+                buf = buf + string(c)
+                i = i + 1
+            } else {
+                out = out.Append(MdCode(Text = mdSubstring(rs, i + 1, end)))
+                i = end + 1
+            }
+        } else {
+            if c == '*' && i + 1 < n && rs.Get(i + 1) == '*' {
+                val end = mdFindDoubleStar(rs, i + 2)
+                if end < 0 {
+                    buf = buf + string(c)
+                    i = i + 1
+                } else {
+                    if buf != "" {
+                        out = out.Append(MdText(Text = buf))
+                        buf = ""
+                    }
+                    out = out.Append(MdBold(Text = mdSubstring(rs, i + 2, end)))
+                    i = end + 2
+                }
+            } else {
+                if c == '_' || c == '*' {
+                    val end = mdFindRune(rs, c, i + 1)
+                    if end < 0 {
+                        buf = buf + string(c)
+                        i = i + 1
+                    } else {
+                        if buf != "" {
+                            out = out.Append(MdText(Text = buf))
+                            buf = ""
+                        }
+                        out = out.Append(MdItalic(Text = mdSubstring(rs, i + 1, end)))
+                        i = end + 1
+                    }
+                } else {
+                    if c == '[' {
+                        val linkEnd = mdFindRune(rs, ']', i + 1)
+                        if linkEnd < 0 || linkEnd + 1 >= n || rs.Get(linkEnd + 1) != '(' {
+                            buf = buf + string(c)
+                            i = i + 1
+                        } else {
+                            val urlEnd = mdFindRune(rs, ')', linkEnd + 2)
+                            if urlEnd < 0 {
+                                buf = buf + string(c)
+                                i = i + 1
+                            } else {
+                                if buf != "" {
+                                    out = out.Append(MdText(Text = buf))
+                                    buf = ""
+                                }
+                                out = out.Append(MdLink(
+                                    Label = mdSubstring(rs, i + 1, linkEnd),
+                                    Url   = mdSubstring(rs, linkEnd + 2, urlEnd),
+                                ))
+                                i = urlEnd + 1
+                            }
+                        }
+                    } else {
+                        buf = buf + string(c)
+                        i = i + 1
+                    }
+                }
+            }
+        }
+    }
+    if buf != "" {
+        out = out.Append(MdText(Text = buf))
+    }
+    return out
+}
+
+func mdFindRune(rs Array[rune], target rune, start int) int {
+    var i = start
+    val n = rs.Length()
+    for i < n {
+        if rs.Get(i) == target { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+func mdFindDoubleStar(rs Array[rune], start int) int {
+    var i = start
+    val n = rs.Length()
+    for i < n - 1 {
+        if rs.Get(i) == '*' && rs.Get(i + 1) == '*' {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func mdSubstring(rs Array[rune], lo int, hi int) string {
+    var out = ""
+    var i = lo
+    for i < hi {
+        out = out + string(rs.Get(i))
+        i = i + 1
+    }
+    return out
+}
+
+// ----------------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------------
+
+// MarkdownView parses `source` and returns a Column of widgets, one per
+// parsed block. Inline runs are joined into a single styled line per block.
+func MarkdownView(source string) Widget =
+    renderMdBlocks(ParseMarkdown(source))
+
+func renderMdBlocks(blocks Array[MdBlock]) Widget {
+    if blocks.IsEmpty() {
+        return Empty()
+    }
+    val rows = blocks.Map((b) => Fixed(renderMdBlockHeight(b), renderMdBlock(b)))
+    return Column(rows)
+}
+
+func renderMdBlockHeight(b MdBlock) int {
+    return b match {
+        case MdHeading(_, _)   => 1
+        case MdParagraph(_)    => 1
+        case MdBullet(_)       => 1
+        case MdNumbered(_, _)  => 1
+        case MdRule()          => 1
+        case MdBlank()         => 1
+    }
+}
+
+func renderMdBlock(b MdBlock) Widget {
+    return b match {
+        case MdHeading(level, inlines)   => renderMdHeading(level, inlines)
+        case MdParagraph(inlines)        => renderMdInlineRow(inlines)
+        case MdBullet(inlines)           =>
+            Row(ArrayOf[LayoutChild](
+                Fixed(2, TextStyled(" •", DefaultStyle().WithBold())),
+                Flex(1, PaddingHV(0, 1, renderMdInlineRow(inlines))),
+            ))
+        case MdNumbered(num, inlines)    =>
+            Row(ArrayOf[LayoutChild](
+                Fixed(4, TextStyled(s"$num. ", DefaultStyle().WithBold())),
+                Flex(1, renderMdInlineRow(inlines)),
+            ))
+        case MdRule()                     => FillCh('─')
+        case MdBlank()                    => Empty()
+    }
+}
+
+func renderMdHeading(level int, inlines Array[MdInline]) Widget {
+    val style = mdHeadingStyle(level)
+    val prefix = if (level == 1) "" else ""
+    return renderMdInlineRowStyled(inlines, style, prefix)
+}
+
+func mdHeadingStyle(level int) Style {
+    if level == 1 { return DefaultStyle().WithBold().WithUnderline().WithFg(BrightCyan()) }
+    if level == 2 { return DefaultStyle().WithBold().WithFg(BrightMagenta()) }
+    return DefaultStyle().WithBold()
+}
+
+// renderMdInlineRow composes one Widget per inline run; each gets its own
+// style. Stitched with Row so each run occupies its natural width.
+func renderMdInlineRow(inlines Array[MdInline]) Widget =
+    renderMdInlineRowStyled(inlines, DefaultStyle(), "")
+
+func renderMdInlineRowStyled(inlines Array[MdInline], base Style, prefix string) Widget {
+    var cells = EmptyArray[LayoutChild]()
+    if prefix != "" {
+        cells = cells.Append(Fixed(runeCount(prefix), TextStyled(prefix, base)))
+    }
+    var i = 0
+    val n = inlines.Length()
+    for i < n {
+        val run = inlines.Get(i)
+        val text = mdInlineText(run)
+        val style = mdInlineStyle(run, base)
+        cells = cells.Append(Fixed(runeCount(text), TextStyled(text, style)))
+        i = i + 1
+    }
+    cells = cells.Append(Flex(1, FillCh(' ')))
+    return Row(cells)
+}
+
+func mdInlineText(r MdInline) string {
+    return r match {
+        case MdText(t)     => t
+        case MdBold(t)     => t
+        case MdItalic(t)   => t
+        case MdCode(t)     => t
+        case MdLink(l, _)  => l
+    }
+}
+
+func mdInlineStyle(r MdInline, base Style) Style {
+    return r match {
+        case MdText(_)      => base
+        case MdBold(_)      => base.WithBold()
+        case MdItalic(_)    => base.WithItalic()
+        case MdCode(_)      => base.WithFg(BrightYellow()).On(Black())
+        case MdLink(_, _)   => base.WithUnderline().WithFg(BrightBlue())
+    }
+}

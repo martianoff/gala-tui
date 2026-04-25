@@ -1,0 +1,164 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// MegaDemo update-logic tests.
+//
+// Verifies the keyboard-routing behaviors that are easy to break — especially
+// arrows, which should cause *visible* state change regardless of which pane
+// has focus on which screen.
+// ============================================================================
+
+func TestMegaArrowDownCyclesScreens(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaKeyDown())
+    val t1 = Eq(t, m0.Screens.Current(), "overview")
+    return Eq(t1, m1.Screens.Current(), "builds")
+}
+
+func TestMegaArrowUpFromOverviewWrapsToHelp(t T) T {
+    // Up from overview wraps to "help" — which is rendered as a modal
+    // overlay rather than a screen change, so ShowHelp flips to true.
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaKeyUp())
+    return IsTrue(t, m1.ShowHelp)
+}
+
+func TestMegaArrowOnBuildsScreenMovesTableCursor(t T) T {
+    var m = NewMegaModel()
+    val (m1, _) = MegaUpdate(m, MegaKeyDown())   // → builds
+    val before = m1.BuildsTable.Selected
+    val (m2, _) = MegaUpdate(m1, MegaKeyDown())  // table row down
+    val after = m2.BuildsTable.Selected
+    return IsTrue(t, after > before)
+}
+
+func TestMegaCtrlPOpensPalette(t T) T {
+    val msg = MegaKeyToMsg(Ctrl(Char('p')))
+    val isToggle = msg match {
+        case MegaPalTogglePalette() => true
+        case _                      => false
+    }
+    return IsTrue(t, isToggle)
+}
+
+func TestMegaArrowsInsidePaletteMoveSelection(t T) T {
+    var m = NewMegaModel()
+    val (mOpen, _) = MegaUpdate(m, MegaPalTogglePalette())
+    val before = mOpen.Palette.Selected
+    val (mNext, _) = MegaUpdate(mOpen, MegaKeyDown())
+    return IsTrue(t, mNext.Palette.Selected != before)
+}
+
+func TestMegaQuitWorks(t T) T {
+    val (_, cmd) = MegaUpdate(NewMegaModel(), MegaQuit())
+    return IsTrue(t, IsQuit(cmd))
+}
+
+func TestMegaToggleHelp(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaToggleHelp())
+    return IsTrue(t, m1.ShowHelp)
+}
+
+func TestMegaToggleLogs(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaToggleLogs())
+    return IsTrue(t, m1.ShowLogs)
+}
+
+func TestMegaCycleTheme(t T) T {
+    val m0 = NewMegaModel()
+    val (m1, _) = MegaUpdate(m0, MegaCycleTheme())
+    val themesDiffer = !themesEqual(m0.ActiveTheme, m1.ActiveTheme)
+    return IsTrue(t, themesDiffer)
+}
+
+func TestMegaConfirmThenYes(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaShowConfirm(Action = "deploy"))
+    val confirming = m1.ConfirmAction != ""
+    val t1 = IsTrue(t, confirming)
+    val (m2, _) = MegaUpdate(m1, MegaConfirmYes())
+    val cleared = m2.ConfirmAction == ""
+    return IsTrue(t1, cleared)
+}
+
+// ----------------------------------------------------------------------------
+// View rendering smoke
+// ----------------------------------------------------------------------------
+
+func TestMegaRendersOverviewScreen(t T) T {
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(NewMegaModel()),
+        Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "build server"))
+}
+
+func TestMegaRendersHelpModalWhenOpen(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaToggleHelp())
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    return IsTrue(t, megaStringHas(joined, "Key bindings"))
+}
+
+func TestMegaRendersPaletteWhenOpen(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPalTogglePalette())
+    var buf = NewBuffer(120, 30)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
+    val joined = megaStitchRows(buf)
+    // Palette modal shows the prompt with the ">" arrow.
+    return IsTrue(t, megaStringHas(joined, "Type a command"))
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+func themesEqual(a MegaTheme, b MegaTheme) bool =
+    megaThemeName(a) == megaThemeName(b)
+
+func megaStitchRows(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func megaStringHas(hay string, needle string) bool {
+    val h = megaTestRunes(hay)
+    val n = megaTestRunes(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func megaTestRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

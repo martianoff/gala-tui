@@ -1,0 +1,321 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// DataTable — an interactive upgrade of the static Table widget.
+//
+// Features that Table lacks:
+//   1. Frozen header row (stays while body scrolls)
+//   2. Row selection cursor (moves with arrow keys)
+//   3. Vertical scrolling when rows exceed available height
+//   4. Column sorting (ascending / descending / unsorted) on any column
+//   5. Row filtering via a predicate
+//
+// Everything is immutable. Apps hold a DataTable in their model, route key
+// events into DataTableUpdate, and render with DataTableView.
+//
+// Typical pattern:
+//     case KeyDown()  => m.Copy(Table = DataTableUpdate(m.Table, DTCursorDown()))
+//     case KeyUp()    => m.Copy(Table = DataTableUpdate(m.Table, DTCursorUp()))
+//     case KeyChar('s') => m.Copy(Table = DataTableUpdate(m.Table, DTSort(m.FocusedCol)))
+//     case KeyChar('/') => m.Copy(Filter = !m.Filter)   // toggle filter input
+// ============================================================================
+
+sealed type SortDir {
+    case SortNone()
+    case SortAsc()
+    case SortDesc()
+}
+
+struct DataTable(
+    Headers     Array[string],
+    Widths      Array[Constraint],
+    Rows        Array[Array[string]],
+    Selected    int,                    // row cursor within visible rows
+    Offset      int,                    // first visible row in the filtered view
+    SortCol     int,                    // -1 = no sort
+    SortDir     SortDir,
+    FilterQuery string,                 // empty = no filter
+)
+
+// NewDataTable builds a table with the first row selected, no filter, no sort.
+func NewDataTable(
+    headers Array[string],
+    widths Array[Constraint],
+    rows Array[Array[string]],
+) DataTable =
+    DataTable(
+        Headers     = headers,
+        Widths      = widths,
+        Rows        = rows,
+        Selected    = 0,
+        Offset      = 0,
+        SortCol     = -1,
+        SortDir     = SortNone(),
+        FilterQuery = "",
+    )
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type DataTableEvent {
+    case DTCursorUp()
+    case DTCursorDown()
+    case DTPageUp(Rows int)
+    case DTPageDown(Rows int)
+    case DTHome()
+    case DTEnd()
+    case DTSort(Col int)
+    case DTFilter(Query string)
+    case DTClearFilter()
+    case DTNoOp()
+}
+
+func DataTableUpdate(dt DataTable, ev DataTableEvent) DataTable {
+    return ev match {
+        case DTCursorUp()      => dtMoveCursor(dt, -1)
+        case DTCursorDown()    => dtMoveCursor(dt, 1)
+        case DTPageUp(rows)    => dtMoveCursor(dt, -rows)
+        case DTPageDown(rows)  => dtMoveCursor(dt, rows)
+        case DTHome()          => dt.Copy(Selected = 0)
+        case DTEnd()           => dt.Copy(Selected = dtVisible(dt).Length() - 1)
+        case DTSort(col)       => dtCycleSort(dt, col)
+        case DTFilter(q)       => dt.Copy(FilterQuery = q, Selected = 0, Offset = 0)
+        case DTClearFilter()   => dt.Copy(FilterQuery = "", Selected = 0, Offset = 0)
+        case DTNoOp()          => dt
+    }
+}
+
+func dtMoveCursor(dt DataTable, delta int) DataTable {
+    val n = dtVisible(dt).Length()
+    if n == 0 { return dt }
+    var sel = dt.Selected + delta
+    if sel < 0 { sel = 0 }
+    if sel >= n { sel = n - 1 }
+    return dt.Copy(Selected = sel)
+}
+
+// dtCycleSort toggles sort direction for the given column: None → Asc → Desc → None.
+func dtCycleSort(dt DataTable, col int) DataTable {
+    if col < 0 || col >= dt.Headers.Length() { return dt }
+    if dt.SortCol != col {
+        return dt.Copy(SortCol = col, SortDir = SortAsc(), Selected = 0, Offset = 0)
+    }
+    val next = dt.SortDir match {
+        case SortNone() => SortAsc()
+        case SortAsc()  => SortDesc()
+        case SortDesc() => SortNone()
+    }
+    return next match {
+        case SortNone() => dt.Copy(SortCol = -1, SortDir = SortNone(), Selected = 0, Offset = 0)
+        case _          => dt.Copy(SortDir = next, Selected = 0, Offset = 0)
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Derivation — produce the ordered, filtered view from the raw rows.
+// ----------------------------------------------------------------------------
+
+// dtVisible returns the rows to show: filter applied, then sorted.
+func dtVisible(dt DataTable) Array[Array[string]] {
+    val filtered = dtFilter(dt)
+    return dtSort(dt, filtered)
+}
+
+// dtFilter keeps rows whose concatenated cells contain (case-insensitively)
+// the filter query. Empty query keeps everything.
+func dtFilter(dt DataTable) Array[Array[string]] {
+    if dt.FilterQuery == "" { return dt.Rows }
+    return dt.Rows.Filter((row) => dtRowMatchesFilter(row, dt.FilterQuery))
+}
+
+func dtRowMatchesFilter(row Array[string], q string) bool {
+    val ql = strToLower(q)
+    var i = 0
+    val n = row.Length()
+    for i < n {
+        if strContains(strToLower(row.Get(i)), ql) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func dtSort(dt DataTable, rows Array[Array[string]]) Array[Array[string]] {
+    if dt.SortCol < 0 { return rows }
+    val col = dt.SortCol
+    val asc = dt.SortDir match {
+        case SortAsc()  => true
+        case SortDesc() => false
+        case SortNone() => true
+    }
+    return dtInsertionSort(rows, col, asc)
+}
+
+// dtInsertionSort — simple stable sort adequate for typical table sizes.
+func dtInsertionSort(rows Array[Array[string]], col int, asc bool) Array[Array[string]] {
+    var out = EmptyArray[Array[string]]()
+    var i = 0
+    val n = rows.Length()
+    for i < n {
+        val r = rows.Get(i)
+        out = dtInsertSorted(out, r, col, asc)
+        i = i + 1
+    }
+    return out
+}
+
+func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc bool) Array[Array[string]] {
+    var out = EmptyArray[Array[string]]()
+    var inserted = false
+    val n = sorted.Length()
+    var i = 0
+    val rv = if (col < r.Length()) r.Get(col) else ""
+    for i < n {
+        val cur = sorted.Get(i)
+        val cv = if (col < cur.Length()) cur.Get(col) else ""
+        val goesFirst = if (asc) (rv < cv) else (rv > cv)
+        if !inserted && goesFirst {
+            out = out.Append(r)
+            inserted = true
+        }
+        out = out.Append(cur)
+        i = i + 1
+    }
+    if !inserted {
+        out = out.Append(r)
+    }
+    return out
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// DataTableView renders the whole data table: frozen header row, horizontal
+// rule, then the scrollable body with selection highlight. Caller sizes the
+// area; body height = total height - 2 (header + rule).
+func DataTableView(dt DataTable) Widget {
+    val header = dtHeaderRow(dt)
+    val rule = FillCh('─')
+    val body = dtBodyWidget(dt)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, rule),
+        Flex(1, body),
+    ))
+}
+
+func dtHeaderRow(dt DataTable) Widget {
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = dt.Headers.Length()
+    for i < n {
+        val label = dtHeaderLabel(dt, i)
+        val w = if (i < dt.Widths.Length()) dt.Widths.Get(i) else Fill(1)
+        cells = cells.Append(LayoutChild(
+            Constraint = w,
+            Widget     = TextStyled(label, DefaultStyle().WithBold()),
+        ))
+        i = i + 1
+    }
+    return Row(cells)
+}
+
+func dtHeaderLabel(dt DataTable, col int) string {
+    val base = dt.Headers.Get(col)
+    if dt.SortCol != col { return base }
+    val arrow = dt.SortDir match {
+        case SortAsc()  => " ↑"
+        case SortDesc() => " ↓"
+        case SortNone() => ""
+    }
+    return base + arrow
+}
+
+func dtBodyWidget(dt DataTable) Widget {
+    val visible = dtVisible(dt)
+    if visible.IsEmpty() {
+        return TextStyled("  (no rows)", DefaultStyle().WithDim())
+    }
+    var children = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = visible.Length()
+    for i < n {
+        val row = visible.Get(i)
+        val selected = i == dt.Selected
+        children = children.Append(Fixed(1, dtRowWidget(dt, row, selected)))
+        i = i + 1
+    }
+    return Column(children)
+}
+
+func dtRowWidget(dt DataTable, row Array[string], selected bool) Widget {
+    val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = row.Length()
+    for i < n {
+        val cell = row.Get(i)
+        val w = if (i < dt.Widths.Length()) dt.Widths.Get(i) else Fill(1)
+        cells = cells.Append(LayoutChild(
+            Constraint = w,
+            Widget     = TextStyled(cell, rowStyle),
+        ))
+        i = i + 1
+    }
+    return Row(cells)
+}
+
+// SelectedRow returns the currently-selected row's cells, or an empty array.
+func SelectedRow(dt DataTable) Array[string] {
+    val v = dtVisible(dt)
+    if v.IsEmpty() || dt.Selected >= v.Length() {
+        return EmptyArray[string]()
+    }
+    return v.Get(dt.Selected)
+}
+
+// ----------------------------------------------------------------------------
+// String helpers (case-insensitive contains + lower-case).
+// ----------------------------------------------------------------------------
+
+func strToLower(s string) string {
+    var out = ""
+    for _, c := range s {
+        if c >= 'A' && c <= 'Z' {
+            out = out + string(rune(c + 32))
+        } else {
+            out = out + string(c)
+        }
+    }
+    return out
+}
+
+func strContains(hay string, needle string) bool {
+    val h = strRunes(hay)
+    val n = strRunes(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}

@@ -1,0 +1,135 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// LogPanel — a bounded ring of log lines with a built-in view.
+//
+// Every non-trivial TUI eventually needs a "show me what just happened"
+// drawer — the classic "F12 opens the devtools" pattern. LogPanel is the
+// drop-in widget for that: append lines, they scroll; the ring stays bounded
+// so it never eats memory.
+//
+// The state is immutable: Append returns a new LogPanel. The view is a pure
+// function of the state. Colored level prefixes (INFO / WARN / ERR) help the
+// eye locate issues quickly.
+//
+// Typical wiring:
+//     struct Model(Logs LogPanel, ShowLogs bool, ...)
+//     case Err(msg) => m.Copy(Logs = m.Logs.AppendAt(LogError(), msg, Now()))
+//     case ToggleLogs() => m.Copy(ShowLogs = !m.ShowLogs)
+//     view = if m.ShowLogs { Column(main, LogPanelView(m.Logs).Padded(1)) } else main
+// ============================================================================
+
+sealed type LogLevel {
+    case LogInfo()
+    case LogWarn()
+    case LogError()
+    case LogDebug()
+}
+
+struct LogLine(
+    Level LogLevel,
+    Text  string,
+    At    Instant,
+)
+
+struct LogPanel(
+    Lines Array[LogLine],
+    Max   int,                                  // cap; oldest lines drop off
+)
+
+// NewLogPanel builds an empty panel that keeps the most recent `max` lines.
+func NewLogPanel(max int) LogPanel =
+    LogPanel(Lines = EmptyArray[LogLine](), Max = max)
+
+// AppendAt is the low-level append — the caller supplies the timestamp.
+// Useful in tests (deterministic timestamps) and in apps that batch log
+// entries with a pre-computed `Now()`.
+func (p LogPanel) AppendAt(level LogLevel, text string, at Instant) LogPanel {
+    val line = LogLine(Level = level, Text = text, At = at)
+    val next = p.Lines.Append(line)
+    if next.Length() <= p.Max {
+        return p.Copy(Lines = next)
+    }
+    return p.Copy(Lines = next.Slice(next.Length() - p.Max, next.Length()))
+}
+
+// Info / Warn / Error / Debug are the canonical level-specific appends. Each
+// reads the current wall clock — call from real update() paths. Tests should
+// prefer AppendAt for deterministic timestamps.
+func (p LogPanel) Info(text string) LogPanel  = p.AppendAt(LogInfo(),  text, Now())
+func (p LogPanel) Warn(text string) LogPanel  = p.AppendAt(LogWarn(),  text, Now())
+func (p LogPanel) Error(text string) LogPanel = p.AppendAt(LogError(), text, Now())
+func (p LogPanel) Debug(text string) LogPanel = p.AppendAt(LogDebug(), text, Now())
+
+// Length exposes the current line count (bounded by Max).
+func (p LogPanel) Length() int = p.Lines.Length()
+
+// IsEmpty reports whether the panel has no entries yet.
+func (p LogPanel) IsEmpty() bool = p.Lines.IsEmpty()
+
+// Last returns the N most-recent lines in chronological order (oldest of the
+// N first). Used for the view's "bottom of buffer" slice.
+func (p LogPanel) Last(n int) Array[LogLine] {
+    val total = p.Lines.Length()
+    if total <= n { return p.Lines }
+    return p.Lines.Slice(total - n, total)
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// LogPanelView renders the whole buffer as a Column of single-line rows.
+// Each row: "LVL text" with the level prefix in its level color. Overflow
+// clipping happens at the area boundary — LogPanelView is designed to live
+// inside a ScrollableViewport when the caller wants scrollback.
+func LogPanelView(p LogPanel) Widget {
+    if p.IsEmpty() {
+        return TextStyled("(no log entries)", DefaultStyle().WithDim())
+    }
+    val rows = p.Lines.Map((line) => Fixed(1, renderLogLine(line)))
+    return Column(rows)
+}
+
+// LogPanelViewTail renders only the last `n` lines — a "tail -n" variant for
+// when the caller just wants a compact footer-style view.
+func LogPanelViewTail(p LogPanel, n int) Widget {
+    if p.IsEmpty() {
+        return TextStyled("(no log entries)", DefaultStyle().WithDim())
+    }
+    val lines = p.Last(n)
+    val rows = lines.Map((line) => Fixed(1, renderLogLine(line)))
+    return Column(rows)
+}
+
+func renderLogLine(line LogLine) Widget {
+    val prefix = logLevelPrefix(line.Level)
+    val prefixStyle = logLevelStyle(line.Level)
+    return Row(ArrayOf[LayoutChild](
+        Fixed(5, TextStyled(prefix, prefixStyle)),
+        Flex(1, Text(line.Text)),
+    ))
+}
+
+func logLevelPrefix(l LogLevel) string {
+    return l match {
+        case LogInfo()  => "INFO "
+        case LogWarn()  => "WARN "
+        case LogError() => "ERR  "
+        case LogDebug() => "DBG  "
+    }
+}
+
+func logLevelStyle(l LogLevel) Style {
+    return l match {
+        case LogInfo()  => DefaultStyle().WithFg(BrightCyan())
+        case LogWarn()  => DefaultStyle().WithBold().WithFg(BrightYellow())
+        case LogError() => DefaultStyle().WithBold().WithFg(BrightRed())
+        case LogDebug() => DefaultStyle().WithDim()
+    }
+}

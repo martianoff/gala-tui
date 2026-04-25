@@ -1,0 +1,162 @@
+package gala_tui
+
+// ============================================================================
+// Theme — a named palette that widgets and helpers resolve through at render
+// time. Apps can build their own theme, switch between a ship default, a
+// dark mode, and a high-contrast variant, without touching a single widget
+// call site.
+//
+// A Theme is a plain value type. Copy it, derive from it, ship several of
+// them — they're cheap and immutable.
+//
+// Usage:
+//     val theme = DarkTheme()
+//     val title = TextStyled("Dashboard", theme.Heading)
+//     val body  = TextStyled("status ok", theme.Text)
+//     val border = BorderOf(Padding(1, body), theme.BorderKind)
+// ============================================================================
+
+struct Theme(
+    // Chrome
+    BorderKind BorderKind,
+    BorderFg   Color,
+
+    // Foregrounds for semantic text roles
+    Text       Style,
+    Muted      Style,
+    Heading    Style,
+    Accent     Style,
+    Success    Style,
+    Warning    Style,
+    Error      Style,
+
+    // Selection / focus chrome
+    Selected   Style,
+    Focus      Style,
+
+    // Surface background — what a FillCh(' ') for a panel uses
+    Background Color,
+)
+
+// ----------------------------------------------------------------------------
+// Built-in themes.
+// ----------------------------------------------------------------------------
+
+// DefaultTheme is the terminal's native palette. No backgrounds, no custom
+// foregrounds — lets the user's terminal theme bleed through. The safest
+// choice for apps that want to play nicely with every color scheme.
+func DefaultTheme() Theme = Theme(
+    BorderKind = SingleBorder(),
+    BorderFg   = DefaultColor(),
+    Text       = DefaultStyle(),
+    Muted      = DefaultStyle().WithDim(),
+    Heading    = DefaultStyle().WithBold(),
+    Accent     = DefaultStyle().WithBold(),
+    Success    = DefaultStyle(),
+    Warning    = DefaultStyle().WithBold(),
+    Error      = DefaultStyle().WithBold(),
+    Selected   = DefaultStyle().WithReverse(),
+    Focus      = DefaultStyle().WithBold().WithReverse(),
+    Background = DefaultColor(),
+)
+
+// DarkTheme is a cyan-accented dark palette — matches every macOS / Linux
+// default dark terminal. Works well on top of true-black or near-black
+// shells.
+func DarkTheme() Theme = Theme(
+    BorderKind = RoundedBorder(),
+    BorderFg   = BrightBlack(),
+    Text       = DefaultStyle().WithFg(BrightWhite()),
+    Muted      = DefaultStyle().WithFg(BrightBlack()),
+    Heading    = DefaultStyle().WithBold().WithFg(BrightCyan()),
+    Accent     = DefaultStyle().WithBold().WithFg(BrightMagenta()),
+    Success    = DefaultStyle().WithFg(BrightGreen()),
+    Warning    = DefaultStyle().WithFg(BrightYellow()),
+    Error      = DefaultStyle().WithBold().WithFg(BrightRed()),
+    Selected   = DefaultStyle().WithReverse().WithFg(BrightWhite()),
+    Focus      = DefaultStyle().WithBold().WithFg(BrightCyan()).WithReverse(),
+    Background = DefaultColor(),
+)
+
+// LightTheme is a blue-accented light palette for terminals running a
+// light background. Intentionally avoids bright whites on foreground so
+// contrast stays readable.
+func LightTheme() Theme = Theme(
+    BorderKind = SingleBorder(),
+    BorderFg   = BrightBlack(),
+    Text       = DefaultStyle().WithFg(Black()),
+    Muted      = DefaultStyle().WithFg(BrightBlack()),
+    Heading    = DefaultStyle().WithBold().WithFg(Blue()),
+    Accent     = DefaultStyle().WithBold().WithFg(Magenta()),
+    Success    = DefaultStyle().WithFg(Green()),
+    Warning    = DefaultStyle().WithFg(Yellow()),
+    Error      = DefaultStyle().WithBold().WithFg(Red()),
+    Selected   = DefaultStyle().WithBg(BrightYellow()).WithFg(Black()),
+    Focus      = DefaultStyle().WithBold().WithBg(BrightCyan()).WithFg(Black()),
+    Background = DefaultColor(),
+)
+
+// HighContrastTheme maximizes visibility — pure white-on-black with bold
+// everything. Good for demos, projectors, and accessibility-first apps.
+func HighContrastTheme() Theme = Theme(
+    BorderKind = ThickBorder(),
+    BorderFg   = BrightWhite(),
+    Text       = DefaultStyle().WithBold().WithFg(BrightWhite()),
+    Muted      = DefaultStyle().WithFg(White()),
+    Heading    = DefaultStyle().WithBold().WithUnderline().WithFg(BrightWhite()),
+    Accent     = DefaultStyle().WithBold().WithFg(BrightYellow()),
+    Success    = DefaultStyle().WithBold().WithFg(BrightGreen()),
+    Warning    = DefaultStyle().WithBold().WithFg(BrightYellow()),
+    Error      = DefaultStyle().WithBold().WithFg(BrightRed()).WithUnderline(),
+    Selected   = DefaultStyle().WithBold().WithReverse(),
+    Focus      = DefaultStyle().WithBold().WithReverse().WithUnderline(),
+    Background = Black(),
+)
+
+// ----------------------------------------------------------------------------
+// Themed widget helpers.
+//
+// These compose the existing constructors with theme lookups. Users who
+// don't want to sprinkle theme refs through every widget call build a
+// helper function per app; these are provided so simple apps don't have
+// to.
+// ----------------------------------------------------------------------------
+
+// TextT is a theme-aware Text — renders with theme.Text.
+func TextT(theme Theme, content string) Widget =
+    TextStyled(content, theme.Text)
+
+// MutedT renders `content` with theme.Muted (dim / secondary text).
+func MutedT(theme Theme, content string) Widget =
+    TextStyled(content, theme.Muted)
+
+// HeadingT renders `content` with theme.Heading (bold + accent fg).
+func HeadingT(theme Theme, content string) Widget =
+    TextStyled(content, theme.Heading)
+
+// AccentT renders `content` with theme.Accent.
+func AccentT(theme Theme, content string) Widget =
+    TextStyled(content, theme.Accent)
+
+// SuccessT / WarningT / ErrorT are the semantic-status triad.
+func SuccessT(theme Theme, content string) Widget =
+    TextStyled(content, theme.Success)
+
+func WarningT(theme Theme, content string) Widget =
+    TextStyled(content, theme.Warning)
+
+func ErrorT(theme Theme, content string) Widget =
+    TextStyled(content, theme.Error)
+
+// BorderT wraps `inner` with the theme's configured border kind + fg color.
+// Because BorderWidget's glyph style is a single field we build a Padding +
+// Fill stack on top to apply the fg color — callers who just want the glyph
+// kind can use `BorderOf(inner, theme.BorderKind)` directly.
+func BorderT(theme Theme, inner Widget) Widget =
+    BorderOf(inner, theme.BorderKind)
+
+// BackgroundT fills the area with theme.Background, then overlays `inner`.
+// Useful as a root container when the theme dictates a non-default surface
+// color.
+func BackgroundT(theme Theme, inner Widget) Widget =
+    Overlay(FillChStyled(' ', DefaultStyle().WithBg(theme.Background)), inner)

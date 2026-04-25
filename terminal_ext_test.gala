@@ -1,0 +1,112 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// OSC 8 hyperlinks + OSC 52 clipboard + OSC 2 title tests.
+// ============================================================================
+
+func TestHyperlinkStartBeginsWithEsc(t T) T {
+    val s = HyperlinkStart("https://example.com")
+    val rs = extRuneArr(s)
+    return Eq(t, rs.Get(0), rune(0x1B))
+}
+
+func TestHyperlinkStartIncludesUrl(t T) T {
+    val s = HyperlinkStart("https://example.com")
+    return IsTrue(t, extRowHas(s, "https://example.com"))
+}
+
+func TestHyperlinkRawWrapsLabelWithUrl(t T) T {
+    val s = HyperlinkRaw("docs", "https://example.com")
+    val t1 = IsTrue(t, extRowHas(s, "docs"))
+    return IsTrue(t1, extRowHas(s, "https://example.com"))
+}
+
+func TestHyperlinkEndIsTerminator(t T) T {
+    val s = HyperlinkEnd()
+    // Should start with ESC ] 8 ; ;
+    return IsTrue(t, extRowHas(s, "]8;;"))
+}
+
+func TestHyperlinkTextPaintsUnderlineLink(t T) T {
+    var buf = NewBuffer(10, 1)
+    RenderTo(HyperlinkText("docs", "https://example.com"),
+        Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    val t1 = IsTrue(t, buf.StyleAt(0, 0).Underline)
+    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightBlue()))
+}
+
+// ----------------------------------------------------------------------------
+// OSC 52 clipboard
+// ----------------------------------------------------------------------------
+
+func TestClipboardSequenceHasOsc52(t T) T {
+    val s = ClipboardSequence("hello")
+    return IsTrue(t, extRowHas(s, "]52;c;"))
+}
+
+func TestClipboardSequenceEncodesBase64(t T) T {
+    val s = ClipboardSequence("hi")
+    // "hi" base64 = "aGk="
+    return IsTrue(t, extRowHas(s, "aGk="))
+}
+
+func TestClipboardSequenceNonEmpty(t T) T {
+    val s = ClipboardSequence("arbitrary data")
+    return IsTrue(t, runeCount(s) > 10)
+}
+
+// ----------------------------------------------------------------------------
+// OSC 2 title
+// ----------------------------------------------------------------------------
+
+func TestTerminalTitleSequenceHasOsc2(t T) T {
+    val s = TerminalTitleSequence("My App")
+    return IsTrue(t, extRowHas(s, "]2;"))
+}
+
+func TestTerminalTitleSequenceIncludesTitle(t T) T {
+    val s = TerminalTitleSequence("Dashboard")
+    return IsTrue(t, extRowHas(s, "Dashboard"))
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+func extRuneArr(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
+func extRowHas(hay string, needle string) bool {
+    val h = extRuneArr(hay)
+    val n = extRuneArr(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}

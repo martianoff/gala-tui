@@ -1,0 +1,292 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// This file adds the "advanced" widgets that every serious TUI eventually
+// wants: Table, Sparkline, BarChart, Viewport, Tree. None of these require
+// new runtime plumbing — they are pure widget data, rendered via the same
+// RenderTo walk the foundation widgets use.
+//
+// These are the widgets that let gala-tui claim it's more than a toy
+// framework: together with the foundation set (Text, List, Input, etc.)
+// they cover every common pattern in Bubble Tea, Ratatui, and Textual.
+
+// ----------------------------------------------------------------------------
+// Table
+// ----------------------------------------------------------------------------
+//
+// Rows × columns. Each column has a constraint (same solver as Row). A
+// selected row index highlights an entire row. Column headers are optional;
+// when present, they render with the headerStyle and are separated from
+// body rows by a one-cell horizontal rule.
+//
+// Usage:
+//     Table(
+//         headers  = ArrayOf("Name", "Age", "Role"),
+//         widths   = ArrayOf[Constraint](Flex(2), Length(5), Flex(1)),
+//         rows     = ArrayOf(
+//             ArrayOf("Alice", "30", "admin"),
+//             ArrayOf("Bob",   "25", "user"),
+//         ),
+//         selected = 0,
+//     )
+
+struct TableData(
+    Headers  Array[string],          // empty array = no header row
+    Widths   Array[Constraint],      // one per column
+    Rows     Array[Array[string]],   // each row is an array of cells
+    Selected int,                    // -1 = no selection
+)
+
+// Table extends the Widget sealed type via composition — we render it
+// through a renderTable helper that constructs a layout Row tree on the
+// fly. The Widget variant carries the TableData as a single field.
+//
+// (We cannot add cases to the existing sealed `Widget` without editing
+// widget.gala; instead we expose Table as a function that returns a
+// pre-constructed Widget tree built from Row/Column/Text primitives.)
+func Table(data TableData) Widget {
+    val headerRow = if (data.Headers.NonEmpty()) {
+        renderTableHeaderRow(data.Headers, data.Widths)
+    } else {
+        Empty()
+    }
+
+    val separator = if (data.Headers.NonEmpty()) {
+        FillCh('─')
+    } else {
+        Empty()
+    }
+
+    // Build body widgets explicitly to carry the row's index (which tells us
+    // whether it's the selected row). Avoids a lambda-with-block-body pattern
+    // whose return type GALA's inference stumbles on.
+    var bodyWidgets = EmptyArray[Widget]()
+    var rIdx = 0
+    val nRows = data.Rows.Length()
+    for rIdx < nRows {
+        val row = data.Rows.Get(rIdx)
+        bodyWidgets = bodyWidgets.Append(renderTableRow(row, data.Widths, rIdx == data.Selected))
+        rIdx = rIdx + 1
+    }
+
+    // Compose header + separator + body into a Column.
+    var children = EmptyArray[LayoutChild]()
+    if (data.Headers.NonEmpty()) {
+        children = children.Append(Fixed(1, headerRow))
+        children = children.Append(Fixed(1, separator))
+    }
+    var i = 0
+    for i < bodyWidgets.Length() {
+        children = children.Append(Fixed(1, bodyWidgets.Get(i)))
+        i = i + 1
+    }
+    return Column(children)
+}
+
+// renderTableHeaderRow builds a Row of bold header cells.
+func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget {
+    val boldStyle = DefaultStyle().WithBold()
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = headers.Length()
+    for i < n {
+        val header = headers.Get(i)
+        val w = if (i < widths.Length()) widths.Get(i) else Fill(1)
+        cells = cells.Append(LayoutChild(Constraint = w, Widget = TextStyled(header, boldStyle)))
+        i = i + 1
+    }
+    return Row(cells)
+}
+
+// renderTableRow builds a Row of body cells. When `selected` is true, every
+// cell is drawn with reverse-video so the whole row highlights.
+func renderTableRow(row Array[string], widths Array[Constraint], selected bool) Widget {
+    val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = row.Length()
+    for i < n {
+        val cell = row.Get(i)
+        val w = if (i < widths.Length()) widths.Get(i) else Fill(1)
+        cells = cells.Append(LayoutChild(Constraint = w, Widget = TextStyled(cell, rowStyle)))
+        i = i + 1
+    }
+    return Row(cells)
+}
+
+// NewTable is a convenience constructor for tables without headers.
+func NewTable(widths Array[Constraint], rows Array[Array[string]], selected int) TableData =
+    TableData(
+        Headers  = EmptyArray[string](),
+        Widths   = widths,
+        Rows     = rows,
+        Selected = selected,
+    )
+
+// NewTableWithHeaders is the most common form: headers + rows + selection.
+func NewTableWithHeaders(
+    headers Array[string],
+    widths Array[Constraint],
+    rows Array[Array[string]],
+    selected int,
+) TableData =
+    TableData(
+        Headers  = headers,
+        Widths   = widths,
+        Rows     = rows,
+        Selected = selected,
+    )
+
+// ----------------------------------------------------------------------------
+// Sparkline
+// ----------------------------------------------------------------------------
+//
+// A one-row chart where each cell is a Unicode block character whose height
+// encodes the normalized value at that column. Eight partial-block glyphs
+// (U+2581..U+2588) give us 8 distinguishable "heights" per cell, enough to
+// show a meaningful trend in a 40-cell wide space.
+
+func Sparkline(values Array[int]) Widget = SparklineStyled(values, DefaultStyle())
+
+// SparklineStyled renders with a caller-chosen style (e.g., green for rising,
+// red for anomalous).
+func SparklineStyled(values Array[int], style Style) Widget {
+    if values.IsEmpty() {
+        return Empty()
+    }
+    val maxV = values.FoldLeft(0, (acc, v) => maxInt(acc, v))
+    if maxV == 0 {
+        return Text(sparklineBarString(values, 1))
+    }
+    return TextStyled(sparklineBarString(values, maxV), style)
+}
+
+// sparklineBarString converts a series of values into a single string where
+// each rune is the block glyph whose height represents value/max (in eighths).
+func sparklineBarString(values Array[int], maxV int) string {
+    val glyphs = ArrayOf[rune](' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
+    var sb = ""
+    var i = 0
+    val n = values.Length()
+    for i < n {
+        val v = values.Get(i)
+        var idx = v * 8 / maxV
+        if idx < 0 { idx = 0 }
+        if idx > 8 { idx = 8 }
+        sb = sb + string(glyphs.Get(idx))
+        i = i + 1
+    }
+    return sb
+}
+
+// ----------------------------------------------------------------------------
+// BarChart
+// ----------------------------------------------------------------------------
+//
+// Horizontal bars, one per datum, each with a label and a Gauge-like bar
+// whose width is proportional to the value. Useful for comparing multiple
+// values at a glance — what every "top N" CLI dashboard renders.
+
+struct BarChartDatum(
+    Label string,
+    Value int,
+)
+
+// BarChart renders one Gauge-like bar per datum, with labels padded so bars
+// all start in the same column.
+func BarChart(data Array[BarChartDatum]) Widget {
+    if data.IsEmpty() {
+        return Empty()
+    }
+    val labelWidth = data.FoldLeft(0, (acc, d) => maxInt(acc, runeCount(d.Label)))
+    val maxV = data.FoldLeft(1, (acc, d) => maxInt(acc, d.Value))
+    var rows = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = data.Length()
+    for i < n {
+        val d = data.Get(i)
+        val pct = d.Value * 100 / maxV
+        val row = Row(ArrayOf[LayoutChild](
+            Fixed(labelWidth + 1, Text(d.Label)),
+            Flex(1, Gauge(pct)),
+        ))
+        rows = rows.Append(Fixed(1, row))
+        i = i + 1
+    }
+    return Column(rows)
+}
+
+// ----------------------------------------------------------------------------
+// Tree
+// ----------------------------------------------------------------------------
+//
+// A tree node has a label and a list of children. Each node tracks whether
+// it's expanded. The renderer walks expanded subtrees with indentation.
+
+struct TreeNode(
+    Label    string,
+    Children Array[TreeNode],
+    Expanded bool,
+)
+
+// NewTreeLeaf builds a leaf node (no children, expansion irrelevant).
+func NewTreeLeaf(label string) TreeNode =
+    TreeNode(Label = label, Children = EmptyArray[TreeNode](), Expanded = false)
+
+// NewTreeBranch builds a branch with children, initially collapsed.
+func NewTreeBranch(label string, children Array[TreeNode]) TreeNode =
+    TreeNode(Label = label, Children = children, Expanded = false)
+
+// NewTreeBranchExpanded is like NewTreeBranch but opens the node.
+func NewTreeBranchExpanded(label string, children Array[TreeNode]) TreeNode =
+    TreeNode(Label = label, Children = children, Expanded = true)
+
+// Tree renders a tree node and its (possibly expanded) subtree as a Column
+// of Text widgets, one per visible row. Collapsed children are hidden.
+func Tree(root TreeNode) Widget {
+    val lines = flattenTree(root, 0)
+    val rows = lines.Map((line) => Fixed(1, Text(line)))
+    return Column(rows)
+}
+
+// flattenTree turns a TreeNode into a list of display strings with
+// indentation and expand/collapse markers.
+func flattenTree(node TreeNode, depth int) Array[string] {
+    val indent = treeIndent(depth)
+    val marker = treeMarker(node)
+    val line = indent + marker + " " + node.Label
+    var lines = ArrayOf(line)
+    if node.Expanded && node.Children.NonEmpty() {
+        var i = 0
+        val n = node.Children.Length()
+        for i < n {
+            val child = node.Children.Get(i)
+            lines = lines.AppendAll(flattenTree(child, depth + 1))
+            i = i + 1
+        }
+    }
+    return lines
+}
+
+func treeIndent(depth int) string {
+    var s = ""
+    var i = 0
+    for i < depth {
+        s = s + "  "
+        i = i + 1
+    }
+    return s
+}
+
+func treeMarker(node TreeNode) string {
+    if node.Children.IsEmpty() {
+        return "•"
+    }
+    if node.Expanded {
+        return "▼"
+    }
+    return "▶"
+}

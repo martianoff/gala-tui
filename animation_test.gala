@@ -1,0 +1,123 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// Animation tests — pure, deterministic, fake clocks only.
+// ============================================================================
+
+func animEpoch() Instant = FromUnixNanos(int64(0))
+
+// ----------------------------------------------------------------------------
+// TweenAt
+// ----------------------------------------------------------------------------
+
+func TestTweenBeforeStartReturnsFrom(t T) T {
+    val anim = NewAnimation(0, 100, animEpoch().Plus(Seconds(int64(5))),
+        Seconds(int64(1)), Linear())
+    // Query before start — should return From.
+    return Eq(t, TweenAt(anim, animEpoch()), 0)
+}
+
+func TestTweenAfterEndReturnsTo(t T) T {
+    val anim = NewAnimation(0, 100, animEpoch(), Seconds(int64(1)), Linear())
+    val now = animEpoch().Plus(Seconds(int64(10)))
+    return Eq(t, TweenAt(anim, now), 100)
+}
+
+func TestTweenLinearMidpointIsHalfway(t T) T {
+    val anim = NewAnimation(0, 100, animEpoch(), Seconds(int64(2)), Linear())
+    val mid = animEpoch().Plus(Seconds(int64(1)))
+    return Eq(t, TweenAt(anim, mid), 50)
+}
+
+func TestTweenEaseInCubicLaggerEarly(t T) T {
+    val anim = NewAnimation(0, 1000, animEpoch(), Seconds(int64(2)), EaseInCubic())
+    val quarter = animEpoch().Plus(Milliseconds(int64(500)))
+    val v = TweenAt(anim, quarter)
+    // At t=0.25, linear would give 250, cubic gives ~15. Strictly lower.
+    return IsTrue(t, v < 50)
+}
+
+func TestTweenEaseOutCubicFastEarly(t T) T {
+    val anim = NewAnimation(0, 1000, animEpoch(), Seconds(int64(2)), EaseOutCubic())
+    val quarter = animEpoch().Plus(Milliseconds(int64(500)))
+    val v = TweenAt(anim, quarter)
+    // At t=0.25, linear gives 250, ease-out-cubic gives ~578.
+    return IsTrue(t, v > 400)
+}
+
+func TestTweenLinearReverseSpan(t T) T {
+    // Tweening 100 → 0 should decrement.
+    val anim = NewAnimation(100, 0, animEpoch(), Seconds(int64(2)), Linear())
+    val mid = animEpoch().Plus(Seconds(int64(1)))
+    return Eq(t, TweenAt(anim, mid), 50)
+}
+
+// ----------------------------------------------------------------------------
+// Done
+// ----------------------------------------------------------------------------
+
+func TestDoneFalseMidAnimation(t T) T {
+    val anim = NewAnimation(0, 100, animEpoch(), Seconds(int64(2)), Linear())
+    val mid = animEpoch().Plus(Seconds(int64(1)))
+    return IsFalse(t, Done(anim, mid))
+}
+
+func TestDoneTrueAfterDuration(t T) T {
+    val anim = NewAnimation(0, 100, animEpoch(), Seconds(int64(2)), Linear())
+    val past = animEpoch().Plus(Seconds(int64(5)))
+    return IsTrue(t, Done(anim, past))
+}
+
+// ----------------------------------------------------------------------------
+// ProgressThousandths
+// ----------------------------------------------------------------------------
+
+func TestProgressMidpointIsAbout500(t T) T {
+    val anim = NewAnimation(0, 1, animEpoch(), Seconds(int64(2)), Linear())
+    val mid = animEpoch().Plus(Seconds(int64(1)))
+    val p = ProgressThousandths(anim, mid)
+    return IsTrue(t, p >= 499 && p <= 501)
+}
+
+// ----------------------------------------------------------------------------
+// StepEasing
+// ----------------------------------------------------------------------------
+
+func TestStepEasingQuantizes(t T) T {
+    val anim = NewAnimation(0, 100, animEpoch(), Seconds(int64(1)), StepEasing(Steps = 4))
+    // At t=0.4 (400ms), step easing with 4 steps → landing in step 1 of 4 = 0.25.
+    val at = animEpoch().Plus(Milliseconds(int64(400)))
+    val v = TweenAt(anim, at)
+    // Expected close to 25 (0.25 * 100).
+    return IsTrue(t, v == 25)
+}
+
+// ----------------------------------------------------------------------------
+// Idle
+// ----------------------------------------------------------------------------
+
+func TestIdleAnimationAlwaysReturnsValue(t T) T {
+    val anim = IdleAnimation(42)
+    val now = animEpoch().Plus(Seconds(int64(100)))
+    return Eq(t, TweenAt(anim, now), 42)
+}
+
+// ----------------------------------------------------------------------------
+// Presets
+// ----------------------------------------------------------------------------
+
+func TestQuickTweenEndsWithinReasonableTime(t T) T {
+    val anim = QuickTween(0, 100, animEpoch())
+    val at400ms = animEpoch().Plus(Milliseconds(int64(400)))
+    return IsTrue(t, Done(anim, at400ms))
+}
+
+func TestSmoothTweenStartsAtFrom(t T) T {
+    val anim = SmoothTween(10, 50, animEpoch(), Seconds(int64(1)))
+    return Eq(t, TweenAt(anim, animEpoch()), 10)
+}

@@ -1,0 +1,148 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
+)
+
+func zeroInstant() Instant = FromUnixNanos(int64(0))
+
+// ----------------------------------------------------------------------------
+// State
+// ----------------------------------------------------------------------------
+
+func TestLogPanelStartsEmpty(t T) T {
+    val p = NewLogPanel(10)
+    val t1 = IsTrue(t, p.IsEmpty())
+    return Eq(t1, p.Length(), 0)
+}
+
+func TestLogPanelAppendGrowsUntilCap(t T) T {
+    var p = NewLogPanel(3)
+    p = p.AppendAt(LogInfo(), "a", zeroInstant())
+    p = p.AppendAt(LogInfo(), "b", zeroInstant())
+    p = p.AppendAt(LogInfo(), "c", zeroInstant())
+    return Eq(t, p.Length(), 3)
+}
+
+func TestLogPanelDropsOldestBeyondCap(t T) T {
+    var p = NewLogPanel(2)
+    p = p.AppendAt(LogInfo(), "a", zeroInstant())
+    p = p.AppendAt(LogInfo(), "b", zeroInstant())
+    p = p.AppendAt(LogInfo(), "c", zeroInstant())
+    val t1 = Eq(t, p.Length(), 2)
+    // Oldest ("a") dropped; remaining are "b", "c".
+    return Eq(t1, p.Lines.Get(0).Text, "b")
+}
+
+func TestLogPanelLevelHelpers(t T) T {
+    var p = NewLogPanel(10)
+    p = p.Info("i")
+    p = p.Warn("w")
+    p = p.Error("e")
+    p = p.Debug("d")
+    return Eq(t, p.Length(), 4)
+}
+
+func TestLogPanelLastReturnsTail(t T) T {
+    var p = NewLogPanel(10)
+    p = p.AppendAt(LogInfo(), "a", zeroInstant())
+    p = p.AppendAt(LogInfo(), "b", zeroInstant())
+    p = p.AppendAt(LogInfo(), "c", zeroInstant())
+    p = p.AppendAt(LogInfo(), "d", zeroInstant())
+    val last2 = p.Last(2)
+    val t1 = Eq(t, last2.Length(), 2)
+    val t2 = Eq(t1, last2.Get(0).Text, "c")
+    return Eq(t2, last2.Get(1).Text, "d")
+}
+
+func TestLogPanelLastCappedByActualSize(t T) T {
+    var p = NewLogPanel(10)
+    p = p.AppendAt(LogInfo(), "solo", zeroInstant())
+    val last5 = p.Last(5)
+    return Eq(t, last5.Length(), 1)
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+func TestLogPanelViewEmptyShowsHint(t T) T {
+    var buf = NewBuffer(30, 1)
+    RenderTo(LogPanelView(NewLogPanel(5)),
+        Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    return Eq(t, buf.CharAt(0, 0), '(')
+}
+
+func TestLogPanelViewShowsEachLine(t T) T {
+    var p = NewLogPanel(5)
+    p = p.AppendAt(LogInfo(),  "alpha", zeroInstant())
+    p = p.AppendAt(LogError(), "boom",  zeroInstant())
+    var buf = NewBuffer(30, 3)
+    RenderTo(LogPanelView(p), Rect(X = 0, Y = 0, Width = 30, Height = 3), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), 'I')          // INFO prefix
+    return Eq(t1, buf.CharAt(0, 1), 'E')           // ERR prefix
+}
+
+func TestLogPanelViewErrorLineIsBoldRed(t T) T {
+    var p = NewLogPanel(5)
+    p = p.AppendAt(LogError(), "bad", zeroInstant())
+    var buf = NewBuffer(30, 1)
+    RenderTo(LogPanelView(p), Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    val t1 = IsTrue(t, buf.StyleAt(0, 0).Bold)
+    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightRed()))
+}
+
+func TestLogPanelViewTailShowsOnlyLastN(t T) T {
+    var p = NewLogPanel(10)
+    p = p.AppendAt(LogInfo(), "line-1", zeroInstant())
+    p = p.AppendAt(LogInfo(), "line-2", zeroInstant())
+    p = p.AppendAt(LogInfo(), "line-3", zeroInstant())
+    p = p.AppendAt(LogInfo(), "line-4", zeroInstant())
+    var buf = NewBuffer(30, 2)
+    RenderTo(LogPanelViewTail(p, 2),
+        Rect(X = 0, Y = 0, Width = 30, Height = 2), buf)
+    // Row 0 should be "line-3", row 1 "line-4".
+    val r0 = BufferText(buf, 0)
+    val r1 = BufferText(buf, 1)
+    val t1 = IsTrue(t, logRowContains(r0, "line-3"))
+    return IsTrue(t1, logRowContains(r1, "line-4"))
+}
+
+// ----------------------------------------------------------------------------
+// Helpers.
+// ----------------------------------------------------------------------------
+
+func logRowContains(hay string, needle string) bool {
+    val h = logRuneArr(hay)
+    val n = logRuneArr(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func logRuneArr(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

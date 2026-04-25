@@ -1,0 +1,191 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// Animation primitives — smooth transitions between values over time.
+//
+// An Animation describes "go from A to B in D time, eased by E". Apps keep
+// the animation in their model, advance a frame-tick timer via TickSub,
+// and read the current displayed value each view() call.
+//
+// Because the animation is a pure value, it's trivially testable — pass in a
+// synthetic `now` instant to TweenAt and check the expected value. No
+// hidden mutable state.
+//
+// Usage:
+//     // When starting an animation:
+//     m = m.Copy(Progress = NewAnimation(
+//         FromInt = 0,
+//         ToInt   = 100,
+//         Start   = Now(),
+//         Duration = Seconds(int64(3)),
+//         Easing  = EaseInOutCubic(),
+//     ))
+//
+//     // In view() — read the current value:
+//     val pct = TweenAt(m.Progress, Now())
+//     Gauge(pct)
+//
+//     // Once Done(animation, now) returns true the animation has finished
+//     // — apps can replace it with IdleAnimation() to stop ticking.
+// ============================================================================
+
+sealed type Easing {
+    case Linear()
+    case EaseInCubic()
+    case EaseOutCubic()
+    case EaseInOutCubic()
+    case Bounce()
+    case StepEasing(Steps int)       // quantize output to N steps
+}
+
+// Animation tracks a scalar-int tween from `FromInt` to `ToInt`. A float
+// variant is provided via AnimationF for cases that need it.
+struct Animation(
+    FromInt  int,
+    ToInt    int,
+    Start    Instant,
+    Duration Duration,
+    Easing   Easing,
+)
+
+// NewAnimation builds an Animation — convenience that echoes the struct
+// constructor with nicer field ordering.
+func NewAnimation(fromInt int, toInt int, start Instant, duration Duration, easing Easing) Animation =
+    Animation(
+        FromInt  = fromInt,
+        ToInt    = toInt,
+        Start    = start,
+        Duration = duration,
+        Easing   = easing,
+    )
+
+// IdleAnimation returns an Animation whose `TweenAt` always returns `value`.
+// Used as a "no-op" placeholder so the model field has a meaningful default.
+func IdleAnimation(value int) Animation =
+    Animation(
+        FromInt  = value,
+        ToInt    = value,
+        Start    = FromUnixNanos(int64(0)),
+        Duration = Nanoseconds(int64(1)),
+        Easing   = Linear(),
+    )
+
+// TweenAt returns the interpolated int value of the animation at `now`.
+// Before the start instant it returns `FromInt`; after start + duration it
+// returns `ToInt`. In between, it applies the easing curve to the progress
+// fraction (0..1) and linearly interpolates.
+func TweenAt(a Animation, now Instant) int {
+    val elapsed = now.Since(a.Start).ToNanos()
+    val total = a.Duration.ToNanos()
+    if elapsed <= int64(0) { return a.FromInt }
+    if elapsed >= total    { return a.ToInt }
+    val numer = elapsed * int64(1000) / total    // 0..1000
+    val fracThousandths = int(numer)              // 0..1000
+    val eased = applyEasing(a.Easing, fracThousandths)
+    val span = a.ToInt - a.FromInt
+    return a.FromInt + (span * eased / 1000)
+}
+
+// Done returns true when `now` is at or past the animation's end.
+func Done(a Animation, now Instant) bool =
+    now.Since(a.Start).ToNanos() >= a.Duration.ToNanos()
+
+// ProgressThousandths returns the raw progress as a 0..1000 int — useful
+// when an app wants to drive something other than an int (e.g., a color
+// gradient or an offset).
+func ProgressThousandths(a Animation, now Instant) int {
+    val elapsed = now.Since(a.Start).ToNanos()
+    val total = a.Duration.ToNanos()
+    if elapsed <= int64(0) { return 0 }
+    if elapsed >= total    { return 1000 }
+    val numer = elapsed * int64(1000) / total
+    return int(numer)
+}
+
+// ----------------------------------------------------------------------------
+// Easing curves
+//
+// Inputs and outputs in thousandths (0..1000). Working in integer arithmetic
+// keeps things reproducible and avoids floating-point edge cases during
+// snapshot-style tests.
+// ----------------------------------------------------------------------------
+
+func applyEasing(e Easing, t int) int {
+    return e match {
+        case Linear()           => t
+        case EaseInCubic()      => easeInCubic(t)
+        case EaseOutCubic()     => easeOutCubic(t)
+        case EaseInOutCubic()   => easeInOutCubic(t)
+        case Bounce()           => easeBounce(t)
+        case StepEasing(steps)  => easeStep(t, steps)
+    }
+}
+
+// easeInCubic: t^3 (scaled). Input/output both 0..1000.
+func easeInCubic(t int) int = (t * t / 1000) * t / 1000
+
+// easeOutCubic: 1 - (1 - t)^3
+func easeOutCubic(t int) int {
+    val inv = 1000 - t
+    val cubed = (inv * inv / 1000) * inv / 1000
+    return 1000 - cubed
+}
+
+// easeInOutCubic: accelerating first half, decelerating second half.
+func easeInOutCubic(t int) int {
+    if t < 500 {
+        val t2 = t * 2
+        return easeInCubic(t2) / 2
+    }
+    val t2 = (t - 500) * 2
+    return 500 + easeOutCubic(t2) / 2
+}
+
+// easeBounce: a simplified three-bounce curve. Approximates the classic
+// animation cliché of "land, rebound, land, rebound, settle".
+func easeBounce(t int) int {
+    if t >= 1000 { return 1000 }
+    if t < 364 {
+        return (t * t / 100) * 121 / 10000
+    }
+    if t < 728 {
+        val shifted = t - 545
+        return 750 + (shifted * shifted / 100) * 121 / 10000
+    }
+    if t < 909 {
+        val shifted = t - 818
+        return 937 + (shifted * shifted / 100) * 121 / 10000
+    }
+    val shifted = t - 955
+    return 984 + (shifted * shifted / 100) * 121 / 10000
+}
+
+// easeStep quantizes the progress to N discrete steps. Output snaps to the
+// nearest step boundary — useful for stop-motion/typewriter effects.
+func easeStep(t int, steps int) int {
+    if steps <= 1 { return t }
+    val step = t * steps / 1000
+    return step * 1000 / steps
+}
+
+// ----------------------------------------------------------------------------
+// Typical-use presets
+// ----------------------------------------------------------------------------
+
+// SmoothTween builds an animation with the most common default easing
+// (ease-in-out cubic) — the "smooth and natural" curve most UI work wants.
+func SmoothTween(from int, to int, start Instant, duration Duration) Animation =
+    NewAnimation(from, to, start, duration, EaseInOutCubic())
+
+// QuickTween is SmoothTween with a built-in 300ms duration — the
+// conventional "UI feels fast" timing.
+func QuickTween(from int, to int, start Instant) Animation =
+    SmoothTween(from, to, start, Milliseconds(int64(300)))
+
+// SlowTween is SmoothTween with a 1.5s duration — for dramatic reveals.
+func SlowTween(from int, to int, start Instant) Animation =
+    SmoothTween(from, to, start, Milliseconds(int64(1500)))

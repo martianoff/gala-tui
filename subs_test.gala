@@ -1,0 +1,132 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Subscription + KeyBinding tests.
+//
+// The filed BUG-gala_tui-013 previously made this entire subsystem untestable
+// because `go vet` rejected the auto-generated String() on sealed variants
+// with func fields. PR #212 (sealed.go emits `<fn>` for func fields) closed
+// it, and Sub[T] + KeyBinding[T] compile + test cleanly here.
+// ============================================================================
+
+sealed type TestMsg {
+    case KeyMsg(Name string)
+    case QuitReq()
+    case NoOp()
+}
+
+func TestSubNoneIsInactive(t T) T {
+    return IsFalse(t, SubIsActive(NoSubs[TestMsg]()))
+}
+
+func TestKeySubIsActive(t T) T {
+    val s = OnKey[TestMsg]((ev) => NoOp())
+    return IsTrue(t, SubIsActive(s))
+}
+
+func TestBatchSubRecurses(t T) T {
+    val s = BatchSubs[TestMsg](ArrayOf[Sub[TestMsg]](
+        NoSubs[TestMsg](),
+        OnKey[TestMsg]((ev) => NoOp()),
+    ))
+    return IsTrue(t, SubIsActive(s))
+}
+
+func TestDispatchKeyBasic(t T) T {
+    val sub = OnKey[TestMsg]((ev) => KeyMsg("fired"))
+    val msgs = DispatchKey(sub, PlainKey(Enter()))
+    return Eq(t, msgs.Length(), 1)
+}
+
+func TestDispatchKeyBatchFans(t T) T {
+    val sub = BatchSubs[TestMsg](ArrayOf[Sub[TestMsg]](
+        OnKey[TestMsg]((ev) => KeyMsg("a")),
+        OnKey[TestMsg]((ev) => KeyMsg("b")),
+    ))
+    val msgs = DispatchKey(sub, PlainKey(Enter()))
+    return Eq(t, msgs.Length(), 2)
+}
+
+func TestMapSubTransformsMessages(t T) T {
+    val base = OnKey[TestMsg]((ev) => KeyMsg("raw"))
+    val wrapped = MapSubs[TestMsg](base, (m) => KeyMsg("wrapped"))
+    val msgs = DispatchKey(wrapped, PlainKey(Enter()))
+    val t1 = Eq(t, msgs.Length(), 1)
+    // Check the transformation actually happened.
+    val first = msgs.Get(0)
+    return IsTrue(t1, matchesKeyMsg(first, "wrapped"))
+}
+
+func matchesKeyMsg(m TestMsg, expected string) bool {
+    return m match {
+        case KeyMsg(name) => name == expected
+        case _            => false
+    }
+}
+
+// ----------------------------------------------------------------------------
+// KeyBinding DSL
+// ----------------------------------------------------------------------------
+
+func TestBindMatchesExactKey(t T) T {
+    val binding = Bind[TestMsg](Enter(), QuitReq())
+    val evYes = PlainKey(Enter())
+    val evNo  = PlainKey(Esc())
+    val t1 = IsTrue(t, binding.Match(evYes))
+    return IsFalse(t1, binding.Match(evNo))
+}
+
+func TestBindRejectsCtrlVersion(t T) T {
+    // Plain `Bind` means "without modifiers" — it should NOT match Ctrl+<key>.
+    val binding = Bind[TestMsg](Char('c'), NoOp())
+    val plainC = PlainKey(Char('c'))
+    val ctrlC  = Ctrl(Char('c'))
+    val t1 = IsTrue(t, binding.Match(plainC))
+    return IsFalse(t1, binding.Match(ctrlC))
+}
+
+func TestBindCtrlMatchesOnlyCtrl(t T) T {
+    val binding = BindCtrl[TestMsg](Char('c'), QuitReq())
+    val t1 = IsTrue(t, binding.Match(Ctrl(Char('c'))))
+    return IsFalse(t1, binding.Match(PlainKey(Char('c'))))
+}
+
+func TestDispatchKeyBindingsFiresMatching(t T) T {
+    val bindings = ArrayOf[KeyBinding[TestMsg]](
+        Bind[TestMsg](Enter(), QuitReq()),
+        Bind[TestMsg](Esc(),   QuitReq()),
+        BindCtrl[TestMsg](Char('c'), QuitReq()),
+    )
+    // Enter fires binding #1
+    val msgsEnter = DispatchKeyBindings(bindings, PlainKey(Enter()))
+    val t1 = Eq(t, msgsEnter.Length(), 1)
+    // Ctrl-C fires binding #3
+    val msgsCtrlC = DispatchKeyBindings(bindings, Ctrl(Char('c')))
+    val t2 = Eq(t1, msgsCtrlC.Length(), 1)
+    // 'a' fires nothing
+    val msgsA = DispatchKeyBindings(bindings, PlainKey(Char('a')))
+    return Eq(t2, msgsA.Length(), 0)
+}
+
+func TestBindAnyCatchesEverything(t T) T {
+    val binding = BindAny[TestMsg]((ev) => KeyMsg("caught"))
+    val t1 = IsTrue(t, binding.Match(PlainKey(Enter())))
+    val t2 = IsTrue(t1, binding.Match(PlainKey(Char('x'))))
+    return IsTrue(t2, binding.Match(Ctrl(Char('z'))))
+}
+
+func TestDispatchKeyBindingsFansMultipleMatches(t T) T {
+    // Both a specific 'q' binding AND a generic "log every key" binding —
+    // should fire both when the user presses 'q'.
+    val bindings = ArrayOf[KeyBinding[TestMsg]](
+        Bind[TestMsg](Char('q'), QuitReq()),
+        BindAny[TestMsg]((ev) => KeyMsg("logged")),
+    )
+    val msgs = DispatchKeyBindings(bindings, PlainKey(Char('q')))
+    return Eq(t, msgs.Length(), 2)
+}

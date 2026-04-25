@@ -1,0 +1,130 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for the differential renderer (Buffer.DiffString).
+//
+// These nail down the contract:
+//   - First frame (prev = nil): full paint (home + complete String())
+//   - Resize (dimensions differ): full paint
+//   - No-change: empty output
+//   - Single-cell change: cursor-jump + exactly that cell
+//   - Run of changes on one row: one cursor-jump per run
+// ============================================================================
+
+func TestDiffFirstFrameIsFullPaint(t T) T {
+    var buf = NewBuffer(4, 1)
+    buf.DrawText(0, 0, "hi", DefaultStyle())
+    val s = buf.DiffString(nil)
+    // Full paint begins with cursor-home.
+    val t1 = IsTrue(t, stringStartsWith(s, "\x1b[H"))
+    return IsTrue(t1, stringContainsAll(s, "hi"))
+}
+
+func TestDiffIdenticalBuffersProduceEmpty(t T) T {
+    var a = NewBuffer(4, 1)
+    a.DrawText(0, 0, "abcd", DefaultStyle())
+    var b = NewBuffer(4, 1)
+    b.DrawText(0, 0, "abcd", DefaultStyle())
+    val s = b.DiffString(a)
+    return Eq(t, s, "")
+}
+
+func TestDiffSingleCellChangeEmitsCursorJump(t T) T {
+    var prev = NewBuffer(5, 1)
+    prev.DrawText(0, 0, "hello", DefaultStyle())
+    var cur = NewBuffer(5, 1)
+    cur.DrawText(0, 0, "hxllo", DefaultStyle())
+    val s = cur.DiffString(prev)
+    // Cell (1,0) changed from 'e' to 'x'. Cursor to row 1 col 2 (1-indexed).
+    val t1 = IsTrue(t, stringContainsAll(s, "\x1b[1;2H"))
+    return IsTrue(t1, stringContainsAll(s, "x"))
+}
+
+func TestDiffContiguousChangesShareOneJump(t T) T {
+    var prev = NewBuffer(8, 1)
+    prev.DrawText(0, 0, "aaaaaaaa", DefaultStyle())
+    var cur = NewBuffer(8, 1)
+    cur.DrawText(0, 0, "aabbbbaa", DefaultStyle())
+    val s = cur.DiffString(prev)
+    // Four contiguous changes at col 3 (1-indexed) — one jump, no second jump
+    // within the run.
+    val t1 = IsTrue(t, stringContainsAll(s, "\x1b[1;3H"))
+    return IsFalse(t1, stringContainsAll(s, "\x1b[1;4H"))
+}
+
+func TestDiffResizeTriggersFullPaint(t T) T {
+    var prev = NewBuffer(3, 1)
+    prev.DrawText(0, 0, "abc", DefaultStyle())
+    var cur = NewBuffer(5, 1)
+    cur.DrawText(0, 0, "abcde", DefaultStyle())
+    val s = cur.DiffString(prev)
+    return IsTrue(t, stringStartsWith(s, "\x1b[H"))
+}
+
+func TestDiffTwoRowsOfChangesEmitTwoJumps(t T) T {
+    var prev = NewBuffer(4, 3)
+    prev.DrawText(0, 0, "aaaa", DefaultStyle())
+    prev.DrawText(0, 1, "bbbb", DefaultStyle())
+    prev.DrawText(0, 2, "cccc", DefaultStyle())
+    var cur = NewBuffer(4, 3)
+    cur.DrawText(0, 0, "aaaa", DefaultStyle())   // unchanged
+    cur.DrawText(0, 1, "bXbb", DefaultStyle())   // change at col 2
+    cur.DrawText(0, 2, "ccYc", DefaultStyle())   // change at col 3
+    val s = cur.DiffString(prev)
+    val t1 = IsTrue(t, stringContainsAll(s, "\x1b[2;2H"))
+    return IsTrue(t1, stringContainsAll(s, "\x1b[3;3H"))
+}
+
+// ----------------------------------------------------------------------------
+// Small string helpers (local — don't leak into the public API).
+// ----------------------------------------------------------------------------
+
+func stringStartsWith(s string, prefix string) bool {
+    val sr = stringToRunes(s)
+    val pr = stringToRunes(prefix)
+    if pr.Length() > sr.Length() { return false }
+    var i = 0
+    for i < pr.Length() {
+        if sr.Get(i) != pr.Get(i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+func stringContainsAll(s string, needle string) bool {
+    val sr = stringToRunes(s)
+    val nr = stringToRunes(needle)
+    val sn = sr.Length()
+    val nn = nr.Length()
+    if nn == 0 { return true }
+    if nn > sn { return false }
+    var i = 0
+    for i <= sn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if sr.Get(i + j) != nr.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func stringToRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

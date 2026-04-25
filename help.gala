@@ -1,0 +1,70 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Auto-generated help screen from keybind declarations.
+//
+// Every non-trivial TUI accrues a keybind cheatsheet: Quit, Confirm, Cycle
+// focus, Move selection, Submit, Toggle pause, … and without vigilance the
+// on-screen help and the actual handler drift apart. `HelpSpec` fixes the
+// problem by being the single source of truth: the app declares an Array
+// of (spec, msg, description) triples, and helpers derive both the runtime
+// KeyBinding[T] array AND the rendered help view from it.
+//
+// Usage:
+//     val helps = ArrayOf[HelpSpec[Msg]](
+//         HelpSpec[Msg](Spec = "q",      Msg = Quit(),  Desc = "Quit"),
+//         HelpSpec[Msg](Spec = "tab",    Msg = Focus(), Desc = "Cycle focus"),
+//         HelpSpec[Msg](Spec = "ctrl+s", Msg = Save(),  Desc = "Save document"),
+//     )
+//     val bindings = HelpsToBindings(helps)          // Array[KeyBinding[Msg]]
+//     val view     = HelpView(helps)                 // Widget for F1 overlay
+// ============================================================================
+
+struct HelpSpec[T any](
+    Spec string,
+    Msg  T,
+    Desc string,
+)
+
+// HelpsToBindings converts help entries into KeyBinding[T] values the
+// runtime can dispatch through DispatchKeyBindings.
+func HelpsToBindings[T any](entries Array[HelpSpec[T]]) Array[KeyBinding[T]] =
+    entries.Map((h) => KeyBind[T](h.Spec, h.Msg))
+
+// HelpView renders the help entries as a two-column table: shortcut on the
+// left (bold), description on the right. The caller wraps this in
+// `BorderOf(..., kind)` or `Modal(...)` for a real popup overlay.
+func HelpView[T any](entries Array[HelpSpec[T]]) Widget {
+    if entries.IsEmpty() {
+        return TextStyled("(no shortcuts)", DefaultStyle().WithDim())
+    }
+    val specWidth = entries.FoldLeft(0, (acc, h) => maxInt(acc, runeCount(h.Spec)))
+    val rows = entries.Map((h) => Fixed(1, helpRow(h, specWidth)))
+    return Column(rows)
+}
+
+// HelpModalView wraps HelpView in a centered modal — pass the terminal's
+// (width × height) so the caller doesn't have to remember to center.
+func HelpModalView[T any](entries Array[HelpSpec[T]], termW int, termH int) Widget {
+    val panelW = minInt(60, termW - 4)
+    val panelH = minInt(entries.Length() + 4, termH - 4)
+    val title = TextStyled(" Keyboard shortcuts ",
+        DefaultStyle().WithBold().WithReverse())
+    val body = Column(ArrayOf[LayoutChild](
+        Fixed(1, title),
+        Fixed(1, Text("")),
+        Flex(1, HelpView(entries)),
+    ))
+    return Modal(panelW, panelH, PaddingHV(0, 1, body))
+}
+
+func helpRow[T any](h HelpSpec[T], specWidth int) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(specWidth + 2, TextStyled(h.Spec,
+            DefaultStyle().WithBold().WithFg(BrightCyan()))),
+        Flex(1, Text(h.Desc)),
+    ))

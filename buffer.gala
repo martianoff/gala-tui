@@ -1,0 +1,281 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/go_interop"
+)
+
+// Cell is the atomic unit of rendering: a single rune painted with a style.
+// Cells are what a Buffer stores; widgets write cells into Buffers; the runtime
+// flushes Buffers to stdout as ANSI-escape output.
+struct Cell(
+    Ch rune,
+    St Style,
+)
+
+// EmptyCell is the "nothing to draw here" cell — space with the default style.
+// Used by NewBuffer to initialize every cell, and by renderers to clear ranges.
+func EmptyCell() Cell = Cell(Ch = ' ', St = DefaultStyle())
+
+// Rect is a rectangular region with absolute (x, y) origin and unsigned width
+// and height. Used as the "drawing area" passed to widgets during layout.
+//
+// A Rect with Width==0 or Height==0 is legitimately zero-sized; widgets MUST
+// handle this without writing out of bounds (see Buffer.Set for the guard).
+struct Rect(
+    X      int,
+    Y      int,
+    Width  int,
+    Height int,
+)
+
+// Zero returns true for empty rectangles (zero area).
+func (r Rect) Zero() bool = r.Width == 0 || r.Height == 0
+
+// Contains reports whether (x, y) falls inside the rectangle.
+func (r Rect) Contains(x int, y int) bool =
+    x >= r.X && x < r.X + r.Width && y >= r.Y && y < r.Y + r.Height
+
+// Buffer is a 2D grid of cells, row-major: cell at (x, y) lives at index
+// y*Width + x. Buffers are mutable — DrawText, Set, Fill modify in place —
+// because a TUI redraw can touch tens of thousands of cells per frame and we
+// cannot afford an allocation per update.
+//
+// The `cells` field is declared `var` so methods with a `*Buffer` receiver can
+// rewrite entries without copying.
+type Buffer struct {
+    Width  int
+    Height int
+    var cells []Cell
+}
+
+// NewBuffer allocates a w×h buffer whose cells are all EmptyCell. Panics on
+// negative dimensions — negative sizes are a programming bug, not runtime
+// input.
+func NewBuffer(w int, h int) *Buffer {
+    if w < 0 || h < 0 {
+        panic("NewBuffer: negative dimensions")
+    }
+    var cs = SliceWithCapacity[Cell](w * h)
+    var i = 0
+    for i < w * h {
+        cs = append(cs, EmptyCell())
+        i = i + 1
+    }
+    return &Buffer{Width: w, Height: h, cells: cs}
+}
+
+// Index returns the flat index of (x, y) in the cell slice, or -1 if out of
+// bounds. Guards every positional access in Get/Set/DrawText.
+func (b *Buffer) Index(x int, y int) int {
+    if x < 0 || x >= b.Width || y < 0 || y >= b.Height {
+        return -1
+    }
+    return y * b.Width + x
+}
+
+// Get returns the cell at (x, y), or EmptyCell if out of bounds. Out-of-bounds
+// reads are silently clamped — widgets read neighbouring cells during border
+// collapsing and should not crash on a one-past-end access.
+func (b *Buffer) Get(x int, y int) Cell {
+    val idx = b.Index(x, y)
+    if idx < 0 {
+        return EmptyCell()
+    }
+    return b.cells[idx]
+}
+
+// CharAt returns the Ch field of the cell at (x, y) as a raw rune. Provided so
+// tests can compare with rune literals without wading through Immutable[rune]
+// wrapping — field access through a value returned by a method auto-wraps and
+// breaks Eq's type unification (see BUG-gala_tui-009).
+func (b *Buffer) CharAt(x int, y int) rune {
+    val idx = b.Index(x, y)
+    if idx < 0 {
+        return ' '
+    }
+    return b.cells[idx].Ch
+}
+
+// StyleAt returns the Style of the cell at (x, y) as a raw (un-wrapped) Style.
+// Same rationale as CharAt.
+func (b *Buffer) StyleAt(x int, y int) Style {
+    val idx = b.Index(x, y)
+    if idx < 0 {
+        return DefaultStyle()
+    }
+    return b.cells[idx].St
+}
+
+// Set writes `c` at (x, y). Out-of-bounds writes are silently dropped — this
+// matches how every production TUI library handles overflow, because widgets
+// are allowed to optimistically draw outside their constraint rectangle and
+// trust the buffer to clip.
+func (b *Buffer) Set(x int, y int, c Cell) {
+    val idx = b.Index(x, y)
+    if idx < 0 {
+        return
+    }
+    b.cells[idx] = c
+}
+
+// Fill paints every cell of a rectangle with `c`. Used by widgets to clear a
+// region before drawing on top (e.g., a Padding widget fills its frame with
+// its background before rendering the child).
+func (b *Buffer) Fill(r Rect, c Cell) {
+    if r.Zero() {
+        return
+    }
+    var y = r.Y
+    val yEnd = r.Y + r.Height
+    for y < yEnd {
+        var x = r.X
+        val xEnd = r.X + r.Width
+        for x < xEnd {
+            b.Set(x, y, c)
+            x = x + 1
+        }
+        y = y + 1
+    }
+}
+
+// DrawText renders a plain string starting at (x, y) with `style`, writing one
+// cell per rune and advancing horizontally. Runes past the right edge of the
+// buffer are silently clipped — the caller is NOT forced to pre-truncate.
+//
+// This is the hot path for every text-bearing widget. It iterates with a plain
+// Go `range` over the string to get proper rune decoding (handles multibyte
+// UTF-8, though terminal double-width characters are deferred to a later pass).
+func (b *Buffer) DrawText(x int, y int, s string, style Style) int {
+    var cx = x
+    for _, r := range s {
+        b.Set(cx, y, Cell(Ch = r, St = style))
+        cx = cx + 1
+    }
+    return cx - x
+}
+
+// Clone returns a deep copy — same dimensions, same cell contents, independent
+// underlying slice. Required by the differential renderer so the previous
+// frame isn't clobbered when the new one is rendered.
+func (b *Buffer) Clone() *Buffer {
+    var cs = SliceWithCapacity[Cell](b.Width * b.Height)
+    for _, c := range b.cells {
+        cs = append(cs, c)
+    }
+    return &Buffer{Width: b.Width, Height: b.Height, cells: cs}
+}
+
+// ContentsEqual is a true cell-by-cell comparison — used mainly in tests and
+// by the differential renderer. Not named `Equal` because GALA auto-generates
+// that method on struct types (would collide here on `type Buffer struct`).
+func (b *Buffer) ContentsEqual(other *Buffer) bool {
+    if b.Width != other.Width || b.Height != other.Height {
+        return false
+    }
+    for i, c := range b.cells {
+        val o = other.cells[i]
+        if c.Ch != o.Ch {
+            return false
+        }
+        if !StyleEqual(c.St, o.St) {
+            return false
+        }
+    }
+    return true
+}
+
+// DiffString produces an ANSI-escape string that, when written to a terminal,
+// updates only the cells of the previous frame that differ in this one. Runs
+// of consecutive changed cells on the same row share a single cursor-position
+// emission to keep the stream compact — typical per-frame updates in a TUI
+// (a spinner tick, a highlighted menu row moving) only touch a few dozen
+// cells, so a diff write is ~100 bytes vs a full-screen repaint of thousands.
+//
+// If `prev` is nil or has different dimensions from this buffer, falls back
+// to a full paint: cursor-home + the complete String() output. That gives
+// the first frame and any post-resize frame a clean slate.
+func (b *Buffer) DiffString(prev *Buffer) string {
+    if prev == nil || prev.Width != b.Width || prev.Height != b.Height {
+        return "\x1b[H" + b.String()
+    }
+    var sb strings.Builder
+    var y = 0
+    for y < b.Height {
+        var x = 0
+        for x < b.Width {
+            val idx = y*b.Width + x
+            val newC = b.cells[idx]
+            val oldC = prev.cells[idx]
+            if newC.Ch != oldC.Ch || !StyleEqual(newC.St, oldC.St) {
+                // Start a run. Jump to this cell (1-indexed row/col) and emit
+                // consecutive changed cells with one SGR transition per style
+                // boundary.
+                val row = y + 1
+                val col = x + 1
+                sb.WriteString(s"\x1b[$row;${col}H")
+                var runStyle = newC.St
+                sb.WriteString(ResetSgr())
+                sb.WriteString(runStyle.ToSgr())
+                sb.WriteRune(newC.Ch)
+                x = x + 1
+                for x < b.Width {
+                    val i2 = y*b.Width + x
+                    val n2 = b.cells[i2]
+                    val o2 = prev.cells[i2]
+                    if n2.Ch == o2.Ch && StyleEqual(n2.St, o2.St) {
+                        break
+                    }
+                    if !StyleEqual(runStyle, n2.St) {
+                        sb.WriteString(ResetSgr())
+                        sb.WriteString(n2.St.ToSgr())
+                        runStyle = n2.St
+                    }
+                    sb.WriteRune(n2.Ch)
+                    x = x + 1
+                }
+                sb.WriteString(ResetSgr())
+                continue
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return sb.String()
+}
+
+// String renders the buffer to a single ANSI-escaped string that, when written
+// to a terminal, draws the buffer starting at the cursor's current position.
+// Rows are separated by "\x1b[0m\n"; within a row, consecutive cells with the
+// same style share a single SGR emission. A trailing reset is always emitted
+// so the terminal is left in a clean state.
+//
+// This is the "full redraw" renderer. The differential renderer (`DiffString`)
+// layers on top — it falls back to String() on the first frame and on resize.
+func (b *Buffer) String() string {
+    var sb strings.Builder
+    var y = 0
+    for y < b.Height {
+        var currentStyle = DefaultStyle()
+        var styleActive = false
+        var x = 0
+        for x < b.Width {
+            val c = b.cells[y*b.Width+x]
+            if !styleActive || !StyleEqual(currentStyle, c.St) {
+                // New style boundary — reset first, then emit the new style.
+                sb.WriteString(ResetSgr())
+                sb.WriteString(c.St.ToSgr())
+                currentStyle = c.St
+                styleActive = true
+            }
+            sb.WriteRune(c.Ch)
+            x = x + 1
+        }
+        sb.WriteString(ResetSgr())
+        if y < b.Height-1 {
+            sb.WriteString("\n")
+        }
+        y = y + 1
+    }
+    return sb.String()
+}

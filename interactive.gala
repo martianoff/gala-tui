@@ -1,0 +1,160 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+)
+
+// This file adds the *interactive* widgets — the ones that model visible
+// state like "which item is selected" or "how far along is this download".
+//
+// Every widget is pure-data. The Model the user defines holds the actual
+// state (Selected: int, Value: string, Progress: int). At view() time the
+// user converts model state into a widget. This is what makes hot reload,
+// time-travel debugging, and snapshot testing trivial: a Widget tree is
+// just a value — identical inputs always yield identical outputs.
+
+// ----------------------------------------------------------------------------
+// Selectable list.
+//
+// Bubble Tea's list.Model is ~400 lines of state-carrying mutation.
+// Ratatui's List is ~350 lines of builder struct. Our list is:
+// a value with items, a selection index, two styles. The renderer handles
+// scrolling automatically based on the viewport height.
+// ----------------------------------------------------------------------------
+
+// ListItem is a single row of a list. Style lets individual rows carry
+// their own color/weight (e.g., a "priority: high" row rendered red).
+struct ListItem(
+    Label string,
+    Style Style,
+)
+
+// NewListItem wraps a plain string as a ListItem with default styling.
+func NewListItem(label string) ListItem =
+    ListItem(Label = label, Style = DefaultStyle())
+
+// ----------------------------------------------------------------------------
+// Progress bar helpers.
+//
+// Shown as `[█████████████░░░░░░░░]  63%` — filled glyph repeats for the
+// integer percentage of the bar's width, the remainder is the empty glyph.
+// Percent is stored as an int in 0..100 so nobody has to think about
+// floating-point rounding when a download finishes at 99.9999%.
+// ----------------------------------------------------------------------------
+
+// renderProgressBar produces a string that looks like `[████░░░░]` for the
+// given filled-percent and width. Width includes the surrounding brackets.
+// Called by ProgressWidget's render path.
+func renderProgressBar(percent int, width int, filled rune, empty rune) string {
+    val p = clampPct(percent)
+    val inner = maxInt(0, width - 2)
+    val fillCells = inner * p / 100
+    var sb strings.Builder
+    sb.WriteRune('[')
+    var i = 0
+    for i < fillCells {
+        sb.WriteRune(filled)
+        i = i + 1
+    }
+    for i < inner {
+        sb.WriteRune(empty)
+        i = i + 1
+    }
+    sb.WriteRune(']')
+    return sb.String()
+}
+
+// ----------------------------------------------------------------------------
+// Spinner glyph cycles.
+//
+// A Spinner is a seam between the runtime (which ticks) and the view (which
+// renders the current frame). Several conventional glyph sets ship:
+//   - Braille (⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)     — smooth, modern
+//   - Dots    (. .. ...)                  — low-fi, works on ASCII terminals
+//   - Pipe    (| / - \)                   — classic
+//   - Arrow   (← ↖ ↑ ↗ → ↘ ↓ ↙)           — compass style
+//
+// The widget stores a frame number; the user increments it on every Tick.
+// Which spinner style is picked is a SpinnerKind sealed variant.
+// ----------------------------------------------------------------------------
+
+sealed type SpinnerKind {
+    case BrailleSpinner()
+    case DotsSpinner()
+    case PipeSpinner()
+    case ArrowSpinner()
+}
+
+// spinnerFrames returns the glyph cycle for a spinner kind — user code
+// picks which to use; the runtime tick drives the frame index.
+func spinnerFrames(kind SpinnerKind) Array[rune] {
+    return kind match {
+        case BrailleSpinner() => ArrayOf[rune]('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        case DotsSpinner()    => ArrayOf[rune]('.', ':', ' ', '.', ':', ' ', '.', ':')
+        case PipeSpinner()    => ArrayOf[rune]('|', '/', '-', '\\')
+        case ArrowSpinner()   => ArrayOf[rune]('←', '↖', '↑', '↗', '→', '↘', '↓', '↙')
+    }
+}
+
+// SpinnerGlyph returns the glyph at `frame` (wraps around the cycle).
+func SpinnerGlyph(kind SpinnerKind, frame int) rune {
+    val frames = spinnerFrames(kind)
+    val n = frames.Length()
+    if n == 0 {
+        return ' '
+    }
+    val raw = frame % n
+    val idx = if (raw < 0) raw + n else raw
+    return frames.Get(idx)
+}
+
+// ----------------------------------------------------------------------------
+// Gauge — like a progress bar, but renders with a half-block character at
+// the boundary for sub-cell fill resolution. Matches Ratatui's Gauge and
+// Bubble Tea's progress.Model when called with `ProgressOption.WithGradient`.
+// ----------------------------------------------------------------------------
+
+// renderGauge returns a width-wide bar where the last partial cell uses a
+// sub-cell Unicode block — much smoother than the integer-only progress bar
+// when the terminal is narrow.
+func renderGauge(percent int, width int) string {
+    val p = clampPct(percent)
+    if width <= 0 {
+        return ""
+    }
+    // Pre-condition: width is the total bar width in cells.
+    val totalEighths = width * 8 * p / 100
+    val fullCells = totalEighths / 8
+    val remainder = totalEighths - fullCells * 8
+    var sb strings.Builder
+    var i = 0
+    for i < fullCells {
+        sb.WriteRune('█')
+        i = i + 1
+    }
+    if fullCells < width {
+        sb.WriteRune(gaugeEighthRune(remainder))
+        i = i + 1
+    }
+    for i < width {
+        sb.WriteRune(' ')
+        i = i + 1
+    }
+    return sb.String()
+}
+
+// gaugeEighthRune maps an eighths-of-cell fill count (0..7) to its Unicode
+// partial-block glyph. Matches U+2588..U+258F in fractional order.
+func gaugeEighthRune(eighths int) rune {
+    if eighths <= 0 { return ' ' }
+    if eighths == 1 { return '▏' }
+    if eighths == 2 { return '▎' }
+    if eighths == 3 { return '▍' }
+    if eighths == 4 { return '▌' }
+    if eighths == 5 { return '▋' }
+    if eighths == 6 { return '▋' }
+    if eighths == 7 { return '▊' }
+    return '█'
+}
+

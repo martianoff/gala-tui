@@ -1,0 +1,91 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+func TestScreenStackStartsAtRoot(t T) T {
+    val s = NewScreenStack("home")
+    val t1 = Eq(t, s.Current(), "home")
+    return Eq(t1, s.Depth(), 1)
+}
+
+func TestScreenStackPushAdvances(t T) T {
+    val s = NewScreenStack("home").Push("settings")
+    val t1 = Eq(t, s.Current(), "settings")
+    return Eq(t1, s.Depth(), 2)
+}
+
+func TestScreenStackPopPeels(t T) T {
+    val s = NewScreenStack("home").Push("settings").Pop()
+    return Eq(t, s.Current(), "home")
+}
+
+func TestScreenStackPopAtRootStays(t T) T {
+    val s = NewScreenStack("home").Pop()
+    return Eq(t, s.Depth(), 1)
+}
+
+func TestScreenStackReplaceKeepsDepth(t T) T {
+    val s = NewScreenStack("home").Push("settings").Replace("profile")
+    val t1 = Eq(t, s.Current(), "profile")
+    return Eq(t1, s.Depth(), 2)
+}
+
+func TestScreenStackResetFlattens(t T) T {
+    val s = NewScreenStack("home").Push("a").Push("b").Push("c").Reset("home")
+    val t1 = Eq(t, s.Depth(), 1)
+    return Eq(t1, s.Current(), "home")
+}
+
+func TestScreenStackCanGoBack(t T) T {
+    val s0 = NewScreenStack("home")
+    val s1 = s0.Push("detail")
+    val t1 = IsFalse(t, s0.CanGoBack())
+    return IsTrue(t1, s1.CanGoBack())
+}
+
+func TestScreenStackPreviousMatchesPrior(t T) T {
+    val s = NewScreenStack("home").Push("list").Push("item")
+    val prev = s.Previous()
+    val t1 = IsTrue(t, prev.IsDefined())
+    return Eq(t1, prev.Get(), "list")
+}
+
+func TestScreenStackPreviousAtRootIsNone(t T) T {
+    val s = NewScreenStack("home")
+    return IsFalse(t, s.Previous().IsDefined())
+}
+
+func TestScreenStackContainsScansStack(t T) T {
+    val s = NewScreenStack("home").Push("settings").Push("profile")
+    val t1 = IsTrue(t, s.Contains("home"))
+    val t2 = IsTrue(t1, s.Contains("profile"))
+    return IsFalse(t2, s.Contains("logs"))
+}
+
+func TestScreenStackBreadcrumbIsDotSeparated(t T) T {
+    val s = NewScreenStack("home").Push("settings").Push("profile")
+    return Eq(t, s.Breadcrumb(), "home › settings › profile")
+}
+
+func TestScreenStackImmutabilityPushDoesntMutate(t T) T {
+    val s0 = NewScreenStack("home")
+    val _  = s0.Push("detail")          // returned value ignored
+    // Original still has depth 1.
+    return Eq(t, s0.Depth(), 1)
+}
+
+// Typical app flow smoke test: open settings, drill into profile, back twice.
+func TestScreenStackTypicalNavigationFlow(t T) T {
+    var s = NewScreenStack("home")
+    s = s.Push("settings")
+    s = s.Push("profile")
+    val atProfile = Eq(t, s.Current(), "profile")
+    s = s.Pop()
+    val afterBack1 = Eq(atProfile, s.Current(), "settings")
+    s = s.Pop()
+    val afterBack2 = Eq(afterBack1, s.Current(), "home")
+    s = s.Pop()                          // no-op at root
+    return Eq(afterBack2, s.Current(), "home")
+}

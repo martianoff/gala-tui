@@ -1,0 +1,320 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Command palette — fuzzy-searchable action launcher.
+//
+// Cmd+Shift+P / Ctrl-P style action launcher: the user presses a shortcut,
+// a popup with a query field appears, they type partial text, a ranked list
+// of matching actions updates in real time, they press Enter to execute.
+// Modelled after VS Code's command palette, which is arguably one of the
+// most-loved keyboard-first UX patterns in modern software.
+//
+// Everything below is pure data + pure functions:
+//
+//   - PaletteAction         — one actionable entry (label + category + msg)
+//   - Palette               — (query, actions, filteredIdx, selected)
+//   - PaletteEvent          — input signals (char / backspace / next / prev /
+//                              confirm / cancel)
+//   - PaletteUpdate         — reducer
+//   - PaletteView           — rendered Widget
+//   - FuzzyScore            — subsequence matcher with weighting
+//
+// The ranking algorithm is the classic VS Code / Sublime Text "fuzzy
+// subsequence match": the query's characters must appear in order in the
+// candidate, with bonus points for consecutive matches and matches at
+// word boundaries. Score 0 means no match; higher is better.
+// ============================================================================
+
+struct PaletteAction[T any](
+    Label    string,
+    Category string,                 // optional group label (e.g., "File", "Edit")
+    Msg      T,
+)
+
+struct Palette[T any](
+    Actions     Array[PaletteAction[T]],
+    Query       string,
+    FilteredIdx Array[int],          // indexes into Actions, ranked best-first
+    Selected    int,                 // cursor within FilteredIdx
+)
+
+// NewPalette seeds a palette with all actions shown (no query).
+func NewPalette[T any](actions Array[PaletteAction[T]]) Palette[T] {
+    val all = rangeIndexes(actions.Length())
+    return Palette[T](Actions = actions, Query = "", FilteredIdx = all, Selected = 0)
+}
+
+// rangeIndexes builds [0, 1, 2, ..., n-1].
+func rangeIndexes(n int) Array[int] {
+    var acc = EmptyArray[int]()
+    var i = 0
+    for i < n {
+        acc = acc.Append(i)
+        i = i + 1
+    }
+    return acc
+}
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type PaletteEvent {
+    case PalChar(C rune)
+    case PalBackspace()
+    case PalNext()
+    case PalPrev()
+    case PalConfirm()                // consumer reads Palette.Current to act
+    case PalCancel()
+    case PalNoOp()
+}
+
+// PaletteUpdate processes an event, returning a new Palette. Pure.
+//
+// We rebuild the Palette value directly rather than use `.Copy` because the
+// transpiler currently emits "Copy overrides only supported for struct types"
+// on generic struct types — a small quirk that affects any parametric struct.
+func PaletteUpdate[T any](p Palette[T], ev PaletteEvent) Palette[T] {
+    return ev match {
+        case PalChar(c)     => palRefilter(palWithQuery(p, p.Query + string(c)))
+        case PalBackspace() => palRefilter(palWithQuery(p, palDropLast(p.Query)))
+        case PalNext()      => palWithSelected(p, palWrap(p.Selected + 1, p.FilteredIdx.Length()))
+        case PalPrev()      => palWithSelected(p, palWrap(p.Selected - 1, p.FilteredIdx.Length()))
+        case PalConfirm()   => p
+        case PalCancel()    => p
+        case PalNoOp()      => p
+    }
+}
+
+func palWithQuery[T any](p Palette[T], q string) Palette[T] =
+    Palette[T](Actions = p.Actions, Query = q, FilteredIdx = p.FilteredIdx, Selected = p.Selected)
+
+func palWithSelected[T any](p Palette[T], sel int) Palette[T] =
+    Palette[T](Actions = p.Actions, Query = p.Query, FilteredIdx = p.FilteredIdx, Selected = sel)
+
+func palWithFilter[T any](p Palette[T], filtered Array[int]) Palette[T] =
+    Palette[T](Actions = p.Actions, Query = p.Query, FilteredIdx = filtered, Selected = 0)
+
+// palRefilter re-ranks candidates against the current query and resets the
+// selection cursor to the top (best match).
+func palRefilter[T any](p Palette[T]) Palette[T] {
+    val q = strings.ToLower(p.Query)
+    if q == "" {
+        return palWithFilter(p, rangeIndexes(p.Actions.Length()))
+    }
+    var scored = EmptyArray[palScored]()
+    var i = 0
+    val n = p.Actions.Length()
+    for i < n {
+        val a = p.Actions.Get(i)
+        val s = FuzzyScore(q, strings.ToLower(a.Label))
+        if s > 0 {
+            scored = scored.Append(palScored(Idx = i, Score = s))
+        }
+        i = i + 1
+    }
+    val sorted = palSortByScoreDesc(scored)
+    return palWithFilter(p, sorted.Map((sc) => sc.Idx))
+}
+
+struct palScored(
+    Idx   int,
+    Score int,
+)
+
+// palSortByScoreDesc does an insertion sort — palettes are typically <100
+// items so the simple quadratic sort is fine and keeps code readable.
+func palSortByScoreDesc(xs Array[palScored]) Array[palScored] {
+    var out = EmptyArray[palScored]()
+    var i = 0
+    val n = xs.Length()
+    for i < n {
+        val x = xs.Get(i)
+        out = palInsertSorted(out, x)
+        i = i + 1
+    }
+    return out
+}
+
+func palInsertSorted(sorted Array[palScored], x palScored) Array[palScored] {
+    var out = EmptyArray[palScored]()
+    var inserted = false
+    var i = 0
+    val n = sorted.Length()
+    for i < n {
+        val cur = sorted.Get(i)
+        if !inserted && x.Score > cur.Score {
+            out = out.Append(x)
+            inserted = true
+        }
+        out = out.Append(cur)
+        i = i + 1
+    }
+    if !inserted {
+        out = out.Append(x)
+    }
+    return out
+}
+
+func palDropLast(s string) string {
+    val total = runeCount(s)
+    if total == 0 { return s }
+    var kept = ""
+    var seen = 0
+    for _, c := range s {
+        if seen < total - 1 {
+            kept = kept + string(c)
+        }
+        seen = seen + 1
+    }
+    return kept
+}
+
+func palWrap(idx int, length int) int {
+    if length == 0 { return 0 }
+    if idx < 0 { return length - 1 }
+    if idx >= length { return 0 }
+    return idx
+}
+
+// Current returns the currently-selected action, or None if no results.
+func (p Palette[T]) Current() Option[PaletteAction[T]] {
+    if p.FilteredIdx.IsEmpty() { return None[PaletteAction[T]]() }
+    val idx = p.FilteredIdx.Get(p.Selected)
+    return Some[PaletteAction[T]](p.Actions.Get(idx))
+}
+
+// FilteredActions returns the ranked list, best first — useful for custom
+// renderers.
+func (p Palette[T]) FilteredActions() Array[PaletteAction[T]] =
+    p.FilteredIdx.Map((i) => p.Actions.Get(i))
+
+// ----------------------------------------------------------------------------
+// FuzzyScore — subsequence match with scoring.
+//
+// Returns 0 if `query` is not a subsequence of `candidate` (case-insensitive —
+// callers should pre-lowercase both). Otherwise the score combines:
+//   - +1 per query rune matched
+//   - +2 bonus per consecutive pair of matches
+//   - +3 bonus per match immediately after a word boundary
+//     (space, '-', '_', '/', '.', start of string)
+//   - No gap penalty — we're biased toward "finds it even if you're sloppy"
+//
+// Total is a small int (tens to low hundreds for real queries), easy to sort.
+// ----------------------------------------------------------------------------
+
+func FuzzyScore(query string, candidate string) int {
+    val qRunes = strRunes(query)
+    val cRunes = strRunes(candidate)
+    val qn = qRunes.Length()
+    val cn = cRunes.Length()
+    if qn == 0 { return 1 }                   // empty query matches everything with low score
+    if qn > cn { return 0 }
+    var score = 0
+    var qi = 0
+    var ci = 0
+    var prevMatched = false
+    for qi < qn && ci < cn {
+        val qc = qRunes.Get(qi)
+        val cc = cRunes.Get(ci)
+        if qc == cc {
+            score = score + 1
+            if prevMatched {
+                score = score + 2            // consecutive bonus
+            }
+            if palIsWordBoundary(cRunes, ci) {
+                score = score + 3            // word-start bonus
+            }
+            qi = qi + 1
+            prevMatched = true
+        } else {
+            prevMatched = false
+        }
+        ci = ci + 1
+    }
+    if qi < qn { return 0 }                   // query not fully consumed → no match
+    return score
+}
+
+func palIsWordBoundary(runes Array[rune], i int) bool {
+    if i == 0 { return true }
+    val prev = runes.Get(i - 1)
+    return prev == ' ' || prev == '-' || prev == '_' ||
+           prev == '/' || prev == '.'
+}
+
+func strRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// PaletteView renders the palette as a bordered column: query input on top,
+// horizontal rule, ranked results below (max 8 shown). Designed to live
+// inside a Modal for a popup experience.
+func PaletteView[T any](p Palette[T]) Widget =
+    PaletteViewAtHeight[T](p, 8)
+
+// PaletteViewAtHeight lets callers fix the result-list height.
+func PaletteViewAtHeight[T any](p Palette[T], maxRows int) Widget {
+    val header = Row(ArrayOf[LayoutChild](
+        Fixed(3, TextStyled(" > ", DefaultStyle().WithBold().WithFg(BrightYellow()))),
+        Flex(1, InputW(
+            Value            = p.Query,
+            Cursor           = runeCount(p.Query),
+            Placeholder      = "Type a command…",
+            Style            = DefaultStyle(),
+            PlaceholderStyle = DefaultStyle().WithDim(),
+        )),
+    ))
+    val separator = FillCh('─')
+    val results = paletteResultsWidget[T](p, maxRows)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, separator),
+        Flex(1, results),
+    ))
+}
+
+func paletteResultsWidget[T any](p Palette[T], maxRows int) Widget {
+    val actions = p.FilteredActions()
+    if actions.IsEmpty() {
+        return TextStyled("  (no matches)", DefaultStyle().WithDim())
+    }
+    var rows = EmptyArray[LayoutChild]()
+    val shownCount = minInt(actions.Length(), maxRows)
+    var i = 0
+    for i < shownCount {
+        val a = actions.Get(i)
+        val selected = i == p.Selected
+        rows = rows.Append(Fixed(1, paletteRowWidget(a, selected)))
+        i = i + 1
+    }
+    return Column(rows)
+}
+
+func paletteRowWidget[T any](a PaletteAction[T], selected bool) Widget {
+    val base = if (selected) DefaultStyle().WithReverse().WithBold()
+               else DefaultStyle()
+    val catStyle = if (selected) base else DefaultStyle().WithDim()
+    if a.Category == "" {
+        return TextStyled(" " + a.Label, base)
+    }
+    return Row(ArrayOf[LayoutChild](
+        Flex(1, TextStyled(" " + a.Label, base)),
+        Fixed(runeCount(a.Category) + 2,
+              TextStyled(" " + a.Category + " ", catStyle)),
+    ))
+}

@@ -1,0 +1,129 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+)
+
+// Constraint is the language Row / Column widgets use to sub-allocate their
+// area among children. Four rules cover every common TUI layout pattern:
+//
+//   - Length(n):   exactly n cells — the workhorse for fixed-size bars,
+//                  footers, padding columns.
+//   - Percent(p):  p% of the parent area — useful for side-panels that
+//                  resize with the terminal.
+//   - Fill(w):     take a share of the leftover space, proportional to w.
+//                  `Fill(1)` is the default "greedy" behavior; weights let
+//                  two Fills split 2:1 by writing Fill(2) and Fill(1).
+//   - MinLen(n):   *at least* n cells of the leftover space. Used to stop
+//                  a Fill from collapsing a panel below a useful minimum.
+sealed type Constraint {
+    case Length(N int)
+    case Percent(N int)
+    case Fill(Weight int)
+    case MinLen(N int)
+}
+
+// Solve returns the allocated size (in cells) for each constraint given a
+// parent total. Guarantees the sum of returned sizes ≤ total, and exactly
+// equals total whenever at least one Fill or the sum of non-Fill constraints
+// fills the space — so a renderer can lay children out edge-to-edge with no
+// gap.
+//
+// The algorithm is intentionally simple and deterministic: compute fixed +
+// percent + minlen in one pass, distribute leftover space to Fill weights,
+// then clip any overflow from the tail.
+//
+// Internal scratch is a Go slice for O(1) indexed mutation across three
+// passes; returns an immutable `Array[int]` so callers can `.Map`, `.FoldLeft`
+// etc. over the widths without converting.
+func Solve(total int, cs Array[Constraint]) Array[int] {
+    val n = cs.Length()
+    var sizes = SliceWithSize[int](n)
+    if n == 0 || total <= 0 {
+        return ArrayFromSlice(sizes)
+    }
+
+    // Pass 1: assign fixed sizes (Length / Percent / MinLen) and total fill
+    // weight so we know how much room is left.
+    var fixedTotal = 0
+    var totalWeight = 0
+    var i = 0
+    for i < n {
+        val c = cs.Get(i)
+        c match {
+            case Length(v) => {
+                val s = maxInt(0, v)
+                sizes[i] = s
+                fixedTotal = fixedTotal + s
+                true
+            }
+            case Percent(p) => {
+                val clamped = clampPct(p)
+                val s = total * clamped / 100
+                sizes[i] = s
+                fixedTotal = fixedTotal + s
+                true
+            }
+            case MinLen(v) => {
+                val s = maxInt(0, v)
+                sizes[i] = s
+                fixedTotal = fixedTotal + s
+                true
+            }
+            case Fill(w) => {
+                totalWeight = totalWeight + maxInt(0, w)
+                true
+            }
+        }
+        i = i + 1
+    }
+
+    // Pass 2: distribute leftover cells to Fill constraints, weighted.
+    val remaining = maxInt(0, total - fixedTotal)
+    if totalWeight > 0 {
+        var distributed = 0
+        var lastFill = -1
+        var j = 0
+        for j < n {
+            val c = cs.Get(j)
+            c match {
+                case Fill(w) => {
+                    val share = remaining * maxInt(0, w) / totalWeight
+                    sizes[j] = share
+                    distributed = distributed + share
+                    lastFill = j
+                    true
+                }
+                case _ => true
+            }
+            j = j + 1
+        }
+        // Give the remainder to the last Fill.
+        if lastFill >= 0 && distributed < remaining {
+            sizes[lastFill] = sizes[lastFill] + (remaining - distributed)
+        }
+    }
+
+    // Pass 3: clamp tail — if fixed sizes already overflow the parent, chop
+    // off children that don't fit rather than rendering past the edge.
+    var used = 0
+    var k = 0
+    for k < n {
+        val s = sizes[k]
+        if used + s > total {
+            sizes[k] = maxInt(0, total - used)
+        }
+        used = used + sizes[k]
+        k = k + 1
+    }
+
+    return ArrayFromSlice(sizes)
+}
+
+// clampPct keeps percentage inputs in the [0..100] range.
+func clampPct(p int) int {
+    if p < 0   { return 0 }
+    if p > 100 { return 100 }
+    return p
+}

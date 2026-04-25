@@ -1,0 +1,129 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Core event-loop tests — prove the Elm-style update cycle works end-to-end
+// through a pure test harness (no terminal, no IO).
+//
+// These exercise the public surface of the `tui` package from outside it,
+// which doubles as a smoke test that the library's API is actually importable
+// and usable from `package main`.
+// ============================================================================
+
+sealed type CM {
+    case Inc()
+    case Dec()
+    case Rst()
+    case Qt()
+}
+
+struct CModel(Count int)
+
+func upd(m CModel, msg CM) Tuple[CModel, Cmd[CM]] {
+    return msg match {
+        case Inc() => (m.Copy(Count = m.Count + 1), NoCmd[CM]())
+        case Dec() => (m.Copy(Count = m.Count - 1), NoCmd[CM]())
+        case Rst() => (m.Copy(Count = 0), NoCmd[CM]())
+        case Qt()  => (m, QuitCmd[CM]())
+    }
+}
+
+func vw(m CModel) Widget = Text(s"Count: ${m.Count}")
+
+func prog() Program[CModel, CM] = Program[CModel, CM](
+    Initial = CModel(Count = 0),
+    Update  = upd,
+    View    = vw,
+)
+
+func TestStepAllCounter(t T) T {
+    val (final, cmds) = StepAll(prog(), ArrayOf[CM](Inc(), Inc(), Inc()))
+    val t1 = Eq(t, final.Count, 3)
+    return Eq(t1, cmds.Length(), 3)
+}
+
+func TestStepAllMixed(t T) T {
+    val (final, _) = StepAll(prog(), ArrayOf[CM](Inc(), Inc(), Dec(), Rst(), Inc()))
+    return Eq(t, final.Count, 1)
+}
+
+func TestStepAllQuitStopsDispatch(t T) T {
+    val (final, cmds) = StepAll(prog(), ArrayOf[CM](Inc(), Qt(), Inc()))
+    val t1 = Eq(t, final.Count, 1)
+    return Eq(t1, cmds.Length(), 2)
+}
+
+func TestMsgCmdSynchronousRedispatch(t T) T {
+    val update = (m CModel, msg CM) => msg match {
+        case Inc() =>
+            if (m.Count == 0) {
+                (m.Copy(Count = 1), MsgCmd[CM](Inc()))
+            } else {
+                (m.Copy(Count = m.Count + 1), NoCmd[CM]())
+            }
+        case _ => (m, NoCmd[CM]())
+    }
+    val p = Program[CModel, CM](
+        Initial = CModel(Count = 0),
+        Update  = update,
+        View    = vw,
+    )
+    val (final, _) = StepAll(p, ArrayOf[CM](Inc()))
+    return Eq(t, final.Count, 2)
+}
+
+func TestBatchCmdFansOutMessages(t T) T {
+    val update = (m CModel, msg CM) => msg match {
+        case Rst() =>
+            (m, BatchCmd[CM](ArrayOf[Cmd[CM]](
+                MsgCmd[CM](Inc()),
+                MsgCmd[CM](Inc()),
+                MsgCmd[CM](Inc()),
+            )))
+        case Inc() =>
+            (m.Copy(Count = m.Count + 1), NoCmd[CM]())
+        case _ => (m, NoCmd[CM]())
+    }
+    val p = Program[CModel, CM](
+        Initial = CModel(Count = 0),
+        Update  = update,
+        View    = vw,
+    )
+    val (final, _) = StepAll(p, ArrayOf[CM](Rst()))
+    return Eq(t, final.Count, 3)
+}
+
+func TestIsQuitRecurses(t T) T {
+    val deep = BatchCmd[CM](ArrayOf[Cmd[CM]](
+        NoCmd[CM](),
+        BatchCmd[CM](ArrayOf[Cmd[CM]](
+            NoCmd[CM](),
+            QuitCmd[CM](),
+        )),
+    ))
+    return IsTrue(t, IsQuit(deep))
+}
+
+func TestPendingMsgsFromBatch(t T) T {
+    val batch = BatchCmd[CM](ArrayOf[Cmd[CM]](
+        MsgCmd[CM](Inc()),
+        NoCmd[CM](),
+        MsgCmd[CM](Dec()),
+    ))
+    val msgs = PendingMsgs(batch)
+    return Eq(t, msgs.Length(), 2)
+}
+
+func TestViewRendersModel(t T) T {
+    val m = CModel(Count = 42)
+    val out = Render(vw(m))
+    // Render() yields an ANSI-decorated string — the raw text must appear
+    // somewhere inside it. We don't assert the exact SGR envelope here;
+    // dedicated rendering tests live in render_test.gala and widget_test.gala.
+    return IsTrue(t, strings.Contains(out, "Count: 42"))
+}

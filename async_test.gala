@@ -1,0 +1,226 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/concurrent"
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// Tests for async Cmd (FutureCmd) and TickSub subscriptions.
+//
+// These exercise the library's async primitives end-to-end without ever
+// touching the terminal runtime:
+//     - PendingFutures extracts Future[T]s from a Cmd tree
+//     - PollFutures drains completed ones non-blockingly
+//     - CollectTickers walks a Sub tree, DispatchDueTicks fires each
+//       ticker whose clock has run past its next-due instant
+// ============================================================================
+
+sealed type AMsg {
+    case AData(Val int)
+    case ATick()
+    case ATickV(Val int)
+    case AWrap(Inner AMsg)
+}
+
+// ----------------------------------------------------------------------------
+// FutureCmd extraction
+// ----------------------------------------------------------------------------
+
+func TestPendingFuturesOnBareCmd(t T) T {
+    val cmd = NoCmd[AMsg]()
+    return Eq(t, PendingFutures(cmd).Length(), 0)
+}
+
+func TestPendingFuturesFromFutureCmd(t T) T {
+    val fut = FutureOf[AMsg](AData(Val = 42))
+    val cmd = FutureCmd[AMsg](Fut = fut)
+    return Eq(t, PendingFutures(cmd).Length(), 1)
+}
+
+func TestPendingFuturesFromBatch(t T) T {
+    val f1 = FutureOf[AMsg](AData(Val = 1))
+    val f2 = FutureOf[AMsg](AData(Val = 2))
+    val cmd = BatchCmd[AMsg](ArrayOf[Cmd[AMsg]](
+        FutureCmd[AMsg](Fut = f1),
+        MsgCmd[AMsg](Msg = AData(Val = 0)),
+        FutureCmd[AMsg](Fut = f2),
+    ))
+    return Eq(t, PendingFutures(cmd).Length(), 2)
+}
+
+// ----------------------------------------------------------------------------
+// PollFutures
+// ----------------------------------------------------------------------------
+
+func TestPollAlreadyCompletedFuture(t T) T {
+    val fut = FutureOf[AMsg](AData(Val = 7))
+    val (done, still) = PollFutures(ArrayOf[Future[AMsg]](fut))
+    val t1 = Eq(t, done.Length(), 1)
+    return Eq(t1, still.Length(), 0)
+}
+
+func TestPollDelaysUncompletedFuture(t T) T {
+    // A promise whose future never completes synchronously.
+    val p = NewPromise[AMsg]()
+    val (done, still) = PollFutures(ArrayOf[Future[AMsg]](p.Future()))
+    val t1 = Eq(t, done.Length(), 0)
+    return Eq(t1, still.Length(), 1)
+}
+
+func TestPollMixOfReadyAndPending(t T) T {
+    val ready = FutureOf[AMsg](AData(Val = 1))
+    val pending = NewPromise[AMsg]().Future()
+    val (done, still) = PollFutures(ArrayOf[Future[AMsg]](ready, pending))
+    val t1 = Eq(t, done.Length(), 1)
+    return Eq(t1, still.Length(), 1)
+}
+
+func TestPollDelayedThenCompleted(t T) T {
+    val p = NewPromise[AMsg]()
+    // First poll: future not yet completed.
+    val (done1, still1) = PollFutures(ArrayOf[Future[AMsg]](p.Future()))
+    val t1 = Eq(t, done1.Length(), 0)
+    // Complete the promise.
+    val _ = p.Success(AData(Val = 99))
+    // Second poll on the *still-pending* list should drain it.
+    val (done2, still2) = PollFutures(still1)
+    val t2 = Eq(t1, done2.Length(), 1)
+    return Eq(t2, still2.Length(), 0)
+}
+
+func TestPollDropsFailures(t T) T {
+    val fut = FutureFailed[AMsg](FutureError(Message = "boom"))
+    val (done, still) = PollFutures(ArrayOf[Future[AMsg]](fut))
+    val t1 = Eq(t, done.Length(), 0)
+    return Eq(t1, still.Length(), 0)
+}
+
+// ----------------------------------------------------------------------------
+// TickSub + scheduler
+// ----------------------------------------------------------------------------
+
+func TestCollectTickersFromPlainSub(t T) T {
+    val start = Now()
+    val sub = OnKey[AMsg]((ev) => AData(Val = 0))
+    return Eq(t, CollectTickers(sub, start).Length(), 0)
+}
+
+func TestCollectTickersFromTickSub(t T) T {
+    val start = Now()
+    val sub = TickSub[AMsg](Interval = Milliseconds(100), Make = () => ATick())
+    return Eq(t, CollectTickers(sub, start).Length(), 1)
+}
+
+func TestCollectTickersFromBatch(t T) T {
+    val start = Now()
+    val sub = BatchSubs[AMsg](ArrayOf[Sub[AMsg]](
+        TickSub[AMsg](Interval = Milliseconds(50),  Make = () => ATick()),
+        OnKey[AMsg]((ev) => AData(Val = 0)),
+        TickSub[AMsg](Interval = Milliseconds(200), Make = () => ATick()),
+    ))
+    return Eq(t, CollectTickers(sub, start).Length(), 2)
+}
+
+func TestCollectTickersFromMapSub(t T) T {
+    val start = Now()
+    val inner = TickSub[AMsg](Interval = Milliseconds(100), Make = () => ATick())
+    val wrapped = MapSubs[AMsg](inner, (m) => AWrap(Inner = m))
+    val tickers = CollectTickers(wrapped, start)
+    val t1 = Eq(t, tickers.Length(), 1)
+    val msg = tickers.Get(0).Make()
+    val isWrapped = msg match {
+        case AWrap(_) => true
+        case _        => false
+    }
+    return IsTrue(t1, isWrapped)
+}
+
+func TestDispatchDueTicksFiresOverdue(t T) T {
+    val start = FromUnixNanos(int64(0))
+    val iv = Milliseconds(100)
+    // Seed one ticker with start+iv. Advance `now` one full interval past
+    // that — it should fire exactly once.
+    val states = ArrayOf[TickerState[AMsg]](TickerState[AMsg](
+        Interval = iv,
+        Make     = () => ATick(),
+        NextDue  = start.Plus(iv),
+    ))
+    val now = start.Plus(iv).Plus(Milliseconds(1))
+    val (msgs, _) = DispatchDueTicks(states, now)
+    return Eq(t, msgs.Length(), 1)
+}
+
+func TestDispatchDueTicksAdvancesDueTime(t T) T {
+    val start = FromUnixNanos(int64(0))
+    val iv = Milliseconds(100)
+    val states = ArrayOf[TickerState[AMsg]](TickerState[AMsg](
+        Interval = iv,
+        Make     = () => ATick(),
+        NextDue  = start.Plus(iv),
+    ))
+    val now = start.Plus(iv).Plus(Milliseconds(1))
+    val (_, next) = DispatchDueTicks(states, now)
+    val t1 = Eq(t, next.Length(), 1)
+    val newDue = next.Get(0).NextDue
+    // NextDue should have advanced exactly one interval from the original.
+    val expected = start.Plus(iv).Plus(iv)
+    return IsTrue(t1, instantsEqual(newDue, expected))
+}
+
+func TestDispatchDueTicksDoesNotFireEarly(t T) T {
+    val start = FromUnixNanos(int64(0))
+    val iv = Milliseconds(100)
+    val states = ArrayOf[TickerState[AMsg]](TickerState[AMsg](
+        Interval = iv,
+        Make     = () => ATick(),
+        NextDue  = start.Plus(iv),
+    ))
+    // `now` is BEFORE NextDue — the ticker should NOT fire.
+    val now = start.Plus(Milliseconds(50))
+    val (msgs, next) = DispatchDueTicks(states, now)
+    val t1 = Eq(t, msgs.Length(), 0)
+    // Ticker stays in the state array with unchanged NextDue.
+    return Eq(t1, next.Length(), 1)
+}
+
+func TestDispatchDueTicksFiresMultipleOverdue(t T) T {
+    val start = FromUnixNanos(int64(0))
+    val iv = Milliseconds(100)
+    val states = ArrayOf[TickerState[AMsg]](
+        TickerState[AMsg](Interval = iv, Make = () => ATickV(Val = 1), NextDue = start.Plus(iv)),
+        TickerState[AMsg](Interval = iv, Make = () => ATickV(Val = 2), NextDue = start.Plus(iv)),
+        TickerState[AMsg](Interval = iv, Make = () => ATickV(Val = 3), NextDue = start.Plus(Milliseconds(1000))),
+    )
+    val now = start.Plus(Milliseconds(200))
+    val (msgs, _) = DispatchDueTicks(states, now)
+    return Eq(t, msgs.Length(), 2)   // two fire; the 1-second one doesn't
+}
+
+// instantsEqual compares two Instants — GALA's time_utils exports Equals on
+// Duration but not Instant, and Go forbids extension methods on types defined
+// outside the package, so we use a helper instead.
+func instantsEqual(a Instant, b Instant) bool = a.Since(b).ToNanos() == int64(0)
+
+// ----------------------------------------------------------------------------
+// Combined: FutureCmd integrated with StepAll-style dispatch
+// ----------------------------------------------------------------------------
+
+func TestFutureCmdWithAlreadyResolvedFutureProducesMsgOnNextPoll(t T) T {
+    // Build a Cmd that contains an already-resolved Future. PollFutures
+    // should deliver the value on the first poll.
+    val fut = FutureOf[AMsg](AData(Val = 77))
+    val cmd = FutureCmd[AMsg](Fut = fut)
+    val pending = PendingFutures(cmd)
+    val t1 = Eq(t, pending.Length(), 1)
+    val (done, _) = PollFutures(pending)
+    val t2 = Eq(t1, done.Length(), 1)
+    val firstIsExpected = done.Get(0) match {
+        case AData(v) => v == 77
+        case _        => false
+    }
+    return IsTrue(t2, firstIsExpected)
+}

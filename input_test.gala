@@ -1,0 +1,129 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// ParseKey — byte-for-byte tests of every supported key sequence.
+// Byte values use hex literals for readability (ANSI escape codes are canonically
+// documented in hex — e.g., `0x1B 0x5B 0x41` for "ESC [ A" = Up).
+// ============================================================================
+
+func TestParseSingleChar(t T) T {
+    val (ev, n) = ParseKey(SliceOf[byte](0x61))   // 'a'
+    val t1 = Eq(t, n, 1)
+    val t2 = IsTrue(t1, KeyEqual(ev.Key, Char('a')))
+    return IsFalse(t2, ev.Ctrl)
+}
+
+func TestParseEnter(t T) T {
+    val (ev, n) = ParseKey(SliceOf[byte](0x0D))   // CR
+    val t1 = Eq(t, n, 1)
+    return IsTrue(t1, KeyEqual(ev.Key, Enter()))
+}
+
+func TestParseTabSpaceBackspace(t T) T {
+    val (tab, _)  = ParseKey(SliceOf[byte](0x09))   // Tab
+    val (sp, _)   = ParseKey(SliceOf[byte](0x20))   // Space
+    val (bs, _)   = ParseKey(SliceOf[byte](0x7F))   // DEL
+    val t1 = IsTrue(t,  KeyEqual(tab.Key, Tab()))
+    val t2 = IsTrue(t1, KeyEqual(sp.Key, Space()))
+    return IsTrue(t2, KeyEqual(bs.Key, Backspace()))
+}
+
+func TestParseArrowKeys(t T) T {
+    // ESC [ A/B/C/D → Up/Down/Right/Left
+    val (up, _)   = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x41))
+    val (down, _) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x42))
+    val (rt, _)   = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x43))
+    val (lt, _)   = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x44))
+    val t1 = IsTrue(t,  KeyEqual(up.Key,   Up()))
+    val t2 = IsTrue(t1, KeyEqual(down.Key, Down()))
+    val t3 = IsTrue(t2, KeyEqual(rt.Key,   ArrowRight()))
+    return IsTrue(t3, KeyEqual(lt.Key, ArrowLeft()))
+}
+
+func TestParseHomeEnd(t T) T {
+    // xterm style: ESC [ H / F
+    val (h, _) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x48))
+    val (f, _) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x46))
+    val t1 = IsTrue(t, KeyEqual(h.Key, Home()))
+    return IsTrue(t1, KeyEqual(f.Key, End()))
+}
+
+func TestParsePageKeys(t T) T {
+    // ESC [ 5~ / ESC [ 6~
+    val (pu, _) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x35, 0x7E))
+    val (pd, _) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x36, 0x7E))
+    val t1 = IsTrue(t, KeyEqual(pu.Key, PageUp()))
+    return IsTrue(t1, KeyEqual(pd.Key, PageDown()))
+}
+
+func TestParseDeleteInsert(t T) T {
+    // ESC [ 3~ (Delete), ESC [ 2~ (Insert)
+    val (del, _) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x33, 0x7E))
+    val (ins, _) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x32, 0x7E))
+    val t1 = IsTrue(t, KeyEqual(del.Key, Delete()))
+    return IsTrue(t1, KeyEqual(ins.Key, Insert()))
+}
+
+func TestParseFunctionKeys(t T) T {
+    // ESC O P/Q/R/S → F1..F4
+    val (f1, _) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x50))
+    val (f2, _) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x51))
+    val (f3, _) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x52))
+    val (f4, _) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x53))
+    val t1 = IsTrue(t,  KeyEqual(f1.Key, FKey(1)))
+    val t2 = IsTrue(t1, KeyEqual(f2.Key, FKey(2)))
+    val t3 = IsTrue(t2, KeyEqual(f3.Key, FKey(3)))
+    return IsTrue(t3, KeyEqual(f4.Key, FKey(4)))
+}
+
+func TestParseEscAlone(t T) T {
+    val (ev, n) = ParseKey(SliceOf[byte](0x1B))
+    val t1 = Eq(t, n, 1)
+    return IsTrue(t1, KeyEqual(ev.Key, Esc()))
+}
+
+func TestParseCtrlLetter(t T) T {
+    // 3 = Ctrl-C, 4 = Ctrl-D
+    val (ctrlC, _) = ParseKey(SliceOf[byte](0x03))
+    val (ctrlD, _) = ParseKey(SliceOf[byte](0x04))
+    val t1 = IsTrue(t, ctrlC.Ctrl)
+    val t2 = IsTrue(t1, KeyEqual(ctrlC.Key, Char('c')))
+    val t3 = IsTrue(t2, ctrlD.Ctrl)
+    return IsTrue(t3, KeyEqual(ctrlD.Key, Char('d')))
+}
+
+func TestParseAltLetter(t T) T {
+    // ESC 'a' (27, 97) — Alt-a
+    val (ev, n) = ParseKey(SliceOf[byte](0x1B, 0x61))
+    val t1 = Eq(t, n, 2)
+    val t2 = IsTrue(t1, ev.Alt)
+    return IsTrue(t2, KeyEqual(ev.Key, Char('a')))
+}
+
+func TestParseEmpty(t T) T {
+    val (ev, n) = ParseKey(SliceEmpty[byte]())
+    val t1 = Eq(t, n, 0)
+    return IsTrue(t1, KeyEqual(ev.Key, Unknown()))
+}
+
+// ----------------------------------------------------------------------------
+// KeyEqual — make sure variants with the same shape are NOT confused.
+// ----------------------------------------------------------------------------
+
+func TestKeyEqualCharsDiffer(t T) T {
+    val t1 = IsTrue(t, KeyEqual(Char('a'), Char('a')))
+    return IsFalse(t1, KeyEqual(Char('a'), Char('b')))
+}
+
+func TestKeyEqualTypesDiffer(t T) T {
+    return IsFalse(t, KeyEqual(Up(), Down()))
+}
+
+func TestKeyEqualFKeyVsChar(t T) T {
+    return IsFalse(t, KeyEqual(FKey(1), Char('1')))
+}

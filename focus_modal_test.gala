@@ -1,0 +1,152 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for FocusManager + Modal.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// FocusManager
+// ----------------------------------------------------------------------------
+
+func TestFocusStartsOnFirstPane(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val t1 = Eq(t, fm.Current(), "a")
+    return IsTrue(t1, fm.IsFocused("a"))
+}
+
+func TestFocusNextAdvancesAndWraps(t T) T {
+    val fm0 = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val fm1 = fm0.Next()
+    val fm2 = fm1.Next()
+    val fm3 = fm2.Next()
+    val t1 = Eq(t, fm1.Current(), "b")
+    val t2 = Eq(t1, fm2.Current(), "c")
+    return Eq(t2, fm3.Current(), "a")
+}
+
+func TestFocusPrevSteppingBackWraps(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val back = fm.Prev()
+    return Eq(t, back.Current(), "c")
+}
+
+func TestFocusOnJumpsToNamedPane(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val jumped = fm.FocusOn("c")
+    return Eq(t, jumped.Current(), "c")
+}
+
+func TestFocusOnUnknownIsUnchanged(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b"))
+    val same = fm.FocusOn("z")
+    return Eq(t, same.Current(), "a")
+}
+
+func TestFocusStartAtNamedPane(t T) T {
+    val fm = NewFocusManagerAt(ArrayOf[string]("a", "b", "c"), "b")
+    return Eq(t, fm.Current(), "b")
+}
+
+func TestFocusEmptyRingIsSafe(t T) T {
+    val fm = NewFocusManager(EmptyArray[string]())
+    val t1 = Eq(t, fm.Current(), "")
+    val next = fm.Next()
+    return Eq(t1, next.Current(), "")
+}
+
+func TestFocusIsFocusedDistinguishes(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c")).Next()
+    val t1 = IsFalse(t, fm.IsFocused("a"))
+    val t2 = IsTrue(t1, fm.IsFocused("b"))
+    return IsFalse(t2, fm.IsFocused("c"))
+}
+
+// ----------------------------------------------------------------------------
+// Modal
+// ----------------------------------------------------------------------------
+
+func TestModalHasDimBackdrop(t T) T {
+    var buf = NewBuffer(20, 10)
+    RenderTo(Modal(10, 4, Text("hi")),
+        Rect(X = 0, Y = 0, Width = 20, Height = 10), buf)
+    // Top-left corner is backdrop (not masked by panel).
+    return IsTrue(t, buf.StyleAt(0, 0).Dim)
+}
+
+func TestModalCentersPanelHorizontally(t T) T {
+    var buf = NewBuffer(20, 6)
+    RenderTo(Modal(10, 4, Text("hi")),
+        Rect(X = 0, Y = 0, Width = 20, Height = 6), buf)
+    // Panel is 10 wide in a 20-wide area → starts at col 5.
+    // The single-border top-left glyph ┌ should land there.
+    return Eq(t, buf.CharAt(5, 1), '┌')
+}
+
+func TestConfirmDialogRendersBothButtons(t T) T {
+    var buf = NewBuffer(40, 6)
+    RenderTo(ConfirmDialog("Confirm", "Proceed?", true),
+        Rect(X = 0, Y = 0, Width = 40, Height = 6), buf)
+    val combined = catRows(buf)
+    val t1 = IsTrue(t, substringPresent(combined, "Yes"))
+    return IsTrue(t1, substringPresent(combined, "No"))
+}
+
+func TestAlertDialogRendersOK(t T) T {
+    var buf = NewBuffer(30, 6)
+    RenderTo(AlertDialog("Heads up", "All good."),
+        Rect(X = 0, Y = 0, Width = 30, Height = 6), buf)
+    val combined = catRows(buf)
+    return IsTrue(t, substringPresent(combined, "OK"))
+}
+
+// ----------------------------------------------------------------------------
+// Test helpers (duplicated from other test files for isolation).
+// ----------------------------------------------------------------------------
+
+func catRows(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func substringPresent(hay string, needle string) bool {
+    val ha = toRuneArr(hay)
+    val ne = toRuneArr(needle)
+    val hn = ha.Length()
+    val nn = ne.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if ha.Get(i + j) != ne.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func toRuneArr(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

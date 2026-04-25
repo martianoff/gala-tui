@@ -1,0 +1,272 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Form — a multi-field text-input widget with optional per-field validation.
+//
+// Building a form in raw TUI primitives means wiring up focus state for each
+// Input, routing KeyChar / KeyBackspace / KeyTab / KeyEnter to the right
+// field, running validators on the changed value, and rendering error
+// messages. FormField + FormState + FormUpdate + FormView do all of that so
+// an app's update() can say `case Key(ev) => (m.Copy(Form = FormUpdate(m.Form, ev)), NoCmd)`.
+//
+// Validators return `Option[string]`:
+//   - None()        → field is valid
+//   - Some(message) → field is invalid with the given message
+// Submit fires only when every field's validator returns None.
+// ============================================================================
+
+struct FormField(
+    Name      string,                           // machine ID (used to look up values)
+    Label     string,                           // visible label
+    Value     string,
+    Placeholder string,
+    Validator func(string) Option[string],
+)
+
+// NewField builds a field with no validator — always valid.
+func NewField(name string, label string, placeholder string) FormField =
+    FormField(
+        Name        = name,
+        Label       = label,
+        Value       = "",
+        Placeholder = placeholder,
+        Validator   = (_) => None[string](),
+    )
+
+// NewFieldRequired marks the field as "non-empty required".
+func NewFieldRequired(name string, label string, placeholder string) FormField =
+    FormField(
+        Name        = name,
+        Label       = label,
+        Value       = "",
+        Placeholder = placeholder,
+        Validator   = requiredValidator,
+    )
+
+func requiredValidator(v string) Option[string] {
+    if v == "" {
+        return Some[string]("required")
+    }
+    return None[string]()
+}
+
+// NewFieldValidated lets callers plug in any predicate-plus-message pair.
+func NewFieldValidated(
+    name string,
+    label string,
+    placeholder string,
+    validator func(string) Option[string],
+) FormField =
+    FormField(
+        Name        = name,
+        Label       = label,
+        Value       = "",
+        Placeholder = placeholder,
+        Validator   = validator,
+    )
+
+// ----------------------------------------------------------------------------
+// FormState
+// ----------------------------------------------------------------------------
+
+struct FormState(
+    Fields      Array[FormField],
+    Focused     int,
+    Submitted   bool,                             // set true once a valid submit fires
+)
+
+// NewForm builds a form from an ordered Array of fields with focus on the
+// first field.
+func NewForm(fields Array[FormField]) FormState =
+    FormState(Fields = fields, Focused = 0, Submitted = false)
+
+// FormIsValid reports whether every field validates successfully.
+func FormIsValid(f FormState) bool {
+    var i = 0
+    val n = f.Fields.Length()
+    for i < n {
+        val fld = f.Fields.Get(i)
+        if fld.Validator(fld.Value).IsDefined() {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// FormValue looks up the current value of a field by name. Returns "" when
+// the name isn't a known field — apps that can't tolerate silent defaults
+// should use FormValueOpt.
+func FormValue(f FormState, name string) string =
+    FormValueOpt(f, name).GetOrElse("")
+
+// FormValueOpt returns the current value of a field, or None if the name is
+// unknown. Preferred when you need to distinguish "missing field" from
+// "empty field".
+func FormValueOpt(f FormState, name string) Option[string] {
+    var i = 0
+    val n = f.Fields.Length()
+    for i < n {
+        val fld = f.Fields.Get(i)
+        if fld.Name == name {
+            return Some[string](fld.Value)
+        }
+        i = i + 1
+    }
+    return None[string]()
+}
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+// FormEvent is the subset of user input a form reacts to. Apps translate
+// their key messages into FormEvent and call FormUpdate.
+sealed type FormEvent {
+    case FEChar(C rune)
+    case FEBackspace()
+    case FENext()              // Tab / Down
+    case FEPrev()              // Shift-Tab / Up
+    case FESubmit()            // Enter
+    case FENoOp()
+}
+
+// FormUpdate applies an event to a form and returns the new state. Pure.
+func FormUpdate(f FormState, ev FormEvent) FormState {
+    return ev match {
+        case FEChar(c)      => formCharInsert(f, c)
+        case FEBackspace()  => formBackspace(f)
+        case FENext()       => f.Copy(Focused = formNextFocus(f))
+        case FEPrev()       => f.Copy(Focused = formPrevFocus(f))
+        case FESubmit()     => formSubmit(f)
+        case FENoOp()        => f
+    }
+}
+
+func formCharInsert(f FormState, c rune) FormState {
+    if f.Fields.IsEmpty() { return f }
+    val fld = f.Fields.Get(f.Focused)
+    val updated = fld.Copy(Value = fld.Value + string(c))
+    return f.Copy(Fields = replaceAt(f.Fields, f.Focused, updated))
+}
+
+func formBackspace(f FormState) FormState {
+    if f.Fields.IsEmpty() { return f }
+    val fld = f.Fields.Get(f.Focused)
+    if fld.Value == "" { return f }
+    val updated = fld.Copy(Value = dropLastRuneForm(fld.Value))
+    return f.Copy(Fields = replaceAt(f.Fields, f.Focused, updated))
+}
+
+func formNextFocus(f FormState) int {
+    val n = f.Fields.Length()
+    if n == 0 { return 0 }
+    return (f.Focused + 1) % n
+}
+
+func formPrevFocus(f FormState) int {
+    val n = f.Fields.Length()
+    if n == 0 { return 0 }
+    return (f.Focused - 1 + n) % n
+}
+
+// formSubmit sets Submitted = true only if every field validates.
+func formSubmit(f FormState) FormState {
+    if FormIsValid(f) {
+        return f.Copy(Submitted = true)
+    }
+    // Jump focus to the first invalid field so the user sees what's wrong.
+    var i = 0
+    val n = f.Fields.Length()
+    for i < n {
+        val fld = f.Fields.Get(i)
+        if fld.Validator(fld.Value).IsDefined() {
+            return f.Copy(Focused = i)
+        }
+        i = i + 1
+    }
+    return f
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// FormView renders the form as a Column of field rows. Each row: label,
+// input widget, optional error message below.
+func FormView(f FormState) Widget {
+    var children = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = f.Fields.Length()
+    for i < n {
+        val fld = f.Fields.Get(i)
+        val focused = i == f.Focused
+        children = children.Append(Fixed(1, TextStyled(fld.Label,
+            DefaultStyle().WithBold())))
+        children = children.Append(Fixed(1, formInput(fld, focused)))
+        val err = fld.Validator(fld.Value)
+        if err.IsDefined() {
+            children = children.Append(Fixed(1, TextStyled("  " + err.Get(),
+                DefaultStyle().WithFg(BrightRed()))))
+        } else {
+            children = children.Append(Fixed(1, Text("")))
+        }
+        i = i + 1
+    }
+    return Column(children)
+}
+
+// formInput renders a single input widget, using the reverse-style focus
+// indicator when `focused` is true.
+func formInput(fld FormField, focused bool) Widget {
+    val style = if (focused) DefaultStyle().WithReverse() else DefaultStyle()
+    val phStyle = DefaultStyle().WithDim()
+    return InputW(
+        Value            = fld.Value,
+        Cursor           = runeCount(fld.Value),
+        Placeholder      = fld.Placeholder,
+        Style            = style,
+        PlaceholderStyle = phStyle,
+    )
+}
+
+// ----------------------------------------------------------------------------
+// Helpers.
+// ----------------------------------------------------------------------------
+
+// replaceAt returns a new Array with element at index `i` replaced by `v`.
+func replaceAt[T any](xs Array[T], i int, v T) Array[T] {
+    var out = EmptyArray[T]()
+    var k = 0
+    val n = xs.Length()
+    for k < n {
+        if k == i {
+            out = out.Append(v)
+        } else {
+            out = out.Append(xs.Get(k))
+        }
+        k = k + 1
+    }
+    return out
+}
+
+// dropLastRuneForm strips the last rune from `s`. Duplicated from other
+// files to keep this module self-contained.
+func dropLastRuneForm(s string) string {
+    val total = runeCount(s)
+    if total == 0 { return s }
+    var kept = ""
+    var seen = 0
+    for _, c := range s {
+        if seen < total - 1 {
+            kept = kept + string(c)
+        }
+        seen = seen + 1
+    }
+    return kept
+}

@@ -1,0 +1,233 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Menu / Dropdown — navigable selection over a list of items.
+//
+// Menu is a plain value carrying:
+//   - an ordered Array[MenuItem]
+//   - the currently-selected index
+//   - an orientation (vertical | horizontal)
+//
+// MenuEvent drives state transitions (Next/Prev/Confirm) — the app wires it
+// into its own Msg type and calls MenuUpdate. MenuView renders the menu as
+// a border-framed column (vertical) or an inline row (horizontal) with the
+// selected item reverse-highlighted.
+//
+// Dropdown overlays a Menu under a "trigger" widget (typically a button or
+// input) when an `Open` flag is true — the common pattern for
+// autocomplete / combo-box style selection.
+//
+// Disabled items render in dim style and cannot be selected: MenuUpdate
+// skips over them when cycling.
+// ============================================================================
+
+struct MenuItem(
+    Label    string,
+    Hint     string,             // optional right-aligned hint (e.g., "⌘S")
+    Disabled bool,
+)
+
+// NewMenuItem builds an enabled item with no hint.
+func NewMenuItem(label string) MenuItem =
+    MenuItem(Label = label, Hint = "", Disabled = false)
+
+// NewMenuItemWithHint adds a right-aligned hint column (commonly a key spec).
+func NewMenuItemWithHint(label string, hint string) MenuItem =
+    MenuItem(Label = label, Hint = hint, Disabled = false)
+
+// NewMenuItemDisabled renders the item dim and makes it unselectable.
+func NewMenuItemDisabled(label string) MenuItem =
+    MenuItem(Label = label, Hint = "", Disabled = true)
+
+sealed type MenuOrientation {
+    case MenuVertical()
+    case MenuHorizontal()
+}
+
+struct Menu(
+    Items       Array[MenuItem],
+    Selected    int,
+    Orientation MenuOrientation,
+)
+
+// NewMenu builds a vertical menu with the first enabled item selected.
+func NewMenu(items Array[MenuItem]) Menu =
+    Menu(Items = items, Selected = firstEnabled(items), Orientation = MenuVertical())
+
+// NewHorizontalMenu builds a horizontal menu (e.g., a tab-bar-style nav).
+func NewHorizontalMenu(items Array[MenuItem]) Menu =
+    Menu(Items = items, Selected = firstEnabled(items), Orientation = MenuHorizontal())
+
+func firstEnabled(items Array[MenuItem]) int {
+    var i = 0
+    val n = items.Length()
+    for i < n {
+        if !items.Get(i).Disabled {
+            return i
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type MenuEvent {
+    case MenuNext()
+    case MenuPrev()
+    case MenuConfirm()              // placeholder — apps handle Confirm in update()
+    case MenuNoOp()
+}
+
+// MenuUpdate cycles the selection forward (MenuNext) or backward (MenuPrev),
+// skipping over disabled items. MenuConfirm leaves state unchanged — the
+// outer update() pattern-matches on the Confirm message itself and reads
+// the current Selected to act on it.
+func MenuUpdate(m Menu, ev MenuEvent) Menu {
+    return ev match {
+        case MenuNext()    => m.Copy(Selected = nextEnabled(m))
+        case MenuPrev()    => m.Copy(Selected = prevEnabled(m))
+        case MenuConfirm() => m
+        case MenuNoOp()    => m
+    }
+}
+
+func nextEnabled(m Menu) int {
+    val n = m.Items.Length()
+    if n == 0 { return 0 }
+    var idx = (m.Selected + 1) % n
+    var steps = 0
+    for steps < n {
+        if !m.Items.Get(idx).Disabled {
+            return idx
+        }
+        idx = (idx + 1) % n
+        steps = steps + 1
+    }
+    return m.Selected
+}
+
+func prevEnabled(m Menu) int {
+    val n = m.Items.Length()
+    if n == 0 { return 0 }
+    var idx = (m.Selected - 1 + n) % n
+    var steps = 0
+    for steps < n {
+        if !m.Items.Get(idx).Disabled {
+            return idx
+        }
+        idx = (idx - 1 + n) % n
+        steps = steps + 1
+    }
+    return m.Selected
+}
+
+// CurrentItem returns the selected item, or a disabled zero item if empty.
+func CurrentItem(m Menu) MenuItem {
+    if m.Items.IsEmpty() {
+        return NewMenuItemDisabled("")
+    }
+    return m.Items.Get(m.Selected)
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// MenuView renders the menu according to its orientation. Caller decides
+// whether to wrap it in a border via the fluent `.Bordered()` method.
+func MenuView(m Menu) Widget {
+    return m.Orientation match {
+        case MenuVertical()   => renderVerticalMenu(m)
+        case MenuHorizontal() => renderHorizontalMenu(m)
+    }
+}
+
+func renderVerticalMenu(m Menu) Widget {
+    var rows = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = m.Items.Length()
+    for i < n {
+        val it = m.Items.Get(i)
+        val selected = i == m.Selected
+        rows = rows.Append(Fixed(1, renderMenuRow(it, selected)))
+        i = i + 1
+    }
+    return Column(rows)
+}
+
+func renderMenuRow(it MenuItem, selected bool) Widget {
+    val base = baseMenuStyle(it, selected)
+    val labelCell = TextStyled(" " + it.Label + " ", base)
+    if it.Hint == "" {
+        return labelCell
+    }
+    // Right-align the hint. Use a Row with a flex spacer between.
+    return Row(ArrayOf[LayoutChild](
+        Flex(1, TextStyled(" " + it.Label, base)),
+        Fixed(runeCount(it.Hint) + 2, TextStyled(" " + it.Hint + " ", base)),
+    ))
+}
+
+func renderHorizontalMenu(m Menu) Widget {
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = m.Items.Length()
+    for i < n {
+        val it = m.Items.Get(i)
+        val selected = i == m.Selected
+        val base = baseMenuStyle(it, selected)
+        val cell = " " + it.Label + " "
+        cells = cells.Append(Fixed(runeCount(cell), TextStyled(cell, base)))
+        i = i + 1
+    }
+    cells = cells.Append(Flex(1, FillCh(' ')))
+    return Row(cells)
+}
+
+func baseMenuStyle(it MenuItem, selected bool) Style {
+    if it.Disabled {
+        return DefaultStyle().WithDim()
+    }
+    if selected {
+        return DefaultStyle().WithReverse().WithBold()
+    }
+    return DefaultStyle()
+}
+
+// ----------------------------------------------------------------------------
+// Dropdown — a Menu that only renders when `Open` is true, overlaid on top
+// of a trigger widget (usually a button or input).
+// ----------------------------------------------------------------------------
+
+struct Dropdown(
+    Trigger Widget,
+    Menu    Menu,
+    Open    bool,
+    Width   int,         // width of the popped menu (rows follow item count)
+)
+
+// DropdownView returns the trigger alone when closed, or a Stack of the
+// trigger plus the menu overlaid below it when open. The overlay is NOT
+// popped into absolute coordinates — GALA-TUI has no absolute layer yet, so
+// the menu stacks below the trigger within the same layout slot. Apps that
+// need true floating popups can compose Dropdown inside a StackWidget at
+// the root level of their view.
+func DropdownView(d Dropdown) Widget {
+    if !d.Open {
+        return d.Trigger
+    }
+    // Menu content is `Items.Length()` rows tall; the border adds a row at
+    // top and bottom.
+    val menuSlot = d.Menu.Items.Length() + 2
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, d.Trigger),
+        Fixed(menuSlot, MenuView(d.Menu).Bordered()),
+    ))
+}

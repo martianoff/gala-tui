@@ -1,0 +1,139 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Snapshot rendering + test helpers.
+//
+// The typical assertion "does my dashboard look right at state X?" is cheap
+// to express when we reduce a rendered widget to a plain string:
+//
+//     val out = Snapshot(view(m), 40, 10)
+//     val want = "┌──Title──┐\n│  hi    │\n└────────┘\n..."
+//     Eq(t, out, want)
+//
+// Snapshot drops ANSI styling by default so the snapshot is just text. For
+// visually-rich regression tests, SnapshotStyled preserves SGR codes via
+// Buffer.String() and feeds the full ANSI string back.
+//
+// SnapshotDiff produces a readable side-by-side mismatch report when two
+// snapshots differ — useful inside custom test assertions.
+// ============================================================================
+
+// Snapshot renders `w` into a (width × height) buffer and returns a plain
+// text string: one line per row, newlines between rows, no ANSI styling.
+// Ideal for snapshot-style tests with stored fixtures.
+func Snapshot(w Widget, width int, height int) string {
+    var buf = NewBuffer(width, height)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
+    return bufferPlainText(buf)
+}
+
+// SnapshotStyled renders `w` and returns the full ANSI-escape string. Use
+// for tests that want to assert on colors/styles (and tolerate the ANSI
+// noise in fixtures).
+func SnapshotStyled(w Widget, width int, height int) string {
+    var buf = NewBuffer(width, height)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
+    return buf.String()
+}
+
+// SnapshotLines renders `w` and returns an Array of one-line-per-row
+// strings. Useful for line-by-line assertions or for comparing a slice of
+// the view to a fixture.
+func SnapshotLines(w Widget, width int, height int) Array[string] {
+    var buf = NewBuffer(width, height)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
+    var rows = EmptyArray[string]()
+    var y = 0
+    for y < height {
+        rows = rows.Append(rowText(buf, y))
+        y = y + 1
+    }
+    return rows
+}
+
+// bufferPlainText assembles the buffer's rows, separated by '\n'. The
+// trailing newline is omitted so fixtures with or without one both match.
+func bufferPlainText(buf *Buffer) string {
+    var sb strings.Builder
+    var y = 0
+    for y < buf.Height {
+        sb.WriteString(rowText(buf, y))
+        if y < buf.Height - 1 {
+            sb.WriteString("\n")
+        }
+        y = y + 1
+    }
+    return sb.String()
+}
+
+// rowText reads one buffer row as a plain string (no styling). Library-local
+// copy of the test-framework helper so snapshot.gala doesn't depend on
+// _test.gala files being compiled.
+func rowText(b *Buffer, y int) string {
+    var sb = ""
+    var x = 0
+    for x < b.Width {
+        sb = sb + string(b.CharAt(x, y))
+        x = x + 1
+    }
+    return sb
+}
+
+// ----------------------------------------------------------------------------
+// Diff
+// ----------------------------------------------------------------------------
+
+// SnapshotDiff returns a human-readable report of differences between two
+// text snapshots. Returns None if they match exactly. The report lines:
+//   Line N:
+//     expected: <quoted row from want>
+//     actual:   <quoted row from got>
+//
+// Empty report means no differences — caller should check .IsEmpty() or
+// use SnapshotsEqual.
+func SnapshotDiff(got string, want string) Option[string] {
+    if got == want { return None[string]() }
+    val gotLines = splitLines(got)
+    val wantLines = splitLines(want)
+    val maxLines = maxInt(gotLines.Length(), wantLines.Length())
+    var sb strings.Builder
+    var i = 0
+    for i < maxLines {
+        val g = if (i < gotLines.Length()) gotLines.Get(i) else "<missing>"
+        val wl = if (i < wantLines.Length()) wantLines.Get(i) else "<missing>"
+        if g != wl {
+            sb.WriteString(s"Line ${i + 1}:\n")
+            sb.WriteString(s"  expected: \"$wl\"\n")
+            sb.WriteString(s"  actual:   \"$g\"\n")
+        }
+        i = i + 1
+    }
+    return Some[string](sb.String())
+}
+
+// SnapshotsEqual is a convenience wrapper for `got == want` — provided so
+// call-sites read nicely:
+//     IsTrue(t, SnapshotsEqual(Snapshot(w, 40, 10), fixture))
+func SnapshotsEqual(got string, want string) bool = got == want
+
+// splitLines breaks a snapshot text on '\n'. Used by the diff helper.
+func splitLines(s string) Array[string] {
+    var out = EmptyArray[string]()
+    var cur = ""
+    for _, c := range s {
+        if c == '\n' {
+            out = out.Append(cur)
+            cur = ""
+        } else {
+            cur = cur + string(c)
+        }
+    }
+    out = out.Append(cur)
+    return out
+}

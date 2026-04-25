@@ -1,0 +1,205 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Markdown parsing + rendering tests.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Block-level parser
+// ----------------------------------------------------------------------------
+
+func TestMarkdownHeading1(t T) T {
+    val blocks = ParseMarkdown("# Hello")
+    val t1 = Eq(t, blocks.Length(), 1)
+    val isH1 = blocks.Get(0) match {
+        case MdHeading(level, _) => level == 1
+        case _                   => false
+    }
+    return IsTrue(t1, isH1)
+}
+
+func TestMarkdownHeading3(t T) T {
+    val blocks = ParseMarkdown("### Small")
+    val isH3 = blocks.Get(0) match {
+        case MdHeading(level, _) => level == 3
+        case _                   => false
+    }
+    return IsTrue(t, isH3)
+}
+
+func TestMarkdownParagraphCollectsLines(t T) T {
+    val blocks = ParseMarkdown("line one\nline two")
+    // Two non-blank lines should merge into one paragraph.
+    val t1 = Eq(t, blocks.Length(), 1)
+    val isPara = blocks.Get(0) match {
+        case MdParagraph(_) => true
+        case _              => false
+    }
+    return IsTrue(t1, isPara)
+}
+
+func TestMarkdownBlankLineSplitsParagraphs(t T) T {
+    val blocks = ParseMarkdown("first para\n\nsecond para")
+    // Expect paragraph, blank, paragraph → length 3 after we keep blanks.
+    val paras = blocksOfKind(blocks, "paragraph")
+    return Eq(t, paras, 2)
+}
+
+func TestMarkdownBullets(t T) T {
+    val blocks = ParseMarkdown("- alpha\n- beta\n- gamma")
+    val bullets = blocksOfKind(blocks, "bullet")
+    return Eq(t, bullets, 3)
+}
+
+func TestMarkdownNumberedLists(t T) T {
+    val blocks = ParseMarkdown("1. first\n2. second\n3. third")
+    val nums = blocksOfKind(blocks, "numbered")
+    return Eq(t, nums, 3)
+}
+
+func TestMarkdownHorizontalRule(t T) T {
+    val blocks = ParseMarkdown("above\n\n---\n\nbelow")
+    val rules = blocksOfKind(blocks, "rule")
+    return Eq(t, rules, 1)
+}
+
+// ----------------------------------------------------------------------------
+// Inline parser
+// ----------------------------------------------------------------------------
+
+func TestMarkdownBoldInline(t T) T {
+    val inlines = parseInlines("hello **world** end")
+    val hasBold = anyInlineOfKind(inlines, "bold")
+    return IsTrue(t, hasBold)
+}
+
+func TestMarkdownItalicWithUnderscore(t T) T {
+    val inlines = parseInlines("see _this_ word")
+    val hasItalic = anyInlineOfKind(inlines, "italic")
+    return IsTrue(t, hasItalic)
+}
+
+func TestMarkdownItalicWithStar(t T) T {
+    val inlines = parseInlines("see *this* word")
+    val hasItalic = anyInlineOfKind(inlines, "italic")
+    return IsTrue(t, hasItalic)
+}
+
+func TestMarkdownInlineCode(t T) T {
+    val inlines = parseInlines("call `fmt.Println` here")
+    val hasCode = anyInlineOfKind(inlines, "code")
+    return IsTrue(t, hasCode)
+}
+
+func TestMarkdownLinkParsed(t T) T {
+    val inlines = parseInlines("see [docs](https://example.com) for more")
+    val hasLink = anyInlineOfKind(inlines, "link")
+    return IsTrue(t, hasLink)
+}
+
+func TestMarkdownUnmatchedStarIsLiteral(t T) T {
+    val inlines = parseInlines("five * three")
+    // No matching closing '*' — should stay as literal text.
+    val onlyText = allInlinesText(inlines)
+    return IsTrue(t, onlyText)
+}
+
+// ----------------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------------
+
+func TestMarkdownViewRendersHeading(t T) T {
+    val widget = MarkdownView("# Dashboard")
+    var buf = NewBuffer(20, 1)
+    RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    return IsTrue(t, buf.StyleAt(0, 0).Bold)
+}
+
+func TestMarkdownViewHeading1IsCyan(t T) T {
+    val widget = MarkdownView("# Title")
+    var buf = NewBuffer(10, 1)
+    RenderTo(widget, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
+}
+
+func TestMarkdownViewBoldInline(t T) T {
+    val widget = MarkdownView("see **important** text")
+    var buf = NewBuffer(30, 1)
+    RenderTo(widget, Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    // "see " → 4 cells, then "important" in bold starting at col 4.
+    return IsTrue(t, buf.StyleAt(4, 0).Bold)
+}
+
+func TestMarkdownViewLinkUnderlined(t T) T {
+    val widget = MarkdownView("go to [docs](https://example.com)")
+    var buf = NewBuffer(30, 1)
+    RenderTo(widget, Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    // "go to " → 6 cells, then "docs" with underline.
+    return IsTrue(t, buf.StyleAt(6, 0).Underline)
+}
+
+func TestMarkdownViewBulletHasDotPrefix(t T) T {
+    val widget = MarkdownView("- first item")
+    var buf = NewBuffer(20, 1)
+    RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    return Eq(t, buf.CharAt(1, 0), '•')
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+func blocksOfKind(blocks Array[MdBlock], kind string) int {
+    var count = 0
+    var i = 0
+    val n = blocks.Length()
+    for i < n {
+        val matched = blocks.Get(i) match {
+            case MdHeading(_, _)   => kind == "heading"
+            case MdParagraph(_)    => kind == "paragraph"
+            case MdBullet(_)       => kind == "bullet"
+            case MdNumbered(_, _)  => kind == "numbered"
+            case MdRule()          => kind == "rule"
+            case MdBlank()         => kind == "blank"
+        }
+        if matched { count = count + 1 }
+        i = i + 1
+    }
+    return count
+}
+
+func anyInlineOfKind(inlines Array[MdInline], kind string) bool {
+    var i = 0
+    val n = inlines.Length()
+    for i < n {
+        val matches = inlines.Get(i) match {
+            case MdText(_)      => kind == "text"
+            case MdBold(_)      => kind == "bold"
+            case MdItalic(_)    => kind == "italic"
+            case MdCode(_)      => kind == "code"
+            case MdLink(_, _)   => kind == "link"
+        }
+        if matches { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func allInlinesText(inlines Array[MdInline]) bool {
+    var i = 0
+    val n = inlines.Length()
+    for i < n {
+        val isText = inlines.Get(i) match {
+            case MdText(_) => true
+            case _         => false
+        }
+        if !isText { return false }
+        i = i + 1
+    }
+    return true
+}
