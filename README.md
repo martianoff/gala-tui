@@ -181,6 +181,7 @@ are plaintext-only so they fit in a README.
 - [Getting Started](docs/GETTING_STARTED.md) — build a counter, an input form, and a fetcher app from scratch
 - [Widget catalog](docs/WIDGETS.md) — every widget the framework ships, grouped by purpose
 - [Cookbook](docs/COOKBOOK.md) — confirm-on-quit, debounced search, virtualized lists, draggable splitters, async fan-out
+- [Testing](docs/TESTING.md) — `StepAll` / `Harness` / `Snapshot` and the focus-contract helpers
 - [Project structure](STRUCTURE.md) — where each file lives in this repo
 
 ## Status

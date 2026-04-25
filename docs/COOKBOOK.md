@@ -41,8 +41,8 @@ struct Model(Confirming bool, /* ... */)
 
 func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
     case TryQuit() =>
-        if m.Confirming { (m, QuitCmd[Msg]()) }
-        else            { (m.Copy(Confirming = true), NoCmd[Msg]()) }
+        if (m.Confirming) (m, QuitCmd[Msg]())
+        else (m.Copy(Confirming = true), NoCmd[Msg]())
     case ConfirmQuit() => (m, QuitCmd[Msg]())
     case CancelQuit()  => (m.Copy(Confirming = false), NoCmd[Msg]())
     // ...
@@ -94,11 +94,11 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
     }
     case TypeBackspace() => /* same shape as above */
     case Search(g) =>
-        if g != m.Gen { (m, NoCmd[Msg]()) }    // stale — drop
-        else          { (m, runQuery(m.Query, g)) }
+        if (g != m.Gen) (m, NoCmd[Msg]())               // stale — drop
+        else (m, runQuery(m.Query, g))
     case GotResults(g, hits) =>
-        if g != m.Gen { (m, NoCmd[Msg]()) }
-        else          { (m.Copy(Hits = hits), NoCmd[Msg]()) }
+        if (g != m.Gen) (m, NoCmd[Msg]())
+        else (m.Copy(Hits = hits), NoCmd[Msg]())
 }
 
 func runQuery(q string, gen int) Cmd[Msg] =
@@ -284,13 +284,12 @@ split position; on release, leave dragging.
 struct Model(SplitCol int, Dragging bool)
 
 func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
-    case MouseDown(x, y) => {
-        if y == splitRowY(m) { (m.Copy(Dragging = true), NoCmd[Msg]()) }
-        else                  { (m, NoCmd[Msg]()) }
-    }
+    case MouseDown(x, y) =>
+        if (y == splitRowY(m)) (m.Copy(Dragging = true), NoCmd[Msg]())
+        else (m, NoCmd[Msg]())
     case MouseMove(x, _) =>
-        if m.Dragging { (m.Copy(SplitCol = clampInt(x, 10, 80)), NoCmd[Msg]()) }
-        else          { (m, NoCmd[Msg]()) }
+        if (m.Dragging) (m.Copy(SplitCol = clampInt(x, 10, 80)), NoCmd[Msg]())
+        else (m, NoCmd[Msg]())
     case MouseUp() => (m.Copy(Dragging = false), NoCmd[Msg]())
 }
 
