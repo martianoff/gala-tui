@@ -230,14 +230,12 @@ func megaTogglePalette(m MegaModel) MegaModel {
 }
 
 func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
-    // NOTE: see TRANSPILER_BUGS.md → BUG-6. Matching on a generic
-    // Option[T] (whether direct or through a `val` bind) loses T through
-    // the auto-unwrap. Until that's fixed we use the IsDefined / Get
-    // pair, which the transpiler handles correctly.
+    // BUG-6 workaround: matching on a chained-call generic Option erases
+    // T. Bind to a val first, then extract via a non-generic helper.
     val cur = m.Palette.Current()
     if cur.IsDefined() {
-        val msg = paletteActionMsg(cur.Get())
-        return (m.Copy(PaletteOpen = false), MsgCmd[MegaMsg](Msg = msg))
+        return (m.Copy(PaletteOpen = false),
+                MsgCmd[MegaMsg](Msg = paletteActionMsg(cur.Get())))
     }
     return (m.Copy(PaletteOpen = false), NoCmd[MegaMsg]())
 }

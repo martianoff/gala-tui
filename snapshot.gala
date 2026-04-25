@@ -72,10 +72,10 @@ func bufferPlainText(buf *Buffer) string {
     return sb.String()
 }
 
-// rowText reads one buffer row as a plain string (no styling). Library-local
-// copy of the test-framework helper so snapshot.gala doesn't depend on
-// _test.gala files being compiled.
-func rowText(b *Buffer, y int) string {
+// RowText reads one buffer row as a plain string (no styling). Useful in
+// snapshot tests and in the harness. Out-of-range y returns "".
+func RowText(b *Buffer, y int) string {
+    if y < 0 || y >= b.Height { return "" }
     var sb = ""
     var x = 0
     for x < b.Width {
@@ -84,6 +84,10 @@ func rowText(b *Buffer, y int) string {
     }
     return sb
 }
+
+// rowText is the original lowercase alias retained for back-compat with
+// the rest of the library; new code should use the exported `RowText`.
+func rowText(b *Buffer, y int) string = RowText(b, y)
 
 // ----------------------------------------------------------------------------
 // Diff
