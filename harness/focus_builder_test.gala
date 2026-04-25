@@ -1,0 +1,121 @@
+package harness
+
+import (
+    . "github.com/martianoff/gala-tui"
+    "github.com/martianoff/gala-tui/state"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for FocusBuilder — the view-side helper that hides per-widget
+// `IsFocused(...)` lookups. Each test pins down one method's contract:
+// the renderer's output is the same as the equivalent raw widget call,
+// and the bright-yellow accent appears iff the named pane owns focus.
+// ============================================================================
+
+func sidebarTableFM() state.FocusManager =
+    state.NewFocusManager(ArrayOf[string]("sidebar", "table"))
+
+func tableFocusedFM() state.FocusManager =
+    state.NewFocusManager(ArrayOf[string]("sidebar", "table")).Next()
+
+// ----------------------------------------------------------------------------
+// IsFocused — the foundation. The builder must agree with FocusManager.
+// ----------------------------------------------------------------------------
+
+func TestFocusBuilderIsFocusedMatchesFocusManager(t T) T {
+    val fb = NewFocusBuilder(sidebarTableFM())
+    val t1 = IsTrue(t, fb.IsFocused("sidebar"))
+    return IsFalse(t1, fb.IsFocused("table"))
+}
+
+func TestFocusBuilderIsFocusedAfterTab(t T) T {
+    val fb = NewFocusBuilder(tableFocusedFM())
+    val t1 = IsFalse(t, fb.IsFocused("sidebar"))
+    return IsTrue(t1, fb.IsFocused("table"))
+}
+
+// ----------------------------------------------------------------------------
+// Per-widget methods — each must produce the same buffer as the raw
+// constructor with the equivalent IsFocused boolean.
+// ----------------------------------------------------------------------------
+
+func TestFocusBuilderDataTableMatchesRawWhenFocused(t T) T {
+    val dt = NewDataTable(
+        ArrayOf[string]("Name"),
+        ArrayOf[Constraint](Fill(1)),
+        ArrayOf[Array[string]](ArrayOf[string]("alice"), ArrayOf[string]("bob")),
+    )
+    val fb = NewFocusBuilder(tableFocusedFM())
+    val area = Rect(X = 0, Y = 0, Width = 20, Height = 6)
+    val viaBuilder = NewBuffer(20, 6)
+    RenderTo(fb.DataTable("table", dt), area, viaBuilder)
+    val viaRaw = NewBuffer(20, 6)
+    RenderTo(DataTableView(dt, true), area, viaRaw)
+    return IsTrue(t, buffersFullyEqual(viaBuilder, viaRaw, 20, 6))
+}
+
+func TestFocusBuilderDataTableMatchesRawWhenUnfocused(t T) T {
+    val dt = NewDataTable(
+        ArrayOf[string]("Name"),
+        ArrayOf[Constraint](Fill(1)),
+        ArrayOf[Array[string]](ArrayOf[string]("alice")),
+    )
+    val fb = NewFocusBuilder(sidebarTableFM())
+    val area = Rect(X = 0, Y = 0, Width = 20, Height = 4)
+    val viaBuilder = NewBuffer(20, 4)
+    RenderTo(fb.DataTable("table", dt), area, viaBuilder)
+    val viaRaw = NewBuffer(20, 4)
+    RenderTo(DataTableView(dt, false), area, viaRaw)
+    return IsTrue(t, buffersFullyEqual(viaBuilder, viaRaw, 20, 4))
+}
+
+// SelectListOf — same contract.
+func TestFocusBuilderSelectListOfMatchesRawWhenFocused(t T) T {
+    val labels = ArrayOf[string]("apple", "banana")
+    val fb = NewFocusBuilder(sidebarTableFM())
+    val area = Rect(X = 0, Y = 0, Width = 20, Height = 4)
+    val viaBuilder = NewBuffer(20, 4)
+    RenderTo(fb.SelectListOf("sidebar", labels, 0), area, viaBuilder)
+    val viaRaw = NewBuffer(20, 4)
+    RenderTo(SelectListOf(labels, 0, true), area, viaRaw)
+    return IsTrue(t, buffersFullyEqual(viaBuilder, viaRaw, 20, 4))
+}
+
+// Tree — focused builder hides the cursor + focused booleans.
+func TestFocusBuilderTreeMatchesRawWhenFocused(t T) T {
+    val tree = NewTreeBranchExpanded("root", ArrayOf[TreeNode](
+        NewTreeLeaf("a"), NewTreeLeaf("b"),
+    ))
+    val fb = NewFocusBuilder(tableFocusedFM())
+    val area = Rect(X = 0, Y = 0, Width = 20, Height = 4)
+    val viaBuilder = NewBuffer(20, 4)
+    RenderTo(fb.Tree("table", tree, 1), area, viaBuilder)
+    val viaRaw = NewBuffer(20, 4)
+    RenderTo(TreeFocused(tree, 1, true), area, viaRaw)
+    return IsTrue(t, buffersFullyEqual(viaBuilder, viaRaw, 20, 4))
+}
+
+// Calendar — same contract.
+func TestFocusBuilderCalendarMatchesRawWhenFocused(t T) T {
+    val cal = NewCalendarAt(2026, 4, 15)
+    val fb = NewFocusBuilder(tableFocusedFM())
+    val area = Rect(X = 0, Y = 0, Width = 30, Height = 10)
+    val viaBuilder = NewBuffer(30, 10)
+    RenderTo(fb.Calendar("table", cal), area, viaBuilder)
+    val viaRaw = NewBuffer(30, 10)
+    RenderTo(CalendarView(cal, true), area, viaRaw)
+    return IsTrue(t, buffersFullyEqual(viaBuilder, viaRaw, 30, 10))
+}
+
+// ----------------------------------------------------------------------------
+// Naming-typo guard — if the app passes a pane name that isn't in the
+// focus ring, the builder reports IsFocused = false. (Catches typos
+// silently — better than mis-reporting focus.)
+// ----------------------------------------------------------------------------
+
+func TestFocusBuilderUnknownPaneIsNotFocused(t T) T {
+    val fb = NewFocusBuilder(sidebarTableFM())
+    return IsFalse(t, fb.IsFocused("nonexistent"))
+}

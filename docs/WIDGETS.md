@@ -16,6 +16,18 @@ back-compatible.
 For routing arrow keys to the focused pane, see the [Cookbook §
 "Route arrow keys to the focused pane"](COOKBOOK.md#route-arrow-keys-to-the-focused-pane).
 
+To avoid threading the boolean through every widget call, use
+`NewFocusBuilder(m.Focus)`:
+
+```gala
+val ui = NewFocusBuilder(m.Focus)
+val table = ui.DataTable("table", m.BuildsTable)        // pane name first
+val tree  = ui.Tree("pipelines", m.Pipelines, m.Cursor)
+```
+
+`FocusBuilder` has a method per interactive widget — see
+[Cookbook § "Cleaner: drop the per-widget boolean with FocusBuilder"](COOKBOOK.md#cleaner-drop-the-per-widget-boolean-with-focusbuilder).
+
 ## Primitives
 
 | Widget | Signature | Notes |

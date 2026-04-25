@@ -403,7 +403,46 @@ Default `false` keeps existing call sites working. When `focused = true`,
 the cursor row uses `BrightYellow + Bold + Reverse` so the user sees at
 a glance which widget the keyboard is driving.
 
-Combine with `state.Routed` for the full pattern:
+### Cleaner: drop the per-widget boolean with `FocusBuilder`
+
+Threading `m.Focus.IsFocused("...")` through every widget call is
+repetitive — and gets the pane name wrong silently if you typo. Use
+`NewFocusBuilder(m.Focus)` to fold the lookup into each widget call.
+The pane name moves to the front, the boolean disappears:
+
+```gala
+val ui = NewFocusBuilder(m.Focus)
+return Row(ArrayOf[LayoutChild](
+    Fixed(20, ui.SelectListOf("sidebar", m.NavItems, m.NavSel)),
+    Flex(1,  ui.DataTable("table", m.Table)),
+))
+```
+
+Methods on `FocusBuilder` mirror every interactive widget — pane name
+first, then the widget's own arguments:
+
+| FocusBuilder | Equivalent raw call |
+|---|---|
+| `ui.DataTable("table", dt)` | `DataTableView(dt, ui.IsFocused("table"))` |
+| `ui.SelectListOf("nav", labels, sel)` | `SelectListOf(labels, sel, ui.IsFocused("nav"))` |
+| `ui.Tree("pipelines", root, cursor)` | `TreeFocused(root, cursor, ui.IsFocused("pipelines"))` |
+| `ui.Menu("file-menu", m)` | `MenuView(m, ui.IsFocused("file-menu"))` |
+| `ui.Tabs("tabs", titles, bodies, sel)` | `Tabs(titles, bodies, sel, ui.IsFocused("tabs"))` |
+| `ui.Calendar("date", c)` | `CalendarView(c, ui.IsFocused("date"))` |
+| `ui.FileBrowser("files", b)` | `FileBrowserView(b, ui.IsFocused("files"))` |
+| `ui.Form("form", f)` | `FormView(f, ui.IsFocused("form"))` |
+| `ui.Input("query", v, cursor, "type…")` | `Input(v, cursor, "type…", ui.IsFocused("query"))` |
+| `ui.Dropdown("dd", d)` | `DropdownView(d, ui.IsFocused("dd"))` |
+
+For widgets without a dedicated method (`PaletteView[T]` because it's
+generic), fall back to `ui.IsFocused(pane)` and call the bare
+constructor:
+
+```gala
+val pal = PaletteView[AppMsg](m.Palette, ui.IsFocused("palette"))
+```
+
+### Combine with `state.Routed` for the full pattern
 
 ```gala
 // Update side — arrows route to the focused pane.
@@ -415,14 +454,13 @@ func arrowDown(m AppModel) AppModel =
 
 // View side — every interactive widget reflects current focus.
 func view(m AppModel) Widget {
-    val sidebarFocused = m.Focus.IsFocused("sidebar")
-    val tableFocused   = m.Focus.IsFocused("table")
+    val ui = NewFocusBuilder(m.Focus)
     return Row(ArrayOf[LayoutChild](
-        Fixed(20, SelectListOf(m.NavItems, m.NavSel, sidebarFocused)),
-        Flex(1,  DataTableView(m.Table, tableFocused)),
+        Fixed(20, ui.SelectListOf("sidebar", m.NavItems, m.NavSel)),
+        Flex(1,  ui.DataTable("table", m.Table)),
     ))
 }
 ```
 
-That's the entire keyboard-and-visual focus contract — three calls
-(`Routed` in update, `IsFocused` + a widget arg in view).
+That's the entire keyboard-and-visual focus contract: `state.Routed`
+in update, `NewFocusBuilder(m.Focus)` + a method per widget in view.
