@@ -217,6 +217,36 @@ func Tree(root TreeNode) Widget {
     return Column(rows)
 }
 
+// TreeFocused is the interactive variant: a flat-row index `cursor`
+// picks one of the visible rows, and `focused` controls whether the
+// cursor is rendered visibly. Apps drive cursor up/down with
+// `TreeFlatRowCount` (the number of currently-visible rows) for
+// clamping, and use `TreeFocused` in their view().
+//
+// The plain `Tree` widget is unchanged — TreeFocused is opt-in.
+func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
+    val lines = flattenTree(root, 0)
+    var rows = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = lines.Length()
+    for i < n {
+        val isCursor = i == cursor
+        val style = if (isCursor && focused)
+            DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+        else if (isCursor)
+            DefaultStyle().WithReverse()
+        else
+            DefaultStyle()
+        rows = rows.Append(Fixed(1, TextStyled(lines.Get(i), style)))
+        i = i + 1
+    }
+    return Column(rows)
+}
+
+// TreeFlatRowCount returns the number of visible rows in the tree —
+// useful for clamping a cursor at the end of the navigable range.
+func TreeFlatRowCount(root TreeNode) int = flattenTree(root, 0).Length()
+
 // flattenTree turns a TreeNode into a list of display strings with
 // indentation and expand/collapse markers.
 func flattenTree(node TreeNode, depth int) Array[string] {

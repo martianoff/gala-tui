@@ -264,11 +264,14 @@ func strRunes(s string) Array[rune] {
 // PaletteView renders the palette as a bordered column: query input on top,
 // horizontal rule, ranked results below (max 8 shown). Designed to live
 // inside a Modal for a popup experience.
-func PaletteView[T any](p Palette[T]) Widget =
-    PaletteViewAtHeight[T](p, 8)
+//
+// `focused` (default true — the palette is normally the only thing visible
+// when shown) brightens the selected row.
+func PaletteView[T any](p Palette[T], focused bool = true) Widget =
+    PaletteViewAtHeight[T](p, 8, focused)
 
 // PaletteViewAtHeight lets callers fix the result-list height.
-func PaletteViewAtHeight[T any](p Palette[T], maxRows int) Widget {
+func PaletteViewAtHeight[T any](p Palette[T], maxRows int, focused bool = true) Widget {
     val header = Row(ArrayOf[LayoutChild](
         Fixed(3, TextStyled(" > ", DefaultStyle().WithBold().WithFg(BrightYellow()))),
         Flex(1, InputW(
@@ -280,7 +283,7 @@ func PaletteViewAtHeight[T any](p Palette[T], maxRows int) Widget {
         )),
     ))
     val separator = FillCh('─')
-    val results = paletteResultsWidget[T](p, maxRows)
+    val results = paletteResultsWidget[T](p, maxRows, focused)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, separator),
@@ -288,7 +291,7 @@ func PaletteViewAtHeight[T any](p Palette[T], maxRows int) Widget {
     ))
 }
 
-func paletteResultsWidget[T any](p Palette[T], maxRows int) Widget {
+func paletteResultsWidget[T any](p Palette[T], maxRows int, focused bool) Widget {
     val actions = p.FilteredActions()
     if actions.IsEmpty() {
         return TextStyled("  (no matches)", DefaultStyle().WithDim())
@@ -299,15 +302,19 @@ func paletteResultsWidget[T any](p Palette[T], maxRows int) Widget {
     for i < shownCount {
         val a = actions.Get(i)
         val selected = i == p.Selected
-        rows = rows.Append(Fixed(1, paletteRowWidget(a, selected)))
+        rows = rows.Append(Fixed(1, paletteRowWidget(a, selected, focused)))
         i = i + 1
     }
     return Column(rows)
 }
 
-func paletteRowWidget[T any](a PaletteAction[T], selected bool) Widget {
-    val base = if (selected) DefaultStyle().WithReverse().WithBold()
-               else DefaultStyle()
+func paletteRowWidget[T any](a PaletteAction[T], selected bool, focused bool) Widget {
+    val base = if (selected && focused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else if (selected)
+        DefaultStyle().WithReverse().WithBold()
+    else
+        DefaultStyle()
     val catStyle = if (selected) base else DefaultStyle().WithDim()
     if a.Category == "" {
         return TextStyled(" " + a.Label, base)

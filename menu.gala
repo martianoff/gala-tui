@@ -142,28 +142,32 @@ func CurrentItem(m Menu) MenuItem {
 
 // MenuView renders the menu according to its orientation. Caller decides
 // whether to wrap it in a border via the fluent `.Bordered()` method.
-func MenuView(m Menu) Widget {
+//
+// `focused` (default false) brightens the selected item — bold + bright
+// yellow on reverse — so the user can tell at a glance which menu the
+// keyboard is driving.
+func MenuView(m Menu, focused bool = false) Widget {
     return m.Orientation match {
-        case MenuVertical()   => renderVerticalMenu(m)
-        case MenuHorizontal() => renderHorizontalMenu(m)
+        case MenuVertical()   => renderVerticalMenu(m, focused)
+        case MenuHorizontal() => renderHorizontalMenu(m, focused)
     }
 }
 
-func renderVerticalMenu(m Menu) Widget {
+func renderVerticalMenu(m Menu, focused bool) Widget {
     var rows = EmptyArray[LayoutChild]()
     var i = 0
     val n = m.Items.Length()
     for i < n {
         val it = m.Items.Get(i)
         val selected = i == m.Selected
-        rows = rows.Append(Fixed(1, renderMenuRow(it, selected)))
+        rows = rows.Append(Fixed(1, renderMenuRow(it, selected, focused)))
         i = i + 1
     }
     return Column(rows)
 }
 
-func renderMenuRow(it MenuItem, selected bool) Widget {
-    val base = baseMenuStyle(it, selected)
+func renderMenuRow(it MenuItem, selected bool, focused bool) Widget {
+    val base = baseMenuStyle(it, selected, focused)
     val labelCell = TextStyled(" " + it.Label + " ", base)
     if it.Hint == "" {
         return labelCell
@@ -175,14 +179,14 @@ func renderMenuRow(it MenuItem, selected bool) Widget {
     ))
 }
 
-func renderHorizontalMenu(m Menu) Widget {
+func renderHorizontalMenu(m Menu, focused bool) Widget {
     var cells = EmptyArray[LayoutChild]()
     var i = 0
     val n = m.Items.Length()
     for i < n {
         val it = m.Items.Get(i)
         val selected = i == m.Selected
-        val base = baseMenuStyle(it, selected)
+        val base = baseMenuStyle(it, selected, focused)
         val cell = " " + it.Label + " "
         cells = cells.Append(Fixed(runeCount(cell), TextStyled(cell, base)))
         i = i + 1
@@ -191,9 +195,12 @@ func renderHorizontalMenu(m Menu) Widget {
     return Row(cells)
 }
 
-func baseMenuStyle(it MenuItem, selected bool) Style {
+func baseMenuStyle(it MenuItem, selected bool, focused bool) Style {
     if it.Disabled {
         return DefaultStyle().WithDim()
+    }
+    if selected && focused {
+        return DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
     }
     if selected {
         return DefaultStyle().WithReverse().WithBold()
@@ -219,7 +226,9 @@ struct Dropdown(
 // the menu stacks below the trigger within the same layout slot. Apps that
 // need true floating popups can compose Dropdown inside a StackWidget at
 // the root level of their view.
-func DropdownView(d Dropdown) Widget {
+// `focused` (default false) — when the dropdown owns the keyboard, the
+// open menu's selection is rendered with the bright-cursor accent.
+func DropdownView(d Dropdown, focused bool = false) Widget {
     if !d.Open {
         return d.Trigger
     }
@@ -228,6 +237,6 @@ func DropdownView(d Dropdown) Widget {
     val menuSlot = d.Menu.Items.Length() + 2
     return Column(ArrayOf[LayoutChild](
         Fixed(1, d.Trigger),
-        Fixed(menuSlot, MenuView(d.Menu).Bordered()),
+        Fixed(menuSlot, MenuView(d.Menu, focused).Bordered()),
     ))
 }

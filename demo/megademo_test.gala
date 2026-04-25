@@ -46,6 +46,38 @@ func TestMegaArrowOnBuildsScreenWithTableFocusMovesCursor(t T) T {
     return IsTrue(t, mDown.BuildsTable.Selected > before)
 }
 
+// On the pipelines screen with focus = table, ↓ moves the tree cursor.
+func TestMegaArrowOnPipelinesScreenWithTableFocusMovesTreeCursor(t T) T {
+    val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())  // sidebar → table
+    val before = mFocused.PipelinesCursor
+    val (mDown, _) = MegaUpdate(mFocused, MegaKeyDown())
+    return IsTrue(t, mDown.PipelinesCursor > before)
+}
+
+func TestMegaPipelinesCursorClampsAtBottom(t T) T {
+    val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())
+    var m = mFocused
+    var i = 0
+    for i < 50 {
+        val (mNext, _) = MegaUpdate(m, MegaKeyDown())
+        m = mNext
+        i = i + 1
+    }
+    val total = TreeFlatRowCount(m.Pipelines)
+    return Eq(t, m.PipelinesCursor, total - 1)
+}
+
+// Without focus on table, arrows on pipelines do nothing (sidebar focus
+// owns them — cycling SidebarSel instead).
+func TestMegaArrowOnPipelinesScreenWithSidebarFocusNoOpOnTree(t T) T {
+    val (mPipes, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val before = mPipes.PipelinesCursor
+    val (mDown, _) = MegaUpdate(mPipes, MegaKeyDown())
+    return Eq(t, mDown.PipelinesCursor, before)
+}
+
 func TestMegaCtrlPOpensPalette(t T) T {
     val msg = MegaKeyToMsg(Ctrl(Char('p')))
     val isToggle = msg match {

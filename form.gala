@@ -199,16 +199,21 @@ func formSubmit(f FormState) FormState {
 
 // FormView renders the form as a Column of field rows. Each row: label,
 // input widget, optional error message below.
-func FormView(f FormState) Widget {
+//
+// `formFocused` (default false) tells whether the keyboard is currently
+// driving this form. When false, the per-field focus is still drawn (so
+// the user knows which field would be edited), but in a calmer style.
+// When true, the active field gets the bright cursor treatment.
+func FormView(f FormState, formFocused bool = false) Widget {
     var children = EmptyArray[LayoutChild]()
     var i = 0
     val n = f.Fields.Length()
     for i < n {
         val fld = f.Fields.Get(i)
-        val focused = i == f.Focused
+        val active = i == f.Focused
         children = children.Append(Fixed(1, TextStyled(fld.Label,
             DefaultStyle().WithBold())))
-        children = children.Append(Fixed(1, formInput(fld, focused)))
+        children = children.Append(Fixed(1, formInput(fld, active, formFocused)))
         val err = fld.Validator(fld.Value)
         if err.IsDefined() {
             children = children.Append(Fixed(1, TextStyled("  " + err.Get(),
@@ -221,10 +226,16 @@ func FormView(f FormState) Widget {
     return Column(children)
 }
 
-// formInput renders a single input widget, using the reverse-style focus
-// indicator when `focused` is true.
-func formInput(fld FormField, focused bool) Widget {
-    val style = if (focused) DefaultStyle().WithReverse() else DefaultStyle()
+// formInput renders a single input widget. `active` = "this is the current
+// field within the form". `formFocused` = "the form itself owns the keyboard".
+// When both are true, the field is rendered with the bright-cursor accent.
+func formInput(fld FormField, active bool, formFocused bool) Widget {
+    val style = if (active && formFocused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else if (active)
+        DefaultStyle().WithReverse()
+    else
+        DefaultStyle()
     val phStyle = DefaultStyle().WithDim()
     return InputW(
         Value            = fld.Value,

@@ -113,7 +113,9 @@ func daysInMonth(year int, month int) int {
 // CalendarView renders the calendar as a header (Month YYYY) + Sun..Sat
 // column labels + 6 rows × 7 columns of day numbers. The selected day is
 // reverse-highlighted; today is bold.
-func CalendarView(c Calendar) Widget {
+// `focused` (default false) brightens the selected day so it pops as
+// "the cursor", as opposed to the just-highlighted active selection.
+func CalendarView(c Calendar, focused bool = false) Widget {
     val title = TextStyled(
         " " + monthName(c.Month) + " " + intToStr(c.Year) + " ",
         DefaultStyle().WithBold().WithFg(BrightCyan()),
@@ -128,7 +130,7 @@ func CalendarView(c Calendar) Widget {
         Fixed(3, TextStyled(" Sa", calLabelStyle())),
     ))
     val today = time.Now()
-    val rows = calBuildGrid(c, today)
+    val rows = calBuildGrid(c, today, focused)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, title),
         Fixed(1, dayLabels),
@@ -140,7 +142,7 @@ func calLabelStyle() Style = DefaultStyle().WithDim().WithBold()
 
 // calBuildGrid produces 6 rows × 7 day-cells representing the month grid.
 // Empty cells (before the first / after the last) render as blanks.
-func calBuildGrid(c Calendar, today time.Time) Array[LayoutChild] {
+func calBuildGrid(c Calendar, today time.Time, focused bool) Array[LayoutChild] {
     val firstWeekday = int(time.Date(c.Year, time.Month(c.Month), 1, 0, 0, 0, 0, time.UTC).Weekday())
     val totalDays = daysInMonth(c.Year, c.Month)
     var rows = EmptyArray[LayoutChild]()
@@ -151,7 +153,7 @@ func calBuildGrid(c Calendar, today time.Time) Array[LayoutChild] {
         for col < 7 {
             val cellIdx = week * 7 + col
             val day = cellIdx - firstWeekday + 1
-            cells = cells.Append(Fixed(3, calDayCell(c, today, day, totalDays)))
+            cells = cells.Append(Fixed(3, calDayCell(c, today, day, totalDays, focused)))
             col = col + 1
         }
         rows = rows.Append(Fixed(1, Row(cells)))
@@ -160,7 +162,7 @@ func calBuildGrid(c Calendar, today time.Time) Array[LayoutChild] {
     return rows
 }
 
-func calDayCell(c Calendar, today time.Time, day int, totalDays int) Widget {
+func calDayCell(c Calendar, today time.Time, day int, totalDays int, focused bool) Widget {
     if day < 1 || day > totalDays {
         return Text("   ")
     }
@@ -168,9 +170,14 @@ func calDayCell(c Calendar, today time.Time, day int, totalDays int) Widget {
     val isToday = c.Year == today.Year() &&
                   c.Month == int(today.Month()) &&
                   day == today.Day()
-    val style = if (isSel) DefaultStyle().WithReverse().WithBold()
-                else if (isToday) DefaultStyle().WithBold().WithFg(BrightYellow())
-                else DefaultStyle()
+    val style = if (isSel && focused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else if (isSel)
+        DefaultStyle().WithReverse().WithBold()
+    else if (isToday)
+        DefaultStyle().WithBold().WithFg(BrightYellow())
+    else
+        DefaultStyle()
     return TextStyled(calPad(day), style)
 }
 

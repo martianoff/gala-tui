@@ -96,6 +96,7 @@ struct MegaModel(
     ConfirmYes     bool,                // which button is focused inside the confirm modal
     LogScroll      int,                 // lines scrolled UP from latest in the log drawer (0 = bottom)
     SidebarSel     int,                 // tentative sidebar cursor (0..3); arrows move it, Enter commits
+    PipelinesCursor int,                // row index into the flattened pipelines tree
     Progress       state.Animation,
     BuildTab       int,                 // 0 = Running, 1 = Succeeded, 2 = Failed
     Now            Instant,
@@ -124,6 +125,7 @@ func NewMegaModel() MegaModel {
         ConfirmYes     = true,
         LogScroll      = 0,
         SidebarSel     = 0,
+        PipelinesCursor = 0,
         Progress       = state.SmoothTween(0, 100, now, Seconds(int64(10))),
         BuildTab       = 0,
         Now            = now,
@@ -299,11 +301,19 @@ func megaArrowByFocus(m MegaModel, delta int) MegaModel =
     ), m)
 
 // megaArrowOnPane handles arrows when focus is on the main content pane:
-// builds → table cursor, logs → log scroll, otherwise no-op.
+// builds → table cursor, pipelines → tree cursor, logs → log scroll,
+// otherwise no-op.
 func megaArrowOnPane(m MegaModel, delta int) MegaModel {
     if m.Screens.Current() == "builds" {
         val tableMsg = if (delta > 0) DTCursorDown() else DTCursorUp()
         return m.Copy(BuildsTable = DataTableUpdate(m.BuildsTable, tableMsg))
+    }
+    if m.Screens.Current() == "pipelines" {
+        val total = TreeFlatRowCount(m.Pipelines)
+        var next = m.PipelinesCursor + delta
+        if next < 0           { next = 0 }
+        if next >= total      { next = total - 1 }
+        return m.Copy(PipelinesCursor = next)
     }
     if m.Screens.Current() == "logs" {
         return megaLogScroll(m, -delta)
@@ -571,21 +581,28 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
     val tabs = Tabs(
         ArrayOf[string]("Running", "Succeeded", "Failed"),
         ArrayOf[Widget](
-            megaBuildsForStatus(m, "Running"),
-            megaBuildsForStatus(m, "Succeeded"),
-            megaBuildsForStatus(m, "Failed"),
+            megaBuildsForStatus(m, "Running", focused),
+            megaBuildsForStatus(m, "Succeeded", focused),
+            megaBuildsForStatus(m, "Failed", focused),
         ),
         m.BuildTab,
+        focused,
     )
     val borderKind = if (focused) ThickBorder() else th.BorderKind
     return BorderOf(PaddingHV(0, 1, tabs), borderKind)
 }
 
-func megaBuildsForStatus(m MegaModel, status string) Widget =
-    DataTableView(DataTableUpdate(m.BuildsTable, DTFilter(Query = status)))
+func megaBuildsForStatus(m MegaModel, status string, focused bool) Widget =
+    DataTableView(DataTableUpdate(m.BuildsTable, DTFilter(Query = status)), focused)
 
-func megaPipelinesBody(m MegaModel, th Theme) Widget =
-    BorderOf(PaddingHV(0, 1, Tree(m.Pipelines)), th.BorderKind)
+func megaPipelinesBody(m MegaModel, th Theme) Widget {
+    val focused = m.Focus.Current() == "table"
+    val borderKind = if (focused) ThickBorder() else th.BorderKind
+    return BorderOf(
+        PaddingHV(0, 1, TreeFocused(m.Pipelines, m.PipelinesCursor, focused)),
+        borderKind,
+    )
+}
 
 // ---- Footer -----------------------------------------------------------------
 

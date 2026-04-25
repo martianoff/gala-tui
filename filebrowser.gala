@@ -146,10 +146,12 @@ func fbAscend(b FileBrowser) FileBrowser {
 
 // FileBrowserView renders the breadcrumb on the top row and the entry list
 // below. The selected entry is reverse-highlighted; directories are bold.
-func FileBrowserView(b FileBrowser) Widget {
+//
+// `focused` (default false) brightens the cursor row.
+func FileBrowserView(b FileBrowser, focused bool = false) Widget {
     val header = TextStyled(" 📁 " + b.Cwd, DefaultStyle().WithBold().WithFg(BrightCyan()))
     val rows = b.Entries.ZipWithIndex().Map((pair) =>
-        Fixed(1, fbRowWidget(pair.V1, pair.V2 == b.Selected)))
+        Fixed(1, fbRowWidget(pair.V1, pair.V2 == b.Selected, focused)))
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, FillCh('─')),
@@ -157,11 +159,16 @@ func FileBrowserView(b FileBrowser) Widget {
     ))
 }
 
-func fbRowWidget(entry FileEntry, selected bool) Widget {
+func fbRowWidget(entry FileEntry, selected bool, focused bool) Widget {
     val icon = if (entry.IsDir) " 📁 " else "    "
-    val nameStyle = if (selected) DefaultStyle().WithReverse().WithBold()
-                    else if (entry.IsDir) DefaultStyle().WithBold().WithFg(BrightBlue())
-                    else DefaultStyle()
+    val nameStyle = if (selected && focused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else if (selected)
+        DefaultStyle().WithReverse().WithBold()
+    else if (entry.IsDir)
+        DefaultStyle().WithBold().WithFg(BrightBlue())
+    else
+        DefaultStyle()
     return TextStyled(icon + entry.Name, nameStyle)
 }
 

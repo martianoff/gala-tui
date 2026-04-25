@@ -198,10 +198,15 @@ func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc b
 // DataTableView renders the whole data table: frozen header row, horizontal
 // rule, then the scrollable body with selection highlight. Caller sizes the
 // area; body height = total height - 2 (header + rule).
-func DataTableView(dt DataTable) Widget {
+//
+// `focused` (default false) controls visual emphasis of the cursor row.
+// When focused, the selected row is rendered with reverse + bold + bright
+// yellow foreground so the user can tell at a glance where keyboard arrows
+// will land. Unfocused tables still highlight the row but use plain reverse.
+func DataTableView(dt DataTable, focused bool = false) Widget {
     val header = dtHeaderRow(dt)
     val rule = FillCh('─')
-    val body = dtBodyWidget(dt)
+    val body = dtBodyWidget(dt, focused)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),
@@ -236,7 +241,7 @@ func dtHeaderLabel(dt DataTable, col int) string {
     return base + arrow
 }
 
-func dtBodyWidget(dt DataTable) Widget {
+func dtBodyWidget(dt DataTable, focused bool) Widget {
     val visible = dtVisible(dt)
     if visible.IsEmpty() {
         return TextStyled("  (no rows)", DefaultStyle().WithDim())
@@ -247,14 +252,19 @@ func dtBodyWidget(dt DataTable) Widget {
     for i < n {
         val row = visible.Get(i)
         val selected = i == dt.Selected
-        children = children.Append(Fixed(1, dtRowWidget(dt, row, selected)))
+        children = children.Append(Fixed(1, dtRowWidget(dt, row, selected, focused)))
         i = i + 1
     }
     return Column(children)
 }
 
-func dtRowWidget(dt DataTable, row Array[string], selected bool) Widget {
-    val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
+func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) Widget {
+    val rowStyle = if (selected && focused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else if (selected)
+        DefaultStyle().WithReverse()
+    else
+        DefaultStyle()
     var cells = EmptyArray[LayoutChild]()
     var i = 0
     val n = row.Length()

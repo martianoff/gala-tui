@@ -148,20 +148,33 @@ func Pct(p int, w Widget) LayoutChild =
 // so the selected row is always visible. Named SelectList (not List) because
 // collection_immutable already exports `List[T]` as a functional linked-list
 // type; this widget is about *selection* over a visible menu.
-func SelectList(items Array[ListItem], selected int) Widget =
-    ListW(Items = items, Selected = selected,
-          SelStyle = DefaultStyle().WithReverse())
+// `focused` (default false) brightens the selection row when the
+// keyboard is currently driving this list — bold + bright yellow on
+// reverse so the user sees where arrows will land.
+func SelectList(items Array[ListItem], selected int, focused bool = false) Widget {
+    val sel = if (focused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else
+        DefaultStyle().WithReverse()
+    return ListW(Items = items, Selected = selected, SelStyle = sel)
+}
 
 // SelectListOf is a convenience wrapper when your items are plain strings.
-func SelectListOf(labels Array[string], selected int) Widget =
-    SelectList(labels.Map((l) => NewListItem(l)), selected)
+func SelectListOf(labels Array[string], selected int, focused bool = false) Widget =
+    SelectList(labels.Map((l) => NewListItem(l)), selected, focused)
 
 // Input renders a single-line text input. `cursor` is the 0-based column of
 // the insertion point. Empty value shows `placeholder` in a dimmed style.
-func Input(value string, cursor int, placeholder string) Widget =
-    InputW(Value = value, Cursor = cursor, Placeholder = placeholder,
-           Style = DefaultStyle(),
-           PlaceholderStyle = DefaultStyle().WithDim())
+//
+// `focused` (default false) brightens the typed text when this input is
+// the keyboard target.
+func Input(value string, cursor int, placeholder string, focused bool = false) Widget {
+    val style = if (focused) DefaultStyle().WithBold().WithFg(BrightYellow())
+                else DefaultStyle()
+    return InputW(Value = value, Cursor = cursor, Placeholder = placeholder,
+                  Style = style,
+                  PlaceholderStyle = DefaultStyle().WithDim())
+}
 
 // Progress renders a horizontal progress bar `[████░░░░]  pct%`.
 func Progress(percent int) Widget =
@@ -223,8 +236,11 @@ func ScrollbarStyled(total int, visible int, offset int, style Style) Widget =
 // Tabs builds a two-row layout: a one-line tab bar on top, then `bodies[sel]`
 // below. The non-selected titles render dim, the selected one bold-reverse.
 // `sel` is the selected index — callers bump it on Tab/arrow keys.
-func Tabs(titles Array[string], bodies Array[Widget], sel int) Widget {
-    val header = tabHeaderRow(titles, sel)
+//
+// `focused` (default false) brightens the selected tab so the user can
+// see at a glance which tab bar the keyboard is driving.
+func Tabs(titles Array[string], bodies Array[Widget], sel int, focused bool = false) Widget {
+    val header = tabHeaderRow(titles, sel, focused)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
@@ -232,15 +248,19 @@ func Tabs(titles Array[string], bodies Array[Widget], sel int) Widget {
     ))
 }
 
-func tabHeaderRow(titles Array[string], sel int) Widget {
+func tabHeaderRow(titles Array[string], sel int, focused bool) Widget {
     val cells = titles.ZipWithIndex().Map((pair) =>
-        tabHeaderCell(pair.V1, pair.V2 == sel))
+        tabHeaderCell(pair.V1, pair.V2 == sel, focused))
     return Row(cells.Append(Flex(1, FillCh(' '))))
 }
 
-func tabHeaderCell(title string, selected bool) LayoutChild {
-    val style = if (selected) DefaultStyle().WithBold().WithReverse()
-                else DefaultStyle().WithDim()
+func tabHeaderCell(title string, selected bool, focused bool) LayoutChild {
+    val style = if (selected && focused)
+        DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow())
+    else if (selected)
+        DefaultStyle().WithBold().WithReverse()
+    else
+        DefaultStyle().WithDim()
     val padded = " " + title + " "
     return Fixed(runeCount(padded), TextStyled(padded, style))
 }

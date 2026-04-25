@@ -7,6 +7,14 @@ gala_tui.exe
 .gala/
 .gala-cache/
 
+# Bazel/Go artifacts that gala build / gala test regenerate locally
+BUILD.bazel
+MODULE.bazel
+MODULE.bazel.lock
+bazel-*/
+go.mod
+go.sum
+
 # IDE
 .idea/
 .vscode/
