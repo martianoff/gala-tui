@@ -14,28 +14,36 @@ import (
 // has focus on which screen.
 // ============================================================================
 
-func TestMegaArrowDownCyclesScreens(t T) T {
+// Sidebar focus is the default, so ↓ moves the *tentative* sidebar
+// cursor (SidebarSel). The active screen does NOT change until Enter.
+func TestMegaArrowDownMovesSidebarCursor(t T) T {
     val m0 = NewMegaModel()
     val (m1, _) = MegaUpdate(m0, MegaKeyDown())
-    val t1 = Eq(t, m0.Screens.Current(), "overview")
-    return Eq(t1, m1.Screens.Current(), "builds")
+    val t1 = Eq(t, m0.SidebarSel, 0)
+    val t2 = Eq(t1, m1.SidebarSel, 1)
+    return Eq(t2, m1.Screens.Current(), "overview")  // screen unchanged
 }
 
-func TestMegaArrowUpFromOverviewWrapsToLogs(t T) T {
-    // Up from overview wraps to "logs" (the last entry in the screen
-    // ring). Help is intentionally NOT in the arrow cycle — it's a
-    // modal overlay reachable via `?` or the palette.
+func TestMegaArrowUpWrapsSidebarToLastEntry(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaKeyUp())
-    return Eq(t, m1.Screens.Current(), "logs")
+    val t1 = Eq(t, m1.SidebarSel, 3)  // 4 entries: 0..3 → wraps to 3
+    return Eq(t1, m1.Screens.Current(), "overview")
 }
 
-func TestMegaArrowOnBuildsScreenMovesTableCursor(t T) T {
-    var m = NewMegaModel()
-    val (m1, _) = MegaUpdate(m, MegaKeyDown())   // → builds
-    val before = m1.BuildsTable.Selected
-    val (m2, _) = MegaUpdate(m1, MegaKeyDown())  // table row down
-    val after = m2.BuildsTable.Selected
-    return IsTrue(t, after > before)
+// Pressing Enter with focus = sidebar commits the cursor and jumps.
+func TestMegaEnterOnSidebarJumps(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaKeyDown())   // SidebarSel = 1 (Builds)
+    val (m2, _) = MegaUpdate(m1, MegaKeyEnter())
+    return Eq(t, m2.Screens.Current(), "builds")
+}
+
+// On the builds screen with focus = table, ↓ moves the DataTable cursor.
+func TestMegaArrowOnBuildsScreenWithTableFocusMovesCursor(t T) T {
+    val (mBuilds, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    val (mFocused, _) = MegaUpdate(mBuilds, MegaFocusNext())  // sidebar → table
+    val before = mFocused.BuildsTable.Selected
+    val (mDown, _) = MegaUpdate(mFocused, MegaKeyDown())
+    return IsTrue(t, mDown.BuildsTable.Selected > before)
 }
 
 func TestMegaCtrlPOpensPalette(t T) T {
@@ -155,17 +163,17 @@ func TestMegaInputAdapterUnknownIsNoOp(t T) T {
     return IsTrue(t, isNoOp)
 }
 
-// End-to-end: scrolling the wheel on the builds screen drives the table
-// cursor — proves the mouse → KeyDown adapter wires through all the way
-// to the table's update logic.
+// End-to-end: on the builds screen, scrolling the wheel drives the
+// table cursor (when focus = table). This proves the mouse → KeyDown
+// adapter wires through all the way to the table's update logic.
 func TestMegaScrollDownAdvancesTableOnBuildsScreen(t T) T {
-    var m = NewMegaModel()
-    val (mBuilds, _) = MegaUpdate(m, MegaKeyDown())     // navigate to "builds"
-    val before = mBuilds.BuildsTable.Selected
+    val (mBuilds, _)  = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "builds"))
+    val (mFocused, _) = MegaUpdate(mBuilds, MegaFocusNext())  // sidebar → table
+    val before = mFocused.BuildsTable.Selected
     val scroll = MegaInputToMsg(MouseInput(Ev = MouseEvent(
         Btn = MouseScrollDown(), X = 0, Y = 0, Pressed = true,
     )))
-    val (mScrolled, _) = MegaUpdate(mBuilds, scroll)
+    val (mScrolled, _) = MegaUpdate(mFocused, scroll)
     return IsTrue(t, mScrolled.BuildsTable.Selected > before)
 }
 
@@ -326,17 +334,15 @@ func TestMegaCycleThemeAllFourAreDistinct(t T) T {
 // the Esc/Pop behavior.
 // ----------------------------------------------------------------------------
 
-// Once the user lands on "builds" the arrow keys are captured by the
-// DataTable (so the cursor moves) — they don't keep cycling screens. To
-// hop past builds the user uses the palette or MegaPushScreen. Verify
-// that two consecutive KeyDowns from overview reach builds and *stay*
-// there (the second arrow doesn't accidentally advance to pipelines).
-func TestMegaScreenStepStopsAtBuilds(t T) T {
+// Sidebar focus + arrows + Enter is the keyboard-driven nav path.
+// This walks: overview → cursor down to "logs" (3 presses) → Enter.
+func TestMegaSidebarNavSequence(t T) T {
     var m = NewMegaModel()
-    val (m1, _) = MegaUpdate(m, MegaKeyDown())   // overview → builds
-    val t1 = Eq(t, m1.Screens.Current(), "builds")
-    val (m2, _) = MegaUpdate(m1, MegaKeyDown())  // table cursor only
-    return Eq(t1, m2.Screens.Current(), "builds")
+    val (m1, _) = MegaUpdate(m, MegaKeyDown())   // SidebarSel 0→1
+    val (m2, _) = MegaUpdate(m1, MegaKeyDown())  // 1→2
+    val (m3, _) = MegaUpdate(m2, MegaKeyDown())  // 2→3 (Logs)
+    val (m4, _) = MegaUpdate(m3, MegaKeyEnter()) // commit
+    return Eq(t, m4.Screens.Current(), "logs")
 }
 
 // The palette is the user's path past "builds" — picking "Go to Pipelines"

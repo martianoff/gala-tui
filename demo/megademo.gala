@@ -95,6 +95,7 @@ struct MegaModel(
     ConfirmAction  string,              // "" = no modal; non-empty = action being confirmed
     ConfirmYes     bool,                // which button is focused inside the confirm modal
     LogScroll      int,                 // lines scrolled UP from latest in the log drawer (0 = bottom)
+    SidebarSel     int,                 // tentative sidebar cursor (0..3); arrows move it, Enter commits
     Progress       state.Animation,
     BuildTab       int,                 // 0 = Running, 1 = Succeeded, 2 = Failed
     Now            Instant,
@@ -122,6 +123,7 @@ func NewMegaModel() MegaModel {
         ConfirmAction  = "",
         ConfirmYes     = true,
         LogScroll      = 0,
+        SidebarSel     = 0,
         Progress       = state.SmoothTween(0, 100, now, Seconds(int64(10))),
         BuildTab       = 0,
         Now            = now,
@@ -261,23 +263,22 @@ func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
 
 func paletteActionMsg(a PaletteAction[MegaMsg]) MegaMsg = a.Msg
 
-// Arrow keys are routed by *what's on screen*, not by the focus pane —
-// that matches user intuition: if a list is visible, arrows scroll it.
+// Arrow keys are routed by the *focused* pane, never by what's on screen.
+// This is the bug-tested model:
 //
-// Priority:
-//   1. Modal overlays (palette, confirm) own arrows while open.
-//   2. The Builds screen has a DataTable — arrows move its cursor.
-//   3. Otherwise we treat arrows as nav menu cycling: ↑/↓ push the
-//      previous/next screen onto the stack (Replace, so depth doesn't grow).
+//   - Palette open: ↑/↓ moves the palette cursor (modal owns arrows).
+//   - Confirm modal: ↑/↓ no-op (use Tab to flip Yes/No).
+//   - Focus = sidebar: ↑/↓ moves the *tentative* sidebar selection.
+//                      Enter commits and jumps to that screen.
+//   - Focus = table:   on builds → table cursor; on logs → log scroll;
+//                      on overview/pipelines → no-op.
+//   - Focus = palette: ↑/↓ no-op (palette is closed, nothing to move).
 func megaKeyUp(m MegaModel) MegaModel {
     if m.PaletteOpen {
         return m.Copy(Palette = PaletteUpdate(m.Palette, PalPrev()))
     }
     if m.ConfirmAction != "" { return m }
-    if m.Screens.Current() == "builds" {
-        return m.Copy(BuildsTable = DataTableUpdate(m.BuildsTable, DTCursorUp()))
-    }
-    return megaScreenStep(m, -1)
+    return megaArrowByFocus(m, -1)
 }
 
 func megaKeyDown(m MegaModel) MegaModel {
@@ -285,23 +286,45 @@ func megaKeyDown(m MegaModel) MegaModel {
         return m.Copy(Palette = PaletteUpdate(m.Palette, PalNext()))
     }
     if m.ConfirmAction != "" { return m }
-    if m.Screens.Current() == "builds" {
-        return m.Copy(BuildsTable = DataTableUpdate(m.BuildsTable, DTCursorDown()))
-    }
-    return megaScreenStep(m, 1)
+    return megaArrowByFocus(m, 1)
 }
 
-// megaScreenStep replaces the topmost screen with the next/previous nav
-// entry (overview → builds → pipelines → logs → help → wraparound).
-// Replace (not Push) keeps the breadcrumb sane.
-func megaScreenStep(m MegaModel, delta int) MegaModel {
+// megaArrowByFocus dispatches arrow keys to the focused pane via the
+// framework's `state.Routed` helper — one declarative call replacing
+// the manual focus switch every TUI app would otherwise hand-roll.
+func megaArrowByFocus(m MegaModel, delta int) MegaModel =
+    state.Routed[MegaModel](m.Focus, ArrayOf[state.FocusedCase[MegaModel]](
+        state.FocusedCase[MegaModel](Pane = "sidebar", Handler = () => megaMoveSidebarSel(m, delta)),
+        state.FocusedCase[MegaModel](Pane = "table",   Handler = () => megaArrowOnPane(m, delta)),
+    ), m)
+
+// megaArrowOnPane handles arrows when focus is on the main content pane:
+// builds → table cursor, logs → log scroll, otherwise no-op.
+func megaArrowOnPane(m MegaModel, delta int) MegaModel {
+    if m.Screens.Current() == "builds" {
+        val tableMsg = if (delta > 0) DTCursorDown() else DTCursorUp()
+        return m.Copy(BuildsTable = DataTableUpdate(m.BuildsTable, tableMsg))
+    }
+    if m.Screens.Current() == "logs" {
+        return megaLogScroll(m, -delta)
+    }
+    return m
+}
+
+func megaMoveSidebarSel(m MegaModel, delta int) MegaModel {
+    val n = 4   // overview, builds, pipelines, logs
+    var next = m.SidebarSel + delta
+    if next < 0  { next = n - 1 }
+    if next >= n { next = 0 }
+    return m.Copy(SidebarSel = next)
+}
+
+// megaJumpToSidebar commits the tentative SidebarSel: replaces the top
+// screen with the chosen route. Called from Enter when focus = sidebar.
+func megaJumpToSidebar(m MegaModel) MegaModel {
     val screens = ArrayOf[string]("overview", "builds", "pipelines", "logs")
-    val n = screens.Length()
-    var idx = megaScreenIndex(m.Screens.Current())
-    if idx >= n { idx = 0 }
-    idx = (idx + delta + n) % n
-    val next = screens.Get(idx)
-    return m.Copy(Screens = m.Screens.Replace(next))
+    val route = screens.Get(m.SidebarSel)
+    return m.Copy(Screens = m.Screens.Replace(route))
 }
 
 func megaEnter(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
@@ -310,6 +333,10 @@ func megaEnter(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
         // Honor the focused button: Yes commits, No just dismisses.
         if m.ConfirmYes { return (megaConfirmYes(m), NoCmd[MegaMsg]()) }
         return (m.Copy(ConfirmAction = ""), NoCmd[MegaMsg]())
+    }
+    // When the sidebar is focused, Enter commits the tentative cursor.
+    if m.Focus.Current() == "sidebar" {
+        return (megaJumpToSidebar(m), NoCmd[MegaMsg]())
     }
     return (m, NoCmd[MegaMsg]())
 }
@@ -321,7 +348,15 @@ func megaTabRouted(m MegaModel) MegaModel {
     if m.ConfirmAction != "" {
         return m.Copy(ConfirmYes = !m.ConfirmYes)
     }
-    return m.Copy(Focus = m.Focus.Next())
+    val nextFocus = m.Focus.Next()
+    val nextFocusName = nextFocus.Current()
+    // Resync SidebarSel to the current screen when the user lands on the
+    // sidebar pane, so the cursor reflects "where they are now" instead
+    // of stale state from the last sidebar visit.
+    val resyncedSel = if (nextFocusName == "sidebar")
+                        megaScreenIndex(m.Screens.Current())
+                      else m.SidebarSel
+    return m.Copy(Focus = nextFocus, SidebarSel = resyncedSel)
 }
 
 // megaLogScroll bumps LogScroll by `delta` (positive scrolls *up* into
@@ -478,14 +513,18 @@ func megaSidebar(m MegaModel, th Theme) Widget {
         DefaultStyle().WithBold().WithFg(BrightYellow())
     else
         th.Heading
-    val titleLabel = if (focused) " ◆ Nav (focused) " else " Nav "
+    val titleLabel = if (focused) " ◆ Nav (Enter to jump) " else " Nav "
+    // When the sidebar is focused, the highlight follows the tentative
+    // cursor (SidebarSel). When it isn't, it follows the active screen.
+    val menuSel = if (focused) m.SidebarSel
+                  else megaScreenIndex(m.Screens.Current())
     val menu = SelectListOf(
-        ArrayOf[string]("  Overview", "  Builds", "  Pipelines", "  Logs", "  Help"),
-        megaScreenIndex(m.Screens.Current()),
+        ArrayOf[string]("  Overview", "  Builds", "  Pipelines", "  Logs"),
+        menuSel,
     )
     val inside = Column(ArrayOf[LayoutChild](
         Fixed(1, TextStyled(titleLabel, titleStyle)),
-        Fixed(5, menu),
+        Fixed(4, menu),
         Fixed(1, Text("")),
         Fixed(1, TextStyled(" Throughput (7d)", th.Heading)),
         Fixed(5, BarChart(ArrayOf[BarChartDatum](
