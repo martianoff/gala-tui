@@ -1,0 +1,286 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Minimal syntax highlighter for fenced code blocks.
+//
+// Tokenizer recognises:
+//   - Comments     (// or # to end of line, /* ... */ block)
+//   - Strings      (" ... ", ' ... ')
+//   - Numbers      (digit-led)
+//   - Keywords     (per-language whitelist)
+//   - Identifiers  (everything else)
+//
+// Each token is rendered with a colored Style. Languages: "go", "gala",
+// "python", "javascript", "typescript", "rust", "shell". Unknown languages
+// fall back to the default ("none") which renders the line in dim text.
+//
+// This is *not* a real parser — multi-line strings, escape sequences, and
+// nested comments aren't tracked across lines. For markdown-help-style use
+// it's sufficient.
+// ============================================================================
+
+sealed type SyntaxToken {
+    case TokKeyword(Text string)
+    case TokString(Text string)
+    case TokNumber(Text string)
+    case TokComment(Text string)
+    case TokIdent(Text string)
+    case TokPunct(Text string)
+}
+
+// HighlightLine tokenizes `line` for the given language and returns a
+// styled Widget that renders it on a single row.
+func HighlightLine(line string, lang string) Widget =
+    highlightCodeLine(line, lang)
+
+// highlightCodeLine is the shared rendering helper used by markdown's
+// code-block renderer and apps that want the highlighter standalone.
+func highlightCodeLine(line string, lang string) Widget {
+    val tokens = tokenize(line, lang)
+    if tokens.IsEmpty() {
+        return TextStyled(" " + line + " ", codeBaseStyle())
+    }
+    val cells = tokens.Map((tok) => tokenWidget(tok))
+    return Row(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" ", codeBaseStyle())),
+    ).AppendAll(cells).Append(Flex(1, FillChStyled(' ', codeBaseStyle()))))
+}
+
+func codeBaseStyle() Style = DefaultStyle().WithFg(BrightWhite()).On(Black())
+
+func tokenWidget(tok SyntaxToken) LayoutChild {
+    val text = tokenText(tok)
+    val style = tokenStyle(tok)
+    return Fixed(runeCount(text), TextStyled(text, style))
+}
+
+func tokenText(tok SyntaxToken) string {
+    return tok match {
+        case TokKeyword(s)  => s
+        case TokString(s)   => s
+        case TokNumber(s)   => s
+        case TokComment(s)  => s
+        case TokIdent(s)    => s
+        case TokPunct(s)    => s
+    }
+}
+
+func tokenStyle(tok SyntaxToken) Style {
+    val base = codeBaseStyle()
+    return tok match {
+        case TokKeyword(_)  => base.WithFg(BrightMagenta()).WithBold()
+        case TokString(_)   => base.WithFg(BrightGreen())
+        case TokNumber(_)   => base.WithFg(BrightYellow())
+        case TokComment(_)  => base.WithFg(BrightBlack()).WithItalic()
+        case TokIdent(_)    => base
+        case TokPunct(_)    => base.WithFg(BrightCyan())
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tokenizer
+// ----------------------------------------------------------------------------
+
+func tokenize(line string, lang string) Array[SyntaxToken] {
+    val rs = syntaxRunes(line)
+    val n = rs.Length()
+    val keywords = keywordsFor(lang)
+    val lineCommentPrefix = lineCommentFor(lang)
+    var out = EmptyArray[SyntaxToken]()
+    var i = 0
+    for i < n {
+        val c = rs.Get(i)
+        // Line comment — consume to end of line.
+        if lineCommentPrefix != "" && syntaxStartsWith(rs, i, lineCommentPrefix) {
+            val rest = syntaxSlice(rs, i, n)
+            out = out.Append(TokComment(Text = rest))
+            i = n
+            continue
+        }
+        // String literal — consume up to matching quote.
+        if c == '"' || c == '\'' {
+            val end = syntaxFindRune(rs, c, i + 1)
+            if end < 0 {
+                out = out.Append(TokString(Text = syntaxSlice(rs, i, n)))
+                i = n
+            } else {
+                out = out.Append(TokString(Text = syntaxSlice(rs, i, end + 1)))
+                i = end + 1
+            }
+            continue
+        }
+        // Number — digit-led run.
+        if c >= '0' && c <= '9' {
+            val end = syntaxRunWhile(rs, i, isNumberRune)
+            out = out.Append(TokNumber(Text = syntaxSlice(rs, i, end)))
+            i = end
+            continue
+        }
+        // Identifier / keyword.
+        if isIdentStart(c) {
+            val end = syntaxRunWhile(rs, i, isIdentRune)
+            val text = syntaxSlice(rs, i, end)
+            if syntaxContainsString(keywords, text) {
+                out = out.Append(TokKeyword(Text = text))
+            } else {
+                out = out.Append(TokIdent(Text = text))
+            }
+            i = end
+            continue
+        }
+        // Punctuation / whitespace — accumulate runes until the next major
+        // token boundary OR the start of a comment. We can't use a pure
+        // single-rune predicate here because the comment check is a
+        // multi-rune lookahead.
+        var end = i
+        for end < n {
+            val r = rs.Get(end)
+            if isIdentStart(r) || (r >= '0' && r <= '9') || r == '"' || r == '\'' {
+                break
+            }
+            if lineCommentPrefix != "" && syntaxStartsWith(rs, end, lineCommentPrefix) {
+                break
+            }
+            end = end + 1
+        }
+        if end == i {
+            // Defensive: never advance zero. Take one rune as punctuation.
+            out = out.Append(TokPunct(Text = string(c)))
+            i = i + 1
+        } else {
+            out = out.Append(TokPunct(Text = syntaxSlice(rs, i, end)))
+            i = end
+        }
+    }
+    return out
+}
+
+// ----------------------------------------------------------------------------
+// Per-language keyword tables.
+// ----------------------------------------------------------------------------
+
+func keywordsFor(lang string) Array[string] {
+    if lang == "go" || lang == "golang" {
+        return ArrayOf[string]("break", "case", "chan", "const", "continue",
+            "default", "defer", "else", "fallthrough", "for", "func", "go",
+            "goto", "if", "import", "interface", "map", "package", "range",
+            "return", "select", "struct", "switch", "type", "var",
+            "true", "false", "nil")
+    }
+    if lang == "gala" {
+        return ArrayOf[string]("val", "var", "func", "type", "struct",
+            "sealed", "case", "match", "if", "else", "for", "return",
+            "import", "package", "embed",
+            "true", "false", "nil")
+    }
+    if lang == "python" || lang == "py" {
+        return ArrayOf[string]("def", "class", "if", "else", "elif",
+            "for", "while", "return", "import", "from", "as",
+            "with", "try", "except", "finally", "raise", "lambda",
+            "yield", "True", "False", "None", "and", "or", "not", "in", "is")
+    }
+    if lang == "javascript" || lang == "js" || lang == "typescript" || lang == "ts" {
+        return ArrayOf[string]("var", "let", "const", "function", "class",
+            "if", "else", "for", "while", "return", "import", "export",
+            "from", "as", "async", "await", "try", "catch", "finally",
+            "throw", "new", "this", "typeof", "instanceof",
+            "true", "false", "null", "undefined")
+    }
+    if lang == "rust" || lang == "rs" {
+        return ArrayOf[string]("fn", "let", "mut", "const", "struct", "enum",
+            "impl", "trait", "if", "else", "for", "while", "loop", "match",
+            "return", "use", "pub", "mod", "as", "ref", "self", "super",
+            "true", "false")
+    }
+    if lang == "shell" || lang == "sh" || lang == "bash" {
+        return ArrayOf[string]("if", "then", "else", "elif", "fi", "for",
+            "while", "do", "done", "case", "esac", "function", "return",
+            "in", "true", "false")
+    }
+    return EmptyArray[string]()
+}
+
+func lineCommentFor(lang string) string {
+    if lang == "" || lang == "none" { return "" }
+    if lang == "python" || lang == "py" || lang == "shell" || lang == "sh" || lang == "bash" {
+        return "#"
+    }
+    return "//"
+}
+
+// ----------------------------------------------------------------------------
+// Rune classifiers
+// ----------------------------------------------------------------------------
+
+func isIdentStart(c rune) bool =
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$'
+
+func isIdentRune(c rune) bool =
+    isIdentStart(c) || (c >= '0' && c <= '9')
+
+func isNumberRune(c rune) bool =
+    (c >= '0' && c <= '9') || c == '.' || c == 'x' || c == 'X' ||
+    c == 'b' || c == 'B' || c == 'o' || c == 'O' ||
+    (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == '_'
+
+// ----------------------------------------------------------------------------
+// Small string-rune helpers (kept here so syntax.gala is self-contained).
+// ----------------------------------------------------------------------------
+
+func syntaxRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
+func syntaxSlice(rs Array[rune], lo int, hi int) string {
+    var out = ""
+    var i = lo
+    for i < hi {
+        out = out + string(rs.Get(i))
+        i = i + 1
+    }
+    return out
+}
+
+func syntaxStartsWith(rs Array[rune], at int, prefix string) bool {
+    val pr = syntaxRunes(prefix)
+    val pn = pr.Length()
+    val rn = rs.Length()
+    if at + pn > rn { return false }
+    var k = 0
+    for k < pn {
+        if rs.Get(at + k) != pr.Get(k) { return false }
+        k = k + 1
+    }
+    return true
+}
+
+func syntaxFindRune(rs Array[rune], target rune, start int) int {
+    var i = start
+    val n = rs.Length()
+    for i < n {
+        if rs.Get(i) == target { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+func syntaxRunWhile(rs Array[rune], start int, pred func(rune) bool) int {
+    var i = start
+    val n = rs.Length()
+    for i < n {
+        if !pred(rs.Get(i)) { return i }
+        i = i + 1
+    }
+    return n
+}
+
+func syntaxContainsString(arr Array[string], target string) bool =
+    arr.Exists((s) => s == target)

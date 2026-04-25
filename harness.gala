@@ -1,0 +1,612 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// gala-tui Test Harness
+// ============================================================================
+//
+// Production-quality testing framework for gala-tui apps. Drives a Program
+// through realistic input sequences without spinning up a real terminal,
+// then exposes the rendered Buffer for assertions.
+//
+// ## Why a harness?
+//
+// Direct `update(model, msg)` calls work for pure state-machine tests, but
+// skip three things real users experience:
+//
+//   1. Key translation — the `KeyToMsg` (or `InputToMsg`) function never
+//      runs, so a typo in your shortcut spec passes the unit tests and
+//      breaks at runtime.
+//   2. Synchronous re-dispatch — when your reducer emits a follow-up
+//      `MsgCmd(...)`, `update` doesn't apply it; the runtime does.
+//      Tests that bypass that miss the chained-message path entirely.
+//   3. Rendering — a passing reducer test tells you the model is right,
+//      not that the user can find the button.
+//
+// This harness covers all three. It's a pure value, no goroutines, no
+// terminal IO; runs the same `update + redispatch` pipeline the runtime
+// uses.
+//
+// ## 30-second tour
+//
+//     val program = Program[Model, Msg](
+//         Initial = NewModel(),
+//         Update  = (m, msg) => MyUpdate(m, msg),
+//         View    = (m) => MyView(m),
+//     )
+//     val h = NewHarness[Model, Msg](program, MyKeyToMsg, 80, 24)
+//
+//     val final = h.Start()
+//         .PressCtrl('p')              // open palette
+//         .Type("save")                // type fuzzy query
+//         .Press(Enter())              // confirm
+//
+//     IsTrue(t, final.Contains("File saved"))
+//     IsTrue(t, final.RowEquals(0, " ✓ saved "))
+//     IsTrue(t, final.HasStyleAt(0, 0, (s) => s.Bold))
+//
+// ## API at a glance
+//
+// **Building the harness**
+//
+//     NewHarness(program, keyToMsg, w, h)         // key-only apps (Run / RunRich)
+//     NewHarnessFull(program, inputToMsg, w, h)   // mouse + resize (RunFull)
+//
+// **Driving input** (each returns a new `Session` — chainable)
+//
+//     session.Press(key)                          // any KeyEvent
+//     session.PressCtrl(c)                        // Ctrl-<char>
+//     session.PressAlt(c)                         // Alt-<char>
+//     session.PressShift(key)                     // Shift+<key>
+//     session.Type(s)                             // each rune as Char(c)
+//     session.Click(x, y)                         // left mouse press at (x,y)
+//     session.ClickAt(x, y, btn)                  // any-button click
+//     session.Scroll(x, y, up)                    // mouse wheel
+//     session.Resize(w, h)                        // terminal resize
+//     session.SendMsg(msg)                        // pre-built Msg (timer, async)
+//     session.SendInput(ev)                       // any InputEvent
+//     session.Wait(n)                             // n consecutive NoOps
+//
+// **Inspecting state**
+//
+//     session.Model                               // the current Model
+//     session.HasQuit                             // QuitCmd ever produced?
+//     session.Buffer()                            // *Buffer of the view
+//     session.Text()                              // newline-joined plaintext
+//     session.Row(y)                              // single row as a string
+//
+// **Built-in matchers**
+//
+//     session.Contains(needle)                    // substring on the whole render
+//     session.RowEquals(y, expected)
+//     session.RowContains(y, needle)
+//     session.HasStyleAt(x, y, pred)              // predicate on Style
+//     session.CharAt(x, y) == 'q'
+//     session.FindCell(rune)                      // Option[(x, y)]
+//     session.FindRow(needle)                     // Option[y]
+//
+// **Time travel**
+//
+//     val states = h.Trace(events)                // Array[Session] — one per step
+//     val final  = h.RunSequence(events)          // skip intermediates
+//
+// **Debugging assertion failures**
+//
+//     PrintHarnessFrame(session)                  // boxed dump of the buffer
+//
+// ## Tips
+//
+//   - Keep harness Width/Height matching the smallest realistic terminal
+//     your app supports — that's where layout bugs hide.
+//   - When a test fails, replace `session.Contains(...)` with
+//     `PrintHarnessFrame(session)` to dump the rendered buffer; it's
+//     usually obvious what went wrong.
+//   - Every method that mutates returns a *new* Session — the framework
+//     is immutable. Chain them; don't reassign.
+//   - For app-level integration tests, prefer `NewHarnessFull` so you
+//     exercise the actual `func(InputEvent) T` translator. It catches
+//     mouse/resize bugs that `NewHarness` happily ignores.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Harness — the "compiled program" side. One Harness drives many Sessions.
+//
+// `HarnessMode` discriminates the two flavors: key-only apps wire `Run` /
+// `RunRich`, full apps wire `RunFull`. The dispatcher pattern-matches on
+// `Mode` and calls the right translator.
+// ----------------------------------------------------------------------------
+
+sealed type HarnessMode[T any] {
+    case KeyMode(KeyFn func(KeyEvent) T)
+    case FullMode(InputFn func(InputEvent) T)
+}
+
+struct Harness[M any, T any](
+    Program  Program[M, T],
+    Mode     HarnessMode[T],
+    Width    int,
+    Height   int,
+)
+
+// NewHarness builds a key-only harness. Use this when your app is wired
+// to `Run` or `RunRich` (i.e., it doesn't care about mouse/resize).
+//
+//     val h = NewHarness[Model, Msg](program, MyKeyToMsg, 80, 24)
+//
+// Mouse + resize events delivered to this harness are silently mapped
+// to `PlainKey(Unknown())` so the user's keyToMsg sees them as no-op
+// keys.
+func NewHarness[M any, T any](
+    program Program[M, T],
+    keyToMsg func(KeyEvent) T,
+    width int,
+    height int,
+) Harness[M, T] =
+    Harness[M, T](
+        Program = program,
+        Mode    = KeyMode[T](KeyFn = keyToMsg),
+        Width   = width,
+        Height  = height,
+    )
+
+// NewHarnessFull builds a harness for apps wired to `RunFull` — i.e., apps
+// that handle mouse + resize through `func(InputEvent) T`.
+//
+//     val h = NewHarnessFull[Model, Msg](program, MyInputToMsg, 120, 40)
+//
+// All click/scroll/resize helpers feed the InputFn path verbatim. Use
+// this for any app that does mouse-aware UI (clickable rows, scroll
+// regions, drag-resize handles).
+func NewHarnessFull[M any, T any](
+    program Program[M, T],
+    inputToMsg func(InputEvent) T,
+    width int,
+    height int,
+) Harness[M, T] =
+    Harness[M, T](
+        Program = program,
+        Mode    = FullMode[T](InputFn = inputToMsg),
+        Width   = width,
+        Height  = height,
+    )
+
+// dispatchKey routes a KeyEvent through whichever user function this
+// harness was built with.
+func (h Harness[M, T]) dispatchKey(ev KeyEvent) T {
+    return h.Mode match {
+        case KeyMode(fn)   => fn(ev)
+        case FullMode(fn)  => fn(KeyInput(Ev = ev))
+    }
+}
+
+// dispatchInput routes an InputEvent through the harness. Key-only mode
+// extracts the inner KeyEvent; mouse/resize fall back to a NoOp via
+// `PlainKey(Unknown())` so the user's keyToMsg sees a known-quiet input.
+func (h Harness[M, T]) dispatchInput(ev InputEvent) T {
+    return h.Mode match {
+        case FullMode(fn)  => fn(ev)
+        case KeyMode(fn)   => fn(inputToKeyEv(ev))
+    }
+}
+
+// inputToKeyEv collapses an InputEvent down to a KeyEvent. Mouse and
+// resize events become a `PlainKey(Unknown())` so the user's keyToMsg
+// sees a known-quiet input. Non-generic — no inference issues.
+func inputToKeyEv(ev InputEvent) KeyEvent {
+    return ev match {
+        case KeyInput(k)       => k
+        case MouseInput(_)     => PlainKey(Unknown())
+        case ResizeInput(_, _) => PlainKey(Unknown())
+        case UnknownInput()    => PlainKey(Unknown())
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Session — a value carrying the harness + a current model state.
+//
+// Sessions are immutable: every input method returns a fresh Session.
+// The fluent style is intentional — tests read top-to-bottom like a script.
+// ----------------------------------------------------------------------------
+
+struct Session[M any, T any](
+    H        Harness[M, T],
+    Model    M,
+    HasQuit  bool,
+)
+
+// Start opens a fresh Session with the program's Initial model.
+//
+//     val s = h.Start()
+//
+// To resume from a known state (replaying a fixture) use `StartAt(model)`.
+func (h Harness[M, T]) Start() Session[M, T] =
+    Session[M, T](H = h, Model = h.Program.Initial, HasQuit = false)
+
+// StartAt seeds the Session from a custom model — useful when a test wants
+// to skip past setup steps and assert against a downstream interaction.
+func (h Harness[M, T]) StartAt(model M) Session[M, T] =
+    Session[M, T](H = h, Model = model, HasQuit = false)
+
+// ----------------------------------------------------------------------------
+// Driving input.
+// ----------------------------------------------------------------------------
+
+// Press dispatches an arbitrary KeyEvent through `KeyToMsg`, runs the
+// resulting Msg through `Update`, and re-dispatches any synchronously
+// emitted follow-up Msgs (the same way the runtime does).
+//
+//     s.Press(PlainKey(Enter()))
+//     s.Press(Ctrl(Char('s')))
+func (s Session[M, T]) Press(ev KeyEvent) Session[M, T] =
+    s.dispatchMsg(s.H.dispatchKey(ev))
+
+// PressCtrl is shorthand for `s.Press(Ctrl(Char(c)))`.
+//
+//     s.PressCtrl('p')              // open palette
+func (s Session[M, T]) PressCtrl(c rune) Session[M, T] =
+    s.Press(Ctrl(Char(c)))
+
+// PressAlt is shorthand for `s.Press(AltK(Char(c)))`.
+func (s Session[M, T]) PressAlt(c rune) Session[M, T] =
+    s.Press(AltK(Char(c)))
+
+// PressShift wraps `key` in a Shift modifier.
+func (s Session[M, T]) PressShift(k Key) Session[M, T] =
+    s.Press(ShiftK(k))
+
+// Type runs each rune of `s` through the harness as a `Char(c)` keypress.
+// Newlines become Enter, Tab becomes Tab, Esc passes through. Useful for
+// filling input fields and stress-testing the command palette.
+//
+//     session.Type("hello\nworld")  // 'h','e','l','l','o',Enter,'w','o','r','l','d'
+func (s Session[M, T]) Type(text string) Session[M, T] {
+    var cur = s
+    for _, r := range text {
+        cur = cur.Press(harnessRuneToKey(r))
+    }
+    return cur
+}
+
+// Click delivers a left-button mouse press at (x, y) — the most common
+// mouse interaction in TUI apps.
+//
+//     session.Click(10, 5)          // simulate clicking row 5, col 10
+//
+// For NewHarness (key-only) Sessions, this is a no-op.
+func (s Session[M, T]) Click(x int, y int) Session[M, T] =
+    s.SendInput(MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true)))
+
+// ClickAt is the explicit form — pick any mouse button (middle, right,
+// scroll wheel, etc.).
+//
+//     session.ClickAt(0, 0, MouseRight())
+func (s Session[M, T]) ClickAt(x int, y int, btn MouseButton) Session[M, T] =
+    s.SendInput(MouseInput(Ev = MouseEvent(Btn = btn, X = x, Y = y, Pressed = true)))
+
+// Release fires the matching button-release event for a previous click.
+// Apps with drag handlers (e.g., column resize) need both press + release.
+func (s Session[M, T]) Release(x int, y int, btn MouseButton) Session[M, T] =
+    s.SendInput(MouseInput(Ev = MouseEvent(Btn = btn, X = x, Y = y, Pressed = false)))
+
+// Scroll fires a wheel event at (x, y). `up` chooses the direction;
+// equivalent to MouseScrollUp() / MouseScrollDown().
+//
+//     session.Scroll(0, 0, up = true)
+func (s Session[M, T]) Scroll(x int, y int, up bool) Session[M, T] {
+    val btn = if (up) MouseScrollUp() else MouseScrollDown()
+    return s.SendInput(MouseInput(Ev = MouseEvent(Btn = btn, X = x, Y = y, Pressed = true)))
+}
+
+// Resize delivers a terminal resize event. Apps that maintain layout state
+// (sticky panel widths, viewport heights) should react to this Msg.
+//
+//     session.Resize(120, 40)
+func (s Session[M, T]) Resize(w int, h int) Session[M, T] =
+    s.SendInput(ResizeInput(W = w, H = h))
+
+// SendInput dispatches any InputEvent — useful for synthesizing complex
+// mouse sequences or driving custom InputEvent variants.
+func (s Session[M, T]) SendInput(ev InputEvent) Session[M, T] =
+    s.dispatchMsg(s.H.dispatchInput(ev))
+
+// SendMsg dispatches a pre-built Msg directly, bypassing input
+// translation. Use it to simulate a timer tick, an async result arriving,
+// or any event the app receives outside of input.
+//
+//     session.SendMsg(TimerFired())
+//     session.SendMsg(DataLoaded(payload))
+func (s Session[M, T]) SendMsg(msg T) Session[M, T] =
+    s.dispatchMsg(msg)
+
+// Wait dispatches `n` consecutive NoOp-ish keypresses (PlainKey(Unknown())).
+// Use it to advance state in apps that count idle ticks (e.g., a spinner
+// frame), or to verify nothing else changes during quiet periods.
+func (s Session[M, T]) Wait(n int) Session[M, T] {
+    var cur = s
+    var i = 0
+    for i < n {
+        cur = cur.Press(PlainKey(Unknown()))
+        i = i + 1
+    }
+    return cur
+}
+
+// dispatchMsg is the single-update + synchronous-redispatch pipeline that
+// every input helper funnels through.
+func (s Session[M, T]) dispatchMsg(msg T) Session[M, T] {
+    if s.HasQuit { return s }
+    val (newModel, cmd) = s.H.Program.Update(s.Model, msg)
+    if IsQuit(cmd) {
+        return Session[M, T](H = s.H, Model = newModel, HasQuit = true)
+    }
+    val emitted = PendingMsgs(cmd)
+    var cur = Session[M, T](H = s.H, Model = newModel, HasQuit = false)
+    var i = 0
+    val n = emitted.Length()
+    for i < n {
+        if cur.HasQuit { return cur }
+        val (m, c) = s.H.Program.Update(cur.Model, emitted.Get(i))
+        cur = Session[M, T](H = s.H, Model = m, HasQuit = IsQuit(c))
+        i = i + 1
+    }
+    return cur
+}
+
+// ----------------------------------------------------------------------------
+// Inspection.
+// ----------------------------------------------------------------------------
+
+// Buffer renders the current model into a fresh Buffer of the harness's
+// Width × Height. Use this when you need access to per-cell styles or
+// non-text rendering (border glyphs, color SGRs, …).
+//
+//     val buf = session.Buffer()
+//     IsTrue(t, buf.StyleAt(0, 0).Bold)
+func (s Session[M, T]) Buffer() *Buffer {
+    var buf = NewBuffer(s.H.Width, s.H.Height)
+    RenderTo(s.H.Program.View(s.Model),
+        Rect(X = 0, Y = 0, Width = s.H.Width, Height = s.H.Height), buf)
+    return buf
+}
+
+// Text returns the rendered view as a single string with `\n` between rows
+// (no trailing newline). The most common assertion target.
+//
+//     val t = session.Text()
+//     IsTrue(t, HarnessContains(t, "OK"))
+func (s Session[M, T]) Text() string =
+    Snapshot(s.H.Program.View(s.Model), s.H.Width, s.H.Height)
+
+// Row returns just the y-th row of the rendered view as a plain string,
+// padded to the harness Width. Out-of-range y returns "".
+//
+//     Eq(t, session.Row(0), "  Title    ")
+func (s Session[M, T]) Row(y int) string {
+    if y < 0 || y >= s.H.Height { return "" }
+    return rowText(s.Buffer(), y)
+}
+
+// CharAt returns the rune at (x, y), or ' ' for out-of-bounds.
+func (s Session[M, T]) CharAt(x int, y int) rune = s.Buffer().CharAt(x, y)
+
+// StyleAt returns the Style at (x, y).
+func (s Session[M, T]) StyleAt(x int, y int) Style = s.Buffer().StyleAt(x, y)
+
+// ----------------------------------------------------------------------------
+// Built-in matchers.
+// ----------------------------------------------------------------------------
+
+// Contains reports whether `needle` appears anywhere in the rendered text.
+// Rune-aware (handles CJK / emoji widths correctly).
+//
+//     IsTrue(t, session.Contains("Save File"))
+func (s Session[M, T]) Contains(needle string) bool =
+    HarnessContains(s.Text(), needle)
+
+// RowEquals checks that row `y` exactly matches `expected` (after padding
+// to the harness's Width — so include trailing spaces if the row is short).
+func (s Session[M, T]) RowEquals(y int, expected string) bool =
+    s.Row(y) == expected
+
+// RowContains checks that row `y` contains `needle` as a substring.
+func (s Session[M, T]) RowContains(y int, needle string) bool =
+    HarnessContains(s.Row(y), needle)
+
+// HasStyleAt returns true if the Style at (x, y) satisfies `pred`. Common
+// uses: `(s) => s.Bold`, `(s) => s.Reverse`, `(s) => ColorEq(s.Fg, Red())`.
+func (s Session[M, T]) HasStyleAt(x int, y int, pred func(Style) bool) bool =
+    pred(s.StyleAt(x, y))
+
+// FindCell returns the (x, y) of the first cell whose rune equals `target`,
+// or None if not found. Useful for "where did the cursor land?" assertions.
+func (s Session[M, T]) FindCell(target rune) Option[Tuple[int, int]] =
+    HarnessFindCellWith(s.Buffer(), target)
+
+// FindRow returns the y of the first row containing `needle`, or None.
+//
+//     IsTrue(t, session.FindRow("Quit").IsDefined())
+func (s Session[M, T]) FindRow(needle string) Option[int] {
+    var y = 0
+    for y < s.H.Height {
+        if HarnessContains(s.Row(y), needle) {
+            return Some[int](y)
+        }
+        y = y + 1
+    }
+    return None[int]()
+}
+
+// ----------------------------------------------------------------------------
+// Time-travel: drive a sequence and capture every intermediate state.
+// ----------------------------------------------------------------------------
+
+// HarnessStep is a single input-event-producing step in a scripted test.
+// Provided as a sealed type so test scripts can mix key, mouse, and resize
+// events in one Array.
+sealed type HarnessStep[T any] {
+    case StepKey(Ev KeyEvent)
+    case StepInput(Ev InputEvent)
+    case StepType(Text string)
+    case StepMsg(Msg T)
+    case StepClick(X int, Y int)
+    case StepScroll(X int, Y int, Up bool)
+    case StepResize(W int, H int)
+    case StepWait(N int)
+}
+
+// RunSequence applies every step in order and returns only the final
+// Session — quickest path when you don't care about intermediate states.
+func (h Harness[M, T]) RunSequence(steps Array[HarnessStep[T]]) Session[M, T] {
+    var cur = h.Start()
+    cur = applySteps(cur, steps)
+    return cur
+}
+
+// Trace applies every step in order and returns the Session AFTER each
+// step (length = steps.Length() + 1, with the initial Session at index 0).
+//
+// Use it when a test needs to assert on intermediate states — for example,
+// "the toast appeared after step 2 and was gone after step 5".
+func (h Harness[M, T]) Trace(steps Array[HarnessStep[T]]) Array[Session[M, T]] {
+    var states = ArrayOf[Session[M, T]](h.Start())
+    var cur = h.Start()
+    var i = 0
+    val n = steps.Length()
+    for i < n {
+        cur = applyStep(cur, steps.Get(i))
+        states = states.Append(cur)
+        i = i + 1
+    }
+    return states
+}
+
+func applySteps[M any, T any](s Session[M, T], steps Array[HarnessStep[T]]) Session[M, T] {
+    var cur = s
+    var i = 0
+    val n = steps.Length()
+    for i < n {
+        cur = applyStep(cur, steps.Get(i))
+        i = i + 1
+    }
+    return cur
+}
+
+func applyStep[M any, T any](s Session[M, T], step HarnessStep[T]) Session[M, T] {
+    return step match {
+        case StepKey(ev)         => s.Press(ev)
+        case StepInput(ev)       => s.SendInput(ev)
+        case StepType(t)         => s.Type(t)
+        case StepMsg(m)          => s.SendMsg(m)
+        case StepClick(x, y)     => s.Click(x, y)
+        case StepScroll(x, y, u) => s.Scroll(x, y, u)
+        case StepResize(w, h)    => s.Resize(w, h)
+        case StepWait(n)         => s.Wait(n)
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Stand-alone helpers (work without a Session — handy for spot assertions).
+// ----------------------------------------------------------------------------
+
+// HarnessContains is the rune-aware substring scanner used by every
+// `.Contains` and `.RowContains` matcher. Exposed because tests sometimes
+// assert against strings that didn't come from a Session.
+func HarnessContains(rendered string, needle string) bool {
+    val h = harnessRunes(rendered)
+    val n = harnessRunes(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        if harnessMatchAt(h, n, i) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// HarnessFindCellWith scans the buffer for the first cell with the given
+// rune. Stand-alone so tests can use it on a Buffer they assembled by
+// hand (e.g., post-processing a Snapshot).
+func HarnessFindCellWith(buf *Buffer, target rune) Option[Tuple[int, int]] {
+    var y = 0
+    for y < buf.Height {
+        var x = 0
+        for x < buf.Width {
+            if buf.CharAt(x, y) == target {
+                return Some[Tuple[int, int]]((x, y))
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return None[Tuple[int, int]]()
+}
+
+// PrintHarnessFrame renders `session` and writes a labeled, framed dump
+// of every row to stdout. Designed for the moment a test fails and you
+// need to see what's actually on screen — drop this into the failing
+// test, run it once, paste the output into the bug ticket.
+//
+//     PrintHarnessFrame(session)
+//     // ┌─[ 80×24 ]────────────────────────────────────────────…
+//     // │  ⛩  gala-tui — system monitor  │ ●● │ load ▓▓▓▓░░░░░░ │
+//     // │ … row by row …
+//     // └────────────────────────────────────────────…
+func PrintHarnessFrame[M any, T any](session Session[M, T]) {
+    val w = session.H.Width
+    val h = session.H.Height
+    val border = harnessBorderRow(w)
+    Println(s"┌─[ ${w}×${h} ]" + border)
+    var y = 0
+    for y < h {
+        Println("│" + session.Row(y) + "│")
+        y = y + 1
+    }
+    Println("└" + border + "─────────")
+}
+
+func harnessBorderRow(w int) string {
+    var s = ""
+    var i = 0
+    val target = w + 5
+    for i < target {
+        s = s + "─"
+        i = i + 1
+    }
+    return s
+}
+
+// ----------------------------------------------------------------------------
+// Internal helpers.
+// ----------------------------------------------------------------------------
+
+func harnessRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
+func harnessMatchAt(hay Array[rune], needle Array[rune], offset int) bool {
+    val nn = needle.Length()
+    var j = 0
+    for j < nn {
+        if hay.Get(offset + j) != needle.Get(j) { return false }
+        j = j + 1
+    }
+    return true
+}
+
+func harnessRuneToKey(r rune) KeyEvent {
+    if r == '\n' { return PlainKey(Enter()) }
+    if r == '\t' { return PlainKey(Tab()) }
+    if r == rune(0x1B) { return PlainKey(Esc()) }
+    return PlainKey(Char(r))
+}

@@ -160,12 +160,13 @@ func blocksOfKind(blocks Array[MdBlock], kind string) int {
     val n = blocks.Length()
     for i < n {
         val matched = blocks.Get(i) match {
-            case MdHeading(_, _)   => kind == "heading"
-            case MdParagraph(_)    => kind == "paragraph"
-            case MdBullet(_)       => kind == "bullet"
-            case MdNumbered(_, _)  => kind == "numbered"
-            case MdRule()          => kind == "rule"
-            case MdBlank()         => kind == "blank"
+            case MdHeading(_, _)        => kind == "heading"
+            case MdParagraph(_)         => kind == "paragraph"
+            case MdBullet(_)            => kind == "bullet"
+            case MdNumbered(_, _)       => kind == "numbered"
+            case MdCodeBlock(_, _)      => kind == "code"
+            case MdRule()               => kind == "rule"
+            case MdBlank()              => kind == "blank"
         }
         if matched { count = count + 1 }
         i = i + 1

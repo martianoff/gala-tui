@@ -1,4 +1,4 @@
-package gala_tui
+package state
 
 import (
     . "martianoff/gala/collection_immutable"

@@ -1,0 +1,190 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Syntax highlighter + fenced code block tests.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Tokenizer
+// ----------------------------------------------------------------------------
+
+func TestTokenizeKeyword(t T) T {
+    val toks = tokenize("if x { return 1 }", "go")
+    return IsTrue(t, anyTokenOfKind(toks, "keyword"))
+}
+
+func TestTokenizeStringLiteral(t T) T {
+    val toks = tokenize("name = \"alice\"", "go")
+    return IsTrue(t, anyTokenOfKind(toks, "string"))
+}
+
+func TestTokenizeNumberLiteral(t T) T {
+    val toks = tokenize("count := 42 + 3.14", "go")
+    return IsTrue(t, anyTokenOfKind(toks, "number"))
+}
+
+func TestTokenizeLineComment(t T) T {
+    val toks = tokenize("x := 1  // inline comment", "go")
+    return IsTrue(t, anyTokenOfKind(toks, "comment"))
+}
+
+func TestTokenizePythonHashComment(t T) T {
+    val toks = tokenize("x = 1  # Python comment", "python")
+    return IsTrue(t, anyTokenOfKind(toks, "comment"))
+}
+
+func TestTokenizeShellComment(t T) T {
+    val toks = tokenize("rm /tmp/foo  # cleanup", "bash")
+    return IsTrue(t, anyTokenOfKind(toks, "comment"))
+}
+
+func TestTokenizeIdentNotKeyword(t T) T {
+    val toks = tokenize("foo bar", "go")
+    val onlyIdents = !anyTokenOfKind(toks, "keyword")
+    return IsTrue(t, onlyIdents)
+}
+
+func TestTokenizeUnknownLanguageHasNoKeywords(t T) T {
+    val toks = tokenize("if foo then bar", "fortran-77")
+    val noKw = !anyTokenOfKind(toks, "keyword")
+    return IsTrue(t, noKw)
+}
+
+func TestTokenizeRust(t T) T {
+    val toks = tokenize("fn main() { let x = 1; }", "rust")
+    return IsTrue(t, anyTokenOfKind(toks, "keyword"))
+}
+
+func TestTokenizeGalaKeywords(t T) T {
+    val toks = tokenize("val x = 42", "gala")
+    return IsTrue(t, anyTokenOfKind(toks, "keyword"))
+}
+
+// ----------------------------------------------------------------------------
+// HighlightLine rendering
+// ----------------------------------------------------------------------------
+
+func TestHighlightLineKeywordIsMagentaBold(t T) T {
+    var buf = NewBuffer(40, 1)
+    RenderTo(HighlightLine("if cond { 1 }", "go"),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    // ' ' at col 0 (leading pad), 'i' of "if" at col 1 → bold magenta.
+    val t1 = IsTrue(t, buf.StyleAt(1, 0).Bold)
+    return IsTrue(t1, ColorEq(buf.StyleAt(1, 0).Fg, BrightMagenta()))
+}
+
+func TestHighlightLineStringIsGreen(t T) T {
+    var buf = NewBuffer(40, 1)
+    RenderTo(HighlightLine("x = \"hi\"", "go"),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    // Find the position of '"'. Assume " starts at col 5 (' x = ').
+    return IsTrue(t, ColorEq(buf.StyleAt(5, 0).Fg, BrightGreen()))
+}
+
+// ----------------------------------------------------------------------------
+// Markdown fenced code blocks
+// ----------------------------------------------------------------------------
+
+func TestMarkdownFencedCodeBlockParsed(t T) T {
+    val src = "before\n\n```go\nfunc main() { }\n```\n\nafter"
+    val blocks = ParseMarkdown(src)
+    val codeCount = blocksOfKind(blocks, "code")
+    return Eq(t, codeCount, 1)
+}
+
+func TestMarkdownFencedCodeBlockExtractsLang(t T) T {
+    val src = "```python\nprint('hi')\n```"
+    val blocks = ParseMarkdown(src)
+    val first = blocks.Get(0)
+    val isCodeWithLang = first match {
+        case MdCodeBlock(lang, _) => lang == "python"
+        case _                    => false
+    }
+    return IsTrue(t, isCodeWithLang)
+}
+
+func TestMarkdownFencedCodeBlockKeepsLines(t T) T {
+    val src = "```go\nline1\nline2\nline3\n```"
+    val blocks = ParseMarkdown(src)
+    val lineCount = blocks.Get(0) match {
+        case MdCodeBlock(_, lines) => lines.Length()
+        case _                      => -1
+    }
+    return Eq(t, lineCount, 3)
+}
+
+func TestMarkdownFencedCodeBlockNoLangIsBlankString(t T) T {
+    val src = "```\nplain code\n```"
+    val blocks = ParseMarkdown(src)
+    val emptyLang = blocks.Get(0) match {
+        case MdCodeBlock(lang, _) => lang == ""
+        case _                    => false
+    }
+    return IsTrue(t, emptyLang)
+}
+
+func TestMarkdownFencedCodeBlockRendersWithBorder(t T) T {
+    val src = "```go\nprintln(\"hi\")\n```"
+    val widget = MarkdownView(src)
+    var buf = NewBuffer(20, 5)
+    RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 5), buf)
+    val joined = stitchSyntaxRows(buf)
+    return IsTrue(t, syntaxRowHas(joined, "println"))
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+func anyTokenOfKind(toks Array[SyntaxToken], kind string) bool =
+    toks.Exists((tok) => tokenKindMatches(tok, kind))
+
+func tokenKindMatches(tok SyntaxToken, kind string) bool {
+    return tok match {
+        case TokKeyword(_)  => kind == "keyword"
+        case TokString(_)   => kind == "string"
+        case TokNumber(_)   => kind == "number"
+        case TokComment(_)  => kind == "comment"
+        case TokIdent(_)    => kind == "ident"
+        case TokPunct(_)    => kind == "punct"
+    }
+}
+
+func stitchSyntaxRows(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func syntaxRowHas(hay string, needle string) bool {
+    val h = syntaxRunes(hay)
+    val n = syntaxRunes(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}

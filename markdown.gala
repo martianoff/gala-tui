@@ -34,6 +34,7 @@ sealed type MdBlock {
     case MdParagraph(Inlines Array[MdInline])
     case MdBullet(Inlines Array[MdInline])
     case MdNumbered(Num int, Inlines Array[MdInline])
+    case MdCodeBlock(Lang string, Lines Array[string])
     case MdRule()
     case MdBlank()
 }
@@ -57,6 +58,24 @@ func ParseMarkdown(source string) Array[MdBlock] {
     var paragraphBuf = ""
     for i < n {
         val line = lines.Get(i)
+        if mdIsFenceOpen(line) {
+            if paragraphBuf != "" {
+                out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+                paragraphBuf = ""
+            }
+            val lang = mdFenceLang(line)
+            // Collect lines until the matching close fence (or end of file).
+            var bodyLines = EmptyArray[string]()
+            i = i + 1
+            for i < n && !mdIsFenceClose(lines.Get(i)) {
+                bodyLines = bodyLines.Append(lines.Get(i))
+                i = i + 1
+            }
+            out = out.Append(MdCodeBlock(Lang = lang, Lines = bodyLines))
+            // Skip the closing fence line (if present).
+            i = i + 1
+            continue
+        }
         if line == "" {
             if paragraphBuf != "" {
                 out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
@@ -216,6 +235,31 @@ func mdStripNumberedPrefix(line string) string {
 func mdIsRule(line string) bool {
     if line != "---" && line != "***" { return false }
     return true
+}
+
+// mdIsFenceOpen detects a fenced code-block opening line: ``` or ```lang.
+func mdIsFenceOpen(line string) bool {
+    val rs = mdRunes(line)
+    val n = rs.Length()
+    if n < 3 { return false }
+    return rs.Get(0) == '`' && rs.Get(1) == '`' && rs.Get(2) == '`'
+}
+
+// mdIsFenceClose matches exactly ``` (no language tag).
+func mdIsFenceClose(line string) bool = line == "```"
+
+// mdFenceLang extracts the language tag from a fenced opener (whatever
+// follows the three backticks). Empty string when no tag is present.
+func mdFenceLang(line string) string {
+    val rs = mdRunes(line)
+    var out = ""
+    var i = 3
+    val n = rs.Length()
+    for i < n {
+        out = out + string(rs.Get(i))
+        i = i + 1
+    }
+    return out
 }
 
 func mdSplitLines(s string) Array[string] {
@@ -387,12 +431,13 @@ func renderMdBlocks(blocks Array[MdBlock]) Widget {
 
 func renderMdBlockHeight(b MdBlock) int {
     return b match {
-        case MdHeading(_, _)   => 1
-        case MdParagraph(_)    => 1
-        case MdBullet(_)       => 1
-        case MdNumbered(_, _)  => 1
-        case MdRule()          => 1
-        case MdBlank()         => 1
+        case MdHeading(_, _)        => 1
+        case MdParagraph(_)         => 1
+        case MdBullet(_)            => 1
+        case MdNumbered(_, _)       => 1
+        case MdCodeBlock(_, lines)  => maxInt(3, lines.Length() + 3)   // title + top border + lines + bottom border
+        case MdRule()               => 1
+        case MdBlank()              => 1
     }
 }
 
@@ -410,9 +455,28 @@ func renderMdBlock(b MdBlock) Widget {
                 Fixed(4, TextStyled(s"$num. ", DefaultStyle().WithBold())),
                 Flex(1, renderMdInlineRow(inlines)),
             ))
+        case MdCodeBlock(lang, lines)     => renderMdCodeBlock(lang, lines)
         case MdRule()                     => FillCh('─')
         case MdBlank()                    => Empty()
     }
+}
+
+// renderMdCodeBlock paints fenced ``` code blocks with a thin border, the
+// language tag in dim text on the top edge, and per-line syntax-highlighted
+// content. The highlighter is intentionally minimal — a single tokenizer
+// distinguishes keywords, string literals, numeric literals, and comments
+// for a handful of popular languages. Apps that want a full PrismJS-class
+// highlighter can pre-format their content and skip MarkdownView's renderer.
+func renderMdCodeBlock(lang string, lines Array[string]) Widget {
+    val rows = lines.Map((line) => Fixed(1, highlightCodeLine(line, lang)))
+    val title = if (lang == "") " code "
+                else " " + lang + " "
+    val titleW = TextStyled(title, DefaultStyle().WithDim().WithBold())
+    val body = Column(rows)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, titleW),
+        Flex(1, BorderOf(body, RoundedBorder())),
+    ))
 }
 
 func renderMdHeading(level int, inlines Array[MdInline]) Widget {

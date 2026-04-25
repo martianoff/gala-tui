@@ -1,0 +1,63 @@
+package state
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// FocusManager tests.
+// ============================================================================
+
+func TestFocusStartsOnFirstPane(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val t1 = Eq(t, fm.Current(), "a")
+    return IsTrue(t1, fm.IsFocused("a"))
+}
+
+func TestFocusNextAdvancesAndWraps(t T) T {
+    val fm0 = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val fm1 = fm0.Next()
+    val fm2 = fm1.Next()
+    val fm3 = fm2.Next()
+    val t1 = Eq(t, fm1.Current(), "b")
+    val t2 = Eq(t1, fm2.Current(), "c")
+    return Eq(t2, fm3.Current(), "a")
+}
+
+func TestFocusPrevSteppingBackWraps(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val back = fm.Prev()
+    return Eq(t, back.Current(), "c")
+}
+
+func TestFocusOnJumpsToNamedPane(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c"))
+    val jumped = fm.FocusOn("c")
+    return Eq(t, jumped.Current(), "c")
+}
+
+func TestFocusOnUnknownIsUnchanged(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b"))
+    val same = fm.FocusOn("z")
+    return Eq(t, same.Current(), "a")
+}
+
+func TestFocusStartAtNamedPane(t T) T {
+    val fm = NewFocusManagerAt(ArrayOf[string]("a", "b", "c"), "b")
+    return Eq(t, fm.Current(), "b")
+}
+
+func TestFocusEmptyRingIsSafe(t T) T {
+    val fm = NewFocusManager(EmptyArray[string]())
+    val t1 = Eq(t, fm.Current(), "")
+    val next = fm.Next()
+    return Eq(t1, next.Current(), "")
+}
+
+func TestFocusIsFocusedDistinguishes(t T) T {
+    val fm = NewFocusManager(ArrayOf[string]("a", "b", "c")).Next()
+    val t1 = IsFalse(t, fm.IsFocused("a"))
+    val t2 = IsTrue(t1, fm.IsFocused("b"))
+    return IsFalse(t2, fm.IsFocused("c"))
+}

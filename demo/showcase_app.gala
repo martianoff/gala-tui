@@ -1,6 +1,7 @@
-package gala_tui
+package main
 
 import (
+    . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
 )
 
@@ -269,7 +270,7 @@ func showcaseAppendRing(xs Array[int], v int, cap int) Array[int] {
 }
 
 func showcaseDropLastRune(s string) string {
-    val total = runeCount(s)
+    val total = RuneCount(s)
     if total == 0 {
         return s
     }
@@ -378,7 +379,7 @@ func showcaseProcessTable(m ShowcaseModel) Widget {
 
 func showcaseRightPanel(m ShowcaseModel) Widget {
     val prompt = TextStyled(" » ", DefaultStyle().WithBold().WithFg(BrightYellow()))
-    val input = Input(m.Palette, runeCount(m.Palette), "type a command…")
+    val input = Input(m.Palette, RuneCount(m.Palette), "type a command…")
     val promptRow = Row(ArrayOf[LayoutChild](
         Fixed(3, prompt),
         Flex(1, input),

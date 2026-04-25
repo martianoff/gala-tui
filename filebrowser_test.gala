@@ -1,0 +1,126 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// FileBrowser tests — drive real filesystem reads against the project root,
+// then exercise the pure update/view paths.
+// ============================================================================
+
+func TestFileBrowserOpensCurrentDir(t T) T {
+    val b = FileBrowserOpen(".")
+    return IsTrue(t, b.Entries.NonEmpty())
+}
+
+func TestFileBrowserStartsAtZero(t T) T =
+    Eq(t, FileBrowserOpen(".").Selected, 0)
+
+func TestFileBrowserDownAdvances(t T) T {
+    val b1 = FileBrowserUpdate(FileBrowserOpen("."), FBDown())
+    return IsTrue(t, b1.Selected > 0)
+}
+
+func TestFileBrowserUpClampsAtZero(t T) T {
+    val b1 = FileBrowserUpdate(FileBrowserOpen("."), FBUp())
+    return Eq(t, b1.Selected, 0)
+}
+
+func TestFileBrowserAlwaysOffersParent(t T) T {
+    val b = FileBrowserOpen(".")
+    val firstName = b.Entries.Get(0).Name
+    return Eq(t, firstName, "..")
+}
+
+func TestFileBrowserHidesDotFiles(t T) T {
+    val b = FileBrowserOpen(".")
+    val hasGitignore = b.Entries.Exists((e) => e.Name == ".gitignore")
+    return IsFalse(t, hasGitignore)
+}
+
+func TestFileBrowserPickedNoneInitially(t T) T {
+    val b = FileBrowserOpen(".")
+    return IsFalse(t, b.Picked.IsDefined())
+}
+
+func TestFileBrowserEnterOnDirDescends(t T) T {
+    val b0 = FileBrowserOpen(".")
+    // Find a directory entry (not "..").
+    val maybe = b0.Entries.Find((e) => e.IsDir && e.Name != "..")
+    if !maybe.IsDefined() { return IsTrue(t, true) }    // skip — no subdir
+    val targetIdx = b0.Entries.IndexOf(maybe.Get())
+    val b1 = b0.Copy(Selected = targetIdx)
+    val b2 = FileBrowserUpdate(b1, FBEnter())
+    return IsTrue(t, b2.Cwd != b0.Cwd)
+}
+
+// ----------------------------------------------------------------------------
+// Path helpers
+// ----------------------------------------------------------------------------
+
+func TestJoinPathSimple(t T) T =
+    Eq(t, joinPath("/foo", "bar"), "/foo/bar")
+
+func TestJoinPathHandlesParent(t T) T {
+    // ".." should ascend rather than concatenate.
+    val parent = joinPath("/foo/bar", "..")
+    return Eq(t, parent, "/foo")
+}
+
+func TestParentPathFlatRoot(t T) T =
+    Eq(t, parentPath("/foo"), "/")
+
+func TestParentPathAlreadyRootStays(t T) T {
+    val p = parentPath("/")
+    // "/" has no separator above, parentPath returns it unchanged.
+    return IsTrue(t, p == "/" || p == "")
+}
+
+// ----------------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------------
+
+func TestFileBrowserViewRendersBreadcrumb(t T) T {
+    val b = FileBrowserOpen(".")
+    var buf = NewBuffer(40, 8)
+    RenderTo(FileBrowserView(b), Rect(X = 0, Y = 0, Width = 40, Height = 8), buf)
+    val joined = stitchFbRows(buf)
+    return IsTrue(t, fbRowHas(joined, ".."))
+}
+
+func stitchFbRows(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func fbRowHas(hay string, needle string) bool {
+    val h = mdRunes(hay)
+    val n = mdRunes(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}

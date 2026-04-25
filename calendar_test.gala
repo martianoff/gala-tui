@@ -1,0 +1,129 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Calendar widget tests.
+// ============================================================================
+
+func TestCalendarStartsAtGivenDate(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    val t1 = Eq(t, c.Year, 2026)
+    val t2 = Eq(t1, c.Month, 4)
+    return Eq(t2, c.SelDay, 15)
+}
+
+func TestCalendarRightAdvancesByDay(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    val c1 = CalendarUpdate(c, CalDayRight())
+    return Eq(t, c1.SelDay, 16)
+}
+
+func TestCalendarLeftRetreats(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    val c1 = CalendarUpdate(c, CalDayLeft())
+    return Eq(t, c1.SelDay, 14)
+}
+
+func TestCalendarDownAdvancesByWeek(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    val c1 = CalendarUpdate(c, CalDayDown())
+    return Eq(t, c1.SelDay, 22)
+}
+
+func TestCalendarUpRetreatsByWeek(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    val c1 = CalendarUpdate(c, CalDayUp())
+    return Eq(t, c1.SelDay, 8)
+}
+
+func TestCalendarRightCrossesMonth(t T) T {
+    val c = NewCalendarAt(2026, 4, 30)
+    val c1 = CalendarUpdate(c, CalDayRight())
+    val t1 = Eq(t, c1.Month, 5)
+    return Eq(t1, c1.SelDay, 1)
+}
+
+func TestCalendarLeftCrossesMonthBoundary(t T) T {
+    val c = NewCalendarAt(2026, 5, 1)
+    val c1 = CalendarUpdate(c, CalDayLeft())
+    val t1 = Eq(t, c1.Month, 4)
+    return Eq(t1, c1.SelDay, 30)
+}
+
+func TestCalendarMonthNextAdvances(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    val c1 = CalendarUpdate(c, CalMonthNext())
+    return Eq(t, c1.Month, 5)
+}
+
+func TestCalendarMonthPrevWrapsYear(t T) T {
+    val c = NewCalendarAt(2026, 1, 15)
+    val c1 = CalendarUpdate(c, CalMonthPrev())
+    val t1 = Eq(t, c1.Year, 2025)
+    return Eq(t1, c1.Month, 12)
+}
+
+func TestCalendarMonthClampsDayWhenShorter(t T) T {
+    // Mar 31 → next month (Apr) only has 30 days.
+    val c = NewCalendarAt(2026, 3, 31)
+    val c1 = CalendarUpdate(c, CalMonthNext())
+    val t1 = Eq(t, c1.Month, 4)
+    return Eq(t1, c1.SelDay, 30)
+}
+
+func TestCalendarSelectedReturnsCorrectDate(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    val sel = c.Selected()
+    val t1 = Eq(t, sel.Year(), 2026)
+    return Eq(t1, sel.Day(), 15)
+}
+
+// ----------------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------------
+
+func TestCalendarViewRendersMonthName(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    var buf = NewBuffer(30, 8)
+    RenderTo(CalendarView(c), Rect(X = 0, Y = 0, Width = 30, Height = 8), buf)
+    val row0 = BufferText(buf, 0)
+    return IsTrue(t, fbRowHas(row0, "April"))
+}
+
+func TestCalendarViewSelectedDayIsReverse(t T) T {
+    val c = NewCalendarAt(2026, 4, 15)
+    var buf = NewBuffer(30, 8)
+    RenderTo(CalendarView(c), Rect(X = 0, Y = 0, Width = 30, Height = 8), buf)
+    // Walk the grid until we find a reverse cell — at least one cell
+    // (the selected day) should be reverse-styled.
+    var found = false
+    var y = 2
+    for y < 8 && !found {
+        var x = 0
+        for x < 30 && !found {
+            if buf.StyleAt(x, y).Reverse { found = true }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return IsTrue(t, found)
+}
+
+// ----------------------------------------------------------------------------
+// Integer formatting
+// ----------------------------------------------------------------------------
+
+func TestIntToStrZero(t T) T = Eq(t, intToStr(0), "0")
+func TestIntToStrPositive(t T) T = Eq(t, intToStr(2026), "2026")
+func TestIntToStrNegative(t T) T = Eq(t, intToStr(-42), "-42")
+
+func TestDaysInMonthFebLeap(t T) T {
+    // 2024 was a leap year, 2026 is not.
+    val t1 = Eq(t, daysInMonth(2024, 2), 29)
+    return Eq(t1, daysInMonth(2026, 2), 28)
+}
+
+func TestDaysInMonthApril(t T) T = Eq(t, daysInMonth(2026, 4), 30)

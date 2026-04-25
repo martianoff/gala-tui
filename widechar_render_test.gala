@@ -1,0 +1,100 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Wide-character rendering tests.
+//
+// Confirms that DrawText / renderText correctly:
+//   - reserves 2 cells for CJK / emoji / fullwidth glyphs
+//   - drops combining marks (no column consumption)
+//   - clips a wide glyph that would straddle the right edge
+// ============================================================================
+
+func TestRenderTextAsciiOneCellPerRune(t T) T {
+    var buf = NewBuffer(5, 1)
+    RenderTo(Text("hi"), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), 'h')
+    return Eq(t1, buf.CharAt(1, 0), 'i')
+}
+
+func TestRenderTextCjkTakesTwoCells(t T) T {
+    // 中 = U+4E2D (CJK ideograph, double-width)
+    var buf = NewBuffer(6, 1)
+    RenderTo(Text("a中b"), Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), 'a')
+    val t2 = Eq(t1, buf.CharAt(1, 0), rune(0x4E2D))
+    val t3 = Eq(t2, buf.CharAt(2, 0), ' ')                  // reserved trail
+    return Eq(t3, buf.CharAt(3, 0), 'b')
+}
+
+func TestRenderTextEmojiTakesTwoCells(t T) T {
+    // 🔥 = U+1F525
+    var buf = NewBuffer(5, 1)
+    RenderTo(Text("a🔥b"), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), 'a')
+    val t2 = Eq(t1, buf.CharAt(1, 0), rune(0x1F525))
+    val t3 = Eq(t2, buf.CharAt(2, 0), ' ')
+    return Eq(t3, buf.CharAt(3, 0), 'b')
+}
+
+func TestRenderTextCombiningMarkTakesZeroCells(t T) T {
+    // "e" + U+0301 (combining acute) — should advance only 1 cell.
+    val combined = "e" + string(rune(0x0301)) + "x"
+    var buf = NewBuffer(5, 1)
+    RenderTo(Text(combined), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    // 'e' at col 0, combining mark dropped (future: composed into 'e'),
+    // 'x' at col 1.
+    val t1 = Eq(t, buf.CharAt(0, 0), 'e')
+    return Eq(t1, buf.CharAt(1, 0), 'x')
+}
+
+func TestRenderTextWideGlyphAtEdgeIsClipped(t T) T {
+    // Width = 2 cells available, then a 2-cell glyph that fits exactly.
+    var buf = NewBuffer(2, 1)
+    RenderTo(Text("中"), Rect(X = 0, Y = 0, Width = 2, Height = 1), buf)
+    return Eq(t, buf.CharAt(0, 0), rune(0x4E2D))
+}
+
+func TestRenderTextWideGlyphHalfBeyondEdgeIsDropped(t T) T {
+    // Width = 1 cell available — the 2-cell glyph won't fit, drop it.
+    var buf = NewBuffer(1, 1)
+    RenderTo(Text("中"), Rect(X = 0, Y = 0, Width = 1, Height = 1), buf)
+    return Eq(t, buf.CharAt(0, 0), ' ')                     // unchanged from EmptyCell
+}
+
+func TestRenderTextMixedAsciiAndCjk(t T) T {
+    var buf = NewBuffer(10, 1)
+    RenderTo(Text("hi中国"), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    // h, i, 中, (sentinel), 国, (sentinel) → 6 cells used.
+    val t1 = Eq(t, buf.CharAt(0, 0), 'h')
+    val t2 = Eq(t1, buf.CharAt(1, 0), 'i')
+    val t3 = Eq(t2, buf.CharAt(2, 0), rune(0x4E2D))
+    val t4 = Eq(t3, buf.CharAt(4, 0), rune(0x56FD))
+    return Eq(t4, buf.CharAt(5, 0), ' ')
+}
+
+// ----------------------------------------------------------------------------
+// Buffer.DrawText (lower-level path)
+// ----------------------------------------------------------------------------
+
+func TestDrawTextAdvancesByGraphemeWidth(t T) T {
+    var buf = NewBuffer(8, 1)
+    val advanced = buf.DrawText(0, 0, "a中b", DefaultStyle())
+    return Eq(t, advanced, 4)                                // 1 + 2 + 1
+}
+
+func TestDrawTextEmojiAdvancesByTwo(t T) T {
+    var buf = NewBuffer(5, 1)
+    val advanced = buf.DrawText(0, 0, "🔥", DefaultStyle())
+    return Eq(t, advanced, 2)
+}
+
+func TestDrawTextCombiningMarkAdvancesByOne(t T) T {
+    val combined = "e" + string(rune(0x0301))
+    var buf = NewBuffer(5, 1)
+    val advanced = buf.DrawText(0, 0, combined, DefaultStyle())
+    return Eq(t, advanced, 1)
+}

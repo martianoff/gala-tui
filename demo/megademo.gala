@@ -1,6 +1,8 @@
-package gala_tui
+package main
 
 import (
+    . "github.com/martianoff/gala-tui"
+    "github.com/martianoff/gala-tui/state"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
     . "martianoff/gala/time_utils"
@@ -11,7 +13,7 @@ import (
 //
 // A simulated BUILD SERVER DASHBOARD exercising every major feature:
 //
-//   - ScreenStack routing (Overview / Builds / Pipelines / Logs / Help)
+//   - state.ScreenStack routing (Overview / Builds / Pipelines / Logs / Help)
 //   - Tabs within the Builds screen (Running / Succeeded / Failed)
 //   - Command palette (Ctrl+P) with fuzzy search over every action
 //   - DataTable of builds with sort + filter
@@ -76,8 +78,8 @@ sealed type MegaTheme {
 
 struct MegaModel(
     Tick           int,
-    Screens        ScreenStack,
-    Focus          FocusManager,
+    Screens        state.ScreenStack,
+    Focus          state.FocusManager,
     Palette        Palette[MegaMsg],
     PaletteOpen    bool,
     BuildsTable    DataTable,
@@ -88,7 +90,7 @@ struct MegaModel(
     Toasts         ToastQueue,
     ActiveTheme    MegaTheme,
     ConfirmAction  string,              // "" = no modal; non-empty = action being confirmed
-    Progress       Animation,
+    Progress       state.Animation,
     BuildTab       int,                 // 0 = Running, 1 = Succeeded, 2 = Failed
     Now            Instant,
 )
@@ -101,8 +103,8 @@ func NewMegaModel() MegaModel {
     val now = FromUnixNanos(int64(0))
     return MegaModel(
         Tick           = 0,
-        Screens        = NewScreenStack("overview"),
-        Focus          = NewFocusManager(ArrayOf[string]("sidebar", "table", "palette")),
+        Screens        = state.NewScreenStack("overview"),
+        Focus          = state.NewFocusManager(ArrayOf[string]("sidebar", "table", "palette")),
         Palette        = NewPalette[MegaMsg](megaPaletteActions()),
         PaletteOpen    = false,
         BuildsTable    = megaInitialBuildsTable(),
@@ -113,7 +115,7 @@ func NewMegaModel() MegaModel {
         Toasts         = NewToastQueue(5),
         ActiveTheme    = ThDark(),
         ConfirmAction  = "",
-        Progress       = SmoothTween(0, 100, now, Seconds(int64(10))),
+        Progress       = state.SmoothTween(0, 100, now, Seconds(int64(10))),
         BuildTab       = 0,
         Now            = now,
     )
@@ -214,8 +216,8 @@ func megaTick(m MegaModel) MegaModel {
     val newNow = m.Now.Plus(Milliseconds(int64(100)))
     val prunedToasts = m.Toasts.Prune(newNow)
     // Restart animation when it finishes — keep the progress bar alive.
-    val progress = if (Done(m.Progress, newNow))
-                     SmoothTween(0, 100, newNow, Seconds(int64(10)))
+    val progress = if (state.Done(m.Progress, newNow))
+                     state.SmoothTween(0, 100, newNow, Seconds(int64(10)))
                    else m.Progress
     return m.Copy(Tick = newTick, Now = newNow, Toasts = prunedToasts, Progress = progress)
 }
@@ -228,14 +230,22 @@ func megaTogglePalette(m MegaModel) MegaModel {
 }
 
 func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
+    // NOTE: see TRANSPILER_BUGS.md → BUG-6. Matching on a generic
+    // Option[T] (whether direct or through a `val` bind) loses T through
+    // the auto-unwrap. Until that's fixed we use the IsDefined / Get
+    // pair, which the transpiler handles correctly.
     val cur = m.Palette.Current()
-    if !cur.IsDefined() {
-        return (m.Copy(PaletteOpen = false), NoCmd[MegaMsg]())
+    if cur.IsDefined() {
+        val msg = paletteActionMsg(cur.Get())
+        return (m.Copy(PaletteOpen = false), MsgCmd[MegaMsg](Msg = msg))
     }
-    val picked = cur.Get().Msg
-    // Close palette, then dispatch the picked msg synchronously.
-    return (m.Copy(PaletteOpen = false), MsgCmd[MegaMsg](Msg = picked))
+    return (m.Copy(PaletteOpen = false), NoCmd[MegaMsg]())
 }
+
+// paletteActionMsg extracts the Msg from a PaletteAction[MegaMsg]. It's a
+// non-generic wrapper so the type parameter doesn't get erased when we
+// access `action.Msg` — see BUG-6 in TRANSPILER_BUGS.md.
+func paletteActionMsg(a PaletteAction[MegaMsg]) MegaMsg = a.Msg
 
 // Arrow keys are routed by *what's on screen*, not by the focus pane —
 // that matches user intuition: if a list is visible, arrows scroll it.
@@ -386,10 +396,10 @@ func megaHeader(m MegaModel, th Theme) Widget {
         DefaultStyle().WithBold().WithFg(BrightWhite()).On(Blue()))
     val spin = Spinner(BrailleSpinner(), m.Tick)
     val activeBuilds = megaCountStatus(m.BuildsTable, "Running")
-    val pct = TweenAt(m.Progress, m.Now)
+    val pct = state.TweenAt(m.Progress, m.Now)
     val progLabel = s"#4211 $pct%"
     val gauge = Row(ArrayOf[LayoutChild](
-        Fixed(runeCount(progLabel) + 2, TextStyled(" " + progLabel + " ",
+        Fixed(RuneCount(progLabel) + 2, TextStyled(" " + progLabel + " ",
             DefaultStyle().WithBold())),
         Flex(1, Gauge(pct)),
     ))
@@ -467,7 +477,7 @@ func megaOverviewMain(m MegaModel, th Theme) Widget {
 }
 
 func megaSummaryTiles(m MegaModel, th Theme) Widget {
-    val recent = m.BuildsTable.Rows.Slice(0, minInt(4, m.BuildsTable.Rows.Length()))
+    val recent = m.BuildsTable.Rows.Slice(0, MinInt(4, m.BuildsTable.Rows.Length()))
     val items = recent.Map((row) => Fixed(1, Text(
         " " + row.Get(0) + "  " + row.Get(1) + "  " + row.Get(2) + "  " + row.Get(3))))
     val children = ArrayOf[LayoutChild](

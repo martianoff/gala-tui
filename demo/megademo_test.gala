@@ -1,6 +1,7 @@
-package gala_tui
+package main
 
 import (
+    . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )

@@ -1,0 +1,221 @@
+package gala_tui
+
+import (
+    "time"
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Calendar / DatePicker widget.
+//
+// Displays a one-month grid (Sun-Mon-…-Sat columns by default) with a
+// movable selection cursor. Apps drive Up/Down/Left/Right + Enter and read
+// `Selected()` to retrieve the chosen date.
+//
+//     ↑ ↓ ← →    move cursor by week / day
+//     PgUp/PgDn  previous / next month
+//     Enter       confirm selection (the app handles this Msg directly)
+//     Esc        (handled by app)
+//
+// Calendar is a pure value — apps copy state forward each update().
+// ============================================================================
+
+struct Calendar(
+    Year   int,
+    Month  int,                        // 1..12
+    SelDay int,                        // currently-selected day-of-month (1..31)
+)
+
+// NewCalendar builds a calendar focused on today.
+func NewCalendar() Calendar {
+    val now = time.Now()
+    return Calendar(
+        Year   = now.Year(),
+        Month  = int(now.Month()),
+        SelDay = now.Day(),
+    )
+}
+
+// NewCalendarAt builds a calendar focused on a specific date.
+func NewCalendarAt(year int, month int, day int) Calendar =
+    Calendar(Year = year, Month = month, SelDay = day)
+
+// Selected returns the currently-selected date as a Go time.Time at midnight.
+func (c Calendar) Selected() time.Time =
+    time.Date(c.Year, time.Month(c.Month), c.SelDay, 0, 0, 0, 0, time.UTC)
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type CalendarEvent {
+    case CalDayLeft()
+    case CalDayRight()
+    case CalDayUp()
+    case CalDayDown()
+    case CalMonthPrev()
+    case CalMonthNext()
+    case CalNoOp()
+}
+
+func CalendarUpdate(c Calendar, ev CalendarEvent) Calendar {
+    return ev match {
+        case CalDayLeft()    => calStep(c, -1)
+        case CalDayRight()   => calStep(c, 1)
+        case CalDayUp()      => calStep(c, -7)
+        case CalDayDown()    => calStep(c, 7)
+        case CalMonthPrev()  => calMonth(c, -1)
+        case CalMonthNext()  => calMonth(c, 1)
+        case CalNoOp()       => c
+    }
+}
+
+// calStep advances/retreats the selected date by `delta` days, automatically
+// crossing month and year boundaries.
+func calStep(c Calendar, delta int) Calendar {
+    val current = c.Selected()
+    val moved = current.AddDate(0, 0, delta)
+    return Calendar(
+        Year   = moved.Year(),
+        Month  = int(moved.Month()),
+        SelDay = moved.Day(),
+    )
+}
+
+// calMonth jumps to the same day in the prev/next month, clamping the day
+// when the destination month is shorter.
+func calMonth(c Calendar, delta int) Calendar {
+    var newMonth = c.Month + delta
+    var newYear = c.Year
+    if newMonth < 1 {
+        newMonth = 12
+        newYear = newYear - 1
+    }
+    if newMonth > 12 {
+        newMonth = 1
+        newYear = newYear + 1
+    }
+    val maxDay = daysInMonth(newYear, newMonth)
+    val day = if (c.SelDay > maxDay) maxDay else c.SelDay
+    return Calendar(Year = newYear, Month = newMonth, SelDay = day)
+}
+
+// daysInMonth: 28-31 depending on month. Uses time.Date's normalisation.
+func daysInMonth(year int, month int) int {
+    val firstNext = time.Date(year, time.Month(month + 1), 0, 0, 0, 0, 0, time.UTC)
+    return firstNext.Day()
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// CalendarView renders the calendar as a header (Month YYYY) + Sun..Sat
+// column labels + 6 rows × 7 columns of day numbers. The selected day is
+// reverse-highlighted; today is bold.
+func CalendarView(c Calendar) Widget {
+    val title = TextStyled(
+        " " + monthName(c.Month) + " " + intToStr(c.Year) + " ",
+        DefaultStyle().WithBold().WithFg(BrightCyan()),
+    )
+    val dayLabels = Row(ArrayOf[LayoutChild](
+        Fixed(3, TextStyled(" Su", calLabelStyle())),
+        Fixed(3, TextStyled(" Mo", calLabelStyle())),
+        Fixed(3, TextStyled(" Tu", calLabelStyle())),
+        Fixed(3, TextStyled(" We", calLabelStyle())),
+        Fixed(3, TextStyled(" Th", calLabelStyle())),
+        Fixed(3, TextStyled(" Fr", calLabelStyle())),
+        Fixed(3, TextStyled(" Sa", calLabelStyle())),
+    ))
+    val today = time.Now()
+    val rows = calBuildGrid(c, today)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, title),
+        Fixed(1, dayLabels),
+        Flex(1, Column(rows)),
+    ))
+}
+
+func calLabelStyle() Style = DefaultStyle().WithDim().WithBold()
+
+// calBuildGrid produces 6 rows × 7 day-cells representing the month grid.
+// Empty cells (before the first / after the last) render as blanks.
+func calBuildGrid(c Calendar, today time.Time) Array[LayoutChild] {
+    val firstWeekday = int(time.Date(c.Year, time.Month(c.Month), 1, 0, 0, 0, 0, time.UTC).Weekday())
+    val totalDays = daysInMonth(c.Year, c.Month)
+    var rows = EmptyArray[LayoutChild]()
+    var week = 0
+    for week < 6 {
+        var cells = EmptyArray[LayoutChild]()
+        var col = 0
+        for col < 7 {
+            val cellIdx = week * 7 + col
+            val day = cellIdx - firstWeekday + 1
+            cells = cells.Append(Fixed(3, calDayCell(c, today, day, totalDays)))
+            col = col + 1
+        }
+        rows = rows.Append(Fixed(1, Row(cells)))
+        week = week + 1
+    }
+    return rows
+}
+
+func calDayCell(c Calendar, today time.Time, day int, totalDays int) Widget {
+    if day < 1 || day > totalDays {
+        return Text("   ")
+    }
+    val isSel = day == c.SelDay
+    val isToday = c.Year == today.Year() &&
+                  c.Month == int(today.Month()) &&
+                  day == today.Day()
+    val style = if (isSel) DefaultStyle().WithReverse().WithBold()
+                else if (isToday) DefaultStyle().WithBold().WithFg(BrightYellow())
+                else DefaultStyle()
+    return TextStyled(calPad(day), style)
+}
+
+// calPad formats a day number into a 3-cell string (" D " or " DD").
+func calPad(day int) string {
+    if day < 10 { return " " + intToStr(day) + " " }
+    return " " + intToStr(day)
+}
+
+// ----------------------------------------------------------------------------
+// Small helpers
+// ----------------------------------------------------------------------------
+
+func monthName(m int) string {
+    if m == 1  { return "January" }
+    if m == 2  { return "February" }
+    if m == 3  { return "March" }
+    if m == 4  { return "April" }
+    if m == 5  { return "May" }
+    if m == 6  { return "June" }
+    if m == 7  { return "July" }
+    if m == 8  { return "August" }
+    if m == 9  { return "September" }
+    if m == 10 { return "October" }
+    if m == 11 { return "November" }
+    return "December"
+}
+
+// intToStr renders a non-negative int in base 10. We avoid fmt.Sprintf
+// because GALA's interpolation already handles the common case; this is
+// the inner-loop fallback that doesn't pull in fmt.
+func intToStr(n int) string {
+    if n == 0 { return "0" }
+    var v = n
+    var neg = false
+    if v < 0 {
+        neg = true
+        v = -v
+    }
+    var rev = ""
+    for v > 0 {
+        val d = v % 10
+        rev = string(rune('0' + d)) + rev
+        v = v / 10
+    }
+    if neg { return "-" + rev }
+    return rev
+}

@@ -258,95 +258,56 @@ func Render(w Widget) string {
 }
 
 // RenderTo paints `w` into `buf`, restricted to the given `area`.
-//
-// NOTE: FIX-010 (match as statement) and FIX-009 (pointer-receiver type
-// inference) interact badly — bare statement-style `match` over Widget with
-// calls that take `*Buffer` arguments panics the transpiler at
-// type_inference_calls.go:333 (filed as BUG-gala_tui-014). Until that is
-// fixed, each arm returns a `true` sentinel and the whole match is wrapped
-// in `val _ = ...`.
 func RenderTo(w Widget, area Rect, buf *Buffer) {
     if area.Zero() {
         return
     }
-    val _ = w match {
-        case EmptyWidget() => true
-        case TextWidget(content, style) => {
+    w match {
+        case EmptyWidget() => {}
+        case TextWidget(content, style) =>
             renderText(content, style, area, buf)
-            true
-        }
-        case FillWidget(ch, style) => {
+        case FillWidget(ch, style) =>
             renderFill(ch, style, area, buf)
-            true
-        }
-        case BorderWidget(inner, kind) => {
+        case BorderWidget(inner, kind) =>
             renderBorder(inner, kind, area, buf)
-            true
-        }
-        case PaddingWidget(top, right, bottom, left, inner) => {
+        case PaddingWidget(top, right, bottom, left, inner) =>
             renderPadding(top, right, bottom, left, inner, area, buf)
-            true
-        }
-        case AlignWidget(inner, horiz, cw, ch) => {
+        case AlignWidget(inner, horiz, cw, ch) =>
             renderAlign(inner, horiz, cw, ch, area, buf)
-            true
-        }
         case OverlayWidget(bottom, top) => {
             RenderTo(bottom, area, buf)
             RenderTo(top, area, buf)
-            true
         }
-        case RowWidget(children) => {
+        case RowWidget(children) =>
             renderRow(children, area, buf)
-            true
-        }
-        case ColumnWidget(children) => {
+        case ColumnWidget(children) =>
             renderColumn(children, area, buf)
-            true
-        }
-        case StackWidget(layers) => {
+        case StackWidget(layers) =>
             layers.ForEach((layer) => RenderTo(layer, area, buf))
-            true
-        }
-        case ListW(items, sel, selStyle) => {
+        case ListW(items, sel, selStyle) =>
             renderList(items, sel, selStyle, area, buf)
-            true
-        }
-        case InputW(value, cursor, placeholder, style, phStyle) => {
+        case InputW(value, cursor, placeholder, style, phStyle) =>
             renderInput(value, cursor, placeholder, style, phStyle, area, buf)
-            true
-        }
         case ProgressW(pct, style) => {
             val bar = renderProgressBar(pct, area.Width, '█', '░')
             renderText(bar, style, area, buf)
-            true
         }
         case GaugeW(pct, style) => {
             val g = renderGauge(pct, area.Width)
             renderText(g, style, area, buf)
-            true
         }
-        case SpinnerW(kind, frame, style) => {
+        case SpinnerW(kind, frame, style) =>
             buf.Set(area.X, area.Y, Cell(Ch = SpinnerGlyph(kind, frame), St = style))
-            true
-        }
         case ButtonW(label, style, _) => {
             val padded = "[ " + label + " ]"
             renderText(padded, style, area, buf)
-            true
         }
-        case ParagraphW(content, style) => {
+        case ParagraphW(content, style) =>
             renderParagraph(content, style, area, buf)
-            true
-        }
-        case ViewportW(inner, offset, ch) => {
+        case ViewportW(inner, offset, ch) =>
             renderViewport(inner, offset, ch, area, buf)
-            true
-        }
-        case ScrollbarW(total, visible, offset, style) => {
+        case ScrollbarW(total, visible, offset, style) =>
             renderScrollbar(total, visible, offset, style, area, buf)
-            true
-        }
     }
 }
 
@@ -615,15 +576,28 @@ func renderColumn(children Array[LayoutChild], area Rect, buf *Buffer) {
 }
 
 // renderText lays out `content` on a single line, clipped to the area width.
+// Advances the cursor by each rune's grapheme cell width so CJK, emoji, and
+// fullwidth glyphs occupy two columns; combining marks consume zero columns.
+// A wide glyph that would only half-fit at the right edge is dropped instead
+// of bleeding past the boundary.
 func renderText(content string, style Style, area Rect, buf *Buffer) {
     var x = area.X
     val maxX = area.X + area.Width
     for _, r := range content {
-        if x >= maxX {
+        val w = RuneCellWidth(r)
+        if w == 0 {
+            // Combining mark — drop (a future iteration could merge into the
+            // previous cell's glyph; ASCII/Latin paths unaffected).
+            continue
+        }
+        if x + w > maxX {
             return
         }
         buf.Set(x, area.Y, Cell(Ch = r, St = style))
-        x = x + 1
+        if w == 2 {
+            buf.Set(x + 1, area.Y, Cell(Ch = ' ', St = style))
+        }
+        x = x + w
     }
 }
 
@@ -812,8 +786,10 @@ func paragraphIntrinsicHeight(content string) int {
     return n
 }
 
-// runeCount returns the number of Unicode code points in `s`.
-func runeCount(s string) int {
+// RuneCount returns the number of Unicode code points in `s`. Useful for
+// laying out fixed-width text slots — for cell-width math (CJK, emoji,
+// combining marks) prefer `StringCellWidth` from runewidth.gala.
+func RuneCount(s string) int {
     var n = 0
     for _ = range s {
         n = n + 1
@@ -821,12 +797,21 @@ func runeCount(s string) int {
     return n
 }
 
-func maxInt(a int, b int) int {
+// MaxInt returns the larger of two ints.
+func MaxInt(a int, b int) int {
     if a > b { return a }
     return b
 }
 
-func minInt(a int, b int) int {
+// MinInt returns the smaller of two ints.
+func MinInt(a int, b int) int {
     if a < b { return a }
     return b
 }
+
+// runeCount / minInt / maxInt — internal aliases kept for backward compat
+// across the library's existing call sites; new code should use the
+// PascalCase exported names.
+func runeCount(s string) int = RuneCount(s)
+func maxInt(a int, b int) int = MaxInt(a, b)
+func minInt(a int, b int) int = MinInt(a, b)

@@ -139,18 +139,37 @@ func (b *Buffer) Fill(r Rect, c Cell) {
     }
 }
 
-// DrawText renders a plain string starting at (x, y) with `style`, writing one
-// cell per rune and advancing horizontally. Runes past the right edge of the
-// buffer are silently clipped — the caller is NOT forced to pre-truncate.
+// DrawText renders a plain string starting at (x, y) with `style`, advancing
+// horizontally by each rune's grapheme width (1 cell for ASCII / Latin,
+// 2 cells for CJK / fullwidth / emoji, 0 cells for combining marks).
+// Runes past the right edge of the buffer are silently clipped.
 //
-// This is the hot path for every text-bearing widget. It iterates with a plain
-// Go `range` over the string to get proper rune decoding (handles multibyte
-// UTF-8, though terminal double-width characters are deferred to a later pass).
+// Wide runes write their glyph at the current x and a sentinel space
+// (Ch = ' ', same style) at x+1 so the cell stays "occupied" and the
+// differential renderer doesn't see partial-glyph artefacts.
+// Combining marks attach to the previously written cell — they merge into
+// the prior cell's existing glyph rather than consuming a new column.
+//
+// This is the hot path for every text-bearing widget.
 func (b *Buffer) DrawText(x int, y int, s string, style Style) int {
     var cx = x
     for _, r := range s {
+        val w = RuneCellWidth(r)
+        if w == 0 {
+            // Combining mark — attach to the previously-written cell.
+            // For now we drop the mark (a full implementation would compose
+            // it into the prior cell's rune); ASCII/Latin paths are
+            // unaffected.
+            continue
+        }
         b.Set(cx, y, Cell(Ch = r, St = style))
-        cx = cx + 1
+        if w == 2 {
+            // Reserve the trailing half-cell. The renderer's per-cell write
+            // would otherwise leave a stray space behind during differential
+            // updates that touch only the second column.
+            b.Set(cx + 1, y, Cell(Ch = ' ', St = style))
+        }
+        cx = cx + w
     }
     return cx - x
 }

@@ -1,0 +1,215 @@
+package gala_tui
+
+import (
+    "os"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// FileBrowser — directory navigation widget.
+//
+// A flat, scrollable list of the current directory's entries with parent /
+// child navigation:
+//
+//   ↑ / ↓        move selection
+//   Enter        descend into directory  /  return file path on file
+//   Backspace    ascend to parent
+//   /            jump to filesystem root
+//   Esc          (handled by app — typically closes the browser)
+//
+// FileBrowser holds:
+//   - current directory path
+//   - listing (entries + their is-dir flag)
+//   - selection cursor
+//
+// The app drives input through FileBrowserUpdate; the view renders a
+// breadcrumb header + scrollable list. When a file is "picked" via Enter,
+// the app reads `Picked()` to get the absolute path, dispatch a Msg, and
+// optionally close the browser.
+//
+// Filesystem reads happen only via FileBrowserOpen / FileBrowserAscend /
+// FileBrowserDescend — pure helper paths return new state without IO.
+// ============================================================================
+
+struct FileEntry(
+    Name  string,
+    IsDir bool,
+)
+
+struct FileBrowser(
+    Cwd       string,
+    Entries   Array[FileEntry],
+    Selected  int,
+    Picked    Option[string],         // Some(path) when user has confirmed a file
+)
+
+// FileBrowserOpen lists `path` into a FileBrowser. Hidden entries (starting
+// with '.') are excluded except for the parent (".."). Directories sort
+// before files; within each group, names are kept in OS order (we don't
+// re-sort to keep the implementation small).
+func FileBrowserOpen(path string) FileBrowser {
+    val entries = readDirEntries(path)
+    return FileBrowser(
+        Cwd      = path,
+        Entries  = entries,
+        Selected = 0,
+        Picked   = None[string](),
+    )
+}
+
+// readDirEntries fetches the directory contents. On error, returns an empty
+// listing — the caller sees "no entries" rather than a panic.
+func readDirEntries(path string) Array[FileEntry] {
+    var entries, err = os.ReadDir(path)
+    if err != nil {
+        return EmptyArray[FileEntry]()
+    }
+    var out = EmptyArray[FileEntry]()
+    // Always offer ".." for navigation.
+    out = out.Append(FileEntry(Name = "..", IsDir = true))
+    var i = 0
+    for i < len(entries) {
+        val e = entries[i]
+        val name = e.Name()
+        if !startsWithDotPrefix(name) {
+            out = out.Append(FileEntry(Name = name, IsDir = e.IsDir()))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+func startsWithDotPrefix(s string) bool {
+    if s == "" { return false }
+    if s == ".." { return false }     // explicit parent — not hidden
+    for _, c := range s {
+        return c == '.'
+    }
+    return false
+}
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type FileBrowserEvent {
+    case FBUp()
+    case FBDown()
+    case FBEnter()
+    case FBBackspace()                 // step up to parent
+    case FBHome()                      // jump to filesystem root
+    case FBNoOp()
+}
+
+func FileBrowserUpdate(b FileBrowser, ev FileBrowserEvent) FileBrowser {
+    return ev match {
+        case FBUp()        => b.Copy(Selected = fbClamp(b.Selected - 1, b.Entries.Length()))
+        case FBDown()      => b.Copy(Selected = fbClamp(b.Selected + 1, b.Entries.Length()))
+        case FBEnter()     => fbEnter(b)
+        case FBBackspace() => fbAscend(b)
+        case FBHome()      => FileBrowserOpen(fsRoot())
+        case FBNoOp()      => b
+    }
+}
+
+func fbClamp(idx int, n int) int {
+    if n == 0 { return 0 }
+    if idx < 0 { return 0 }
+    if idx >= n { return n - 1 }
+    return idx
+}
+
+// fbEnter: descend into directory or pick file.
+func fbEnter(b FileBrowser) FileBrowser {
+    if b.Entries.IsEmpty() { return b }
+    val entry = b.Entries.Get(b.Selected)
+    if entry.IsDir {
+        if entry.Name == ".." {
+            return fbAscend(b)
+        }
+        return FileBrowserOpen(joinPath(b.Cwd, entry.Name))
+    }
+    // File picked — set Picked and leave the rest unchanged.
+    return b.Copy(Picked = Some[string](joinPath(b.Cwd, entry.Name)))
+}
+
+func fbAscend(b FileBrowser) FileBrowser {
+    val parent = parentPath(b.Cwd)
+    if parent == b.Cwd { return b }    // already at root
+    return FileBrowserOpen(parent)
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// FileBrowserView renders the breadcrumb on the top row and the entry list
+// below. The selected entry is reverse-highlighted; directories are bold.
+func FileBrowserView(b FileBrowser) Widget {
+    val header = TextStyled(" 📁 " + b.Cwd, DefaultStyle().WithBold().WithFg(BrightCyan()))
+    val rows = b.Entries.ZipWithIndex().Map((pair) =>
+        Fixed(1, fbRowWidget(pair.V1, pair.V2 == b.Selected)))
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, FillCh('─')),
+        Flex(1, Column(rows)),
+    ))
+}
+
+func fbRowWidget(entry FileEntry, selected bool) Widget {
+    val icon = if (entry.IsDir) " 📁 " else "    "
+    val nameStyle = if (selected) DefaultStyle().WithReverse().WithBold()
+                    else if (entry.IsDir) DefaultStyle().WithBold().WithFg(BrightBlue())
+                    else DefaultStyle()
+    return TextStyled(icon + entry.Name, nameStyle)
+}
+
+// ----------------------------------------------------------------------------
+// Path helpers — minimal, OS-agnostic enough for the common case.
+// ----------------------------------------------------------------------------
+
+// joinPath concatenates `dir` + separator + `name`. Recognises "/" as the
+// canonical separator; on Windows the OS accepts forward slashes too.
+func joinPath(dir string, name string) string {
+    if name == ".." { return parentPath(dir) }
+    if dir == "" { return name }
+    if endsWithSep(dir) { return dir + name }
+    return dir + "/" + name
+}
+
+func endsWithSep(s string) bool {
+    val rs = mdRunes(s)                // reuse markdown's rune helper
+    val n = rs.Length()
+    if n == 0 { return false }
+    val last = rs.Get(n - 1)
+    return last == '/' || last == '\\'
+}
+
+// parentPath returns the parent directory of `path`. Strips the final
+// segment after the last separator. Returns the path unchanged if it's
+// already a root.
+func parentPath(path string) string {
+    val rs = mdRunes(path)
+    val n = rs.Length()
+    if n == 0 { return path }
+    var lastSep = -1
+    var i = 0
+    for i < n {
+        val c = rs.Get(i)
+        if c == '/' || c == '\\' { lastSep = i }
+        i = i + 1
+    }
+    if lastSep < 0 { return path }
+    if lastSep == 0 { return "/" }
+    return mdSubstring(rs, 0, lastSep)
+}
+
+// fsRoot returns the platform's filesystem root. On Unix this is "/"; on
+// Windows we approximate with the user's home (better than "C:" since not
+// every machine has C:).
+func fsRoot() string {
+    var home, err = os.UserHomeDir()
+    if err != nil { return "/" }
+    return home
+}
