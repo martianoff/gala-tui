@@ -41,24 +41,22 @@ func TestFluentCenteredPositionsChild(t T) T {
     return Eq(t1, buf.CharAt(5, 0), 'b')
 }
 
-func TestFluentAsFixedProducesLayoutChild(t T) T =
-    IsTrue(t, constraintIsLength(Text("x").AsFixed(3), 3))
-
-func TestFluentAsFlexProducesFillConstraint(t T) T =
-    IsTrue(t, constraintIsFillWeight(Text("x").AsFlex(2), 2))
-
-func constraintIsLength(lc LayoutChild, n int) bool {
-    return lc.Constraint match {
-        case Length(v) => v == n
+func TestFluentAsFixedProducesLayoutChild(t T) T {
+    val lc = Text("x").AsFixed(3)
+    val ok = lc.Constraint match {
+        case Length(v) => v == 3
         case _         => false
     }
+    return IsTrue(t, ok)
 }
 
-func constraintIsFillWeight(lc LayoutChild, w int) bool {
-    return lc.Constraint match {
-        case Fill(v) => v == w
+func TestFluentAsFlexProducesFillConstraint(t T) T {
+    val lc = Text("x").AsFlex(2)
+    val ok = lc.Constraint match {
+        case Fill(v) => v == 2
         case _       => false
     }
+    return IsTrue(t, ok)
 }
 
 func TestFluentWithFgAppliesToLeafText(t T) T {

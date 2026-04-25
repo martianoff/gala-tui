@@ -255,15 +255,12 @@ func megaTogglePalette(m MegaModel) MegaModel {
 }
 
 func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
-    val cur = m.Palette.Current()
-    if cur.IsDefined() {
-        return (m.Copy(PaletteOpen = false),
-                MsgCmd[MegaMsg](Msg = paletteActionMsg(cur.Get())))
+    return m.Palette.Current() match {
+        case Some(action) => (m.Copy(PaletteOpen = false),
+                              MsgCmd[MegaMsg](Msg = action.Msg))
+        case None()       => (m.Copy(PaletteOpen = false), NoCmd[MegaMsg]())
     }
-    return (m.Copy(PaletteOpen = false), NoCmd[MegaMsg]())
 }
-
-func paletteActionMsg(a PaletteAction[MegaMsg]) MegaMsg = a.Msg
 
 // Arrow keys are routed by the *focused* pane, never by what's on screen.
 // This is the bug-tested model:

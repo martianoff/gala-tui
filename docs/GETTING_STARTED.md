@@ -91,9 +91,9 @@ func charToMsg(c rune) Msg {
 
 func main() {
     val program = Program[Model, Msg](
-        Model(N = 0),
-        (m, msg) => update(m, msg),
-        (m) => view(m),
+        Initial = Model(N = 0),
+        Update  = (m, msg) => update(m, msg),
+        View    = (m) => view(m),
     )
     val _ = Run[Model, Msg](program, (ev) => keyToMsg(ev))
 }
@@ -194,9 +194,9 @@ func stringDropLast(s string) string {
 
 func main() {
     val program = Program[Model, Msg](
-        Model(Name = ""),
-        (m, msg) => update(m, msg),
-        (m) => view(m),
+        Initial = Model(Name = ""),
+        Update  = (m, msg) => update(m, msg),
+        View    = (m) => view(m),
     )
     val _ = Run[Model, Msg](program, (ev) => keyToMsg(ev))
 }
@@ -287,9 +287,9 @@ func keyToMsg(ev KeyEvent) Msg {
 
 func main() {
     val program = Program[Model, Msg](
-        Model(Tick = 0, Loading = false, Result = ""),
-        (m, msg) => update(m, msg),
-        (m) => view(m),
+        Initial = Model(Tick = 0, Loading = false, Result = ""),
+        Update  = (m, msg) => update(m, msg),
+        View    = (m) => view(m),
     )
     // Tick every 100 ms so the spinner animates while we wait for fetch.
     val sub = TickSub[Msg](
@@ -350,9 +350,9 @@ import (
 
 func TestCounterIncrementsTwice(t T) T {
     val program = Program[Model, Msg](
-        Model(N = 0),
-        (m, msg) => update(m, msg),
-        (m) => view(m),
+        Initial = Model(N = 0),
+        Update  = (m, msg) => update(m, msg),
+        View    = (m) => view(m),
     )
     val (final, _) = StepAll(program, ArrayOf[Msg](Inc(), Inc(), Inc()))
     return Eq(t, final.N, 3)
@@ -554,9 +554,9 @@ func charToMsg(c rune) Msg {
 
 func main() {
     val program = Program[Model, Msg](
-        initialModel(),
-        (m, msg) => update(m, msg),
-        (m) => view(m),
+        Initial = initialModel(),
+        Update  = (m, msg) => update(m, msg),
+        View    = (m) => view(m),
     )
     val _ = Run[Model, Msg](program, (ev) => keyToMsg(ev))
 }
