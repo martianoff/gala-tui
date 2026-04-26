@@ -1,0 +1,128 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// custom_widget — author your own widget with its own event vocabulary.
+//
+//     gala build ./examples/custom_widget
+//     ./gala_tui.exe                        # binary takes the module name
+//
+// We define a `RatingView` widget — a horizontal row of star symbols —
+// that exposes a single `OnSet(score)` event. Clicking a star sets the
+// rating. Keyboard arrows + Enter also work. Both inputs share the same
+// model field, so the rating reflects whichever path the user took.
+//
+// The takeaway: a user-authored widget defines its own constructor that
+// takes typed callbacks and wraps each interactive sub-region with the
+// framework's `Clickable[T]` primitive. Call sites never see the wrap.
+//
+// All Msg cases use the `Cw` prefix because dot-importing gala-tui pulls
+// in sealed-type case constructors (`NoOp`, `Quit`, `Up`, `Down`, …)
+// that would otherwise shadow generic names.
+// ============================================================================
+
+struct Model(Score int, Max int)
+
+sealed type Msg {
+    case CwSet(Score int)        // rating changed (set absolute score)
+    case CwLeft()                 // arrow-left  → bump score down
+    case CwRight()                // arrow-right → bump score up
+    case CwQuit()
+    case CwNoOp()
+}
+
+// ----- The user-authored widget --------------------------------------------
+
+// RatingView renders `r.Score` filled stars followed by `r.Max - r.Score`
+// empty stars. Each star is a clickable cell whose click dispatches
+// `OnSet(starIndex + 1)` — i.e. clicking the third star sets Score to 3.
+//
+// The constructor's callback parameter `OnSet` is the entire event
+// contract. Users of this widget never deal with `Clickable[T]` — that
+// wrap is an internal detail.
+func RatingView[T any](
+    r Model,
+    OnSet func(int) T,
+) Widget {
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = r.Max
+    for i < n {
+        val star = i + 1                                      // 1-based score
+        val glyph = if (star <= r.Score) "★" else "☆"
+        val style = if (star <= r.Score)
+            DefaultStyle().WithBold().WithFg(BrightYellow())
+        else
+            DefaultStyle().WithDim()
+        // Bake the per-star click into the cell — caller never wraps.
+        val cell = Clickable[T](
+            TextStyled(" " + glyph + " ", style),
+            OnSet(star),
+        )
+        cells = cells.Append(Fixed(3, cell))
+        i = i + 1
+    }
+    return Row(cells)
+}
+
+// ----- Plumbing ------------------------------------------------------------
+
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
+    case CwQuit()   => (m, QuitCmd[Msg]())
+    case CwNoOp()   => (m, NoCmd[Msg]())
+    case CwSet(s)   => (m.Copy(Score = clamp(s, 0, m.Max)), NoCmd[Msg]())
+    case CwLeft()   => (m.Copy(Score = clamp(m.Score - 1, 0, m.Max)), NoCmd[Msg]())
+    case CwRight()  => (m.Copy(Score = clamp(m.Score + 1, 0, m.Max)), NoCmd[Msg]())
+}
+
+func clamp(v int, lo int, hi int) int {
+    if v < lo { return lo }
+    if v > hi { return hi }
+    return v
+}
+
+func view(m Model) Widget {
+    val title = TextStyled(" Rate this thing  (←/→ to adjust, or click a star) ",
+        DefaultStyle().WithBold())
+    // Use the user-authored widget exactly like a built-in:
+    val rating = RatingView[Msg](m, (s) => CwSet(Score = s))
+    val footer = TextStyled(s"  Score: ${m.Score} / ${m.Max}    (q to quit)",
+        DefaultStyle().WithDim())
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, title),
+        Fixed(1, Text("")),
+        Fixed(1, rating),
+        Fixed(1, Text("")),
+        Fixed(1, footer),
+    ))
+}
+
+func keyToMsg(ev KeyEvent) Msg {
+    if KeyMatchesAny(ev, "ctrl+c", "q") { return CwQuit() }
+    return ev.Key match {
+        case ArrowLeft()  => CwLeft()
+        case ArrowRight() => CwRight()
+        case _            => CwNoOp()
+    }
+}
+
+// inputToMsg only sees non-click events — the framework dispatches
+// left-clicks against the registry before this function runs.
+func inputToMsg(ev InputEvent) Msg = ev match {
+    case KeyInput(k)   => keyToMsg(k)
+    case MouseInput(_) => CwNoOp()
+    case _             => CwNoOp()
+}
+
+func main() {
+    val _ = RunSimpleWithMouse[Model, Msg](
+        Model(Score = 3, Max = 5),
+        update, view, inputToMsg,
+        NoSubs[Msg](),
+    )
+}

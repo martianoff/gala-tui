@@ -328,35 +328,43 @@ delivers mouse packets and terminal resize events.
 
 ### Click on list rows
 
-Most apps want every row of a list to be clickable. Build a `ClickMap`
-in your input adapter and register all rows in one call with `AtRows`:
+Most interactive widgets ship with a click-aware sibling constructor
+that bakes the click contract into the widget itself. There is no
+hand-rolled click map, no `inputToMsg` mouse-handling code: the
+framework registers each row's actually-rendered rectangle with its
+internal `HitRegistry` during paint, dispatches the matching message
+when a click lands, and falls through to your `inputToMsg` only for
+clicks that miss every registered widget.
 
 ```gala
-import "github.com/martianoff/gala-tui/state"
-
-func clickAt(m Model, x int, y int) Msg =
-    state.NewClickMap[Msg]()
-        .AtRows(
-            0,                                   // origin X
-            3,                                   // first row's y
-            30,                                  // row width
-            m.Items.Length(),                    // row count
-            1,                                   // row height
-            (i) => SelectRow(Idx = i),
-        )
-        .HitOr(x, y, NoOp())
+val list = SelectListOfPick[Msg](
+    items, sel, focused,
+    (i) => SelectRow(Idx = i),
+)
 ```
 
-Call it from `inputToMsg` for left clicks:
+The `inputToMsg` adapter only sees scroll-wheel and unregistered
+clicks:
 
 ```gala
 case MouseInput(ev) => ev.Btn match {
-    case MouseLeft() => clickAt(m, ev.X, ev.Y)
-    case _           => NoOp()
+    case MouseScrollUp()   => ScrollUp()
+    case MouseScrollDown() => ScrollDown()
+    case _                 => NoOp()       // clicks already routed by the framework
 }
 ```
 
-Now every visible row reacts to a click without per-row hand-coding.
+Visibility is automatic: when a widget isn't part of the current view
+tree, it doesn't register hits — clicking those coordinates is inert
+without any guard code.
+
+Same pattern for the rest of the catalog: `ButtonClick(label, focused, msg)`,
+`TabsClick(titles, bodies, sel, focused, onTabClick)`,
+`DataTableViewClick(dt, focused, onRowClick)`,
+`TreeFocusedClick(root, cursor, focused, onNodeClick)`,
+`MenuViewClick(m, focused, onPick)`,
+`DropdownViewClick(d, focused, onSelect)`. See the Cookbook for how to
+extend this to user-defined widgets with their own event vocabulary.
 
 ## 5. Testing
 

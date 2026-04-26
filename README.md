@@ -195,7 +195,12 @@ the full demo:
 - [`examples/clickable_list/`](examples/clickable_list/main.gala) — mouse +
   keyboard on a 4-item nav list. Click any row OR press `↑`/`↓`+Enter; both
   paths produce the same model. Demonstrates `RunSimpleWithMouse`,
-  `ClickMap.AtRows`, and `KeyMatchesAny` in <90 lines.
+  `SelectListOfPick`, and `KeyMatchesAny` in <90 lines.
+- [`examples/custom_widget/`](examples/custom_widget/main.gala) — author
+  your own widget (a clickable star-rating row) with its own event
+  vocabulary. Shows the recommended composition pattern: take typed
+  callbacks, wrap internally with `Clickable[T]`, callers never see the
+  wrap.
 
 ## Status
 

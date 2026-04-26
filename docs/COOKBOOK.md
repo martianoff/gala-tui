@@ -455,28 +455,25 @@ in update, `NewFocusBuilder(m.Focus)` + a method per widget in view.
 ## Click any list / menu / table row
 
 Most apps want every row of a list-shaped widget to be clickable —
-"click row 3 = navigate to row 3 + Enter on it". Hand-rolling one
-`.At(...)` per row is fine for two rows, repetitive past four, and
-broken once the list grows or shrinks.
-
-Use `ClickMap.AtRows` — one call registers every row with a
-caller-supplied "this index → that message" function:
+"click row 3 = navigate to row 3 + Enter on it". The framework
+bakes this contract into each interactive widget's click-aware
+sibling constructor:
 
 ```gala
-import "github.com/martianoff/gala-tui/state"
-
-func clickAt(x int, y int) Msg =
-    state.NewClickMap[Msg]()
-        .AtRows(
-            0,                                  // origin X
-            5,                                  // origin Y (first row's y)
-            28,                                 // row width
-            m.Items.Length(),                   // number of rows
-            1,                                  // height per row
-            (i) => OnRowClicked(Idx = i),       // message factory
-        )
-        .HitOr(x, y, NoOp())
+val nav = ui.SelectListOfPick[Msg](
+    "sidebar", labels, sel,
+    (i) => OnRowClicked(Idx = i),
+)
 ```
+
+`SelectListOfPick` (and its siblings `SelectListPick`,
+`DataTableViewClick`, `TreeFocusedClick`, `MenuViewClick`,
+`TabsClick`, `ButtonClick`, `DropdownViewClick`) wrap the widget
+internally with `ClickableRows[T]` / `Clickable[T]` so each row
+registers its actual rendered rectangle with the runtime's
+`HitRegistry`. On a left-click the runtime queries the registry
+*first* and dispatches the matching row's payload before the
+user's `inputToMsg` ever runs.
 
 Pair it with the "click = select + Enter" pattern from the demo:
 
@@ -485,9 +482,15 @@ case OnRowClicked(idx) =>
     (jumpToRow(m.Copy(Sel = idx)), NoCmd[Msg]())   // select first, then jump
 ```
 
-The result is one chainable line per scrollable region, regardless of
-how many rows it contains. Negative or zero counts are a safe no-op so
-you can call it on empty lists without guarding.
+Visibility is automatic: widgets that aren't part of the current
+view tree don't register hits. Clicking the y-coordinates where a
+sidebar would render — while a different screen is active — is
+inert by construction. No manual gating required.
+
+For widgets the framework doesn't ship (or for click contracts the
+built-in `*Click` siblings don't cover) reach for the underlying
+`Clickable[T]` and `ClickableRows[T]` primitives directly. See the
+next section for the full author-your-own-widget recipe.
 
 ## Author your own widget with its own events
 
