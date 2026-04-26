@@ -257,7 +257,7 @@ func TreeFocusedClick[T any](
     onNodeClick func(int) T,
 ) Widget {
     val inner = TreeFocused(root, cursor, focused)
-    return ClickableRows[T](inner, TreeFlatRowCount(root), 1, onNodeClick)
+    return inner.OnPickRow[T](TreeFlatRowCount(root), onNodeClick)
 }
 
 // TreeFlatRowCount returns the number of visible rows in the tree —

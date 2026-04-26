@@ -229,7 +229,7 @@ func DataTableViewClick[T any](
     val header = dtHeaderRow(dt)
     val rule = FillCh('─')
     val body = dtBodyWidget(dt, focused)
-    val clickableBody = ClickableRows[T](body, dt.Rows.Length(), 1, onRowClick)
+    val clickableBody = body.OnPickRow[T](dt.Rows.Length(), onRowClick)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),

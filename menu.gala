@@ -166,10 +166,8 @@ func MenuViewClick[T any](
     onPick func(int) T,
 ) Widget {
     return m.Orientation match {
-        case MenuVertical()   => ClickableRows[T](
-            renderVerticalMenu(m, focused),
-            m.Items.Length(), 1, onPick,
-        )
+        case MenuVertical()   =>
+            renderVerticalMenu(m, focused).OnPickRow[T](m.Items.Length(), onPick)
         case MenuHorizontal() => renderHorizontalMenu(m, focused)
     }
 }
@@ -264,7 +262,7 @@ func DropdownView(d Dropdown, focused bool = false) Widget {
 
 // DropdownViewClick is the click-aware sibling: items in the open menu
 // register hits via `onSelect(itemIdx)`. The trigger row stays inert
-// — wrap that yourself with `Clickable[T](trigger, ToggleOpen())` if
+// — attach a click yourself via `trigger.OnClick(ToggleOpen())` if
 // you want clicks to open / close the dropdown.
 func DropdownViewClick[T any](
     d Dropdown,

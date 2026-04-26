@@ -501,9 +501,10 @@ func processInputBytesWithHits[M any, T any](
 // ResolveClickOrInput resolves a left-click against the HitRegistry,
 // falling back to `makeInputMsg` for misses and non-click events. The
 // payload-to-Msg cast is a runtime type assertion: it succeeds because
-// every payload was a `T` at the point `Clickable[T](inner, msg)` was
-// constructed; on the off chance the cast fails (e.g., misuse from a
-// custom widget), we degrade to the user adapter rather than panic.
+// every payload was a `T` at the point the widget got its click contract
+// (via `.OnClick(msg)` or one of the `*Click` constructors); on the off
+// chance the cast fails (e.g., a custom widget that registered its own
+// hits with a wrong type), we degrade to the user adapter rather than panic.
 //
 // Exported so the test harness can mirror the runtime's click-dispatch
 // semantics — same "widgets own their hits" contract whether you're in

@@ -94,9 +94,9 @@ func (fb FocusBuilder) Dropdown(pane string, d Dropdown) Widget =
 // ----------------------------------------------------------------------------
 // Click-aware variants. Same naming convention — append the event suffix
 // (Pick / Click / NodeClick / RowClick / TabClick) to the bare method.
-// Each takes a `(idx) => Msg` factory and bakes in `ClickableRows[T]` (or
-// `Clickable[T]` for whole-area widgets) under the hood, so callers never
-// touch the wrapper primitives.
+// Each takes a `(idx) => Msg` factory and attaches the click contract
+// to the rendered widget via the fluent `.OnPickRow` / `.OnClick`
+// methods under the hood, so callers never touch the wrapper machinery.
 // ----------------------------------------------------------------------------
 
 func (fb FocusBuilder) DataTableRowClick[T any](

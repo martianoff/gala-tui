@@ -190,25 +190,17 @@ func SelectListOf(labels Array[string], selected int, focused bool = false) Widg
     SelectList(labels.Map((l) => NewListItem(l)), selected, focused)
 
 // SelectListPick is the click-aware sibling: each row is clickable and
-// dispatches `onPick(rowIdx)` when clicked. Saves the explicit
-// `ClickableRows[T](SelectList(...), ...)` wrap at every call site.
+// dispatches `onPick(rowIdx)` when clicked.
 //
 //     val nav = SelectListPick[Msg](items, sel, true,
-//         (i) => OnPick(Idx = i))
-//
-// Equivalent to:
-//
-//     val nav = ClickableRows[Msg](
-//         SelectList(items, sel, true), items.Length(), 1,
 //         (i) => OnPick(Idx = i))
 func SelectListPick[T any](
     items Array[ListItem],
     selected int,
     focused bool,
     onPick func(int) T,
-) Widget = ClickableRows[T](
-    SelectList(items, selected, focused), items.Length(), 1, onPick,
-)
+) Widget = SelectList(items, selected, focused)
+    .OnPickRow[T](items.Length(), onPick)
 
 // SelectListOfPick is the click-aware sibling of SelectListOf — same
 // labels-first ergonomics, but each row dispatches `onPick(i)` on click.
@@ -217,9 +209,8 @@ func SelectListOfPick[T any](
     selected int,
     focused bool,
     onPick func(int) T,
-) Widget = ClickableRows[T](
-    SelectListOf(labels, selected, focused), labels.Length(), 1, onPick,
-)
+) Widget = SelectListOf(labels, selected, focused)
+    .OnPickRow[T](labels.Length(), onPick)
 
 // Input renders a single-line text input. `cursor` is the 0-based column of
 // the insertion point. Empty value shows `placeholder` in a dimmed style.
@@ -254,12 +245,11 @@ func Button(label string, focused bool) Widget {
 }
 
 // ButtonClick is the click-aware sibling: a left-click anywhere on the
-// button dispatches `onClick`. Saves the explicit `Clickable[T](Button(...), msg)`
-// wrap.
+// button dispatches `onClick`.
 //
 //     val saveBtn = ButtonClick[Msg]("Save", focused, Save())
 func ButtonClick[T any](label string, focused bool, onClick T) Widget =
-    Clickable[T](Button(label, focused), onClick)
+    Button(label, focused).OnClick[T](onClick)
 
 // Paragraph renders multi-line text with word-wrapping within the allocated
 // width. Overflow beyond the allocated height is clipped. Long runs of
@@ -318,39 +308,6 @@ func ScrollbarStyled(total int, visible int, offset int, style Style) Widget =
 func Custom(minW int, minH int, render func(Rect, *Buffer, *HitRegistry)) Widget =
     CustomW(MinW = minW, MinH = minH, Render = render)
 
-// Clickable is the low-level click-wrapping primitive — included
-// here as a building block. Prefer the fluent `widget.OnClick(msg)`
-// method (defined in fluent.gala) at call sites; it produces the
-// same widget tree but reads as a single chained method.
-//
-// Likewise, prefer the click-aware widget constructors (`ButtonClick`,
-// `SelectListPick`, `DataTableViewClick`, …) when wrapping a built-in
-// interactive widget.
-func Clickable[T any](inner Widget, msg T) Widget =
-    ClickableW(Inner = inner, Payload = msg)
-
-// ClickableRows is the low-level per-row click-wrapping primitive.
-// Prefer the fluent `widget.OnPickRow(count, msgFor)` method at call
-// sites, or one of the click-aware sibling constructors above when
-// wrapping a built-in list / menu / tree.
-func ClickableRows[T any](
-    inner Widget,
-    count int,
-    rowH int,
-    msgFor func(int) T,
-) Widget {
-    // Erase the function's element type to `any` so it fits the
-    // single, non-generic Widget sealed type. The cast is safe by
-    // construction — every payload was a T just before assignment.
-    val erased = (i int) => any(msgFor(i))
-    return ClickableRowsW(
-        Inner    = inner,
-        Count    = count,
-        RowH     = rowH,
-        Payloads = erased,
-    )
-}
-
 // ----------------------------------------------------------------------------
 // Tabs
 // ----------------------------------------------------------------------------
@@ -401,10 +358,10 @@ func tabHeaderRow(titles Array[string], sel int, focused bool) Widget {
     return Row(cells.Append(Flex(1, FillCh(' '))))
 }
 
-// tabHeaderRowClick wraps every title cell with `Clickable[T]` so that
-// clicking it dispatches `onTabClick(idx)`. Cells differ in width per
-// title, so this can't reuse `ClickableRows` (which assumes uniform
-// row-shaped regions).
+// tabHeaderRowClick attaches a click contract to every title cell so
+// that clicking it dispatches `onTabClick(idx)`. Cells differ in width
+// per title, so this can't use the per-row helper (which assumes
+// uniform row-shaped regions) — each cell gets its own `.OnClick`.
 func tabHeaderRowClick[T any](
     titles Array[string],
     sel int,
@@ -415,7 +372,7 @@ func tabHeaderRowClick[T any](
         val rawCell = tabHeaderCell(pair.V1, pair.V2 == sel, focused)
         return LayoutChild(
             Constraint = rawCell.Constraint,
-            Widget     = Clickable[T](rawCell.Widget, onTabClick(pair.V2)),
+            Widget     = rawCell.Widget.OnClick[T](onTabClick(pair.V2)),
         )
     })
     return Row(cells.Append(Flex(1, FillCh(' '))))
