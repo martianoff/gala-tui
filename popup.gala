@@ -1,0 +1,86 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Popup — anchored overlay (vs `Modal` which centres in the screen).
+//
+// Used for slash-command completions, `@file` autocomplete menus,
+// inline tooltips, anything that should appear *near* a specific
+// widget rather than in the middle of the screen. The popup body is
+// painted on top of whatever is below; clicks on the body register
+// hits, clicks on the surrounding non-popup area pass through unless
+// the caller wraps the entire `PopupOver(...)` in `.OnClick(NoOp())`.
+//
+// Anchor model:
+//   - `PopupAbove(anchor, w, h)` — popup sits with its bottom-left
+//     corner at the anchor's top-left, extending UP. Used for
+//     completion menus that appear above a composer at the bottom.
+//   - `PopupBelow(anchor, w, h)` — opposite: bottom-left of anchor →
+//     top-left of popup, extending DOWN.
+//   - `PopupAt(rect, w, h)` — explicit (x, y) position. Edge-clamped
+//     so the popup never spills off-screen.
+//
+// Offsets are in cells. Width/height are body dimensions (the popup
+// adds its own border).
+//
+// The popup is COMPOSED INTO the view tree at the right Stack layer —
+// the runtime doesn't know about z-order beyond Stack ordering.
+// Render order: place `PopupOver(below, popup)` such that `below`
+// renders first, then `popup` over it.
+// ============================================================================
+
+// Popup wraps `body` in a single border at `(x, y)` with size `(w, h)`.
+// The position is the top-left corner; out-of-screen positions are
+// clamped during render.
+func Popup(x int, y int, w int, h int, body Widget) Widget =
+    PopupStyled(x, y, w, h, body, SingleBorder())
+
+func PopupStyled(x int, y int, w int, h int, body Widget, border BorderKind) Widget {
+    val bordered = BorderOf(body, border)
+    return popupAtAbsolute(x, y, w, h, bordered)
+}
+
+// PopupAbove positions the popup with its bottom edge at `anchorY`,
+// extending upward. Useful for completion menus above a bottom-anchored
+// composer. The popup is right-aligned at `anchorX` if the popup width
+// would otherwise spill off-screen — but the user supplies `screenW`
+// for that calculation.
+func PopupAbove(anchorX int, anchorY int, w int, h int, screenW int, body Widget) Widget {
+    val popupX = if (anchorX + w <= screenW) anchorX else maxInt(0, screenW - w)
+    val popupY = maxInt(0, anchorY - h)
+    return Popup(popupX, popupY, w, h, body)
+}
+
+// PopupBelow positions the popup directly below the anchor.
+func PopupBelow(anchorX int, anchorY int, w int, h int, screenW int, body Widget) Widget {
+    val popupX = if (anchorX + w <= screenW) anchorX else maxInt(0, screenW - w)
+    val popupY = anchorY
+    return Popup(popupX, popupY, w, h, body)
+}
+
+// PopupOver stacks `popup` on top of `below`. `below` renders the full
+// underlying screen; `popup` is the result of `Popup`/`PopupAbove`/
+// `PopupBelow`. Equivalent to `Stack([below, popup])` but reads
+// declaratively at the call site.
+func PopupOver(below Widget, popup Widget) Widget =
+    Stack(ArrayOf[Widget](below, popup))
+
+// popupAtAbsolute places `inner` at (x, y) with size (w, h) by
+// composing Column/Row spacers around it. It's a flexible-but-cheap
+// way to position absolutely without a dedicated AlignWidget variant.
+func popupAtAbsolute(x int, y int, w int, h int, inner Widget) Widget {
+    val rowed = Row(ArrayOf[LayoutChild](
+        Fixed(maxInt(0, x), Empty()),
+        Fixed(w, inner),
+        Flex(1, Empty()),
+    ))
+    return Column(ArrayOf[LayoutChild](
+        Fixed(maxInt(0, y), Empty()),
+        Fixed(h, rowed),
+        Flex(1, Empty()),
+    ))
+}

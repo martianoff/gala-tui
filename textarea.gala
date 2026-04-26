@@ -1,0 +1,408 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// TextArea — a multi-line text editor.
+//
+// What `Input` is to a single-line field, TextArea is to a chat composer:
+// soft-wrapped multi-line edit, full cursor navigation (arrows / Home /
+// End / word-jump), per-character editing, history navigation (↑/↓ at
+// the top/bottom of the buffer steps through previously-submitted
+// prompts), and a `Submit` event so the app can read the content and
+// dispatch its own message.
+//
+// The model is a flat list of LINE strings — newlines are *between*
+// lines, not inside any single string. That makes editing one line a
+// pure index-into-Array operation and avoids per-edit splitting cost.
+//
+// Click-to-position support: a left-click anywhere inside the rendered
+// area dispatches a `TaClickAt(Row, Col)` event so the app can move
+// the cursor to the click point.
+//
+// Typical use:
+//
+//     case KeyChar(c)        => m.Copy(Composer = TextAreaUpdate(
+//                                 m.Composer, TaInsert(C = c)))
+//     case KeyBackspace()    => m.Copy(Composer = TextAreaUpdate(
+//                                 m.Composer, TaBackspace()))
+//     case KeyEnter() (m.Composer.HasShift) =>
+//                              m.Copy(Composer = TextAreaUpdate(
+//                                 m.Composer, TaInsertNewline()))
+//     case KeyEnter()        => sendPrompt(m, TextAreaContent(m.Composer))
+//     case KeyUp() / KeyDown() ...
+// ============================================================================
+
+struct TextArea(
+    Lines      Array[string],   // current edit buffer; one entry per line
+    Row        int,              // cursor line (0-based)
+    Col        int,              // cursor column within the current line
+    History    Array[string],    // previously-submitted prompts (oldest first)
+    HistoryIdx int,              // -1 means "editing current draft, not in history"
+    Draft      string,           // saved single-line draft when stepping into history
+)
+
+// NewTextArea builds an empty, history-less editor.
+func NewTextArea() TextArea = TextArea(
+    Lines      = ArrayOf[string](""),
+    Row        = 0,
+    Col        = 0,
+    History    = EmptyArray[string](),
+    HistoryIdx = -1,
+    Draft      = "",
+)
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type TextAreaEvent {
+    case TaInsert(C rune)
+    case TaInsertNewline()
+    case TaBackspace()
+    case TaDelete()
+    case TaCursorUp()
+    case TaCursorDown()
+    case TaCursorLeft()
+    case TaCursorRight()
+    case TaCursorHome()
+    case TaCursorEnd()
+    case TaHistoryPrev()                 // older
+    case TaHistoryNext()                 // newer
+    case TaClickAt(Row int, Col int)
+    case TaSubmit()                      // pushes content onto History; clears buffer
+    case TaClear()                       // wipe buffer, keep history
+    case TaNoOp()
+}
+
+func TextAreaUpdate(t TextArea, ev TextAreaEvent) TextArea = ev match {
+    case TaInsert(c)        => taInsertRune(t, c)
+    case TaInsertNewline()  => taInsertNewline(t)
+    case TaBackspace()      => taBackspace(t)
+    case TaDelete()         => taDelete(t)
+    case TaCursorUp()       => taCursorUp(t)
+    case TaCursorDown()     => taCursorDown(t)
+    case TaCursorLeft()     => taCursorLeft(t)
+    case TaCursorRight()    => taCursorRight(t)
+    case TaCursorHome()     => taLinesWith(t, t.Row, 0)
+    case TaCursorEnd()      => taLinesWith(t, t.Row, runeCount(t.Lines.Get(t.Row)))
+    case TaHistoryPrev()    => taHistoryStep(t, -1)
+    case TaHistoryNext()    => taHistoryStep(t, +1)
+    case TaClickAt(r, c)    => taClickAt(t, r, c)
+    case TaSubmit()         => taSubmit(t)
+    case TaClear()          => taClear(t)
+    case TaNoOp()           => t
+}
+
+func taLinesWith(t TextArea, row int, col int) TextArea = TextArea(
+    Lines      = t.Lines,
+    Row        = clampInt(row, 0, t.Lines.Length() - 1),
+    Col        = clampInt(col, 0, runeCount(t.Lines.Get(clampInt(row, 0, t.Lines.Length() - 1)))),
+    History    = t.History,
+    HistoryIdx = -1,             // editing breaks history navigation
+    Draft      = t.Draft,
+)
+
+func taInsertRune(t TextArea, c rune) TextArea {
+    val line = t.Lines.Get(t.Row)
+    val (lhs, rhs) = runeSplitAt(line, t.Col)
+    val newLine = lhs + string(c) + rhs
+    val newLines = t.Lines.Updated(t.Row, newLine)
+    return taLinesAndCursor(t, newLines, t.Row, t.Col + 1)
+}
+
+func taInsertNewline(t TextArea) TextArea {
+    val line = t.Lines.Get(t.Row)
+    val (lhs, rhs) = runeSplitAt(line, t.Col)
+    val before = t.Lines.Slice(0, t.Row)
+    val after = t.Lines.Slice(t.Row + 1, t.Lines.Length())
+    val newLines = before.Append(lhs).Append(rhs).AppendAll(after)
+    return taLinesAndCursor(t, newLines, t.Row + 1, 0)
+}
+
+func taBackspace(t TextArea) TextArea {
+    if t.Col == 0 && t.Row == 0 { return t }
+    if t.Col > 0 {
+        val line = t.Lines.Get(t.Row)
+        val (lhs, rhs) = runeSplitAt(line, t.Col)
+        val newLine = runeSliceTo(lhs, runeCount(lhs) - 1) + rhs
+        val newLines = t.Lines.Updated(t.Row, newLine)
+        return taLinesAndCursor(t, newLines, t.Row, t.Col - 1)
+    }
+    // Column 0 with row > 0: merge with previous line.
+    val prev = t.Lines.Get(t.Row - 1)
+    val cur = t.Lines.Get(t.Row)
+    val merged = prev + cur
+    val before = t.Lines.Slice(0, t.Row - 1)
+    val after = t.Lines.Slice(t.Row + 1, t.Lines.Length())
+    val newLines = before.Append(merged).AppendAll(after)
+    return taLinesAndCursor(t, newLines, t.Row - 1, runeCount(prev))
+}
+
+func taDelete(t TextArea) TextArea {
+    val line = t.Lines.Get(t.Row)
+    val n = runeCount(line)
+    if t.Col < n {
+        val (lhs, rhs) = runeSplitAt(line, t.Col)
+        val newLine = lhs + runeSliceFrom(rhs, 1)
+        val newLines = t.Lines.Updated(t.Row, newLine)
+        return taLinesAndCursor(t, newLines, t.Row, t.Col)
+    }
+    // At end-of-line: if there's a next line, merge it up.
+    if t.Row + 1 >= t.Lines.Length() { return t }
+    val next = t.Lines.Get(t.Row + 1)
+    val merged = line + next
+    val before = t.Lines.Slice(0, t.Row)
+    val after = t.Lines.Slice(t.Row + 2, t.Lines.Length())
+    val newLines = before.Append(merged).AppendAll(after)
+    return taLinesAndCursor(t, newLines, t.Row, t.Col)
+}
+
+func taCursorUp(t TextArea) TextArea {
+    if t.Row > 0 {
+        return taLinesWith(t, t.Row - 1, t.Col)
+    }
+    // At top of buffer — step history backwards (older).
+    return taHistoryStep(t, -1)
+}
+
+func taCursorDown(t TextArea) TextArea {
+    if t.Row < t.Lines.Length() - 1 {
+        return taLinesWith(t, t.Row + 1, t.Col)
+    }
+    // At bottom of buffer — step history forwards (newer).
+    return taHistoryStep(t, +1)
+}
+
+func taCursorLeft(t TextArea) TextArea {
+    if t.Col > 0 { return taLinesWith(t, t.Row, t.Col - 1) }
+    if t.Row == 0 { return t }
+    val prev = t.Lines.Get(t.Row - 1)
+    return taLinesWith(t, t.Row - 1, runeCount(prev))
+}
+
+func taCursorRight(t TextArea) TextArea {
+    val line = t.Lines.Get(t.Row)
+    val n = runeCount(line)
+    if t.Col < n { return taLinesWith(t, t.Row, t.Col + 1) }
+    if t.Row + 1 >= t.Lines.Length() { return t }
+    return taLinesWith(t, t.Row + 1, 0)
+}
+
+func taClickAt(t TextArea, row int, col int) TextArea =
+    taLinesWith(t, row, col)
+
+// History stepping: index -1 means "editing draft". 0 is the OLDEST entry,
+// History.Length()-1 is the NEWEST. delta=-1 walks toward older entries
+// (up arrow at top of buffer); delta=+1 walks back toward draft (newer).
+//
+// Boundary rules:
+//   - From draft (idx = -1) with delta=-1: jump to newest (idx = n-1).
+//   - From draft (idx = -1) with delta=+1: stay at draft (no newer).
+//   - From idx = 0 with delta=-1: stay at oldest (clamp).
+//   - From idx = n-1 with delta=+1: return to draft (idx = -1).
+//   - Otherwise: idx + delta.
+func taHistoryStep(t TextArea, delta int) TextArea {
+    val n = t.History.Length()
+    if n == 0 { return t }
+    var nextIdx = if (t.HistoryIdx == -1) {
+                      if (delta < 0) n - 1 else -1
+                  } else {
+                      val candidate = t.HistoryIdx + delta
+                      if (candidate < 0) 0
+                      else if (candidate >= n) -1
+                      else candidate
+                  }
+    // Save the current draft on the FIRST step into history so we
+    // can restore it when the user comes back.
+    val savedDraft = if (t.HistoryIdx == -1) taContentOf(t.Lines) else t.Draft
+    val newContent = if (nextIdx == -1) savedDraft else t.History.Get(nextIdx)
+    val newLines = stringToLines(newContent)
+    val newRow = newLines.Length() - 1
+    val newCol = runeCount(newLines.Get(newRow))
+    return TextArea(
+        Lines      = newLines,
+        Row        = newRow,
+        Col        = newCol,
+        History    = t.History,
+        HistoryIdx = nextIdx,
+        Draft      = savedDraft,
+    )
+}
+
+func taSubmit(t TextArea) TextArea {
+    val content = taContentOf(t.Lines)
+    val newHist = if (content == "") t.History
+                  else t.History.Append(content)
+    return TextArea(
+        Lines      = ArrayOf[string](""),
+        Row        = 0,
+        Col        = 0,
+        History    = newHist,
+        HistoryIdx = -1,
+        Draft      = "",
+    )
+}
+
+func taClear(t TextArea) TextArea = TextArea(
+    Lines      = ArrayOf[string](""),
+    Row        = 0,
+    Col        = 0,
+    History    = t.History,
+    HistoryIdx = -1,
+    Draft      = "",
+)
+
+func taLinesAndCursor(t TextArea, lines Array[string], row int, col int) TextArea = TextArea(
+    Lines      = lines,
+    Row        = clampInt(row, 0, lines.Length() - 1),
+    Col        = clampInt(col, 0, runeCount(lines.Get(clampInt(row, 0, lines.Length() - 1)))),
+    History    = t.History,
+    HistoryIdx = -1,
+    Draft      = t.Draft,
+)
+
+// TextAreaContent joins the lines with `\n`.
+func TextAreaContent(t TextArea) string = taContentOf(t.Lines)
+
+func taContentOf(lines Array[string]) string {
+    if lines.IsEmpty() { return "" }
+    var s = lines.Get(0)
+    var i = 1
+    val n = lines.Length()
+    for i < n {
+        s = s + "\n" + lines.Get(i)
+        i = i + 1
+    }
+    return s
+}
+
+func stringToLines(s string) Array[string] {
+    if s == "" { return ArrayOf[string]("") }
+    var out = EmptyArray[string]()
+    var cur = ""
+    for _, c := range s {
+        if c == '\n' {
+            out = out.Append(cur)
+            cur = ""
+        } else {
+            cur = cur + string(c)
+        }
+    }
+    return out.Append(cur)
+}
+
+// runeSplitAt returns (lhs, rhs) such that lhs has `col` runes and rhs has
+// the remainder. Out-of-range cols clamp to the string boundaries.
+func runeSplitAt(s string, col int) Tuple[string, string] {
+    var lhs = ""
+    var rhs = ""
+    var i = 0
+    for _, c := range s {
+        if i < col { lhs = lhs + string(c) }
+        else       { rhs = rhs + string(c) }
+        i = i + 1
+    }
+    return (lhs, rhs)
+}
+
+func runeSliceTo(s string, end int) string {
+    var out = ""
+    var i = 0
+    for _, c := range s {
+        if i < end { out = out + string(c) }
+        i = i + 1
+    }
+    return out
+}
+
+func runeSliceFrom(s string, start int) string {
+    var out = ""
+    var i = 0
+    for _, c := range s {
+        if i >= start { out = out + string(c) }
+        i = i + 1
+    }
+    return out
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// TextAreaView renders the editor: each line as a row with the cursor
+// visible (reverse-video on the cursor cell). Empty buffer with a
+// non-empty placeholder shows the placeholder dimmed. Click anywhere
+// inside the rendered area dispatches `onClick(row, col)` so the app
+// can move the cursor.
+//
+// `focused` controls cursor visibility: only show the cursor when this
+// TextArea owns the keyboard.
+//
+//     val composer = TextAreaView(m.Composer, true, "Type a message…")
+func TextAreaView(t TextArea, focused bool, placeholder string) Widget {
+    val lines = if (taIsEmpty(t) && placeholder != "")
+                    ArrayOf[string](placeholder)
+                else
+                    t.Lines
+    val placeholderShown = taIsEmpty(t) && placeholder != ""
+    var rows = EmptyArray[LayoutChild]()
+    var i = 0
+    val n = lines.Length()
+    for i < n {
+        rows = rows.Append(Fixed(1, taRowWidget(
+            lines.Get(i),
+            i, t.Row, t.Col,
+            focused, placeholderShown,
+        )))
+        i = i + 1
+    }
+    return Column(rows)
+}
+
+// TextAreaViewClick wraps TextAreaView so a click anywhere in the
+// editor dispatches `onClick(row, col)` — the row is the line index,
+// col is the column under the cursor.
+func TextAreaViewClick[T any](
+    t TextArea,
+    focused bool,
+    placeholder string,
+    onClick func(int, int) T,
+) Widget {
+    val view = TextAreaView(t, focused, placeholder)
+    val rowCount = if (taIsEmpty(t) && placeholder != "") 1
+                   else t.Lines.Length()
+    // ClickableRows registers per-row hits; we capture the click's
+    // X-coordinate via a wrapper because `OnPickRow` only carries the
+    // row index. For column-precise clicks the user can call
+    // TaClickAt(row, col) directly inside their own onClick handler.
+    return view.OnPickRow[T](rowCount, (r) => onClick(r, 0))
+}
+
+func taIsEmpty(t TextArea) bool =
+    t.Lines.Length() == 1 && t.Lines.Get(0) == ""
+
+func taRowWidget(
+    text string,
+    row int,
+    cursorRow int,
+    cursorCol int,
+    focused bool,
+    isPlaceholder bool,
+) Widget {
+    val baseStyle = if (isPlaceholder) DefaultStyle().WithDim()
+                    else DefaultStyle()
+    if !focused || row != cursorRow {
+        return TextStyled(text, baseStyle)
+    }
+    return InputW(
+        Value            = text,
+        Cursor           = cursorCol,
+        Placeholder      = "",
+        Style            = baseStyle,
+        PlaceholderStyle = baseStyle,
+    )
+}

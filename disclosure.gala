@@ -1,0 +1,63 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Disclosure — a header + collapsible body. The header is always
+// visible and clickable; the body shows or hides based on `Expanded`.
+//
+// The canonical chat-style use is a "tool call" card: header shows the
+// tool name + status, body shows the inputs/outputs, click toggles.
+//
+//     val tool = DisclosureView(m.ToolDisclosed,
+//         Row(ArrayOf[LayoutChild](
+//             Fixed(2,  TextStyled(disclosureMarker(m.ToolDisclosed), DefaultStyle().WithBold())),
+//             Flex(1,   TextStyled("read_file(\"main.gala\")", DefaultStyle().WithBold())),
+//             Fixed(10, TextStyled(s"  ${m.ToolDuration}ms", DefaultStyle().WithDim())),
+//         )),
+//         Padding(1, MarkdownView(m.ToolOutput)),
+//     )
+//
+// Use the click-aware sibling `DisclosureViewClick` to wire toggling:
+// the click hits the *header* and dispatches whatever message the
+// caller supplies.
+// ============================================================================
+
+// DisclosureView renders a header + body when `expanded` is true; only
+// the header when false. The body widget is the caller's responsibility
+// — wrap it in Padding/Border as desired.
+//
+// The marker prefix on the header is up to the caller; `DisclosureMarker`
+// is the conventional ▸/▾ helper.
+func DisclosureView(expanded bool, header Widget, body Widget) Widget {
+    if !expanded { return header }
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Flex(1, body),
+    ))
+}
+
+// DisclosureViewClick wires header-click to a caller-supplied message:
+// clicking the header (only) dispatches `onToggle`. The body, when
+// expanded, is unaffected (so a click in the body falls through to
+// whatever click contracts its content registered).
+func DisclosureViewClick[T any](
+    expanded bool,
+    header Widget,
+    body Widget,
+    onToggle T,
+) Widget {
+    val clickableHeader = header.OnClick[T](onToggle)
+    if !expanded { return clickableHeader }
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, clickableHeader),
+        Flex(1, body),
+    ))
+}
+
+// DisclosureMarker is the conventional triangle prefix: ▾ when open,
+// ▸ when closed. Pad with a trailing space.
+func DisclosureMarker(expanded bool) string =
+    if (expanded) "▾ " else "▸ "

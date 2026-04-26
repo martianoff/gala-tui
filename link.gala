@@ -1,0 +1,53 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Link — clickable hyperlink text.
+//
+// Two flavors:
+//   - `Link(label, url)` — emits OSC 8 escape so terminals that
+//     understand it (Windows Terminal, kitty, iTerm2, modern xterm)
+//     render the text as a real clickable hyperlink that opens in
+//     the user's browser. Falls back to a plain underlined label
+//     in terminals that don't.
+//   - `LinkClick[T](label, url, msg)` — same OSC 8 rendering AND
+//     registers the rendered area as a click hit so apps inside the
+//     TUI can also react to the click (e.g., navigate within the
+//     app instead of opening a browser).
+//
+// The OSC 8 sequence is `\x1b]8;;<url>\x1b\\` to open and
+// `\x1b]8;;\x1b\\` to close. Terminals that don't recognize it
+// silently drop the escape and render the label.
+// ============================================================================
+
+// Link renders `label` as a clickable hyperlink to `url`. Visible
+// styling: underlined + bright cyan, the conventional hyperlink look.
+func Link(label string, url string) Widget =
+    LinkStyled(label, url, DefaultStyle().WithUnderline().WithFg(BrightCyan()))
+
+// LinkStyled lets callers override the visible style.
+func LinkStyled(label string, url string, style Style) Widget {
+    val osc8 = oscOpen(url) + label + oscClose()
+    return TextStyled(osc8, style)
+}
+
+// LinkClick is the click-aware sibling: same OSC 8 rendering AND a
+// `Clickable` wrapper that dispatches `msg` on left-click. Useful when
+// the in-app TUI wants its own handling (e.g., load file inside the
+// editor) in addition to / instead of letting the terminal open a
+// browser.
+func LinkClick[T any](label string, url string, msg T) Widget =
+    Link(label, url).OnClick[T](msg)
+
+// LinkClickStyled is `LinkClick` with explicit style.
+func LinkClickStyled[T any](label string, url string, style Style, msg T) Widget =
+    LinkStyled(label, url, style).OnClick[T](msg)
+
+// oscOpen / oscClose: OSC 8 hyperlink begin / end escape sequences.
+// Most terminals from 2017+ understand these. Plain xterm and TTY
+// renderers ignore them — the label still renders.
+func oscOpen(url string) string  = "\x1b]8;;" + url + "\x1b\\"
+func oscClose() string           = "\x1b]8;;\x1b\\"

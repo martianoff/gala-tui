@@ -1,0 +1,106 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Popup + Link rendering smoke tests.
+// ============================================================================
+
+// Popup renders something; verify it produces non-empty buffer text in
+// the expected position.
+func TestPopupRendersAtPosition(t T) T {
+    val p = Popup(2, 1, 10, 3, Text("hi"))
+    val buf = NewBuffer(20, 5)
+    RenderTo(p, Rect(X = 0, Y = 0, Width = 20, Height = 5), buf)
+    val joined = popupTestStitch(buf)
+    return IsTrue(t, popupTestContains(joined, "hi"))
+}
+
+// PopupOver stacks correctly: lower content visible AROUND the popup
+// while the popup body covers its area.
+func TestPopupOverStacks(t T) T {
+    val below = FillCh('-')
+    val pop = Popup(2, 1, 6, 3, Text("X"))
+    val w = PopupOver(below, pop)
+    val buf = NewBuffer(15, 5)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 15, Height = 5), buf)
+    val joined = popupTestStitch(buf)
+    val t1 = IsTrue(t, popupTestContains(joined, "X"))
+    return IsTrue(t1, popupTestContains(joined, "-"))
+}
+
+// Link wraps in OSC 8 escapes — assert the open + close sequences are
+// present in the rendered TextWidget content.
+func TestLinkRendersOSC8(t T) T {
+    val w = Link("github.com", "https://github.com")
+    val text = w match {
+        case TextWidget(c, _) => c
+        case _                => ""
+    }
+    val t1 = IsTrue(t, popupTestContains(text, "https://github.com"))
+    val t2 = IsTrue(t1, popupTestContains(text, "github.com"))
+    // OSC 8 open is "\x1b]8;;<url>\x1b\\" — assert the prefix:
+    return IsTrue(t2, popupTestContains(text, "\x1b]8;;"))
+}
+
+// LinkClick wraps the styled link with a Clickable; the outer widget
+// should be a ClickableW so the runtime registers a hit.
+func TestLinkClickWrapsClickable(t T) T {
+    val w = LinkClick[int]("g", "g.com", 42)
+    val isClickable = w match {
+        case ClickableW(_, _) => true
+        case _                => false
+    }
+    return IsTrue(t, isClickable)
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+func popupTestStitch(buf *Buffer) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        s = s + BufferText(buf, y) + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func popupTestContains(hay string, needle string) bool {
+    val h = popupTestRunes(hay)
+    val n = popupTestRunes(needle)
+    val hn = h.Length()
+    val nn = n.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if h.Get(i + j) != n.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func popupTestRunes(s string) Array[rune] {
+    var out = EmptyArray[rune]()
+    for _, c := range s {
+        out = out.Append(c)
+    }
+    return out
+}

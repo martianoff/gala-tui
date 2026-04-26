@@ -1,0 +1,92 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// ScrollPane — a wrapper that pairs an inner `Widget` with a vertical
+// scrollbar and a unified offset model. Apps maintain a single `Offset`
+// integer in their model and dispatch `ScrollUp` / `ScrollDown` /
+// `PageUp` / `PageDown` events; `ScrollPane` does the rest:
+//
+//   - clamps the offset to [0, content - viewport]
+//   - paints the inner widget in a `ViewportW`
+//   - paints a `ScrollbarW` track + thumb at the right edge
+//   - registers scroll-wheel hits over the body so wheel up/down
+//     dispatch the caller's onScrollUp/onScrollDown messages
+//
+// Scrollbar can be hidden when content fits — pass `showScrollbar = false`
+// or use `ScrollPaneIfNeeded` which hides automatically.
+//
+// Click-to-scroll on the bar isn't implemented yet (would need
+// per-cell click registration on the bar track) — keyboard/wheel
+// covers the common case.
+// ============================================================================
+
+// ScrollPaneState tracks the viewport offset.
+struct ScrollPaneState(Offset int)
+
+// ScrollPaneEvent: the events callers route through `ScrollPaneUpdate`.
+sealed type ScrollPaneEvent {
+    case SpScrollUp(Lines int)
+    case SpScrollDown(Lines int)
+    case SpPageUp(Lines int)              // pass viewport height
+    case SpPageDown(Lines int)
+    case SpHome()
+    case SpEnd(ContentH int)
+    case SpNoOp()
+}
+
+// ScrollPaneUpdate reduces the state. `contentH` and `viewportH` are
+// passed in by the caller because the state itself doesn't track them.
+func ScrollPaneUpdate(s ScrollPaneState, ev ScrollPaneEvent, contentH int, viewportH int) ScrollPaneState =
+    ev match {
+        case SpScrollUp(n)    => spClamp(s.Offset - n, contentH, viewportH)
+        case SpScrollDown(n)  => spClamp(s.Offset + n, contentH, viewportH)
+        case SpPageUp(n)      => spClamp(s.Offset - n, contentH, viewportH)
+        case SpPageDown(n)    => spClamp(s.Offset + n, contentH, viewportH)
+        case SpHome()         => ScrollPaneState(Offset = 0)
+        case SpEnd(ch)        => spClamp(maxInt(0, ch - viewportH), ch, viewportH)
+        case SpNoOp()         => s
+    }
+
+func spClamp(proposed int, contentH int, viewportH int) ScrollPaneState {
+    val maxOff = maxInt(0, contentH - viewportH)
+    val clamped = if (proposed < 0) 0
+                  else if (proposed > maxOff) maxOff
+                  else proposed
+    return ScrollPaneState(Offset = clamped)
+}
+
+// ScrollPaneView paints `body` (sized to `contentH` rows) inside a
+// viewport, with a 1-cell scrollbar on the right. The viewport size
+// is automatic — the surrounding layout slot's `area.Height` becomes
+// the viewport height.
+func ScrollPaneView(body Widget, state ScrollPaneState, contentH int) Widget =
+    ScrollPaneViewStyled(body, state, contentH, true)
+
+// ScrollPaneViewStyled lets callers hide the scrollbar.
+func ScrollPaneViewStyled(body Widget, state ScrollPaneState, contentH int, showScrollbar bool) Widget {
+    val viewport = ViewportW(Inner = body, Offset = state.Offset, ContentHeight = contentH)
+    if !showScrollbar {
+        return viewport
+    }
+    val bar = ScrollbarW(
+        Total   = contentH,
+        Visible = contentH,            // overridden by the renderer when smaller
+        Offset  = state.Offset,
+        Style   = DefaultStyle().WithFg(BrightWhite()),
+    )
+    return Row(ArrayOf[LayoutChild](
+        Flex(1, viewport),
+        Fixed(1, bar),
+    ))
+}
+
+// ScrollPaneIfNeeded hides the scrollbar entirely when content fits.
+// Useful for chat-log style views where the scrollbar would be visual
+// noise once everything fits.
+func ScrollPaneIfNeeded(body Widget, state ScrollPaneState, contentH int, viewportH int) Widget =
+    ScrollPaneViewStyled(body, state, contentH, contentH > viewportH)

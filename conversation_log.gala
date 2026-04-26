@@ -1,0 +1,214 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// ConversationLog — append-only scrollback of variable-height entries.
+//
+// What `LogPanel` is for fixed-height log lines, ConversationLog is for
+// rich chat messages: each entry has its OWN Widget body of arbitrary
+// height (markdown answer, tool-call card with toggle state, code
+// block + diff, etc.).
+//
+// Behaviour:
+//   - Append a new entry → auto-scroll-to-bottom UNLESS the user
+//     manually scrolled up (`StickToBottom = false`).
+//   - PgUp / PgDn / arrow / wheel scroll moves the offset by one entry
+//     and unsticks. Pressing End re-sticks.
+//   - Click an entry's row → optional `onPickEntry(idx)` callback for
+//     focusing / opening / collapsing.
+//
+// The viewport is a *line* viewport (not entry viewport): tall entries
+// can be partially visible. This matches Claude Code's behaviour
+// where a long markdown answer scrolls smoothly within the log.
+// ============================================================================
+
+struct ConversationEntry(
+    Body   Widget,
+    Height int,            // intrinsic / preferred line count for this entry
+)
+
+struct ConversationLog(
+    Entries       Array[ConversationEntry],
+    Offset        int,           // top visible line index across all entries
+    StickToBottom bool,
+)
+
+// NewConversationLog builds an empty log that's stuck to the bottom by
+// default — the first appended entry is immediately visible.
+func NewConversationLog() ConversationLog =
+    ConversationLog(
+        Entries       = EmptyArray[ConversationEntry](),
+        Offset        = 0,
+        StickToBottom = true,
+    )
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type ConversationLogEvent {
+    case CvAppend(Entry ConversationEntry)
+    case CvScrollUp(Lines int)
+    case CvScrollDown(Lines int)
+    case CvPageUp(Lines int)             // pass viewport height
+    case CvPageDown(Lines int)
+    case CvStickToBottom()
+    case CvNoOp()
+}
+
+func ConversationLogUpdate(c ConversationLog, ev ConversationLogEvent) ConversationLog = ev match {
+    case CvAppend(e)        => cvAppend(c, e)
+    case CvScrollUp(n)      => cvScroll(c, -n)
+    case CvScrollDown(n)    => cvScroll(c, n)
+    case CvPageUp(n)        => cvScroll(c, -n)
+    case CvPageDown(n)      => cvScroll(c, n)
+    case CvStickToBottom()  => ConversationLog(
+                                   Entries = c.Entries,
+                                   Offset = cvTotalLines(c.Entries),
+                                   StickToBottom = true,
+                               )
+    case CvNoOp()           => c
+}
+
+func cvAppend(c ConversationLog, e ConversationEntry) ConversationLog {
+    val newEntries = c.Entries.Append(e)
+    val newOffset = if (c.StickToBottom) cvTotalLines(newEntries) else c.Offset
+    return ConversationLog(
+        Entries       = newEntries,
+        Offset        = newOffset,
+        StickToBottom = c.StickToBottom,
+    )
+}
+
+func cvScroll(c ConversationLog, delta int) ConversationLog {
+    val total = cvTotalLines(c.Entries)
+    val proposed = c.Offset + delta
+    val clamped = if (proposed < 0) 0
+                  else if (proposed > total) total
+                  else proposed
+    val sticky = clamped >= total
+    return ConversationLog(
+        Entries       = c.Entries,
+        Offset        = clamped,
+        StickToBottom = sticky,
+    )
+}
+
+func cvTotalLines(entries Array[ConversationEntry]) int {
+    var sum = 0
+    var i = 0
+    val n = entries.Length()
+    for i < n {
+        sum = sum + entries.Get(i).Height
+        i = i + 1
+    }
+    return sum
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// ConversationLogView paints the entries that fit in `height` rows
+// starting from the offset. Lines above the offset are hidden; the
+// last entry's tail sits at the bottom row when sticky.
+//
+// Each entry is wrapped in a `ViewportW` so partial visibility works:
+// if an entry's height exceeds remaining space, we render only the
+// visible portion.
+func ConversationLogView(c ConversationLog, height int) Widget {
+    if c.Entries.IsEmpty() || height <= 0 {
+        return Empty()
+    }
+    val total = cvTotalLines(c.Entries)
+    val viewportTop = if (c.StickToBottom) maxInt(0, total - height)
+                      else c.Offset
+    var children = EmptyArray[LayoutChild]()
+    var lineCursor = 0
+    var rowsLeft = height
+    var i = 0
+    val n = c.Entries.Length()
+    for i < n {
+        if rowsLeft <= 0 { i = n; continue }
+        val entry = c.Entries.Get(i)
+        val entryStart = lineCursor
+        val entryEnd = lineCursor + entry.Height
+        // Is any part of this entry inside the viewport?
+        val visTop = maxInt(viewportTop, entryStart)
+        val visBot = minInt(viewportTop + height, entryEnd)
+        if visBot > visTop {
+            val skipTop = visTop - entryStart
+            val take = visBot - visTop
+            if skipTop > 0 || take < entry.Height {
+                children = children.Append(Fixed(take, ViewportW(
+                    Inner         = entry.Body,
+                    Offset        = skipTop,
+                    ContentHeight = entry.Height,
+                )))
+            } else {
+                children = children.Append(Fixed(take, entry.Body))
+            }
+            rowsLeft = rowsLeft - take
+        }
+        lineCursor = entryEnd
+        i = i + 1
+    }
+    return Column(children)
+}
+
+// ConversationLogViewClick is the click-aware sibling: a left-click on
+// a rendered entry dispatches `onPickEntry(idx)` where `idx` is the
+// entry's index in `Entries` (0-based, oldest first).
+func ConversationLogViewClick[T any](
+    c ConversationLog, height int, onPickEntry func(int) T,
+) Widget {
+    val view = ConversationLogView(c, height)
+    if c.Entries.IsEmpty() { return view }
+    // Per-entry hits at variable y / height. We can't use OnPickRow
+    // (uniform row height), so wrap each entry's child in a Clickable
+    // before composing the Column. To keep the layout shape, rebuild
+    // the inner Column with click-wrapped children.
+    return cvBuildClickableView[T](c, height, onPickEntry)
+}
+
+func cvBuildClickableView[T any](
+    c ConversationLog, height int, onPickEntry func(int) T,
+) Widget {
+    if c.Entries.IsEmpty() || height <= 0 { return Empty() }
+    val total = cvTotalLines(c.Entries)
+    val viewportTop = if (c.StickToBottom) maxInt(0, total - height)
+                      else c.Offset
+    var children = EmptyArray[LayoutChild]()
+    var lineCursor = 0
+    var rowsLeft = height
+    var i = 0
+    val n = c.Entries.Length()
+    for i < n {
+        if rowsLeft <= 0 { i = n; continue }
+        val entry = c.Entries.Get(i)
+        val entryStart = lineCursor
+        val entryEnd = lineCursor + entry.Height
+        val visTop = maxInt(viewportTop, entryStart)
+        val visBot = minInt(viewportTop + height, entryEnd)
+        if visBot > visTop {
+            val skipTop = visTop - entryStart
+            val take = visBot - visTop
+            val body = if (skipTop > 0 || take < entry.Height)
+                           ViewportW(
+                               Inner         = entry.Body,
+                               Offset        = skipTop,
+                               ContentHeight = entry.Height,
+                           )
+                       else entry.Body
+            children = children.Append(Fixed(take, body.OnClick[T](onPickEntry(i))))
+            rowsLeft = rowsLeft - take
+        }
+        lineCursor = entryEnd
+        i = i + 1
+    }
+    return Column(children)
+}

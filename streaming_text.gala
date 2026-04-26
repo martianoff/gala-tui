@@ -1,0 +1,82 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// StreamingText — append-only text buffer that renders incrementally.
+//
+// Designed for the LLM-tokens-arriving-one-at-a-time pattern. Apps hold
+// a `StreamingText` value in their model, dispatch `StAppend(chunk)`
+// reducer events as tokens arrive, and render with `StreamingTextView`.
+// A trailing cursor pulses while the stream is "open" so users see the
+// generation is alive.
+//
+// The buffer wraps lines on demand at a given width. Rendering paints
+// only the trailing N lines that fit in the rendered area — large
+// streams stay cheap because we don't re-wrap historical content per
+// frame (each finalized line is cached as a separate string).
+//
+// Typical use:
+//
+//     case TokenArrived(s)  => m.Copy(Stream = StreamingTextUpdate(
+//                                 m.Stream, StAppend(Chunk = s)))
+//     case TokenStreamDone() => m.Copy(Stream = StreamingTextUpdate(
+//                                 m.Stream, StClose()))
+// ============================================================================
+
+struct StreamingText(
+    Buffer string,                  // accumulated raw text
+    Open   bool,                    // true = stream live (cursor blinks)
+)
+
+// NewStreamingText starts with an empty open stream.
+func NewStreamingText() StreamingText =
+    StreamingText(Buffer = "", Open = true)
+
+// ----------------------------------------------------------------------------
+// Update
+// ----------------------------------------------------------------------------
+
+sealed type StreamingTextEvent {
+    case StAppend(Chunk string)
+    case StClose()
+    case StReset()
+    case StNoOp()
+}
+
+func StreamingTextUpdate(s StreamingText, ev StreamingTextEvent) StreamingText = ev match {
+    case StAppend(chunk) => StreamingText(Buffer = s.Buffer + chunk, Open = s.Open)
+    case StClose()       => StreamingText(Buffer = s.Buffer, Open = false)
+    case StReset()       => StreamingText(Buffer = "", Open = true)
+    case StNoOp()        => s
+}
+
+// ----------------------------------------------------------------------------
+// View
+// ----------------------------------------------------------------------------
+
+// StreamingTextView renders `s` as a `Paragraph` (auto-wraps on render)
+// and, when the stream is `Open`, appends a blinking cursor character
+// to signal generation in progress. `tick` is the app's animation
+// counter — pass `m.Tick` from a 100 ms TickSub.
+//
+// Plain styling; wrap in `BorderOf` / theme styles at the call site.
+func StreamingTextView(s StreamingText, tick int) Widget =
+    StreamingTextStyled(s, tick, DefaultStyle())
+
+// StreamingTextStyled lets callers pick the body style.
+func StreamingTextStyled(s StreamingText, tick int, style Style) Widget {
+    val visible = if (s.Open && (tick / 5) % 2 == 0)
+                      s.Buffer + "▌"
+                  else s.Buffer
+    return ParagraphW(Content = visible, Style = style)
+}
+
+// StreamingTextLines returns `s.Buffer` split on `\n` — handy for
+// callers that want to render line-by-line in a Column instead of
+// auto-wrapping in a Paragraph.
+func StreamingTextLines(s StreamingText) Array[string] =
+    stringToLines(s.Buffer)

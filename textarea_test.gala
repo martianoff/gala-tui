@@ -1,0 +1,248 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// TextArea — multi-line composer + history navigation tests.
+// ============================================================================
+
+func TestTextAreaStartsEmpty(t T) T {
+    val ta = NewTextArea()
+    val t1 = Eq(t, ta.Lines.Length(), 1)
+    val t2 = Eq(t1, ta.Row, 0)
+    return Eq(t2, ta.Col, 0)
+}
+
+func TestTextAreaInsertChar(t T) T {
+    val ta = TextAreaUpdate(NewTextArea(), TaInsert(C = 'h'))
+    val t1 = Eq(t, ta.Lines.Get(0), "h")
+    return Eq(t1, ta.Col, 1)
+}
+
+func TestTextAreaInsertMultipleChars(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'h'))
+    ta = TextAreaUpdate(ta, TaInsert(C = 'i'))
+    val t1 = Eq(t, ta.Lines.Get(0), "hi")
+    return Eq(t1, ta.Col, 2)
+}
+
+func TestTextAreaBackspace(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'a'))
+    ta = TextAreaUpdate(ta, TaInsert(C = 'b'))
+    ta = TextAreaUpdate(ta, TaBackspace())
+    val t1 = Eq(t, ta.Lines.Get(0), "a")
+    return Eq(t1, ta.Col, 1)
+}
+
+func TestTextAreaInsertNewline(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'a'))
+    ta = TextAreaUpdate(ta, TaInsertNewline())
+    ta = TextAreaUpdate(ta, TaInsert(C = 'b'))
+    val t1 = Eq(t, ta.Lines.Length(), 2)
+    val t2 = Eq(t1, ta.Lines.Get(0), "a")
+    val t3 = Eq(t2, ta.Lines.Get(1), "b")
+    val t4 = Eq(t3, ta.Row, 1)
+    return Eq(t4, ta.Col, 1)
+}
+
+func TestTextAreaBackspaceMergesLines(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'a'))
+    ta = TextAreaUpdate(ta, TaInsertNewline())
+    ta = TextAreaUpdate(ta, TaInsert(C = 'b'))
+    ta = TextAreaUpdate(ta, TaCursorHome())
+    ta = TextAreaUpdate(ta, TaBackspace())
+    val t1 = Eq(t, ta.Lines.Length(), 1)
+    val t2 = Eq(t1, ta.Lines.Get(0), "ab")
+    return Eq(t2, ta.Col, 1)
+}
+
+func TestTextAreaCursorLeftRight(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'a'))
+    ta = TextAreaUpdate(ta, TaInsert(C = 'b'))
+    ta = TextAreaUpdate(ta, TaCursorLeft())
+    val t1 = Eq(t, ta.Col, 1)
+    ta = TextAreaUpdate(ta, TaCursorRight())
+    return Eq(t1, ta.Col, 2)
+}
+
+func TestTextAreaSubmitPushesHistory(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'h'))
+    ta = TextAreaUpdate(ta, TaInsert(C = 'i'))
+    ta = TextAreaUpdate(ta, TaSubmit())
+    val t1 = Eq(t, TextAreaContent(ta), "")
+    val t2 = Eq(t1, ta.History.Length(), 1)
+    return Eq(t2, ta.History.Get(0), "hi")
+}
+
+// History navigation: at the top of the buffer, ↑ steps into the
+// most-recent submission. ↓ from there returns to the saved draft.
+func TestTextAreaHistoryUpReturnsLast(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'a'))
+    ta = TextAreaUpdate(ta, TaSubmit())
+    ta = TextAreaUpdate(ta, TaInsert(C = 'b'))
+    ta = TextAreaUpdate(ta, TaSubmit())
+    // Buffer is empty; press ↑ to recall "b".
+    ta = TextAreaUpdate(ta, TaCursorUp())
+    val t1 = Eq(t, TextAreaContent(ta), "b")
+    return Eq(t1, ta.HistoryIdx, 1)
+}
+
+func TestTextAreaHistoryRoundTrip(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'a'))
+    ta = TextAreaUpdate(ta, TaSubmit())
+    ta = TextAreaUpdate(ta, TaInsert(C = 'b'))
+    ta = TextAreaUpdate(ta, TaSubmit())
+    ta = TextAreaUpdate(ta, TaInsert(C = 'd'))   // current draft = "d"
+    // Navigate up twice to reach "a".
+    ta = TextAreaUpdate(ta, TaCursorUp())
+    ta = TextAreaUpdate(ta, TaCursorUp())
+    val t1 = Eq(t, TextAreaContent(ta), "a")
+    // Navigate back down twice — first to "b", then back to draft "d".
+    ta = TextAreaUpdate(ta, TaCursorDown())
+    val t2 = Eq(t1, TextAreaContent(ta), "b")
+    ta = TextAreaUpdate(ta, TaCursorDown())
+    return Eq(t2, TextAreaContent(ta), "d")
+}
+
+func TestTextAreaClickAtMovesCursor(t T) T {
+    var ta = NewTextArea()
+    ta = TextAreaUpdate(ta, TaInsert(C = 'h'))
+    ta = TextAreaUpdate(ta, TaInsertNewline())
+    ta = TextAreaUpdate(ta, TaInsert(C = 'w'))
+    ta = TextAreaUpdate(ta, TaClickAt(Row = 0, Col = 0))
+    val t1 = Eq(t, ta.Row, 0)
+    return Eq(t1, ta.Col, 0)
+}
+
+// ============================================================================
+// StreamingText
+// ============================================================================
+
+func TestStreamingTextAppend(t T) T {
+    var s = NewStreamingText()
+    s = StreamingTextUpdate(s, StAppend(Chunk = "hi"))
+    s = StreamingTextUpdate(s, StAppend(Chunk = " there"))
+    val t1 = Eq(t, s.Buffer, "hi there")
+    return IsTrue(t1, s.Open)
+}
+
+func TestStreamingTextClose(t T) T {
+    var s = NewStreamingText()
+    s = StreamingTextUpdate(s, StAppend(Chunk = "done"))
+    s = StreamingTextUpdate(s, StClose())
+    return IsFalse(t, s.Open)
+}
+
+func TestStreamingTextLines(t T) T {
+    var s = NewStreamingText()
+    s = StreamingTextUpdate(s, StAppend(Chunk = "first\nsecond\nthird"))
+    val lines = StreamingTextLines(s)
+    val t1 = Eq(t, lines.Length(), 3)
+    val t2 = Eq(t1, lines.Get(1), "second")
+    return Eq(t2, lines.Get(2), "third")
+}
+
+// ============================================================================
+// Disclosure
+// ============================================================================
+
+func TestDisclosureMarker(t T) T {
+    val t1 = Eq(t, DisclosureMarker(true), "▾ ")
+    return Eq(t1, DisclosureMarker(false), "▸ ")
+}
+
+// ============================================================================
+// ConversationLog
+// ============================================================================
+
+func TestConversationLogAppendStaysSticky(t T) T {
+    var c = NewConversationLog()
+    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
+        Body = Text("hi"), Height = 1,
+    )))
+    val t1 = IsTrue(t, c.StickToBottom)
+    return Eq(t1, c.Entries.Length(), 1)
+}
+
+// ScrollUp unsticks; subsequent appends don't auto-scroll.
+func TestConversationLogScrollUpUnsticks(t T) T {
+    var c = NewConversationLog()
+    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
+        Body = Text("a"), Height = 5,
+    )))
+    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
+        Body = Text("b"), Height = 5,
+    )))
+    val before = c.Offset
+    c = ConversationLogUpdate(c, CvScrollUp(Lines = 2))
+    val t1 = IsFalse(t, c.StickToBottom)
+    return IsTrue(t1, c.Offset < before)
+}
+
+// StickToBottom event re-sticks regardless of current offset.
+func TestConversationLogStickReclaims(t T) T {
+    var c = NewConversationLog()
+    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
+        Body = Text("a"), Height = 5,
+    )))
+    c = ConversationLogUpdate(c, CvScrollUp(Lines = 100))
+    c = ConversationLogUpdate(c, CvStickToBottom())
+    return IsTrue(t, c.StickToBottom)
+}
+
+// ============================================================================
+// ScrollPane
+// ============================================================================
+
+func TestScrollPaneClampsToZero(t T) T {
+    val s = ScrollPaneUpdate(
+        ScrollPaneState(Offset = 5),
+        SpScrollUp(Lines = 100),
+        contentH = 50, viewportH = 10,
+    )
+    return Eq(t, s.Offset, 0)
+}
+
+func TestScrollPaneClampsToMax(t T) T {
+    val s = ScrollPaneUpdate(
+        ScrollPaneState(Offset = 0),
+        SpScrollDown(Lines = 999),
+        contentH = 50, viewportH = 10,
+    )
+    return Eq(t, s.Offset, 40)               // 50 - 10
+}
+
+func TestScrollPaneEnd(t T) T {
+    val s = ScrollPaneUpdate(
+        ScrollPaneState(Offset = 0),
+        SpEnd(ContentH = 30),
+        contentH = 30, viewportH = 10,
+    )
+    return Eq(t, s.Offset, 20)
+}
+
+func TestScrollPaneHome(t T) T {
+    val s = ScrollPaneUpdate(
+        ScrollPaneState(Offset = 15),
+        SpHome(),
+        contentH = 30, viewportH = 10,
+    )
+    return Eq(t, s.Offset, 0)
+}
+
+// ============================================================================
+// Helpers used by these tests
+// ============================================================================
+
+func _suppressUnusedArrayOf() Array[string] = ArrayOf[string]("ok")
