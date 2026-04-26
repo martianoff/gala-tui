@@ -12,6 +12,7 @@ BUILD.bazel
 MODULE.bazel
 MODULE.bazel.lock
 bazel-*/
+.bazelbsp/
 go.mod
 go.sum
 
