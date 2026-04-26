@@ -169,26 +169,13 @@ func dtInsertionSort(rows Array[Array[string]], col int, asc bool) Array[Array[s
 }
 
 func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc bool) Array[Array[string]] {
-    var out = EmptyArray[Array[string]]()
-    var inserted = false
-    val n = sorted.Length()
-    var i = 0
     val rv = if (col < r.Length()) r.Get(col) else ""
-    for i < n {
-        val cur = sorted.Get(i)
+    val keepBefore = (cur Array[string]) => {
         val cv = if (col < cur.Length()) cur.Get(col) else ""
-        val goesFirst = if (asc) (rv < cv) else (rv > cv)
-        if !inserted && goesFirst {
-            out = out.Append(r)
-            inserted = true
-        }
-        out = out.Append(cur)
-        i = i + 1
+        return if (asc) rv >= cv else rv <= cv
     }
-    if !inserted {
-        out = out.Append(r)
-    }
-    return out
+    val (before, after) = sorted.Span(keepBefore)
+    return before.Append(r).AppendAll(after)
 }
 
 // ----------------------------------------------------------------------------
@@ -237,21 +224,11 @@ func DataTableViewClick[T any](
     ))
 }
 
-func dtHeaderRow(dt DataTable) Widget {
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = dt.Headers.Length()
-    for i < n {
-        val label = dtHeaderLabel(dt, i)
-        val w = if (i < dt.Widths.Length()) dt.Widths.Get(i) else Fill(1)
-        cells = cells.Append(LayoutChild(
-            Constraint = w,
-            Widget     = TextStyled(label, DefaultStyle().WithBold()),
-        ))
-        i = i + 1
-    }
-    return Row(cells)
-}
+func dtHeaderRow(dt DataTable) Widget =
+    Row(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
+        Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
+        Widget     = TextStyled(dtHeaderLabel(dt, p.V2), DefaultStyle().WithBold()),
+    )))
 
 func dtHeaderLabel(dt DataTable, col int) string {
     val base = dt.Headers.Get(col)
@@ -269,16 +246,8 @@ func dtBodyWidget(dt DataTable, focused bool) Widget {
     if visible.IsEmpty() {
         return TextStyled("  (no rows)", DefaultStyle().WithDim())
     }
-    var children = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = visible.Length()
-    for i < n {
-        val row = visible.Get(i)
-        val selected = i == dt.Selected
-        children = children.Append(Fixed(1, dtRowWidget(dt, row, selected, focused)))
-        i = i + 1
-    }
-    return Column(children)
+    return Column(visible.ZipWithIndex().Map((p) =>
+        Fixed(1, dtRowWidget(dt, p.V1, p.V2 == dt.Selected, focused))))
 }
 
 func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) Widget {
@@ -288,19 +257,10 @@ func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) W
         DefaultStyle().WithReverse()
     else
         DefaultStyle()
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = row.Length()
-    for i < n {
-        val cell = row.Get(i)
-        val w = if (i < dt.Widths.Length()) dt.Widths.Get(i) else Fill(1)
-        cells = cells.Append(LayoutChild(
-            Constraint = w,
-            Widget     = TextStyled(cell, rowStyle),
-        ))
-        i = i + 1
-    }
-    return Row(cells)
+    return Row(row.ZipWithIndex().Map((p) => LayoutChild(
+        Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
+        Widget     = TextStyled(p.V1, rowStyle),
+    )))
 }
 
 // SelectedRow returns the currently-selected row's cells, or an empty array.
