@@ -50,7 +50,7 @@ func RatingView[T any](
     r Model,
     OnSet func(int) T,
 ) Widget {
-    val cells = ArrayTabulate(r.Max, (i) => {
+    val cells = ArrayTabulate(r.Max, (i int) => {
         val star = i + 1                                      // 1-based score
         val glyph = if (star <= r.Score) "★" else "☆"
         val style = if (star <= r.Score)

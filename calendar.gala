@@ -145,8 +145,8 @@ func calLabelStyle() Style = DefaultStyle().WithDim().WithBold()
 func calBuildGrid(c Calendar, today time.Time, focused bool) Array[LayoutChild] {
     val firstWeekday = int(time.Date(c.Year, time.Month(c.Month), 1, 0, 0, 0, 0, time.UTC).Weekday())
     val totalDays = daysInMonth(c.Year, c.Month)
-    return ArrayTabulate(6, (week) => {
-        val cells = ArrayTabulate(7, (col) => {
+    return ArrayTabulate(6, (week int) => {
+        val cells = ArrayTabulate(7, (col int) => {
             val day = week * 7 + col - firstWeekday + 1
             return Fixed(3, calDayCell(c, today, day, totalDays, focused))
         })

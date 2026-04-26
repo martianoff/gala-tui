@@ -84,10 +84,10 @@ func (s Style) ToSgr() string {
 // compare per-cell diffs.
 func (s Style) sgrParts() []string {
     val flagParts = ArrayOf[Tuple[bool, string]](
-        Tuple(s.Bold,      "1"), Tuple(s.Dim,    "2"), Tuple(s.Italic,  "3"),
-        Tuple(s.Underline, "4"), Tuple(s.Blink,  "5"), Tuple(s.Reverse, "7"),
-        Tuple(s.Strike,    "9"),
-    ).Filter((p) => p.V1).Map((p) => p.V2)
+        (s.Bold,      "1"), (s.Dim,    "2"), (s.Italic,  "3"),
+        (s.Underline, "4"), (s.Blink,  "5"), (s.Reverse, "7"),
+        (s.Strike,    "9"),
+    ).Filter((p Tuple[bool, string]) => p.V1).Map((p Tuple[bool, string]) => p.V2)
     val withFg = s.Fg match {
         case DefaultColor() => flagParts
         case _              => flagParts.Append(ToSgrFg(s.Fg))

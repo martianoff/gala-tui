@@ -68,8 +68,8 @@ func readDirEntries(path string) Array[FileEntry] {
     // Always offer ".." for navigation.
     val parent = ArrayOf(FileEntry(Name = "..", IsDir = true))
     val rest = ArrayFromSlice(entries).
-        FilterNot((e) => startsWithDotPrefix(e.Name())).
-        Map((e) => FileEntry(Name = e.Name(), IsDir = e.IsDir()))
+        FilterNot((e os.DirEntry) => startsWithDotPrefix(e.Name())).
+        Map((e os.DirEntry) => FileEntry(Name = e.Name(), IsDir = e.IsDir()))
     return parent.AppendAll(rest)
 }
 
