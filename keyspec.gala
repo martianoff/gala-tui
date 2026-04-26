@@ -158,32 +158,30 @@ func KeyMatchesAny(ev KeyEvent, specs ...string) bool {
 // means the key itself is '+' (i.e., "ctrl++" = Ctrl-plus). We treat the
 // last non-empty token as the key and everything before as modifiers.
 func splitPlus(s string) Array[string] {
-    var out = EmptyArray[string]()
-    var cur = ""
-    var i = 0
     val rs = stringRunes(s)
     val n = rs.Length()
-    for i < n {
-        val c = rs.Get(i)
-        if c == '+' {
-            if cur != "" {
-                out = out.Append(cur)
-                cur = ""
-            } else {
+    val (finalOut, finalCur) = rs.ZipWithIndex().FoldLeft(
+        (EmptyArray[string](), ""),
+        (acc Tuple[Array[string], string], pair Tuple[rune, int]) => {
+            val (out, cur) = acc
+            val (c, i) = pair
+            if c == '+' {
+                if cur != "" {
+                    return (out.Append(cur), "")
+                }
                 // Treat leading / double '+' as the literal key itself.
                 if i == n - 1 {
-                    out = out.Append("+")
+                    return (out.Append("+"), "")
                 }
+                return (out, "")
             }
-        } else {
-            cur = cur + string(c)
-        }
-        i = i + 1
+            return (out, cur + string(c))
+        },
+    )
+    if finalCur != "" {
+        return finalOut.Append(finalCur)
     }
-    if cur != "" {
-        out = out.Append(cur)
-    }
-    return out
+    return finalOut
 }
 
 func stringRunes(s string) Array[rune] {

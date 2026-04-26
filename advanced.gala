@@ -166,21 +166,15 @@ func BarChart(data Array[BarChartDatum]) Widget {
     if data.IsEmpty() {
         return Empty()
     }
-    val labelWidth = data.FoldLeft(0, (acc, d) => maxInt(acc, runeCount(d.Label)))
-    val maxV = data.FoldLeft(1, (acc, d) => maxInt(acc, d.Value))
-    var rows = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = data.Length()
-    for i < n {
-        val d = data.Get(i)
+    val labelWidth = data.FoldLeft(0, (acc int, d BarChartDatum) => maxInt(acc, runeCount(d.Label)))
+    val maxV = data.FoldLeft(1, (acc int, d BarChartDatum) => maxInt(acc, d.Value))
+    val rows = data.Map((d BarChartDatum) => {
         val pct = d.Value * 100 / maxV
-        val row = Row(ArrayOf[LayoutChild](
+        return Fixed(1, Row(ArrayOf[LayoutChild](
             Fixed(labelWidth + 1, Text(d.Label)),
             Flex(1, Gauge(pct)),
-        ))
-        rows = rows.Append(Fixed(1, row))
-        i = i + 1
-    }
+        )))
+    })
     return Column(rows)
 }
 
@@ -226,10 +220,8 @@ func Tree(root TreeNode) Widget {
 // The plain `Tree` widget is unchanged — TreeFocused is opt-in.
 func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
     val lines = flattenTree(root, 0)
-    var rows = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = lines.Length()
-    for i < n {
+    val rows = lines.ZipWithIndex().Map((pair Tuple[string, int]) => {
+        val (line, i) = pair
         val isCursor = i == cursor
         val style = if (isCursor && focused)
             DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
@@ -237,9 +229,8 @@ func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
             DefaultStyle().WithReverse()
         else
             DefaultStyle()
-        rows = rows.Append(Fixed(1, TextStyled(lines.Get(i), style)))
-        i = i + 1
-    }
+        return Fixed(1, TextStyled(line, style))
+    })
     return Column(rows)
 }
 
@@ -285,17 +276,15 @@ func treeToggleHelper(node TreeNode, target int, idx int) Tuple[TreeNode, int] {
     if !node.Expanded || node.Children.IsEmpty() {
         return (node, idx + 1)
     }
-    var newChildren = EmptyArray[TreeNode]()
-    var cur = idx + 1
-    var i = 0
-    val n = node.Children.Length()
-    for i < n {
-        val child = node.Children.Get(i)
-        val (newChild, advancedIdx) = treeToggleHelper(child, target, cur)
-        newChildren = newChildren.Append(newChild)
-        cur = advancedIdx
-        i = i + 1
-    }
+    val seed = (EmptyArray[TreeNode](), idx + 1)
+    val (newChildren, cur) = node.Children.FoldLeft(
+        seed,
+        (acc Tuple[Array[TreeNode], int], child TreeNode) => {
+            val (kids, curIdx) = acc
+            val (newChild, advancedIdx) = treeToggleHelper(child, target, curIdx)
+            return (kids.Append(newChild), advancedIdx)
+        },
+    )
     return (node.Copy(Children = newChildren), cur)
 }
 
@@ -305,17 +294,12 @@ func flattenTree(node TreeNode, depth int) Array[string] {
     val indent = treeIndent(depth)
     val marker = treeMarker(node)
     val line = indent + marker + " " + node.Label
-    var lines = ArrayOf(line)
     if node.Expanded && node.Children.NonEmpty() {
-        var i = 0
-        val n = node.Children.Length()
-        for i < n {
-            val child = node.Children.Get(i)
-            lines = lines.AppendAll(flattenTree(child, depth + 1))
-            i = i + 1
-        }
+        return ArrayOf(line).AppendAll(
+            node.Children.FlatMap((child TreeNode) => flattenTree(child, depth + 1)),
+        )
     }
-    return lines
+    return ArrayOf(line)
 }
 
 func treeIndent(depth int) string {

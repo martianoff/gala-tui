@@ -559,83 +559,58 @@ func renderParagraph(content string, style Style, area Rect, buf *Buffer) {
     }
 }
 
+// wrapState is the running state of the wrapParagraph word-wrap fold:
+// accumulated output lines, the line being built, and the unflushed word.
+struct wrapState(Out Array[string], Line string, Word string)
+
+// wrapCommitWord folds the pending word into the current line, flushing
+// the current line to Out if appending the word would exceed `width`.
+// Idempotent when Word is empty.
+func wrapCommitWord(s wrapState, width int) wrapState {
+    if s.Word == "" { return s }
+    if runeCount(s.Line) == 0 {
+        return wrapState(Out = s.Out, Line = s.Word, Word = "")
+    }
+    if runeCount(s.Line) + 1 + runeCount(s.Word) <= width {
+        return wrapState(Out = s.Out, Line = s.Line + " " + s.Word, Word = "")
+    }
+    return wrapState(Out = s.Out.Append(s.Line), Line = s.Word, Word = "")
+}
+
+// wrapStepRune processes one input rune of the paragraph.
+func wrapStepRune(s wrapState, c rune, width int) wrapState {
+    if c == '\n' {
+        val flushed = wrapCommitWord(s, width)
+        return wrapState(Out = flushed.Out.Append(flushed.Line), Line = "", Word = "")
+    }
+    if c == ' ' {
+        return wrapCommitWord(s, width)
+    }
+    // Regular rune. Break a pathologically long word if it alone would
+    // overflow the current line.
+    if runeCount(s.Word) + 1 > width {
+        val outAfterLine = if (runeCount(s.Line) > 0) s.Out.Append(s.Line) else s.Out
+        return wrapState(Out = outAfterLine.Append(s.Word), Line = "", Word = string(c))
+    }
+    return wrapState(Out = s.Out, Line = s.Line, Word = s.Word + string(c))
+}
+
 // wrapParagraph does greedy word-wrap: accumulate words on the current line
 // until adding the next one would exceed `width`, then start a new line.
 // A word longer than `width` is hard-split at the width boundary.
 // Newlines in the input force a line break.
 func wrapParagraph(content string, width int) Array[string] {
-    var out = EmptyArray[string]()
-    var line = ""
-    var word = ""
     // Iterate rune by rune so we handle multibyte UTF-8 and explicit \n.
+    var st = wrapState(Out = EmptyArray[string](), Line = "", Word = "")
     for _, c := range content {
-        if c == '\n' {
-            // Commit any pending word + line.
-            if word != "" {
-                if runeCount(line) == 0 {
-                    line = word
-                } else {
-                    if runeCount(line) + 1 + runeCount(word) <= width {
-                        line = line + " " + word
-                    } else {
-                        out = out.Append(line)
-                        line = word
-                    }
-                }
-                word = ""
-            }
-            out = out.Append(line)
-            line = ""
-        } else {
-            if c == ' ' {
-                if word != "" {
-                    if runeCount(line) == 0 {
-                        line = word
-                    } else {
-                        if runeCount(line) + 1 + runeCount(word) <= width {
-                            line = line + " " + word
-                        } else {
-                            out = out.Append(line)
-                            line = word
-                        }
-                    }
-                    word = ""
-                }
-                // If we already have a line and adding any more is possible,
-                // continue; the space between words is inserted on commit.
-            } else {
-                // Regular rune. Break a pathologically long word if it alone
-                // would overflow the current line.
-                if runeCount(word) + 1 > width {
-                    if runeCount(line) > 0 {
-                        out = out.Append(line)
-                    }
-                    out = out.Append(word)
-                    word = string(c)
-                    line = ""
-                } else {
-                    word = word + string(c)
-                }
-            }
-        }
+        st = wrapStepRune(st, c, width)
     }
     // Flush trailing word + line.
-    if word != "" {
-        if runeCount(line) == 0 {
-            line = word
-        } else {
-            if runeCount(line) + 1 + runeCount(word) <= width {
-                line = line + " " + word
-            } else {
-                out = out.Append(line)
-                line = word
-            }
-        }
+    val flushed = wrapCommitWord(st, width)
+    if flushed.Line != "" || flushed.Out.IsEmpty() {
+        return flushed.Out.Append(flushed.Line)
     }
-    if line != "" || out.IsEmpty() {
-        out = out.Append(line)
-    }
-    return out
+    return flushed.Out
 }
 
 // renderViewport renders `inner` into a pseudo-buffer sized to the content
