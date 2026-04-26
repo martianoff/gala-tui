@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     "strings"
+    . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
 )
 
@@ -82,24 +83,20 @@ func (s Style) ToSgr() string {
 // canonical order. Also used by the (forthcoming) differential renderer to
 // compare per-cell diffs.
 func (s Style) sgrParts() []string {
-    var parts = SliceEmpty[string]()
-    if s.Bold      { parts = append(parts, "1") }
-    if s.Dim       { parts = append(parts, "2") }
-    if s.Italic    { parts = append(parts, "3") }
-    if s.Underline { parts = append(parts, "4") }
-    if s.Blink     { parts = append(parts, "5") }
-    if s.Reverse   { parts = append(parts, "7") }
-    if s.Strike    { parts = append(parts, "9") }
-    // Only emit fg/bg codes when not the default — avoids "\x1b[39;49m" noise.
-    s.Fg match {
-        case DefaultColor() => {}
-        case _              => parts = append(parts, ToSgrFg(s.Fg))
+    val flagParts = ArrayOf[Tuple[bool, string]](
+        Tuple(s.Bold,      "1"), Tuple(s.Dim,    "2"), Tuple(s.Italic,  "3"),
+        Tuple(s.Underline, "4"), Tuple(s.Blink,  "5"), Tuple(s.Reverse, "7"),
+        Tuple(s.Strike,    "9"),
+    ).Filter((p) => p.V1).Map((p) => p.V2)
+    val withFg = s.Fg match {
+        case DefaultColor() => flagParts
+        case _              => flagParts.Append(ToSgrFg(s.Fg))
     }
-    s.Bg match {
-        case DefaultColor() => {}
-        case _              => parts = append(parts, ToSgrBg(s.Bg))
+    val all = s.Bg match {
+        case DefaultColor() => withFg
+        case _              => withFg.Append(ToSgrBg(s.Bg))
     }
-    return parts
+    return all.ToGoSlice()
 }
 
 // ResetSgr is the universal "reset everything" escape — written before moving
