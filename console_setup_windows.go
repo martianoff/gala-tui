@@ -27,14 +27,25 @@ func EnableVTInput() bool {
 	if err := windows.GetConsoleMode(stdin, &inMode); err != nil {
 		return false
 	}
-	// ENABLE_VIRTUAL_TERMINAL_INPUT routes VT sequences (mouse, keys)
-	// through stdin instead of the legacy InputRecord buffer.
-	// ENABLE_EXTENDED_FLAGS + disabling ENABLE_QUICK_EDIT_MODE prevents
-	// the user's mouse-drag selection from intercepting our mouse events.
-	const enableVTInput = 0x0200
-	const enableExtended = 0x0080
-	const enableQuickEdit = 0x0040
-	inMode = (inMode | enableVTInput | enableExtended) &^ enableQuickEdit
+	// Console input modes — see
+	// https://learn.microsoft.com/en-us/windows/console/setconsolemode
+	//
+	//   ENABLE_VIRTUAL_TERMINAL_INPUT routes input as ANSI escape
+	//     sequences via ReadFile (instead of legacy InputRecords via
+	//     ReadConsoleInput). Required for our VT mouse parser to work.
+	//   ENABLE_MOUSE_INPUT lets mouse events through at all — without
+	//     it the OS filters them at console-host level *before*
+	//     anything reaches stdin, regardless of VT input mode. This
+	//     was the missing piece causing clicks to be silently dropped.
+	//   ENABLE_EXTENDED_FLAGS lets us toggle ENABLE_QUICK_EDIT_MODE.
+	//   ENABLE_QUICK_EDIT_MODE (CLEARED): when on, the user's left-
+	//     drag enters the conhost text-selection rectangle and our
+	//     mouse events never fire. Must be off for click capture.
+	const enableMouseInput = 0x0010
+	const enableExtended   = 0x0080
+	const enableQuickEdit  = 0x0040
+	const enableVTInput    = 0x0200
+	inMode = (inMode | enableMouseInput | enableExtended | enableVTInput) &^ enableQuickEdit
 	if err := windows.SetConsoleMode(stdin, inMode); err != nil {
 		return false
 	}
