@@ -1,0 +1,160 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for the dev-UX shortcuts.
+// ============================================================================
+
+sealed type DUTestMsg {
+    case DUInc()
+    case DUDec()
+    case DUQuit()
+    case DUNoOp()
+    case DUScrollUp()
+    case DUScrollDown()
+}
+
+// ----------------------------------------------------------------------------
+// DispatchKeys
+// ----------------------------------------------------------------------------
+
+func TestDispatchKeysFirstMatchWins(t T) T {
+    val keyToMsg = DispatchKeys[DUTestMsg](
+        ArrayOf[KeyBinding[DUTestMsg]](
+            KeyBind[DUTestMsg]("ctrl+c", DUQuit()),
+            KeyBind[DUTestMsg]("+",      DUInc()),
+            KeyBind[DUTestMsg]("-",      DUDec()),
+        ),
+        DUNoOp(),
+    )
+    val gotInc = keyToMsg(PlainKey(Char('+')))
+    val isInc = gotInc match {
+        case DUInc() => true
+        case _       => false
+    }
+    return IsTrue(t, isInc)
+}
+
+func TestDispatchKeysFallbackOnNoMatch(t T) T {
+    val keyToMsg = DispatchKeys[DUTestMsg](
+        ArrayOf[KeyBinding[DUTestMsg]](
+            KeyBind[DUTestMsg]("+", DUInc()),
+        ),
+        DUNoOp(),
+    )
+    val got = keyToMsg(PlainKey(Char('z')))
+    val isNoOp = got match {
+        case DUNoOp() => true
+        case _        => false
+    }
+    return IsTrue(t, isNoOp)
+}
+
+func TestDispatchKeysCtrlBindingMatches(t T) T {
+    val keyToMsg = DispatchKeys[DUTestMsg](
+        ArrayOf[KeyBinding[DUTestMsg]](
+            KeyBind[DUTestMsg]("ctrl+c", DUQuit()),
+        ),
+        DUNoOp(),
+    )
+    val got = keyToMsg(Ctrl(Char('c')))
+    val isQuit = got match {
+        case DUQuit() => true
+        case _        => false
+    }
+    return IsTrue(t, isQuit)
+}
+
+func TestDispatchKeysCtrlBindingDoesNotMatchPlainKey(t T) T {
+    val keyToMsg = DispatchKeys[DUTestMsg](
+        ArrayOf[KeyBinding[DUTestMsg]](
+            KeyBind[DUTestMsg]("ctrl+c", DUQuit()),
+        ),
+        DUNoOp(),
+    )
+    val got = keyToMsg(PlainKey(Char('c')))   // no ctrl
+    val isNoOp = got match {
+        case DUNoOp() => true
+        case _        => false
+    }
+    return IsTrue(t, isNoOp)
+}
+
+// ----------------------------------------------------------------------------
+// LiftKeyToInputScroll
+// ----------------------------------------------------------------------------
+
+func TestLiftKeyToInputScrollKeysPassThrough(t T) T {
+    val keyToMsg = (ev KeyEvent) => DUInc()
+    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+        keyToMsg, DUScrollUp(), DUScrollDown(), DUNoOp(), DUNoOp(),
+    )
+    val got = inputToMsg(KeyInput(Ev = PlainKey(Char('+'))))
+    val isInc = got match {
+        case DUInc() => true
+        case _       => false
+    }
+    return IsTrue(t, isInc)
+}
+
+func TestLiftKeyToInputScrollWheelUpRoutes(t T) T {
+    val keyToMsg = (ev KeyEvent) => DUNoOp()
+    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+        keyToMsg, DUScrollUp(), DUScrollDown(), DUNoOp(), DUNoOp(),
+    )
+    val got = inputToMsg(MouseInput(Ev = MouseEvent(
+        Btn = MouseScrollUp(), X = 0, Y = 0, Pressed = true,
+    )))
+    val isUp = got match {
+        case DUScrollUp() => true
+        case _            => false
+    }
+    return IsTrue(t, isUp)
+}
+
+func TestLiftKeyToInputScrollWheelDownRoutes(t T) T {
+    val keyToMsg = (ev KeyEvent) => DUNoOp()
+    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+        keyToMsg, DUScrollUp(), DUScrollDown(), DUNoOp(), DUNoOp(),
+    )
+    val got = inputToMsg(MouseInput(Ev = MouseEvent(
+        Btn = MouseScrollDown(), X = 0, Y = 0, Pressed = true,
+    )))
+    val isDown = got match {
+        case DUScrollDown() => true
+        case _              => false
+    }
+    return IsTrue(t, isDown)
+}
+
+func TestLiftKeyToInputScrollClickGetsFallback(t T) T {
+    val keyToMsg = (ev KeyEvent) => DUInc()  // shouldn't fire
+    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+        keyToMsg, DUScrollUp(), DUScrollDown(), DUDec(), DUNoOp(),
+    )
+    val got = inputToMsg(MouseInput(Ev = MouseEvent(
+        Btn = MouseLeft(), X = 5, Y = 5, Pressed = true,
+    )))
+    val isClick = got match {
+        case DUDec() => true
+        case _       => false
+    }
+    return IsTrue(t, isClick)
+}
+
+func TestLiftKeyToInputScrollResizeGetsFallback(t T) T {
+    val keyToMsg = (ev KeyEvent) => DUInc()
+    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+        keyToMsg, DUScrollUp(), DUScrollDown(), DUInc(), DUDec(),
+    )
+    val got = inputToMsg(ResizeInput(W = 80, H = 24))
+    val isResize = got match {
+        case DUDec() => true
+        case _       => false
+    }
+    return IsTrue(t, isResize)
+}

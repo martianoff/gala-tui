@@ -69,36 +69,28 @@ func view(m Model) Widget {
     ))
 }
 
-// ----- Key bindings ----------------------------------------------------------
-
-func keyToMsg(ev KeyEvent) Msg {
-    if KeyMatches(ev, "ctrl+c") { return Quit() }
-    return ev.Key match {
-        case Char(c) => charToMsg(c)
-        case Esc()   => Quit()
-        case _       => Inc()        // any other key bumps the count
-    }
-}
-
-func charToMsg(c rune) Msg = c match {
-    case '+' => Inc()       // most keyboards put + on shift
-    case '=' => Inc()
-    case '-' => Dec()
-    case 'q' => Quit()
-    case _   => Inc()
-}
-
 // ----- main ------------------------------------------------------------------
 
 func main() {
-    val program = Program[Model, Msg](
-        Initial = Model(N = 0),
-        Update  = (m, msg) => update(m, msg),
-        View    = (m) => view(m),
+    val keyToMsg = DispatchKeys[Msg](
+        ArrayOf[KeyBinding[Msg]](
+            KeyBind[Msg]("ctrl+c", Quit()),
+            KeyBind[Msg]("q",      Quit()),
+            KeyBind[Msg]("esc",    Quit()),
+            KeyBind[Msg]("+",      Inc()),
+            KeyBind[Msg]("=",      Inc()),
+            KeyBind[Msg]("-",      Dec()),
+        ),
+        Inc(),   // any other key just bumps the count
     )
-    val _ = Run[Model, Msg](program, (ev) => keyToMsg(ev))
+    val _ = RunSimple[Model, Msg](Model(N = 0), update, view, keyToMsg)
 }
 ```
+
+> The pair of `DispatchKeys` (spec-string keymap) + `RunSimple`
+> (Program + Run in one call) collapses what used to be ~25 lines
+> of `keyToMsg` / `charToMsg` / `Program(...)` / `Run(...)`
+> boilerplate into a single block.
 
 Run it:
 ```bash

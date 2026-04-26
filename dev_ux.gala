@@ -1,0 +1,158 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Developer-UX shortcuts. These exist purely to compress boilerplate the
+// underlying framework already has but that every app would otherwise
+// re-write by hand: spec-string-driven keymaps, one-call program runners.
+//
+// Nothing here adds new capability. Apps that want full control can keep
+// using `Run` / `RunRich` / `RunFull` directly with hand-written
+// `keyToMsg` functions. The shortcuts collapse the *common* shape:
+//
+//     val km = DispatchKeys[Msg](ArrayOf[KeyBinding[Msg]](
+//         KeyBind("ctrl+c", Quit()),
+//         KeyBind("q",      Quit()),
+//         KeyBind("+",      Inc()),
+//         KeyBind("-",      Dec()),
+//     ), Inc())  // fallback
+//
+//     val _ = RunSimple[Model, Msg](Model(N = 0), update, view, km)
+//
+// vs. the long form: 12+ lines for `keyToMsg` + 6 lines of `Program(...)`
+// + Run construction.
+// ============================================================================
+
+// DispatchKeys turns a list of KeyBindings + a fallback message into a
+// `func(KeyEvent) T` ready to feed into `Run` / `RunRich`. The first
+// binding whose `Match` predicate fires wins; if no binding matches,
+// returns the fallback.
+//
+// Pair with `KeyBind`, `KeyBindMake`, `Bind`, `BindCtrl`, `BindAny`,
+// `BindWhere` to build the bindings list.
+//
+//     val keyToMsg = DispatchKeys[Msg](ArrayOf[KeyBinding[Msg]](
+//         KeyBind("ctrl+c", Quit()),
+//         KeyBind("q",      Quit()),
+//         BindAny[Msg]((ev) => CharTyped(C = unwrapChar(ev.Key))),
+//     ), NoOp())
+func DispatchKeys[T any](bindings Array[KeyBinding[T]], fallback T) func(KeyEvent) T = (ev) => {
+    val hit = bindings.Find((b) => b.Match(ev))
+    return hit match {
+        case Some(b) => b.Make(ev)
+        case None()  => fallback
+    }
+}
+
+// RunSimple bundles `Program(...)` construction with `Run(...)`. The
+// most common shape — pure-keyboard app, no async cmds, no subs —
+// collapses from 6 lines to one.
+//
+//     val _ = RunSimple[Model, Msg](
+//         Model(N = 0), update, view, keyToMsg,
+//     )
+func RunSimple[M any, T any](
+    initial M,
+    update func(M, T) Tuple[M, Cmd[T]],
+    view func(M) Widget,
+    keyToMsg func(KeyEvent) T,
+) M {
+    val program = Program[M, T](Initial = initial, Update = update, View = view)
+    return Run[M, T](program, keyToMsg)
+}
+
+// RunSimpleRich is `RunSimple` with a Sub — the common shape for apps
+// that want a clock tick or another KeySub batched in.
+//
+//     val sub = TickSub[Msg](Interval = Milliseconds(100), Make = () => Tick())
+//     val _ = RunSimpleRich[Model, Msg](initial, update, view, keyToMsg, sub)
+func RunSimpleRich[M any, T any](
+    initial M,
+    update func(M, T) Tuple[M, Cmd[T]],
+    view func(M) Widget,
+    keyToMsg func(KeyEvent) T,
+    sub Sub[T],
+) M {
+    val program = Program[M, T](Initial = initial, Update = update, View = view)
+    return RunRich[M, T](program, keyToMsg, sub)
+}
+
+// RunSimpleFull is `RunSimple` for full-input apps (mouse + resize).
+// The InputEvent → Msg adapter is `inputToMsg`. Apps that only care
+// about keyboard events can use `LiftKeyToInput(keyToMsg)` to promote
+// a keys-only handler.
+//
+//     val _ = RunSimpleFull[Model, Msg](
+//         initial, update, view,
+//         (ev) => MyInputToMsg(ev),
+//         tickSub,
+//     )
+func RunSimpleFull[M any, T any](
+    initial M,
+    update func(M, T) Tuple[M, Cmd[T]],
+    view func(M) Widget,
+    inputToMsg func(InputEvent) T,
+    sub Sub[T],
+) M {
+    val program = Program[M, T](Initial = initial, Update = update, View = view)
+    return RunFull[M, T](program, inputToMsg, sub)
+}
+
+// LiftKeyToInput promotes a `func(KeyEvent) T` to `func(InputEvent) T`,
+// dispatching mouse/resize/unknown events through `mouse` / `fallback`.
+// Saves apps from writing the InputEvent translator by hand when they
+// only want to handle keys + scroll wheel.
+//
+//     val _ = RunSimpleFull[Model, Msg](
+//         initial, update, view,
+//         LiftKeyToInput[Msg](keyToMsg, NoOp(), NoOp()),
+//         sub,
+//     )
+//
+// `mouse` is dispatched on every mouse event (click, scroll, motion);
+// `fallback` covers resize and unknown-input. To handle scroll-wheel
+// specifically, use `LiftKeyToInputScroll`.
+func LiftKeyToInput[T any](
+    keyToMsg func(KeyEvent) T,
+    mouse T,
+    fallback T,
+) func(InputEvent) T = (ev) => ev match {
+    case KeyInput(k)       => keyToMsg(k)
+    case MouseInput(_)     => mouse
+    case ResizeInput(_, _) => fallback
+    case UnknownInput()    => fallback
+}
+
+// LiftKeyToInputScroll is the most-common-mouse-shape lift: scroll-wheel
+// up/down get routed to scroll-up/down messages; clicks and other mouse
+// events get the `clickFallback`; resize/unknown get `fallback`.
+//
+//     val _ = RunSimpleFull[Model, Msg](
+//         initial, update, view,
+//         LiftKeyToInputScroll[Msg](keyToMsg, ScrollUp(), ScrollDown(), NoOp(), NoOp()),
+//         sub,
+//     )
+func LiftKeyToInputScroll[T any](
+    keyToMsg func(KeyEvent) T,
+    scrollUp T,
+    scrollDown T,
+    clickFallback T,
+    fallback T,
+) func(InputEvent) T = (ev) => ev match {
+    case KeyInput(k)       => keyToMsg(k)
+    case MouseInput(m)     => liftScroll[T](m, scrollUp, scrollDown, clickFallback)
+    case ResizeInput(_, _) => fallback
+    case UnknownInput()    => fallback
+}
+
+func liftScroll[T any](m MouseEvent, up T, down T, fallback T) T = m.Btn match {
+    case MouseScrollUp()   => up
+    case MouseScrollDown() => down
+    case MouseLeft()       => fallback
+    case MouseMiddle()     => fallback
+    case MouseRight()      => fallback
+    case MouseButtonNone() => fallback
+}
