@@ -172,10 +172,19 @@ func keywordsFor(lang string) Array[string] {
             "true", "false", "nil")
     }
     if lang == "gala" {
-        return ArrayOf[string]("val", "var", "func", "type", "struct",
-            "sealed", "case", "match", "if", "else", "for", "return",
-            "import", "package", "embed",
-            "true", "false", "nil")
+        return ArrayOf[string](
+            "val", "var", "func", "type", "struct", "sealed", "case",
+            "match", "if", "else", "for", "return", "import", "package",
+            "embed", "any", "range",
+            "true", "false", "nil",
+            // Built-in primitive types — GALA's tokenizer treats these
+            // as identifiers, but syntax-highlighters conventionally
+            // colour them as keywords.
+            "int", "int8", "int16", "int32", "int64",
+            "uint", "uint8", "uint16", "uint32", "uint64",
+            "float32", "float64", "bool", "string", "rune", "byte",
+            "error",
+        )
     }
     if lang == "python" || lang == "py" {
         return ArrayOf[string]("def", "class", "if", "else", "elif",

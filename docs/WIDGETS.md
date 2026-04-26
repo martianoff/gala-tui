@@ -244,6 +244,30 @@ val view = Column(ArrayOf[LayoutChild](
 ))
 ```
 
+## Search + diff
+
+| Widget | Signature | Notes |
+|---|---|---|
+| `SearchInput(query, matched, total)` | `(string, int, int) Widget` | `/  query… (12/45)` — icon + input + result-count badge. Empty query collapses the badge. |
+| `SearchInputStyled(query, matched, total, iconStyle, textStyle, badgeStyle)` | | …with caller-picked styles. |
+| `MatchSubstring(haystack, needle)` | `(string, string) bool` | Case-insensitive substring predicate, the canonical SearchInput filter. |
+| `DiffView(lines)` | `(Array[DiffLine]) Widget` | Line-by-line diff: green `+` for added, red `-` for removed, dim ` ` for context. Empty input → "(no changes)". |
+| `DiffViewStats(lines)` | `(Array[DiffLine]) Widget` | DiffView prefixed with a `+N -M ~K` summary row. |
+
+```gala
+sealed type DiffLine {
+    case DiffContext(Text string)
+    case DiffAdded(Text string)
+    case DiffRemoved(Text string)
+}
+
+val hits = items.Filter((s) => MatchSubstring(s, m.Query))
+val view = Column(ArrayOf[LayoutChild](
+    Fixed(1, SearchInput(m.Query, hits.Length(), items.Length())),
+    Flex(1, SelectListOf(hits, m.Sel)),
+))
+```
+
 ## Themed helpers
 
 These pick fg/bg/border from a `Theme` so you don't have to wire each

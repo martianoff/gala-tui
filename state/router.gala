@@ -108,3 +108,11 @@ func (s ScreenStack) Breadcrumb() string {
     }
     return out
 }
+
+// BreadcrumbParts returns the stack as an Array — the raw segments
+// without any joining separator. Use this when feeding the framework's
+// `Breadcrumb` widget, which expects per-segment tokens so it can apply
+// distinct styling to the active (rightmost) segment.
+//
+//     val crumb = Breadcrumb(m.Screens.BreadcrumbParts())
+func (s ScreenStack) BreadcrumbParts() Array[string] = s.Stack

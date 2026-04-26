@@ -1,0 +1,101 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// DiffView — a simple line-by-line diff renderer.
+//
+// Inputs are pre-classified arrays of `DiffLine` values. The widget
+// just renders them with conventional colours: green for added (`+`),
+// red for removed (`-`), dim for unchanged context (` `).
+//
+// gala-tui does NOT compute the diff for you — that's a separate
+// concern (see `martianoff/gala-server` or the `simplesnap` tool for
+// LCS/Myers diff implementations). DiffView is the rendering primitive.
+//
+// Typical use — render a build's stdout-output diff against a baseline:
+//
+//     val lines = ArrayOf[DiffLine](
+//         DiffContext(Text = "common.go:1: package main"),
+//         DiffRemoved(Text = "common.go:5: var x = 1"),
+//         DiffAdded(Text   = "common.go:5: val x = 1"),
+//         DiffContext(Text = "common.go:6: ..."),
+//     )
+//     DiffView(lines)
+// ============================================================================
+
+sealed type DiffLine {
+    case DiffContext(Text string)
+    case DiffAdded(Text string)
+    case DiffRemoved(Text string)
+}
+
+// DiffView renders a sequence of DiffLines as a Column with one row per
+// line, prefixed by `+`/`-`/` ` and styled with conventional colours.
+//
+// Empty input renders an empty placeholder row.
+func DiffView(lines Array[DiffLine]) Widget {
+    if lines.IsEmpty() {
+        return TextStyled("(no changes)", DefaultStyle().WithDim().WithItalic())
+    }
+    val rows = lines.Map((line) => Fixed(1, diffLineWidget(line)))
+    return Column(rows)
+}
+
+struct DiffCounts(Added int, Removed int, Context int)
+
+// DiffViewStats prepends a one-line summary "+N -M ~K" above the diff
+// body. Useful as a header for a diff panel where the user wants the
+// added/removed counts at a glance.
+func DiffViewStats(lines Array[DiffLine]) Widget {
+    val counts = diffCounts(lines)
+    val summary = Row(ArrayOf[LayoutChild](
+        Fixed(RuneCount(s"+${counts.Added}") + 1,
+            TextStyled(s"+${counts.Added} ",
+                DefaultStyle().WithBold().WithFg(BrightGreen()))),
+        Fixed(RuneCount(s"-${counts.Removed}") + 1,
+            TextStyled(s"-${counts.Removed} ",
+                DefaultStyle().WithBold().WithFg(BrightRed()))),
+        Fixed(RuneCount(s"~${counts.Context}") + 1,
+            TextStyled(s"~${counts.Context} ",
+                DefaultStyle().WithDim())),
+    ))
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, summary),
+        Fixed(1, FillCh('─')),
+        Flex(1, DiffView(lines)),
+    ))
+}
+
+func diffLineWidget(line DiffLine) Widget {
+    return line match {
+        case DiffContext(text)  =>
+            TextStyled("  " + text, DefaultStyle().WithDim())
+        case DiffAdded(text)    =>
+            TextStyled("+ " + text,
+                DefaultStyle().WithFg(BrightGreen()))
+        case DiffRemoved(text)  =>
+            TextStyled("- " + text,
+                DefaultStyle().WithFg(BrightRed()))
+    }
+}
+
+func diffCounts(lines Array[DiffLine]) DiffCounts {
+    var added = 0
+    var removed = 0
+    var ctx = 0
+    var i = 0
+    val n = lines.Length()
+    for i < n {
+        val line = lines.Get(i)
+        line match {
+            case DiffAdded(_)   => added = added + 1
+            case DiffRemoved(_) => removed = removed + 1
+            case DiffContext(_) => ctx = ctx + 1
+        }
+        i = i + 1
+    }
+    return DiffCounts(Added = added, Removed = removed, Context = ctx)
+}

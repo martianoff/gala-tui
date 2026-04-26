@@ -517,18 +517,22 @@ func megaHeader(m MegaModel, th Theme) Widget {
             DefaultStyle().WithBold())),
         Flex(1, Gauge(pct)),
     ))
-    val breadcrumb = TextStyled(
-        s" ${m.Screens.Breadcrumb()} ",
-        DefaultStyle().WithDim(),
-    )
-    val runningLabel = s" active: $activeBuilds  tick: ${m.Tick} "
-    val info = TextStyled(runningLabel, DefaultStyle().WithDim())
+    // Breadcrumb widget — last segment bright-cyan, earlier dim.
+    val breadcrumb = Breadcrumb(m.Screens.BreadcrumbParts())
+    // Pulse next to the active-build counter — green dot while builds
+    // are running, dim when none.
+    val activeColor = if (activeBuilds > 0) BrightGreen() else BrightBlack()
+    val activeRow = Row(ArrayOf[LayoutChild](
+        Fixed(3, Pulse(m.Tick, activeColor)),
+        Fixed(20, TextStyled(s"active: $activeBuilds  tick: ${m.Tick} ",
+            DefaultStyle().WithDim())),
+    ))
     val inside = Row(ArrayOf[LayoutChild](
         Fixed(28, title),
         Fixed(1, Text("")),
         Flex(3, breadcrumb),
         Fixed(2, spin),
-        Fixed(20, info),
+        Fixed(23, activeRow),
         Flex(3, gauge),
     ))
     return BorderOf(PaddingHV(0, 1, inside), ThickBorder())

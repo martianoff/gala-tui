@@ -1,0 +1,93 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for DiffView and DiffViewStats.
+// ============================================================================
+
+func TestDiffViewEmptyShowsPlaceholder(t T) T {
+    val buf = NewBuffer(30, 1)
+    RenderTo(DiffView(EmptyArray[DiffLine]()),
+        Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    return IsTrue(t, megaContains(BufferText(buf, 0), "(no changes)"))
+}
+
+func TestDiffViewAddedLineIsBrightGreen(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(DiffView(ArrayOf[DiffLine](
+        DiffAdded(Text = "added line"),
+    )),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "+ added line"))
+    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightGreen()))
+}
+
+func TestDiffViewRemovedLineIsBrightRed(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(DiffView(ArrayOf[DiffLine](
+        DiffRemoved(Text = "removed line"),
+    )),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "- removed line"))
+    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightRed()))
+}
+
+func TestDiffViewContextIsDim(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(DiffView(ArrayOf[DiffLine](
+        DiffContext(Text = "context line"),
+    )),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    val t1 = IsTrue(t, megaContains(BufferText(buf, 0), "  context line"))
+    // Dim attribute on the prefix cell.
+    return IsTrue(t1, buf.StyleAt(2, 0).Dim)
+}
+
+func TestDiffViewMixedRendersAllLines(t T) T {
+    val buf = NewBuffer(40, 4)
+    RenderTo(DiffView(ArrayOf[DiffLine](
+        DiffContext(Text = "before"),
+        DiffRemoved(Text = "old"),
+        DiffAdded(Text   = "new"),
+        DiffContext(Text = "after"),
+    )),
+        Rect(X = 0, Y = 0, Width = 40, Height = 4), buf)
+    val t1 = IsTrue(t, megaContains(BufferText(buf, 0), "before"))
+    val t2 = IsTrue(t1, megaContains(BufferText(buf, 1), "old"))
+    val t3 = IsTrue(t2, megaContains(BufferText(buf, 2), "new"))
+    return IsTrue(t3, megaContains(BufferText(buf, 3), "after"))
+}
+
+// ----------------------------------------------------------------------------
+// DiffViewStats — summary row + diff body.
+// ----------------------------------------------------------------------------
+
+func TestDiffViewStatsRendersCounts(t T) T {
+    val buf = NewBuffer(40, 6)
+    RenderTo(DiffViewStats(ArrayOf[DiffLine](
+        DiffContext(Text = "ctx"),
+        DiffAdded(Text = "a1"),
+        DiffAdded(Text = "a2"),
+        DiffRemoved(Text = "r1"),
+    )),
+        Rect(X = 0, Y = 0, Width = 40, Height = 6), buf)
+    val summary = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(summary, "+2"))
+    val t2 = IsTrue(t1, megaContains(summary, "-1"))
+    return IsTrue(t2, megaContains(summary, "~1"))
+}
+
+func TestDiffViewStatsAddedCountIsGreen(t T) T {
+    val buf = NewBuffer(40, 6)
+    RenderTo(DiffViewStats(ArrayOf[DiffLine](
+        DiffAdded(Text = "x"),
+    )),
+        Rect(X = 0, Y = 0, Width = 40, Height = 6), buf)
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightGreen()))
+}

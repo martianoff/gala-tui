@@ -1,0 +1,70 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// SearchInput + MatchSubstring tests.
+// ============================================================================
+
+func TestSearchInputEmptyShowsPlaceholder(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(SearchInput("", 0, 100),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    return IsTrue(t, megaContains(BufferText(buf, 0), "Type to search…"))
+}
+
+func TestSearchInputEmptyHidesBadge(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(SearchInput("", 0, 100),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    // No "(N/M)" badge when query is empty.
+    return IsFalse(t, megaContains(BufferText(buf, 0), "(0/100)"))
+}
+
+func TestSearchInputWithQueryShowsBadge(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(SearchInput("alice", 3, 25),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "alice"))
+    return IsTrue(t1, megaContains(row, "(3/25)"))
+}
+
+func TestSearchInputIconIsBrightCyan(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(SearchInput("x", 1, 1),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    // Icon at column 1 (after leading space).
+    return IsTrue(t, ColorEq(buf.StyleAt(1, 0).Fg, BrightCyan()))
+}
+
+// ----------------------------------------------------------------------------
+// MatchSubstring
+// ----------------------------------------------------------------------------
+
+func TestMatchSubstringEmptyNeedleMatchesAll(t T) T =
+    IsTrue(t, MatchSubstring("anything", ""))
+
+func TestMatchSubstringSimpleHit(t T) T =
+    IsTrue(t, MatchSubstring("hello world", "world"))
+
+func TestMatchSubstringMiss(t T) T =
+    IsFalse(t, MatchSubstring("hello", "xyz"))
+
+func TestMatchSubstringIsCaseInsensitive(t T) T =
+    IsTrue(t, MatchSubstring("Alice Cooper", "alice"))
+
+func TestMatchSubstringMixedCase(t T) T =
+    IsTrue(t, MatchSubstring("Build #4211", "BUILD"))
+
+// End-to-end: filter an Array using MatchSubstring as the predicate.
+// Mirrors how SearchInput is used in practice.
+func TestMatchSubstringInFilter(t T) T {
+    val items = ArrayOf[string]("alice", "Bob", "Carol", "dave", "alex")
+    val hits = items.Filter((s) => MatchSubstring(s, "al"))
+    val t1 = Eq(t, hits.Length(), 2)   // "alice" and "alex"
+    return IsTrue(t1, hits.Get(0) == "alice")
+}

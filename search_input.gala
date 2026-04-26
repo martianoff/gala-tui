@@ -1,0 +1,81 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// SearchInput — a one-call "type-to-filter" widget bundling an Input box,
+// an icon, and a result-count badge.
+//
+// Intended pattern: app keeps a `Query string` field on the model; on
+// every keystroke the model updates the query AND recomputes the
+// filtered list. `SearchInput` renders the query input + a hint of how
+// many results matched.
+//
+//     // model
+//     struct M(Query string, AllItems Array[string])
+//
+//     // view
+//     val matches = m.AllItems.Filter((s) => Match(s, m.Query))
+//     val view = Column(ArrayOf[LayoutChild](
+//         Fixed(1, SearchInput(m.Query, matches.Length(), m.AllItems.Length())),
+//         Flex(1, SelectListOf(matches, m.Sel)),
+//     ))
+//
+// Match is a fuzzy-substring helper; apps can use any predicate.
+// ============================================================================
+
+// SearchInput renders a single-row search bar with prefix icon, the
+// current query, a cursor (block at the end of the typed text), and a
+// trailing "(N/M)" results-count badge.
+//
+//   /  query…              (12/45)
+//
+// Empty query collapses the badge — "Type to search…" placeholder.
+func SearchInput(query string, matched int, total int) Widget =
+    SearchInputStyled(query, matched, total,
+        DefaultStyle().WithBold().WithFg(BrightCyan()),
+        DefaultStyle(),
+        DefaultStyle().WithDim())
+
+// SearchInputStyled lets the caller pick the icon, text, and badge styles.
+func SearchInputStyled(
+    query string,
+    matched int,
+    total int,
+    iconStyle Style,
+    textStyle Style,
+    badgeStyle Style,
+) Widget {
+    val icon = TextStyled(" /  ", iconStyle)
+    val typed = if (query == "")
+        TextStyled("Type to search…", DefaultStyle().WithDim().WithItalic())
+    else
+        TextStyled(query + "▎", textStyle.WithBold())
+    val badge = if (query == "")
+        TextStyled("", badgeStyle)
+    else
+        TextStyled(s" ($matched/$total)", badgeStyle)
+    return Row(ArrayOf[LayoutChild](
+        Fixed(4, icon),
+        Flex(1, typed),
+        Fixed(RuneCount(badgeText(query, matched, total)), badge),
+    ))
+}
+
+// MatchSubstring is a case-insensitive substring predicate — the most
+// common SearchInput filter. Apps with structured records can supply
+// their own. Use directly with `Array.Filter`:
+//
+//     val hits = items.Filter((s) => MatchSubstring(s, m.Query))
+func MatchSubstring(haystack string, needle string) bool {
+    if needle == "" { return true }
+    return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
+}
+
+func badgeText(query string, matched int, total int) string {
+    if query == "" { return "" }
+    return s" ($matched/$total)"
+}

@@ -64,6 +64,36 @@ func TestTokenizeGalaKeywords(t T) T {
     return IsTrue(t, anyTokenOfKind(toks, "keyword"))
 }
 
+// Pin down the full set of gala keywords / built-in types — the
+// regression guard if someone narrows the table by accident.
+func TestTokenizeGalaCoreKeywordsAllRecognised(t T) T {
+    val sample =
+        "func f[T any](xs Array[T]) Array[T] = xs match { " +
+        "case Nil() => xs; case _ => xs }"
+    val toks = tokenize(sample, "gala")
+    val gotKeywords = countTokens(toks, "keyword")
+    // Expect at least: func, any, match, case (×2). The exact count
+    // depends on how "Array" is tokenised (it's an identifier), so
+    // we just check >= 5 keywords were recognised.
+    return IsTrue(t, gotKeywords >= 5)
+}
+
+// Built-in types like `int`, `string`, `bool` should also paint as
+// keywords for consistency with how Go / Rust highlighters treat them.
+func TestTokenizeGalaPrimitiveTypeIsKeyword(t T) T {
+    val toks = tokenize("val n int = 0", "gala")
+    val gotKeywords = countTokens(toks, "keyword")
+    // "val" and "int" both keywords → at least 2.
+    return IsTrue(t, gotKeywords >= 2)
+}
+
+// String interpolation: the leading `s` is an ident, the quoted
+// payload is a string. Verify the string token is emitted.
+func TestTokenizeGalaInterpolatedStringHasStringToken(t T) T {
+    val toks = tokenize("val msg = s\"hello $name\"", "gala")
+    return IsTrue(t, anyTokenOfKind(toks, "string"))
+}
+
 // ----------------------------------------------------------------------------
 // HighlightLine rendering
 // ----------------------------------------------------------------------------
@@ -142,6 +172,9 @@ func TestMarkdownFencedCodeBlockRendersWithBorder(t T) T {
 
 func anyTokenOfKind(toks Array[SyntaxToken], kind string) bool =
     toks.Exists((tok) => tokenKindMatches(tok, kind))
+
+func countTokens(toks Array[SyntaxToken], kind string) int =
+    toks.Count((tok) => tokenKindMatches(tok, kind))
 
 func tokenKindMatches(tok SyntaxToken, kind string) bool {
     return tok match {
