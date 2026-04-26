@@ -209,7 +209,7 @@ func SelectListPick[T any](
     focused bool,
     onPick func(int) T,
 ) Widget = SelectList(items, selected, focused)
-    .OnPickRow[T](items.Length(), onPick)
+    .OnPickRow(items.Length(), onPick)
 
 // SelectListOfPick is the click-aware sibling of SelectListOf — same
 // labels-first ergonomics, but each row dispatches `onPick(i)` on click.
@@ -219,7 +219,7 @@ func SelectListOfPick[T any](
     focused bool,
     onPick func(int) T,
 ) Widget = SelectListOf(labels, selected, focused)
-    .OnPickRow[T](labels.Length(), onPick)
+    .OnPickRow(labels.Length(), onPick)
 
 // Input renders a single-line text input. `cursor` is the 0-based column of
 // the insertion point. Empty value shows `placeholder` in a dimmed style.
@@ -258,7 +258,7 @@ func Button(label string, focused bool) Widget {
 //
 //     val saveBtn = ButtonClick[Msg]("Save", focused, Save())
 func ButtonClick[T any](label string, focused bool, onClick T) Widget =
-    Button(label, focused).OnClick[T](onClick)
+    Button(label, focused).OnClick(onClick)
 
 // Paragraph renders multi-line text with word-wrapping within the allocated
 // width. Overflow beyond the allocated height is clipped. Long runs of
@@ -334,7 +334,7 @@ func Custom(minW int, minH int, render func(Rect, *Buffer, *HitRegistry)) Widget
 func Tabs(titles Array[string], bodies Array[Widget], sel int, focused bool = false) Widget {
     val header = tabHeaderRow(titles, sel, focused)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
-    return Column(ArrayOf[LayoutChild](
+    return Column(ArrayOf(
         Fixed(1, header),
         Flex(1, body),
     ))
@@ -355,7 +355,7 @@ func TabsClick[T any](
 ) Widget {
     val header = tabHeaderRowClick[T](titles, sel, focused, onTabClick)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
-    return Column(ArrayOf[LayoutChild](
+    return Column(ArrayOf(
         Fixed(1, header),
         Flex(1, body),
     ))
@@ -381,7 +381,7 @@ func tabHeaderRowClick[T any](
         val rawCell = tabHeaderCell(pair.V1, pair.V2 == sel, focused)
         return LayoutChild(
             Constraint = rawCell.Constraint,
-            Widget     = rawCell.Widget.OnClick[T](onTabClick(pair.V2)),
+            Widget     = rawCell.Widget.OnClick(onTabClick(pair.V2)),
         )
     })
     return Row(cells.Append(Flex(1, FillCh(' '))))
@@ -675,11 +675,10 @@ func renderScrollbar(total int, visible int, offset int, style Style, area Rect,
     }
 }
 
-func clampInt(v int, lo int, hi int) int {
-    if v < lo { return lo }
-    if v > hi { return hi }
-    return v
-}
+func clampInt(v int, lo int, hi int) int =
+    if (v < lo) lo
+    else if (v > hi) hi
+    else v
 
 // renderList paints each visible item into `area`. The viewport scrolls so
 // that `sel` is always in view.
@@ -720,20 +719,10 @@ func renderList(items Array[ListItem], sel int, selStyle Style, area Rect, buf *
 
 // listViewportOffset computes the top-of-viewport index so that `sel` is
 // on-screen. Simple top-or-bottom anchor.
-func listViewportOffset(n int, sel int, height int) int {
-    if height <= 0 || n <= height {
-        return 0
-    }
-    if sel < height {
-        return 0
-    }
-    val max = n - height
-    val anchored = sel - height + 1
-    if anchored > max {
-        return max
-    }
-    return anchored
-}
+func listViewportOffset(n int, sel int, height int) int =
+    if (height <= 0 || n <= height) 0
+    else if (sel < height) 0
+    else minInt(sel - height + 1, n - height)
 
 // renderInput paints a value or a placeholder, plus a visible cursor.
 func renderInput(value string, cursor int, placeholder string, style Style, phStyle Style, area Rect, buf *Buffer) {
@@ -894,15 +883,15 @@ type BorderGlyphs struct {
 func borderGlyphs(k BorderKind) BorderGlyphs {
     return k match {
         case SingleBorder()  =>
-            BorderGlyphs{TL: '┌', TR: '┐', BL: '└', BR: '┘', H: '─', V: '│'}
+            BorderGlyphs(TL = '┌', TR = '┐', BL = '└', BR = '┘', H = '─', V = '│')
         case DoubleBorder()  =>
-            BorderGlyphs{TL: '╔', TR: '╗', BL: '╚', BR: '╝', H: '═', V: '║'}
+            BorderGlyphs(TL = '╔', TR = '╗', BL = '╚', BR = '╝', H = '═', V = '║')
         case RoundedBorder() =>
-            BorderGlyphs{TL: '╭', TR: '╮', BL: '╰', BR: '╯', H: '─', V: '│'}
+            BorderGlyphs(TL = '╭', TR = '╮', BL = '╰', BR = '╯', H = '─', V = '│')
         case ThickBorder()   =>
-            BorderGlyphs{TL: '┏', TR: '┓', BL: '┗', BR: '┛', H: '━', V: '┃'}
+            BorderGlyphs(TL = '┏', TR = '┓', BL = '┗', BR = '┛', H = '━', V = '┃')
         case AsciiBorder()   =>
-            BorderGlyphs{TL: '+', TR: '+', BL: '+', BR: '+', H: '-', V: '|'}
+            BorderGlyphs(TL = '+', TR = '+', BL = '+', BR = '+', H = '-', V = '|')
     }
 }
 
@@ -1017,16 +1006,10 @@ func RuneCount(s string) int {
 }
 
 // MaxInt returns the larger of two ints.
-func MaxInt(a int, b int) int {
-    if a > b { return a }
-    return b
-}
+func MaxInt(a int, b int) int = if (a > b) a else b
 
 // MinInt returns the smaller of two ints.
-func MinInt(a int, b int) int {
-    if a < b { return a }
-    return b
-}
+func MinInt(a int, b int) int = if (a < b) a else b
 
 // runeCount / minInt / maxInt — internal aliases kept for backward compat
 // across the library's existing call sites; new code should use the

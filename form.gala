@@ -205,24 +205,21 @@ func formSubmit(f FormState) FormState {
 // the user knows which field would be edited), but in a calmer style.
 // When true, the active field gets the bright cursor treatment.
 func FormView(f FormState, formFocused bool = false) Widget {
-    var children = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = f.Fields.Length()
-    for i < n {
-        val fld = f.Fields.Get(i)
-        val active = i == f.Focused
-        children = children.Append(Fixed(1, TextStyled(fld.Label,
-            DefaultStyle().WithBold())))
-        children = children.Append(Fixed(1, formInput(fld, active, formFocused)))
+    val children = f.Fields.ZipWithIndex().FlatMap((p Tuple[FormField, int]) => {
+        val fld = p.V1
+        val active = p.V2 == f.Focused
         val err = fld.Validator(fld.Value)
-        if err.IsDefined() {
-            children = children.Append(Fixed(1, TextStyled("  " + err.Get(),
-                DefaultStyle().WithFg(BrightRed()))))
-        } else {
-            children = children.Append(Fixed(1, Text("")))
+        val errOrSpacer = err match {
+            case Some(msg) => Fixed(1, TextStyled("  " + msg,
+                DefaultStyle().WithFg(BrightRed())))
+            case None()    => Fixed(1, Text(""))
         }
-        i = i + 1
-    }
+        return ArrayOf[LayoutChild](
+            Fixed(1, TextStyled(fld.Label, DefaultStyle().WithBold())),
+            Fixed(1, formInput(fld, active, formFocused)),
+            errOrSpacer,
+        )
+    })
     return Column(children)
 }
 
@@ -252,18 +249,8 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
 
 // replaceAt returns a new Array with element at index `i` replaced by `v`.
 func replaceAt[T any](xs Array[T], i int, v T) Array[T] {
-    var out = EmptyArray[T]()
-    var k = 0
-    val n = xs.Length()
-    for k < n {
-        if k == i {
-            out = out.Append(v)
-        } else {
-            out = out.Append(xs.Get(k))
-        }
-        k = k + 1
-    }
-    return out
+    val (before, after) = xs.SplitAt(i)
+    return before.Append(v).AppendAll(after.Drop(1))
 }
 
 // dropLastRuneForm strips the last rune from `s`. Duplicated from other
