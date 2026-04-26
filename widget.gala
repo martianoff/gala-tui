@@ -209,7 +209,7 @@ func SelectListPick[T any](
     focused bool,
     onPick func(int) T,
 ) Widget = SelectList(items, selected, focused)
-    .OnPickRow[T](items.Length(), onPick)
+    .OnPickRow(items.Length(), onPick)
 
 // SelectListOfPick is the click-aware sibling of SelectListOf — same
 // labels-first ergonomics, but each row dispatches `onPick(i)` on click.
@@ -219,7 +219,7 @@ func SelectListOfPick[T any](
     focused bool,
     onPick func(int) T,
 ) Widget = SelectListOf(labels, selected, focused)
-    .OnPickRow[T](labels.Length(), onPick)
+    .OnPickRow(labels.Length(), onPick)
 
 // Input renders a single-line text input. `cursor` is the 0-based column of
 // the insertion point. Empty value shows `placeholder` in a dimmed style.
@@ -258,7 +258,7 @@ func Button(label string, focused bool) Widget {
 //
 //     val saveBtn = ButtonClick[Msg]("Save", focused, Save())
 func ButtonClick[T any](label string, focused bool, onClick T) Widget =
-    Button(label, focused).OnClick[T](onClick)
+    Button(label, focused).OnClick(onClick)
 
 // Paragraph renders multi-line text with word-wrapping within the allocated
 // width. Overflow beyond the allocated height is clipped. Long runs of
@@ -381,7 +381,7 @@ func tabHeaderRowClick[T any](
         val rawCell = tabHeaderCell(pair.V1, pair.V2 == sel, focused)
         return LayoutChild(
             Constraint = rawCell.Constraint,
-            Widget     = rawCell.Widget.OnClick[T](onTabClick(pair.V2)),
+            Widget     = rawCell.Widget.OnClick(onTabClick(pair.V2)),
         )
     })
     return Row(cells.Append(Flex(1, FillCh(' '))))
