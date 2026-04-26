@@ -114,3 +114,78 @@ func TestClickMapDispatchesSidebarRowsByY(t T) T {
     val onGap = sidebar.HitMsg(10, 8)            // below the bottom row
     return IsFalse(t2, onGap.IsDefined())
 }
+
+// ----------------------------------------------------------------------------
+// AtRows — bulk row registration helper.
+// ----------------------------------------------------------------------------
+
+func TestAtRowsAppendsExpectedCount(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .AtRows(0, 5, 28, 4, 1, (i) => ClickedSidebar(N = i))
+    return Eq(t, cm.Length(), 4)
+}
+
+func TestAtRowsHitsCorrectIndex(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .AtRows(0, 5, 28, 4, 1, (i) => ClickedSidebar(N = i))
+    val hit = cm.HitMsg(5, 7).Get()                // y=7 is the third row (idx 2)
+    val isThird = hit match {
+        case ClickedSidebar(n) => n == 2
+        case _                 => false
+    }
+    return IsTrue(t, isThird)
+}
+
+// Multi-cell rows: rowHeight = 3 should make every row 3 cells tall, so
+// row 0 covers y=10..12, row 1 covers y=13..15, etc.
+func TestAtRowsRespectsRowHeight(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .AtRows(0, 10, 20, 3, 3, (i) => ClickedSidebar(N = i))
+    val firstRow  = cm.HitMsg(5, 12).Get()         // bottom of row 0
+    val secondRow = cm.HitMsg(5, 13).Get()         // top    of row 1
+    val isFirst = firstRow match {
+        case ClickedSidebar(n) => n == 0
+        case _                 => false
+    }
+    val isSecond = secondRow match {
+        case ClickedSidebar(n) => n == 1
+        case _                 => false
+    }
+    val t1 = IsTrue(t, isFirst)
+    return IsTrue(t1, isSecond)
+}
+
+// Outside the registered area returns no match — clicks on column 50 of
+// a 28-wide row should not fire.
+func TestAtRowsClickOutsideWidthIsMiss(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .AtRows(0, 5, 28, 4, 1, (i) => ClickedSidebar(N = i))
+    return IsFalse(t, cm.HitMsg(50, 6).IsDefined())
+}
+
+// Edge cases: zero/negative count or rowHeight is a no-op (returns the
+// map unchanged), so callers can pass dynamic counts without guarding.
+func TestAtRowsZeroCountIsNoOp(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .AtRows(0, 5, 28, 0, 1, (i) => ClickedSidebar(N = i))
+    return Eq(t, cm.Length(), 0)
+}
+
+func TestAtRowsNegativeRowHeightIsNoOp(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .AtRows(0, 5, 28, 4, -1, (i) => ClickedSidebar(N = i))
+    return Eq(t, cm.Length(), 0)
+}
+
+// AtRows composes with At — earlier regions still win first-match.
+func TestAtRowsComposesWithExistingRegions(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .At(0, 5, 28, 1, ClickedTabs())            // shadows row 0
+        .AtRows(0, 5, 28, 4, 1, (i) => ClickedSidebar(N = i))
+    val hit = cm.HitMsg(5, 5).Get()
+    val isTabs = hit match {
+        case ClickedTabs() => true
+        case _             => false
+    }
+    return IsTrue(t, isTabs)
+}

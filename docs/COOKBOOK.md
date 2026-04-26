@@ -451,3 +451,40 @@ func view(m AppModel) Widget {
 
 That's the entire keyboard-and-visual focus contract: `m.Focus.Route(...)`
 in update, `NewFocusBuilder(m.Focus)` + a method per widget in view.
+
+## Click any list / menu / table row
+
+Most apps want every row of a list-shaped widget to be clickable —
+"click row 3 = navigate to row 3 + Enter on it". Hand-rolling one
+`.At(...)` per row is fine for two rows, repetitive past four, and
+broken once the list grows or shrinks.
+
+Use `ClickMap.AtRows` — one call registers every row with a
+caller-supplied "this index → that message" function:
+
+```gala
+import "github.com/martianoff/gala-tui/state"
+
+func clickAt(x int, y int) Msg =
+    state.NewClickMap[Msg]()
+        .AtRows(
+            0,                                  // origin X
+            5,                                  // origin Y (first row's y)
+            28,                                 // row width
+            m.Items.Length(),                   // number of rows
+            1,                                  // height per row
+            (i) => OnRowClicked(Idx = i),       // message factory
+        )
+        .HitOr(x, y, NoOp())
+```
+
+Pair it with the "click = select + Enter" pattern from the demo:
+
+```gala
+case OnRowClicked(idx) =>
+    (jumpToRow(m.Copy(Sel = idx)), NoCmd[Msg]())   // select first, then jump
+```
+
+The result is one chainable line per scrollable region, regardless of
+how many rows it contains. Negative or zero counts are a safe no-op so
+you can call it on empty lists without guarding.

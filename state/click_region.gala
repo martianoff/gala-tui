@@ -59,6 +59,45 @@ func (cm ClickMap[T]) At(x int, y int, w int, h int, msg T) ClickMap[T] =
         X = x, Y = y, W = w, H = h, Msg = msg,
     )))
 
+// AtRows registers `count` row-shaped click regions in one call —
+// vertically stacked rectangles starting at `(originX, originY)` with
+// width `width` and height `rowHeight`. The message for row `i` is
+// produced by `msgFor(i)`, so each row carries its own index.
+//
+// This is the canonical helper for list/menu/datatable widgets where
+// every row should be clickable. Without it, every app hand-rolls:
+//
+//     .At(0, 5, 28, 1, OnRow(Idx = 0))
+//     .At(0, 6, 28, 1, OnRow(Idx = 1))
+//     .At(0, 7, 28, 1, OnRow(Idx = 2))
+//     // ... one .At() per row ...
+//
+// With it, the four lines become one:
+//
+//     .AtRows(0, 5, 28, 4, 1, (i) => OnRow(Idx = i))
+//
+// Negative or zero `count` is a no-op (returns the map unchanged), which
+// makes "register the visible rows of an empty list" a safe call.
+func (cm ClickMap[T]) AtRows(
+    originX int,
+    originY int,
+    width int,
+    count int,
+    rowHeight int,
+    msgFor func(int) T,
+) ClickMap[T] {
+    if count <= 0 || rowHeight <= 0 || width <= 0 {
+        return cm
+    }
+    var out = cm
+    var i = 0
+    for i < count {
+        out = out.At(originX, originY + i * rowHeight, width, rowHeight, msgFor(i))
+        i = i + 1
+    }
+    return out
+}
+
 // HitMsg returns the message for the first region whose rectangle
 // contains `(px, py)`, or None if no region matches. Coordinates are
 // terminal-cell, 0-indexed (the same coordinate space MouseEvent uses).

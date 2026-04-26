@@ -943,8 +943,5 @@ func megaMouseToMsg(m MouseEvent) MegaMsg {
 // re-asserts the same state (idempotent).
 func megaClickAt(x int, y int) MegaMsg =
     state.NewClickMap[MegaMsg]()
-        .At(0,  5, 28, 1, MegaClickSidebar(Idx = 0))
-        .At(0,  6, 28, 1, MegaClickSidebar(Idx = 1))
-        .At(0,  7, 28, 1, MegaClickSidebar(Idx = 2))
-        .At(0,  8, 28, 1, MegaClickSidebar(Idx = 3))
+        .AtRows(0, 5, 28, 4, 1, (i) => MegaClickSidebar(Idx = i))
         .HitOr(x, y, MegaNoOp())

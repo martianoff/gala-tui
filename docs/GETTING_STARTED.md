@@ -326,6 +326,38 @@ val _ = RunWithMouse[Model, Msg](program, (ev) => inputToMsg(ev), sub)
 That's it — same program, same model, same view; the runtime now also
 delivers mouse packets and terminal resize events.
 
+### Click on list rows
+
+Most apps want every row of a list to be clickable. Build a `ClickMap`
+in your input adapter and register all rows in one call with `AtRows`:
+
+```gala
+import "github.com/martianoff/gala-tui/state"
+
+func clickAt(m Model, x int, y int) Msg =
+    state.NewClickMap[Msg]()
+        .AtRows(
+            0,                                   // origin X
+            3,                                   // first row's y
+            30,                                  // row width
+            m.Items.Length(),                    // row count
+            1,                                   // row height
+            (i) => SelectRow(Idx = i),
+        )
+        .HitOr(x, y, NoOp())
+```
+
+Call it from `inputToMsg` for left clicks:
+
+```gala
+case MouseInput(ev) => ev.Btn match {
+    case MouseLeft() => clickAt(m, ev.X, ev.Y)
+    case _           => NoOp()
+}
+```
+
+Now every visible row reacts to a click without per-row hand-coding.
+
 ## 5. Testing
 
 You can drive your `Update` with `StepAll` — no terminal involved, no
