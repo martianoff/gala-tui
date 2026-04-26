@@ -334,7 +334,7 @@ func Custom(minW int, minH int, render func(Rect, *Buffer, *HitRegistry)) Widget
 func Tabs(titles Array[string], bodies Array[Widget], sel int, focused bool = false) Widget {
     val header = tabHeaderRow(titles, sel, focused)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
-    return Column(ArrayOf[LayoutChild](
+    return Column(ArrayOf(
         Fixed(1, header),
         Flex(1, body),
     ))
@@ -355,7 +355,7 @@ func TabsClick[T any](
 ) Widget {
     val header = tabHeaderRowClick[T](titles, sel, focused, onTabClick)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
-    return Column(ArrayOf[LayoutChild](
+    return Column(ArrayOf(
         Fixed(1, header),
         Flex(1, body),
     ))
