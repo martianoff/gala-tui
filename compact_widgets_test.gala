@@ -1,0 +1,172 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for compact widgets — Breadcrumb, Tag, KeyHint, KeyHintRow.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Breadcrumb
+// ----------------------------------------------------------------------------
+
+func TestBreadcrumbEmptyRendersNothing(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(Breadcrumb(EmptyArray[string]()),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "                    ")
+}
+
+func TestBreadcrumbSingleSegmentNoSeparator(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(Breadcrumb(ArrayOf[string]("Home")),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    return IsTrue(t, megaContains(row, "Home"))
+}
+
+func TestBreadcrumbMultipleSegmentsJoinedBySeparator(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(Breadcrumb(ArrayOf[string]("App", "Builds", "#4211")),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "App"))
+    val t2 = IsTrue(t1, megaContains(row, "Builds"))
+    val t3 = IsTrue(t2, megaContains(row, "#4211"))
+    return IsTrue(t3, megaContains(row, "›"))
+}
+
+func TestBreadcrumbActiveSegmentIsBrightCyan(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(Breadcrumb(ArrayOf[string]("A", "B", "C")),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    // Find "C" — last segment. It should be at the position after
+    // the second separator. Just probe each cell for BrightCyan.
+    var found = false
+    var x = 0
+    for x < 40 {
+        if ColorEq(buf.StyleAt(x, 0).Fg, BrightCyan()) {
+            found = true
+        }
+        x = x + 1
+    }
+    return IsTrue(t, found)
+}
+
+func TestBreadcrumbCustomSeparator(t T) T {
+    val buf = NewBuffer(30, 1)
+    RenderTo(Breadcrumb(ArrayOf[string]("a", "b", "c"), " / "),
+        Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    return IsTrue(t, megaContains(row, "a / b / c"))
+}
+
+// ----------------------------------------------------------------------------
+// Tag
+// ----------------------------------------------------------------------------
+
+func TestTagRendersLabel(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(Tag("Beta", BrightYellow()),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    return IsTrue(t, megaContains(BufferText(buf, 0), "Beta"))
+}
+
+func TestTagUsesReverseStyle(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(Tag("X", BrightRed()),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    // Cell 1 is the inner "X" character — should be reverse + bold.
+    return IsTrue(t, buf.StyleAt(1, 0).Reverse)
+}
+
+func TestTagPlainUsesBracketsNotReverse(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(TagPlain("v2", BrightCyan()),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "[v2]"))
+    return IsFalse(t1, buf.StyleAt(1, 0).Reverse)
+}
+
+// ----------------------------------------------------------------------------
+// KeyHint + KeyHintRow
+// ----------------------------------------------------------------------------
+
+func TestKeyHintRendersSpecAndDescription(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(KeyHint("Ctrl+P", "palette"),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "Ctrl+P"))
+    return IsTrue(t1, megaContains(row, "palette"))
+}
+
+func TestKeyHintSpecIsBrightCyanBold(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(KeyHint("Tab", "cycle"),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    val style = buf.StyleAt(0, 0)
+    val t1 = IsTrue(t, ColorEq(style.Fg, BrightCyan()))
+    return IsTrue(t1, style.Bold)
+}
+
+func TestKeyHintRowJoinsWithDotSeparator(t T) T {
+    val buf = NewBuffer(60, 1)
+    RenderTo(
+        KeyHintRow(ArrayOf[string]("Ctrl+P", "palette", "q", "quit")),
+        Rect(X = 0, Y = 0, Width = 60, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "Ctrl+P"))
+    val t2 = IsTrue(t1, megaContains(row, "palette"))
+    val t3 = IsTrue(t2, megaContains(row, "·"))
+    val t4 = IsTrue(t3, megaContains(row, "q"))
+    return IsTrue(t4, megaContains(row, "quit"))
+}
+
+func TestKeyHintRowEmptyIsNothing(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(KeyHintRow(EmptyArray[string]()),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "                    ")
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+func megaContains(hay string, needle string) bool {
+    val hr = megaToRunes(hay)
+    val nr = megaToRunes(needle)
+    val hn = hr.Length()
+    val nn = nr.Length()
+    if nn == 0 { return true }
+    if nn > hn { return false }
+    var i = 0
+    for i <= hn - nn {
+        var j = 0
+        var ok = true
+        for j < nn {
+            if hr.Get(i + j) != nr.Get(j) {
+                ok = false
+                j = nn
+            } else {
+                j = j + 1
+            }
+        }
+        if ok { return true }
+        i = i + 1
+    }
+    return false
+}
+
+func megaToRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}

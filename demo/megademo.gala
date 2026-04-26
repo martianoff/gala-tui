@@ -648,10 +648,15 @@ func megaFooter(m MegaModel, th Theme) Widget {
         s" focus: $focusName   theme: $themeName ",
         th.Selected,
     )
-    val right = TextStyled(
-        " ^P palette   ^/ logs   ?  help   Tab cycle   q quit ",
-        th.Selected,
-    )
+    // KeyHintRow renders the canonical "Ctrl+P palette · ?  help · …"
+    // shortcut strip with bright-cyan specs and dim descriptions.
+    val right = KeyHintRow(ArrayOf[string](
+        "^P", "palette",
+        "^/", "logs",
+        "?",  "help",
+        "Tab", "cycle",
+        "q",  "quit",
+    ))
     return Row(ArrayOf[LayoutChild](
         Flex(1, left),
         Fixed(55, right),

@@ -194,6 +194,31 @@ RenderTo(ToastView(toasts1), area, buf)
 MarkdownView("# Quick start\n\nRun `gala build .` then **enjoy**.")
 ```
 
+## Compact chrome widgets
+
+Small composable building blocks for headers / footers / status rows.
+Each is a thin wrapper over `Text`/`Row` primitives, pulled out so apps
+don't re-derive the formatting every time.
+
+| Widget | Signature | Notes |
+|---|---|---|
+| `Breadcrumb(parts, separator = " › ")` | `(Array[string], string) Widget` | Segment trail. Last segment bright-cyan + bold; earlier segments dim. Empty input → `Empty()`. |
+| `BreadcrumbStyled(parts, separator, inactive, active)` | `(..., Style, Style) Widget` | Caller-picked styles per segment. |
+| `Tag(label, color)` | `(string, Color) Widget` | Reverse-styled `[label]` status pill. |
+| `TagPlain(label, color)` | `(string, Color) Widget` | Flat `[label]` without reverse — for contexts where reverse would clash with row highlight. |
+| `KeyHint(spec, description)` | `(string, string) Widget` | Inline `Ctrl+P palette` keybind label — bright-cyan spec, dim description. |
+| `KeyHintRow(pairs)` | `(Array[string]) Widget` | Joins `(spec, description)` pairs with ` · ` separators — the canonical bottom-of-screen shortcut strip. |
+
+```gala
+val footer = KeyHintRow(ArrayOf[string](
+    "Ctrl+P", "palette",
+    "Tab",    "cycle focus",
+    "q",      "quit",
+))
+val crumbs = Breadcrumb(ArrayOf[string]("App", "Builds", "#4211"))
+val beta = Tag("Beta", BrightYellow())
+```
+
 ## Themed helpers
 
 These pick fg/bg/border from a `Theme` so you don't have to wire each
