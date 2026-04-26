@@ -77,9 +77,8 @@ func (f FocusManager) IsFocused(id string) bool = f.Current() == id
 // Route picks the handler for the currently-focused pane and runs it.
 // If no case matches the current focus, returns `fallback`.
 //
-// This is the method form of the standalone `Routed(fm, cases, fallback)` —
-// reads as `m.Focus.Route(cases, fallback)`, which lines up with the rest of
-// the FocusManager surface (`m.Focus.IsFocused(p)`, `m.Focus.Next()`, …).
+// Cases are evaluated in order — the first match wins. Most apps will
+// have one case per panel and a sensible no-op fallback.
 //
 // Example — arrow keys routed by focused pane:
 //
@@ -90,17 +89,27 @@ func (f FocusManager) IsFocused(id string) bool = f.Current() == id
 func (f FocusManager) Route[T any](
     cases Array[FocusedCase[T]],
     fallback T,
-) T = Routed[T](f, cases, fallback)
+) T {
+    val matched = cases.Find((c) => f.IsFocused(c.Pane))
+    return matched match {
+        case Some(c) => c.Handler()
+        case None()  => fallback
+    }
+}
 
 // When is the single-pane form: run `action` if `pane` is focused,
-// otherwise return `fallback`. Method form of `WhenFocused`.
+// otherwise return `fallback`. Use when a single key only matters
+// for one specific pane.
 //
-//     val m1 = m.Focus.When("drawer", () => closeDrawer(m), m)
+//     val m1 = m.Focus.When("drawer", () => m.Copy(ShowDrawer = false), m)
 func (f FocusManager) When[T any](
     pane string,
     action func() T,
     fallback T,
-) T = WhenFocused[T](f, pane, action, fallback)
+) T {
+    if f.IsFocused(pane) { return action() }
+    return fallback
+}
 
 // indexOfPane is a small helper — Array[string] doesn't have IndexOf exposed
 // on this battle-tests build, so we implement it directly.

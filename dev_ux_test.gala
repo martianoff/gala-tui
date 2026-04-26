@@ -85,12 +85,12 @@ func TestDispatchKeysCtrlBindingDoesNotMatchPlainKey(t T) T {
 }
 
 // ----------------------------------------------------------------------------
-// LiftKeyToInputScroll
+// LiftKeysToInputScroll
 // ----------------------------------------------------------------------------
 
-func TestLiftKeyToInputScrollKeysPassThrough(t T) T {
+func TestLiftKeysToInputScrollKeysPassThrough(t T) T {
     val keyToMsg = (ev KeyEvent) => DUInc()
-    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+    val inputToMsg = LiftKeysToInputScroll[DUTestMsg](
         keyToMsg, DUScrollUp(), DUScrollDown(), DUNoOp(), DUNoOp(),
     )
     val got = inputToMsg(KeyInput(Ev = PlainKey(Char('+'))))
@@ -101,9 +101,9 @@ func TestLiftKeyToInputScrollKeysPassThrough(t T) T {
     return IsTrue(t, isInc)
 }
 
-func TestLiftKeyToInputScrollWheelUpRoutes(t T) T {
+func TestLiftKeysToInputScrollWheelUpRoutes(t T) T {
     val keyToMsg = (ev KeyEvent) => DUNoOp()
-    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+    val inputToMsg = LiftKeysToInputScroll[DUTestMsg](
         keyToMsg, DUScrollUp(), DUScrollDown(), DUNoOp(), DUNoOp(),
     )
     val got = inputToMsg(MouseInput(Ev = MouseEvent(
@@ -116,9 +116,9 @@ func TestLiftKeyToInputScrollWheelUpRoutes(t T) T {
     return IsTrue(t, isUp)
 }
 
-func TestLiftKeyToInputScrollWheelDownRoutes(t T) T {
+func TestLiftKeysToInputScrollWheelDownRoutes(t T) T {
     val keyToMsg = (ev KeyEvent) => DUNoOp()
-    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+    val inputToMsg = LiftKeysToInputScroll[DUTestMsg](
         keyToMsg, DUScrollUp(), DUScrollDown(), DUNoOp(), DUNoOp(),
     )
     val got = inputToMsg(MouseInput(Ev = MouseEvent(
@@ -131,9 +131,9 @@ func TestLiftKeyToInputScrollWheelDownRoutes(t T) T {
     return IsTrue(t, isDown)
 }
 
-func TestLiftKeyToInputScrollClickGetsFallback(t T) T {
+func TestLiftKeysToInputScrollClickGetsFallback(t T) T {
     val keyToMsg = (ev KeyEvent) => DUInc()  // shouldn't fire
-    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+    val inputToMsg = LiftKeysToInputScroll[DUTestMsg](
         keyToMsg, DUScrollUp(), DUScrollDown(), DUDec(), DUNoOp(),
     )
     val got = inputToMsg(MouseInput(Ev = MouseEvent(
@@ -146,9 +146,9 @@ func TestLiftKeyToInputScrollClickGetsFallback(t T) T {
     return IsTrue(t, isClick)
 }
 
-func TestLiftKeyToInputScrollResizeGetsFallback(t T) T {
+func TestLiftKeysToInputScrollResizeGetsFallback(t T) T {
     val keyToMsg = (ev KeyEvent) => DUInc()
-    val inputToMsg = LiftKeyToInputScroll[DUTestMsg](
+    val inputToMsg = LiftKeysToInputScroll[DUTestMsg](
         keyToMsg, DUScrollUp(), DUScrollDown(), DUInc(), DUDec(),
     )
     val got = inputToMsg(ResizeInput(W = 80, H = 24))

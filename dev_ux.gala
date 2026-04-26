@@ -80,15 +80,6 @@ func RunSimpleWithSub[M any, T any](
     return RunWithSub[M, T](program, keyToMsg, sub)
 }
 
-// RunSimpleRich is the deprecated alias for `RunSimpleWithSub`.
-func RunSimpleRich[M any, T any](
-    initial M,
-    update func(M, T) Tuple[M, Cmd[T]],
-    view func(M) Widget,
-    keyToMsg func(KeyEvent) T,
-    sub Sub[T],
-) M = RunSimpleWithSub[M, T](initial, update, view, keyToMsg, sub)
-
 // RunSimpleWithMouse is `RunSimple` for full-input apps (mouse + resize).
 // The InputEvent → Msg adapter is `inputToMsg`. Apps that only care
 // about keyboard events can use `LiftKeysToInput(keyToMsg)` to promote
@@ -109,15 +100,6 @@ func RunSimpleWithMouse[M any, T any](
     val program = Program[M, T](Initial = initial, Update = update, View = view)
     return RunWithMouse[M, T](program, inputToMsg, sub)
 }
-
-// RunSimpleFull is the deprecated alias for `RunSimpleWithMouse`.
-func RunSimpleFull[M any, T any](
-    initial M,
-    update func(M, T) Tuple[M, Cmd[T]],
-    view func(M) Widget,
-    inputToMsg func(InputEvent) T,
-    sub Sub[T],
-) M = RunSimpleWithMouse[M, T](initial, update, view, inputToMsg, sub)
 
 // LiftKeysToInput promotes a `func(KeyEvent) T` to `func(InputEvent) T`,
 // dispatching mouse/resize/unknown events through `mouse` / `fallback`.
@@ -144,13 +126,6 @@ func LiftKeysToInput[T any](
     case UnknownInput()    => fallback
 }
 
-// LiftKeyToInput is the deprecated alias for `LiftKeysToInput`.
-func LiftKeyToInput[T any](
-    keyToMsg func(KeyEvent) T,
-    mouse T,
-    fallback T,
-) func(InputEvent) T = LiftKeysToInput[T](keyToMsg, mouse, fallback)
-
 // LiftKeysToInputScroll is the most-common-mouse-shape lift: scroll-wheel
 // up/down get routed to scroll-up/down messages; clicks and other mouse
 // events get the `clickFallback`; resize/unknown get `fallback`.
@@ -172,17 +147,6 @@ func LiftKeysToInputScroll[T any](
     case ResizeInput(_, _) => fallback
     case UnknownInput()    => fallback
 }
-
-// LiftKeyToInputScroll is the deprecated alias for `LiftKeysToInputScroll`.
-func LiftKeyToInputScroll[T any](
-    keyToMsg func(KeyEvent) T,
-    scrollUp T,
-    scrollDown T,
-    clickFallback T,
-    fallback T,
-) func(InputEvent) T = LiftKeysToInputScroll[T](
-    keyToMsg, scrollUp, scrollDown, clickFallback, fallback,
-)
 
 func liftScroll[T any](m MouseEvent, up T, down T, fallback T) T = m.Btn match {
     case MouseScrollUp()   => up

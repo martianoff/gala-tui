@@ -54,8 +54,8 @@ import (
 //
 // **Building the harness**
 //
-//     NewHarness(program, keyToMsg, w, h)         // key-only apps (Run / RunRich)
-//     NewHarnessFull(program, inputToMsg, w, h)   // mouse + resize (RunFull)
+//     NewHarness(program, keyToMsg, w, h)         // key-only apps (Run / RunWithSub)
+//     NewHarnessFull(program, inputToMsg, w, h)   // mouse + resize (RunWithMouse)
 //
 // **Driving input** (each returns a new `Session` — chainable)
 //
@@ -117,7 +117,7 @@ import (
 // Harness — the "compiled program" side. One Harness drives many Sessions.
 //
 // `HarnessMode` discriminates the two flavors: key-only apps wire `Run` /
-// `RunRich`, full apps wire `RunFull`. The dispatcher pattern-matches on
+// `RunWithSub`, full apps wire `RunWithMouse`. The dispatcher pattern-matches on
 // `Mode` and calls the right translator.
 // ----------------------------------------------------------------------------
 
@@ -134,7 +134,7 @@ struct Harness[M any, T any](
 )
 
 // NewHarness builds a key-only harness. Use this when your app is wired
-// to `Run` or `RunRich` (i.e., it doesn't care about mouse/resize).
+// to `Run` or `RunWithSub` (i.e., it doesn't care about mouse/resize).
 //
 //     val h = NewHarness[Model, Msg](program, MyKeyToMsg, 80, 24)
 //
@@ -154,7 +154,7 @@ func NewHarness[M any, T any](
         Height  = height,
     )
 
-// NewHarnessFull builds a harness for apps wired to `RunFull` — i.e., apps
+// NewHarnessFull builds a harness for apps wired to `RunWithMouse` — i.e., apps
 // that handle mouse + resize through `func(InputEvent) T`.
 //
 //     val h = NewHarnessFull[Model, Msg](program, MyInputToMsg, 120, 40)

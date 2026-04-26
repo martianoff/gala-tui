@@ -24,7 +24,7 @@ import (
 // drive with their keyboard.
 //
 // One read loop per program. Timer and async subscriptions plug in via the
-// Future[T]-based RunRich entry point below — stdin reads are themselves
+// Future[T]-based RunWithSub entry point below — stdin reads are themselves
 // wrapped in a Future so the loop can interleave input with timers and
 // user-supplied async Cmds without blocking.
 
@@ -222,8 +222,6 @@ func stdinReadFuture() concurrent.Future[ReadResult] {
 
 // RunWithSub adds Sub[T] support to Run: timer ticks, batched async
 // events, etc. Use when the app needs anything beyond synchronous key input.
-//
-// (Originally `RunRich`; the old name is preserved as a delegate below.)
 func RunWithSub[M any, T any](
     program Program[M, T],
     makeKeyMsg func(KeyEvent) T,
@@ -320,14 +318,6 @@ func RunWithSub[M any, T any](
     return model
 }
 
-// RunRich is the deprecated alias for `RunWithSub`. New code should use
-// `RunWithSub`; this delegate is kept so existing apps don't break.
-func RunRich[M any, T any](
-    program Program[M, T],
-    makeKeyMsg func(KeyEvent) T,
-    initialSub Sub[T],
-) M = RunWithSub[M, T](program, makeKeyMsg, initialSub)
-
 // ----------------------------------------------------------------------------
 // RunWithMouse — the maximal entry point.
 //
@@ -338,8 +328,6 @@ func RunRich[M any, T any](
 // `makeInputMsg` receives a unified InputEvent (Key | Mouse | Resize | Unknown)
 // and returns the app's Msg. Apps that don't care about mouse/resize return a
 // NoOp msg for those cases — the runtime dispatches whatever comes back.
-//
-// (Originally `RunFull`; the old name is preserved as a delegate below.)
 // ----------------------------------------------------------------------------
 
 func RunWithMouse[M any, T any](
@@ -451,14 +439,6 @@ func RunWithMouse[M any, T any](
     return model
 }
 
-// RunFull is the deprecated alias for `RunWithMouse`. Kept so existing apps
-// don't break; new code should use `RunWithMouse`.
-func RunFull[M any, T any](
-    program Program[M, T],
-    makeInputMsg func(InputEvent) T,
-    initialSub Sub[T],
-) M = RunWithMouse[M, T](program, makeInputMsg, initialSub)
-
 // processInputBytes is the InputEvent analogue of processKeyBytes. It walks
 // the read buffer calling ParseInput and dispatches each event as a Msg.
 func processInputBytes[M any, T any](
@@ -521,7 +501,7 @@ func isForcedQuit(ev InputEvent) bool {
 }
 
 // DispatchResult bundles the outcome of dispatching a batch of messages.
-// Consumed by both the async-Cmd and tick-Sub paths in RunRich.
+// Consumed by both the async-Cmd and tick-Sub paths in RunWithSub.
 struct DispatchResult[M any, T any](
     Model      M,
     NewFutures Array[concurrent.Future[T]],

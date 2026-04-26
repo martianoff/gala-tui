@@ -1,39 +1,21 @@
 package state
 
-import (
-    . "martianoff/gala/collection_immutable"
-    . "martianoff/gala/std"
-)
-
 // ============================================================================
-// FocusRouter — dispatch by focused pane.
+// FocusedCase + OnPane — the "case rows" that `FocusManager.Route(...)` and
+// `FocusManager.When(...)` (defined in focus.gala) consume.
 //
 // Apps with focusable panes (sidebar / table / drawer / modal buttons / ...)
 // almost always need to ask "which pane is focused, and what does this key
-// mean *for that pane*?". Without help, every app re-implements:
-//
-//     val focus = m.Focus.Current()
-//     if focus == "sidebar" { ... }
-//     if focus == "table"   { ... }
-//     ...
-//
-// `Routed[T]` collapses that switch into a single declarative call. Pass an
-// Array of `(paneID, handler)` cases and a fallback. The first case whose
-// pane matches the FocusManager's current pane fires; the fallback runs if
-// nothing matches.
-//
-// Each handler is a thunk (`func() T`) — closures capture whatever state the
-// caller wants to thread through. The framework imposes no shape on T, so
-// this works for "produce next Model", "produce next Msg", "produce a Cmd",
-// or anything else.
+// mean *for that pane*?". `m.Focus.Route(cases, fallback)` collapses that
+// switch into a single declarative call.
 //
 // Example — arrow keys routed by focused pane:
 //
 //     func arrowDown(m AppModel) AppModel =
-//         Routed(m.Focus, ArrayOf[FocusedCase[AppModel]](
-//             FocusedCase(Pane = "sidebar", Handler = () => moveSidebar(m, +1)),
-//             FocusedCase(Pane = "table",   Handler = () => moveTable(m, +1)),
-//             FocusedCase(Pane = "drawer",  Handler = () => scrollDrawer(m, +1)),
+//         m.Focus.Route(ArrayOf[FocusedCase[AppModel]](
+//             OnPane[AppModel]("sidebar", () => moveSidebar(m, +1)),
+//             OnPane[AppModel]("table",   () => moveTable(m, +1)),
+//             OnPane[AppModel]("drawer",  () => scrollDrawer(m, +1)),
 //         ), m)
 //
 // The fallback (here `m`) covers the "no pane is focused / unfocused panes
@@ -41,7 +23,7 @@ import (
 // ============================================================================
 
 // FocusedCase pairs a pane ID with a thunk that produces the result when
-// that pane is currently focused. Use with `Routed` / `FocusManager.Route`.
+// that pane is currently focused. Use with `FocusManager.Route`.
 //
 // Most call sites build cases through the `OnPane` shorthand below; the
 // struct form is exposed for cases that need to construct `FocusedCase`s
@@ -62,44 +44,3 @@ struct FocusedCase[T any](
 //     ), m)
 func OnPane[T any](pane string, action func() T) FocusedCase[T] =
     FocusedCase[T](Pane = pane, Handler = action)
-
-// Routed picks the handler for the currently-focused pane and runs it.
-// If no case matches the current focus, returns `fallback`.
-//
-// Cases are evaluated in order — the first match wins. Most apps will
-// have one case per panel and a sensible no-op fallback.
-//
-// Most call sites prefer the method form `fm.Route(cases, fallback)`,
-// which reads as "ask the focus manager to route this" rather than
-// "call a free function on it". This standalone form is the underlying
-// implementation and is kept exposed so existing callers keep working.
-func Routed[T any](
-    fm FocusManager,
-    cases Array[FocusedCase[T]],
-    fallback T,
-) T {
-    val matched = cases.Find((c) => fm.IsFocused(c.Pane))
-    return matched match {
-        case Some(c) => c.Handler()
-        case None()  => fallback
-    }
-}
-
-// WhenFocused is the simpler one-pane form — call `action` if `pane`
-// is focused, otherwise return `fallback`. Use when a single key only
-// matters for one specific pane.
-//
-// Most call sites prefer the method form `fm.When(pane, action, fallback)`.
-//
-// Example — Esc closes the drawer only when the drawer is focused:
-//
-//     val m1 = m.Focus.When("drawer", () => m.Copy(ShowDrawer = false), m)
-func WhenFocused[T any](
-    fm FocusManager,
-    pane string,
-    action func() T,
-    fallback T,
-) T {
-    if fm.IsFocused(pane) { return action() }
-    return fallback
-}
