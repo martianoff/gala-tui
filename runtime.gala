@@ -90,9 +90,10 @@ func Run[M any, T any](
     // First paint — the initial model before any input.
     paintFrame(program.View(model))
 
-    // Read buffer sized to the longest escape sequence we handle (ESC [ digit ~
-    // = 4 bytes; 8 is ample with slack for multi-byte UTF-8 sequences).
-    var readBuf = SliceWithSize[byte](8)
+    // 64-byte buffer matches the async path. Keys-only mode never sees mouse
+    // packets, but using the same size keeps the runtime uniform and leaves
+    // headroom for queued bursts (multi-key paste, etc.).
+    var readBuf = SliceWithSize[byte](64)
     for {
         var n, rerr = os.Stdin.Read(readBuf)
         if rerr != nil {
@@ -197,9 +198,20 @@ struct ReadResult(
     Err bool,     // true iff the read failed (e.g., EOF) — caller should exit.
 )
 
+// 64 bytes is enough for any single VT input event:
+//   - longest key escape we handle is ~6 bytes (arrow + modifier).
+//   - SGR mouse packets are 9–14 bytes (`ESC [ < btn ; col ; row M`,
+//     where col/row are at most 3 digits each on practical terminals).
+//   - 64 leaves headroom for several events queued from a single
+//     keypress + mouse motion burst.
+//
+// The previous 8-byte buffer truncated every mouse packet mid-sequence:
+// ParseInput would return "incomplete", the runtime would discard the
+// partial bytes (the next read overwrites the buffer), and clicks were
+// silently dropped on every Windows terminal.
 func stdinReadFuture() concurrent.Future[ReadResult] {
     return concurrent.FutureApply[ReadResult](() => {
-        var buf = SliceWithSize[byte](8)
+        var buf = SliceWithSize[byte](64)
         var n, err = os.Stdin.Read(buf)
         if err != nil {
             return ReadResult(Buf = buf, N = 0, Err = true)
@@ -439,7 +451,11 @@ func processInputBytes[M any, T any](
     for consumed < n {
         val (ev, c) = ParseInput(Slice(buf, consumed, n))
         if c == 0 {
-            // Incomplete sequence — stop here; next read will bring the rest.
+            // Incomplete sequence — drop the partial bytes. The 64-byte
+            // read buffer is sized so a single SGR mouse packet (≤14 bytes)
+            // or any VT key escape (≤6 bytes) always fits in one read, so
+            // a partial packet here means the upstream sent something
+            // malformed; stopping here is the safest move.
             return false
         }
         consumed = consumed + c
