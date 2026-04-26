@@ -123,9 +123,18 @@ func CollectTickers[T any](s Sub[T], start Instant) Array[TickerState[T]] {
 // one-second ticker stays perfectly in phase even if the runtime is busy
 // for two seconds and two ticks land in the same iteration.
 func DispatchDueTicks[T any](states Array[TickerState[T]], now Instant) Tuple[Array[T], Array[TickerState[T]]] {
-    val (due, notDue) = states.Partition((st TickerState[T]) => tickerIsDue(st, now))
-    val msgs = due.Map((st TickerState[T]) => st.Make())
-    val next = due.Map((st TickerState[T]) => tickerAdvance(st)).AppendAll(notDue)
+    // `next` keeps every ticker at its original index — callers re-feed the
+    // returned array as the new ticker pool, and positional identity matters
+    // for stable iteration on the next tick.
+    val msgs = states
+        .Filter((st TickerState[T]) => tickerIsDue(st, now))
+        .Map((st TickerState[T]) => st.Make())
+    val next = states.Map((st TickerState[T]) => {
+        if tickerIsDue(st, now) {
+            return tickerAdvance(st)
+        }
+        return st
+    })
     return (msgs, next)
 }
 
