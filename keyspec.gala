@@ -162,7 +162,7 @@ func splitPlus(s string) Array[string] {
     val n = rs.Length()
     val (finalOut, finalCur) = rs.ZipWithIndex().FoldLeft(
         (EmptyArray[string](), ""),
-        (acc Tuple[Array[string], string], pair Tuple[rune, int]) => {
+        (acc, pair) => {
             val (out, cur) = acc
             val (c, i) = pair
             if c == '+' {

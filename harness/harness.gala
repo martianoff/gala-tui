@@ -560,8 +560,7 @@ func (h Harness[M, T]) RunSequence(steps Array[HarnessStep[T]]) Session[M, T] {
 func (h Harness[M, T]) Trace(steps Array[HarnessStep[T]]) Array[Session[M, T]] {
     val initial = ArrayOf[Session[M, T]](h.Start())
     return steps.FoldLeft[Array[Session[M, T]]](initial,
-        (acc Array[Session[M, T]], step HarnessStep[T]) =>
-            acc.Append(applyStep(acc.Last(), step)))
+        (acc, step) => acc.Append(applyStep(acc.Last(), step)))
 }
 
 func applySteps[M any, T any](s Session[M, T], steps Array[HarnessStep[T]]) Session[M, T] {
