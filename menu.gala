@@ -172,18 +172,9 @@ func MenuViewClick[T any](
     }
 }
 
-func renderVerticalMenu(m Menu, focused bool) Widget {
-    var rows = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = m.Items.Length()
-    for i < n {
-        val it = m.Items.Get(i)
-        val selected = i == m.Selected
-        rows = rows.Append(Fixed(1, renderMenuRow(it, selected, focused)))
-        i = i + 1
-    }
-    return Column(rows)
-}
+func renderVerticalMenu(m Menu, focused bool) Widget =
+    Column(m.Items.ZipWithIndex().Map((p) =>
+        Fixed(1, renderMenuRow(p.V1, p.V2 == m.Selected, focused))))
 
 func renderMenuRow(it MenuItem, selected bool, focused bool) Widget {
     val base = baseMenuStyle(it, selected, focused)
@@ -199,19 +190,12 @@ func renderMenuRow(it MenuItem, selected bool, focused bool) Widget {
 }
 
 func renderHorizontalMenu(m Menu, focused bool) Widget {
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = m.Items.Length()
-    for i < n {
-        val it = m.Items.Get(i)
-        val selected = i == m.Selected
-        val base = baseMenuStyle(it, selected, focused)
-        val cell = " " + it.Label + " "
-        cells = cells.Append(Fixed(runeCount(cell), TextStyled(cell, base)))
-        i = i + 1
-    }
-    cells = cells.Append(Flex(1, FillCh(' ')))
-    return Row(cells)
+    val cells = m.Items.ZipWithIndex().Map((p) => {
+        val base = baseMenuStyle(p.V1, p.V2 == m.Selected, focused)
+        val cell = " " + p.V1.Label + " "
+        return Fixed(runeCount(cell), TextStyled(cell, base))
+    })
+    return Row(cells.Append(Flex(1, FillCh(' '))))
 }
 
 func baseMenuStyle(it MenuItem, selected bool, focused bool) Style {
