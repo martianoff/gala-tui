@@ -73,16 +73,16 @@ func (s Style) WithStrike() Style    = s.Copy(Strike = true)
 // If the style is equal to DefaultStyle(), returns the empty string (no-op).
 func (s Style) ToSgr() string {
     val parts = s.sgrParts()
-    if len(parts) == 0 {
+    if parts.IsEmpty() {
         return ""
     }
-    return "\x1b[" + strings.Join(parts, ";") + "m"
+    return "\x1b[" + strings.Join(parts.ToGoSlice(), ";") + "m"
 }
 
 // sgrParts collects the individual SGR codes that make up this style in
 // canonical order. Also used by the (forthcoming) differential renderer to
 // compare per-cell diffs.
-func (s Style) sgrParts() []string {
+func (s Style) sgrParts() Array[string] {
     val flagParts = ArrayOf[Tuple[bool, string]](
         (s.Bold,      "1"), (s.Dim,    "2"), (s.Italic,  "3"),
         (s.Underline, "4"), (s.Blink,  "5"), (s.Reverse, "7"),
@@ -92,11 +92,10 @@ func (s Style) sgrParts() []string {
         case DefaultColor() => flagParts
         case _              => flagParts.Append(ToSgrFg(s.Fg))
     }
-    val all = s.Bg match {
+    return s.Bg match {
         case DefaultColor() => withFg
         case _              => withFg.Append(ToSgrBg(s.Bg))
     }
-    return all.ToGoSlice()
 }
 
 // ResetSgr is the universal "reset everything" escape — written before moving
