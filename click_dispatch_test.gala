@@ -1,0 +1,229 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// Tests for the click-dispatch resolver — `ResolveClickEvent` plus the
+// pending-state drain. These pin down Model B semantics:
+//
+//   - single-click on a widget with only OnClick fires immediately
+//   - single-click on a widget with both OnClick + OnDoubleClick is
+//     deferred (pending)
+//   - second click within window upgrades pending to double; suppresses
+//     the deferred single
+//   - second click outside window (different position, or after window)
+//     fires the pending single + a fresh first-click
+//   - DrainExpiredPending fires the deferred single after the window
+// ============================================================================
+
+sealed type CdMsg {
+    case CdSingle(N int)
+    case CdDouble(N int)
+    case CdNone()
+}
+
+func cdFallback() func(InputEvent) CdMsg = (ev) => CdNone()
+
+func cdLeftClick(x int, y int) InputEvent =
+    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true))
+
+// ----------------------------------------------------------------------------
+// Single-click only
+// ----------------------------------------------------------------------------
+
+func TestResolveSingleClickOnlyFiresImmediately(t T) T {
+    val hits = NewHitRegistry()
+    hits.Register(Rect(X = 0, Y = 0, Width = 10, Height = 1), CdSingle(N = 7))
+
+    val (msgs, pend) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), Now(), hits, None[ClickPending](), cdFallback(),
+    )
+    val t1 = Eq(t, msgs.Length(), 1)
+    val isSingle = msgs.Get(0) match {
+        case CdSingle(n) => n == 7
+        case _           => false
+    }
+    val t2 = IsTrue(t1, isSingle)
+    return IsFalse(t2, pend.IsDefined())
+}
+
+func TestResolveMissedClickFallsThroughToFallback(t T) T {
+    val hits = NewHitRegistry()
+    hits.Register(Rect(X = 0, Y = 0, Width = 10, Height = 1), CdSingle(N = 1))
+
+    val (msgs, pend) = ResolveClickEvent[CdMsg](
+        cdLeftClick(50, 0), Now(), hits, None[ClickPending](), cdFallback(),
+    )
+    val isFallback = msgs.Get(0) match {
+        case CdNone() => true
+        case _        => false
+    }
+    val t1 = IsTrue(t, isFallback)
+    return IsFalse(t1, pend.IsDefined())
+}
+
+// ----------------------------------------------------------------------------
+// Double-click + pending
+// ----------------------------------------------------------------------------
+
+// Click on a widget with both OnClick and OnDoubleClick → defer the
+// single. No message dispatched yet; pending state is set.
+func TestResolveSinglePlusDoubleDefersTheSingle(t T) T {
+    val hits = NewHitRegistry()
+    val rect = Rect(X = 0, Y = 0, Width = 10, Height = 1)
+    hits.Register(rect, CdSingle(N = 1))
+    hits.RegisterDouble(rect, CdDouble(N = 99))
+
+    val (msgs, pend) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), Now(), hits, None[ClickPending](), cdFallback(),
+    )
+    val t1 = Eq(t, msgs.Length(), 0)
+    return IsTrue(t1, pend.IsDefined())
+}
+
+// Two clicks at the same coords within window → fires double, suppresses
+// the deferred single. Net dispatched: just CdDouble.
+func TestResolveTwoClicksWithinWindowFiresDouble(t T) T {
+    val hits = NewHitRegistry()
+    val rect = Rect(X = 0, Y = 0, Width = 10, Height = 1)
+    hits.Register(rect, CdSingle(N = 1))
+    hits.RegisterDouble(rect, CdDouble(N = 99))
+
+    val now = Now()
+    val (msgs1, pend1) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+    )
+    val (msgs2, pend2) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), now.Plus(Milliseconds(int64(50))),
+        hits, pend1, cdFallback(),
+    )
+    val t1 = Eq(t, msgs1.Length(), 0)              // first click defers
+    val t2 = Eq(t1, msgs2.Length(), 1)             // second click fires once
+    val isDouble = msgs2.Get(0) match {
+        case CdDouble(n) => n == 99
+        case _           => false
+    }
+    val t3 = IsTrue(t2, isDouble)
+    return IsFalse(t3, pend2.IsDefined())          // pending cleared
+}
+
+// Two clicks at the same coords but the second is OUTSIDE the window
+// → first click's deferred single fires (orphaned), second click is
+// handled fresh. Net: CdSingle from the first, plus a fresh dispatch
+// for the second.
+func TestResolveSecondClickOutOfWindowFiresOrphan(t T) T {
+    val hits = NewHitRegistry()
+    val rect = Rect(X = 0, Y = 0, Width = 10, Height = 1)
+    hits.Register(rect, CdSingle(N = 1))
+    hits.RegisterDouble(rect, CdDouble(N = 99))
+
+    val now = Now()
+    val (_, pend1) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+    )
+    // Advance way past the window (1 second).
+    val (msgs2, pend2) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), now.Plus(Milliseconds(int64(1000))),
+        hits, pend1, cdFallback(),
+    )
+    // First call deferred → 0 msgs, pending set.
+    // Second call: pending expired → flush its deferred (CdSingle 1).
+    //              Then this click is fresh: registers as new pending.
+    val t1 = Eq(t, msgs2.Length(), 1)
+    val isOrphanSingle = msgs2.Get(0) match {
+        case CdSingle(n) => n == 1
+        case _           => false
+    }
+    val t2 = IsTrue(t1, isOrphanSingle)
+    return IsTrue(t2, pend2.IsDefined())          // new pending for this click
+}
+
+// Click far away from a pending → flush pending's deferred, handle
+// new click fresh.
+func TestResolveClickAtDifferentPositionFlushesPending(t T) T {
+    val hits = NewHitRegistry()
+    val rectA = Rect(X = 0, Y = 0, Width = 10, Height = 1)
+    val rectB = Rect(X = 50, Y = 0, Width = 10, Height = 1)
+    hits.Register(rectA, CdSingle(N = 1))
+    hits.RegisterDouble(rectA, CdDouble(N = 99))
+    hits.Register(rectB, CdSingle(N = 2))
+
+    val now = Now()
+    val (_, pend1) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+    )
+    val (msgs2, _) = ResolveClickEvent[CdMsg](
+        cdLeftClick(55, 0), now.Plus(Milliseconds(int64(50))),
+        hits, pend1, cdFallback(),
+    )
+    // Second click at different coords: flush pending's CdSingle(1)
+    // then dispatch CdSingle(2) for the new click.
+    val t1 = Eq(t, msgs2.Length(), 2)
+    val first = msgs2.Get(0) match {
+        case CdSingle(n) => n
+        case _           => -1
+    }
+    val second = msgs2.Get(1) match {
+        case CdSingle(n) => n
+        case _           => -1
+    }
+    val t2 = Eq(t1, first, 1)
+    return Eq(t2, second, 2)
+}
+
+// ----------------------------------------------------------------------------
+// DrainExpiredPending
+// ----------------------------------------------------------------------------
+
+// After the window elapses with no follow-up click, DrainExpiredPending
+// fires the deferred single.
+func TestDrainExpiredFiresDeferred(t T) T {
+    val now = Now()
+    val pend = Some[ClickPending](ClickPending(
+        X = 5, Y = 0, At = now,
+        Deferred = Some[any](CdSingle(N = 42)),
+    ))
+    val (msgs, after) = DrainExpiredPending[CdMsg](
+        pend, now.Plus(Milliseconds(int64(500))),     // 500ms > 400ms window
+    )
+    val t1 = Eq(t, msgs.Length(), 1)
+    val isSingle = msgs.Get(0) match {
+        case CdSingle(n) => n == 42
+        case _           => false
+    }
+    val t2 = IsTrue(t1, isSingle)
+    return IsFalse(t2, after.IsDefined())
+}
+
+// Within the window, drain is a no-op.
+func TestDrainWithinWindowIsNoOp(t T) T {
+    val now = Now()
+    val pend = Some[ClickPending](ClickPending(
+        X = 5, Y = 0, At = now,
+        Deferred = Some[any](CdSingle(N = 42)),
+    ))
+    val (msgs, after) = DrainExpiredPending[CdMsg](
+        pend, now.Plus(Milliseconds(int64(100))),    // 100ms < 400ms window
+    )
+    val t1 = Eq(t, msgs.Length(), 0)
+    return IsTrue(t1, after.IsDefined())
+}
+
+// Pending with no deferred (only a double-click was registered, no
+// single) — drain clears state without dispatching anything.
+func TestDrainWithoutDeferredJustClears(t T) T {
+    val now = Now()
+    val pend = Some[ClickPending](ClickPending(
+        X = 5, Y = 0, At = now,
+        Deferred = None[any](),
+    ))
+    val (msgs, after) = DrainExpiredPending[CdMsg](
+        pend, now.Plus(Milliseconds(int64(500))),
+    )
+    val t1 = Eq(t, msgs.Length(), 0)
+    return IsFalse(t1, after.IsDefined())
+}

@@ -59,6 +59,40 @@ func (w Widget) OnPickRowH[T any](count int, rowH int, msgFor func(int) T) Widge
     )
 }
 
+// OnDoubleClick attaches a *double-click* contract: a left-click
+// followed by a second left-click within ~400 ms at the same
+// position dispatches `msg`. Single clicks at the same area still
+// dispatch the widget's `OnClick` payload (if any) — the runtime
+// suppresses the pending single only when the double fires.
+//
+//     val row = TextStyled(label, style)
+//         .OnClick(SelectRow(Idx = i))
+//         .OnDoubleClick(OpenRow(Idx = i))
+func (w Widget) OnDoubleClick[T any](msg T) Widget =
+    DblClickableW(Inner = w, Payload = msg)
+
+// OnDoublePickRow attaches a per-row double-click contract: row `i`
+// fires `msgFor(i)` only on a double-click. Pair with `.OnPickRow`
+// to get the canonical "single = select / double = open" flow:
+//
+//     val table = DataTableView(dt, focused)
+//         .OnPickRow(rowCount, (i) => SelectRow(Idx = i))
+//         .OnDoublePickRow(rowCount, (i) => OpenRow(Idx = i))
+func (w Widget) OnDoublePickRow[T any](count int, msgFor func(int) T) Widget =
+    w.OnDoublePickRowH[T](count, 1, msgFor)
+
+// OnDoublePickRowH is `OnDoublePickRow` with an explicit per-row
+// height — same shape as `OnPickRowH` but for double-click.
+func (w Widget) OnDoublePickRowH[T any](count int, rowH int, msgFor func(int) T) Widget {
+    val erased = (i int) => any(msgFor(i))
+    return DblClickableRowsW(
+        Inner    = w,
+        Count    = count,
+        RowH     = rowH,
+        Payloads = erased,
+    )
+}
+
 // Padded wraps the widget in equal-margin Padding.
 func (w Widget) Padded(n int) Widget = Padding(n, w)
 
@@ -188,6 +222,11 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ClickableRowsW(inner, n, h, p)    =>
             ClickableRowsW(Inner = restyleLeaves(inner, f),
                            Count = n, RowH = h, Payloads = p)
+        case DblClickableW(inner, payload)     =>
+            DblClickableW(Inner = restyleLeaves(inner, f), Payload = payload)
+        case DblClickableRowsW(inner, n, h, p) =>
+            DblClickableRowsW(Inner = restyleLeaves(inner, f),
+                              Count = n, RowH = h, Payloads = p)
         // CustomW renders by user-supplied closure — restyleLeaves has
         // no way to inspect or rewrite styles inside it. Pass through.
         case CustomW(_, _, _)                  => w

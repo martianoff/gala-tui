@@ -366,9 +366,27 @@ func RunWithMouse[M any, T any](
     // re-populating, and each click consults the most recently rendered
     // version to decide which Clickable widget (if any) was hit.
     val hits = NewHitRegistry()
+    // Pending single-click state for double-click dispatch (Model B).
+    var pendingClick = None[ClickPending]()
     var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits)
 
     for {
+        // 0. Drain a deferred single-click if its double-click window has
+        //    elapsed since the click landed. This is what makes a single
+        //    click actually fire when there's no follow-up — it never
+        //    "sticks" past the window.
+        val (drainMsgs, drained) = DrainExpiredPending[T](pendingClick, Now())
+        pendingClick = drained
+        val drainRes = dispatchAll(program, model, drainMsgs)
+        model = drainRes.Model
+        pending = pending.AppendAll(drainRes.NewFutures)
+        if drainRes.Quit {
+            return model
+        }
+        if drainMsgs.NonEmpty() {
+            prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
+        }
+
         // 1. Drain ready async Cmds.
         val (asyncMsgs, stillPending) = PollFutures(pending)
         pending = stillPending
@@ -433,11 +451,15 @@ func RunWithMouse[M any, T any](
 
         // 5. Dispatch buffered input bytes — mouse, keys, resize — through
         //    ParseInput. Left-clicks first consult the HitRegistry so
-        //    Clickable/ClickableRows widgets fire automatically; only
-        //    clicks that miss every registered widget reach the user's
-        //    `makeInputMsg`.
+        //    `*Click` / `OnClick` widgets fire automatically. Single-clicks
+        //    over a region that ALSO has an `OnDoubleClick` are deferred
+        //    in `pendingClick` until either a follow-up click upgrades
+        //    them to a double, or the window elapses (drained at top of
+        //    loop). Only clicks that miss every registered widget reach
+        //    the user's `makeInputMsg`.
         val exitNow = processInputBytesWithHits(
-            program, &model, &pending, rr.Buf, rr.N, makeInputMsg, hits,
+            program, &model, &pending, &pendingClick,
+            rr.Buf, rr.N, makeInputMsg, hits,
         )
         if exitNow {
             return model
@@ -449,15 +471,16 @@ func RunWithMouse[M any, T any](
 }
 
 // processInputBytesWithHits is `processInputBytes` plus widget-owned
-// click dispatch. For every parsed left-click event, it first looks up
-// `hits.HitAt(x, y)`: if a widget has registered itself there, its
-// payload is cast to `T` and dispatched directly — apps don't write any
-// click-handling code. Misses (and all non-click events) fall through
-// to the user's `makeInputMsg`.
+// click dispatch (single + double via `pendingClick`). For every parsed
+// left-click, `ResolveClickEvent` produces 0, 1, or 2 messages and an
+// updated pending-click state. Apps don't write any click-handling
+// code — misses (and all non-click events) fall through to the user's
+// `makeInputMsg`.
 func processInputBytesWithHits[M any, T any](
     program Program[M, T],
     model *M,
     pending *Array[concurrent.Future[T]],
+    pendingClick *Option[ClickPending],
     buf []byte,
     n int,
     makeInputMsg func(InputEvent) T,
@@ -475,40 +498,223 @@ func processInputBytesWithHits[M any, T any](
             return true
         }
 
-        val msg = ResolveClickOrInput[T](ev, hits, makeInputMsg)
-        val (newModel, cmd) = program.Update(*model, msg)
-        *model = newModel
-        if IsQuit(cmd) {
-            return true
-        }
-        *pending = pending.AppendAll(PendingFutures(cmd))
-
-        val emitted = PendingMsgs(cmd)
-        var i = 0
-        for i < emitted.Length() {
-            val (nm, nc) = program.Update(*model, emitted.Get(i))
-            *model = nm
-            if IsQuit(nc) {
+        val (msgs, newPending) = ResolveClickEvent[T](
+            ev, Now(), hits, *pendingClick, makeInputMsg,
+        )
+        *pendingClick = newPending
+        var mi = 0
+        for mi < msgs.Length() {
+            val msg = msgs.Get(mi)
+            val (newModel, cmd) = program.Update(*model, msg)
+            *model = newModel
+            if IsQuit(cmd) {
                 return true
             }
-            *pending = pending.AppendAll(PendingFutures(nc))
-            i = i + 1
+            *pending = pending.AppendAll(PendingFutures(cmd))
+
+            val emitted = PendingMsgs(cmd)
+            var i = 0
+            for i < emitted.Length() {
+                val (nm, nc) = program.Update(*model, emitted.Get(i))
+                *model = nm
+                if IsQuit(nc) {
+                    return true
+                }
+                *pending = pending.AppendAll(PendingFutures(nc))
+                i = i + 1
+            }
+            mi = mi + 1
         }
     }
     return false
 }
 
-// ResolveClickOrInput resolves a left-click against the HitRegistry,
-// falling back to `makeInputMsg` for misses and non-click events. The
+// ----------------------------------------------------------------------------
+// Double-click dispatch — Model B.
+//
+// Single-clicks at a position where a `DblClickableW`/`DblClickableRowsW`
+// is also registered are *deferred* up to `DoubleClickWindow`. If a
+// second click lands on the same region inside that window, the deferred
+// single is suppressed and the double-click payload fires instead. If
+// the window elapses without a second click, the deferred single
+// fires and the pending state clears.
+//
+// Behaviours:
+//   - No double registered at click position → single fires immediately.
+//   - Both single + double registered → single is deferred. Second
+//     click within window at same position → double fires (single
+//     suppressed). Window elapses → single fires.
+//   - Only double registered → no immediate dispatch; second click =
+//     double; window elapses = nothing.
+// ----------------------------------------------------------------------------
+
+// ClickPending tracks a click whose dispatch is deferred awaiting either
+// a follow-up click (which would upgrade it to a double-click) or the
+// timeout (which would dispatch the deferred single).
+struct ClickPending(
+    X        int,
+    Y        int,
+    At       Instant,
+    Deferred Option[any],   // single-click payload to fire on timeout, if any
+)
+
+// DoubleClickWindow is the maximum gap between two clicks for them to
+// register as a double-click. 400 ms is the de-facto desktop default.
+func doubleClickWindow() Duration = Milliseconds(int64(400))
+
+func pendingActive(p ClickPending, x int, y int, t Instant) bool =
+    t.IsBefore(p.At.Plus(doubleClickWindow())) &&
+    pendingNear(p.X, x) && pendingNear(p.Y, y)
+
+func pendingNear(a int, b int) bool {
+    val d = a - b
+    return d >= -1 && d <= 1
+}
+
+func castPayloadOrSkip[T any](payload any, fallback T) T = payload match {
+    case msg: T => msg
+    case _      => fallback
+}
+
+// ResolveClickEvent processes a single InputEvent against the
+// HitRegistry, taking and returning pending-click state. Returns the
+// list of Msgs to dispatch (0, 1, or 2 entries) along with the new
+// pending state. The runtime threads `pending` across loop iterations.
+func ResolveClickEvent[T any](
+    ev InputEvent,
+    now Instant,
+    hits *HitRegistry,
+    pending Option[ClickPending],
+    fallback func(InputEvent) T,
+) Tuple[Array[T], Option[ClickPending]] {
+    return ev match {
+        case MouseInput(m) => {
+            if !m.Pressed { return resolveNonClick[T](ev, pending, fallback) }
+            val isLeft = m.Btn match {
+                case MouseLeft() => true
+                case _           => false
+            }
+            if !isLeft { return resolveNonClick[T](ev, pending, fallback) }
+            return resolveLeftClick[T](m.X, m.Y, now, hits, pending, fallback, ev)
+        }
+        case _ => resolveNonClick[T](ev, pending, fallback)
+    }
+}
+
+// resolveNonClick: any non-left-click event. If a deferred single is
+// pending, fire it now (so input that ended the double-click window
+// flushes the pending), then dispatch the user adapter on the event.
+func resolveNonClick[T any](
+    ev InputEvent,
+    pending Option[ClickPending],
+    fallback func(InputEvent) T,
+) Tuple[Array[T], Option[ClickPending]] {
+    var out = EmptyArray[T]()
+    if pending.IsDefined() {
+        val def = pending.Get().Deferred
+        if def.IsDefined() {
+            out = out.Append(castPayloadOrSkip[T](def.Get(), fallback(ev)))
+        }
+    }
+    out = out.Append(fallback(ev))
+    return (out, None[ClickPending]())
+}
+
+func resolveLeftClick[T any](
+    x int, y int, t Instant,
+    hits *HitRegistry,
+    pending Option[ClickPending],
+    fallback func(InputEvent) T,
+    ev InputEvent,
+) Tuple[Array[T], Option[ClickPending]] {
+    var out = EmptyArray[T]()
+    var pend = pending
+
+    val isSecond = pend.IsDefined() && pendingActive(pend.Get(), x, y, t)
+
+    if isSecond {
+        val dblHit = hits.HitAtDouble(x, y)
+        if dblHit.IsDefined() {
+            // Suppress pending's deferred single — fire double instead.
+            out = out.Append(castPayloadOrSkip[T](dblHit.Get(), fallback(ev)))
+            return (out, None[ClickPending]())
+        }
+        // Second click in window but no double registered here — fire
+        // pending's deferred single first, then handle this click as a
+        // fresh first-click below.
+        val def = pend.Get().Deferred
+        if def.IsDefined() {
+            out = out.Append(castPayloadOrSkip[T](def.Get(), fallback(ev)))
+        }
+        pend = None[ClickPending]()
+    } else if pend.IsDefined() {
+        // Pending exists but this click is too far / too late. Flush its
+        // deferred single, then handle this click fresh.
+        val def = pend.Get().Deferred
+        if def.IsDefined() {
+            out = out.Append(castPayloadOrSkip[T](def.Get(), fallback(ev)))
+        }
+        pend = None[ClickPending]()
+    }
+
+    // First-click logic for the current event.
+    val singleHit = hits.HitAt(x, y)
+    val dblHit = hits.HitAtDouble(x, y)
+    if dblHit.IsDefined() {
+        // A double could fire on the next click. Defer any single hit
+        // and remember the position + time.
+        pend = Some[ClickPending](ClickPending(
+            X = x, Y = y, At = t, Deferred = singleHit,
+        ))
+    } else if singleHit.IsDefined() {
+        out = out.Append(castPayloadOrSkip[T](singleHit.Get(), fallback(ev)))
+    } else {
+        out = out.Append(fallback(ev))
+    }
+
+    return (out, pend)
+}
+
+// DrainExpiredPending fires the deferred single in `pending` if its
+// double-click window has elapsed by `now`. The runtime calls this on
+// every loop iteration so a pending click eventually dispatches even
+// when no further input arrives.
+func DrainExpiredPending[T any](
+    pending Option[ClickPending],
+    now Instant,
+) Tuple[Array[T], Option[ClickPending]] {
+    if !pending.IsDefined() { return (EmptyArray[T](), pending) }
+    val p = pending.Get()
+    if !now.IsBefore(p.At.Plus(doubleClickWindow())) {
+        var out = EmptyArray[T]()
+        if p.Deferred.IsDefined() {
+            // No fallback message available here — if the cast fails,
+            // we silently drop the deferred. Cast failure indicates a
+            // misuse from a custom widget; normal payloads always cast.
+            val maybe = p.Deferred.Get()
+            maybe match {
+                case msg: T => out = out.Append(msg)
+                case _      => {}
+            }
+        }
+        return (out, None[ClickPending]())
+    }
+    return (EmptyArray[T](), pending)
+}
+
+// ResolveClickOrInput is the simpler single-click-only resolver kept
+// for callers that don't participate in double-click dispatch (chiefly
+// the test harness's `Session.SendInput` path, which uses one-shot
+// rendering and doesn't carry pending state across calls). For the
+// runtime click path see `ResolveClickEvent` above, which is Model-B
+// aware.
+//
+// Falls back to `makeInputMsg` for misses and non-click events. The
 // payload-to-Msg cast is a runtime type assertion: it succeeds because
 // every payload was a `T` at the point the widget got its click contract
 // (via `.OnClick(msg)` or one of the `*Click` constructors); on the off
 // chance the cast fails (e.g., a custom widget that registered its own
 // hits with a wrong type), we degrade to the user adapter rather than panic.
-//
-// Exported so the test harness can mirror the runtime's click-dispatch
-// semantics — same "widgets own their hits" contract whether you're in
-// production or in a unit test.
 func ResolveClickOrInput[T any](
     ev InputEvent,
     hits *HitRegistry,

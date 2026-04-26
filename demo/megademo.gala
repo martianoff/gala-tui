@@ -66,6 +66,10 @@ sealed type MegaMsg {
     case MegaLogPgDn()
     case MegaLogJumpEnd()
     case MegaClickSidebar(Idx int)
+    case MegaSelectRow(Idx int)        // single-click on a builds-table row → select it
+    case MegaOpenRow(Idx int)          // double-click on a row → open (toast + log)
+    case MegaSelectTreeNode(Idx int)   // single-click on a pipeline tree row → cursor jump
+    case MegaToggleTreeNode(Idx int)   // double-click → expand / collapse
     case MegaNoOp()
 }
 
@@ -234,6 +238,11 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaLogPgDn()             => (megaLogScroll(m, -4), NoCmd[MegaMsg]())
         case MegaLogJumpEnd()          => (m.Copy(LogScroll = 0), NoCmd[MegaMsg]())
         case MegaClickSidebar(idx)     => (megaJumpToSidebar(m.Copy(SidebarSel = idx)), NoCmd[MegaMsg]())
+        case MegaSelectRow(idx)        => (megaSelectRow(m, idx), NoCmd[MegaMsg]())
+        case MegaOpenRow(idx)          => (megaOpenRow(m, idx), NoCmd[MegaMsg]())
+        case MegaSelectTreeNode(idx)   => (m.Copy(PipelinesCursor = idx), NoCmd[MegaMsg]())
+        case MegaToggleTreeNode(idx)   => (m.Copy(Pipelines = TreeToggleAt(m.Pipelines, idx),
+                                                  PipelinesCursor = idx), NoCmd[MegaMsg]())
         case MegaNoOp()                => (m, NoCmd[MegaMsg]())
     }
 }
@@ -459,6 +468,41 @@ func megaCopyRow(m MegaModel) MegaModel {
     return m.Copy(Toasts = toasts, Logs = logs)
 }
 
+// megaSelectRow handles a single-click on a builds-table row: jump
+// the cursor to the clicked index. Focus also shifts to the table
+// pane so subsequent arrow keys advance from the clicked position.
+func megaSelectRow(m MegaModel, idx int) MegaModel {
+    val rows = m.BuildsTable.Rows.Length()
+    if idx < 0 || idx >= rows { return m }
+    val table = m.BuildsTable
+    val updated = table.Copy(Selected = idx)
+    return m.Copy(
+        BuildsTable = updated,
+        Focus       = m.Focus.FocusOn("table"),
+    )
+}
+
+// megaOpenRow handles a double-click: select the row AND fire the
+// "open" action — represented here as a toast + a log entry naming
+// the build. A real app would push a detail screen via the router.
+func megaOpenRow(m MegaModel, idx int) MegaModel {
+    val rows = m.BuildsTable.Rows.Length()
+    if idx < 0 || idx >= rows { return m }
+    val table = m.BuildsTable
+    val sel = table.Copy(Selected = idx)
+    val row = SelectedRow(sel)
+    val label = if (row.IsEmpty()) s"row #$idx" else megaJoinCells(row, " ")
+    val msg = "Opened build: " + label
+    val toasts = m.Toasts.PushSuccess(msg, m.Now, Seconds(int64(3)))
+    val logs = m.Logs.AppendAt(LogInfo(), msg, m.Now)
+    return m.Copy(
+        BuildsTable = sel,
+        Focus       = m.Focus.FocusOn("table"),
+        Toasts      = toasts,
+        Logs        = logs,
+    )
+}
+
 func megaJoinCells(xs Array[string], sep string) string {
     if xs.IsEmpty() { return "" }
     var out = xs.Get(0)
@@ -627,10 +671,13 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
 func megaBuildsBody(m MegaModel, th Theme) Widget {
     val ui = NewFocusBuilder(m.Focus)
     val focused = ui.IsFocused("table")
-    // The filter is applied to m.BuildsTable in update(), so the view
-    // can render it directly without re-filtering (which would reset
-    // the cursor every paint).
-    val table = ui.DataTable("table", m.BuildsTable)
+    // Click contract on the build rows: single-click selects the row,
+    // double-click "opens" it (toast + log entry). The framework
+    // dispatches both via the HitRegistry — no input-adapter code.
+    val rowCount = m.BuildsTable.Rows.Length()
+    val table = ui.DataTableRowClick[MegaMsg]("table", m.BuildsTable,
+                    (i) => MegaSelectRow(Idx = i))
+                .OnDoublePickRow[MegaMsg](rowCount, (i) => MegaOpenRow(Idx = i))
     val tabs = ui.Tabs(
         "table",
         ArrayOf[string]("Running", "Succeeded", "Failed"),
@@ -643,11 +690,14 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
 
 func megaPipelinesBody(m MegaModel, th Theme) Widget {
     val ui = NewFocusBuilder(m.Focus)
+    // Click contract on the pipeline tree: single = move cursor,
+    // double = expand / collapse the node at that flat row.
+    val nodes = TreeFlatRowCount(m.Pipelines)
+    val tree = ui.TreeNodeClick[MegaMsg]("table", m.Pipelines, m.PipelinesCursor,
+                    (i) => MegaSelectTreeNode(Idx = i))
+                .OnDoublePickRow[MegaMsg](nodes, (i) => MegaToggleTreeNode(Idx = i))
     val borderKind = if (ui.IsFocused("table")) ThickBorder() else th.BorderKind
-    return BorderOf(
-        PaddingHV(0, 1, ui.Tree("table", m.Pipelines, m.PipelinesCursor)),
-        borderKind,
-    )
+    return BorderOf(PaddingHV(0, 1, tree), borderKind)
 }
 
 // ---- Footer -----------------------------------------------------------------

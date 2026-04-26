@@ -288,6 +288,63 @@ func (s Session[M, T]) Click(x int, y int) Session[M, T] =
 func (s Session[M, T]) ClickAt(x int, y int, btn MouseButton) Session[M, T] =
     s.SendInput(MouseInput(Ev = MouseEvent(Btn = btn, X = x, Y = y, Pressed = true)))
 
+// DoubleClick simulates a left-button double-click at `(x, y)`. Looks
+// up a double-click hit registered at that position (via `.OnDoubleClick`
+// / `.OnDoublePickRow`) and dispatches its payload directly — mirrors
+// the runtime's Model-B contract where a real double-click suppresses
+// the would-be single. If no double-click hit covers `(x, y)`, falls
+// back to two ordinary single clicks (which exercises the "no double
+// registered" path).
+//
+// For NewHarness (key-only) Sessions, this is a no-op.
+func (s Session[M, T]) DoubleClick(x int, y int) Session[M, T] {
+    val isFull = s.H.Mode match {
+        case FullMode(_) => true
+        case KeyMode(_)  => false
+    }
+    if !isFull { return s }
+    val adapter = harnessFullAdapter[M, T](s.H)
+    val hits = NewHitRegistry()
+    val view = s.H.Program.View(s.Model)
+    val buf = NewBuffer(s.H.Width, s.H.Height)
+    RenderToWithHits(view,
+        Rect(X = 0, Y = 0, Width = s.H.Width, Height = s.H.Height),
+        buf, hits)
+    val dbl = hits.HitAtDouble(x, y)
+    if !dbl.IsDefined() {
+        // No double registered — replay as two singles so tests still
+        // exercise something predictable.
+        return s.Click(x, y).Click(x, y)
+    }
+    val payload = dbl.Get()
+    val fallbackEv = MouseInput(Ev = MouseEvent(
+        Btn = MouseLeft(), X = x, Y = y, Pressed = true,
+    ))
+    val msg = harnessCastDouble[T](payload, adapter, fallbackEv)
+    return s.dispatchMsg(msg)
+}
+
+// harnessFullAdapter extracts the InputEvent → Msg adapter regardless
+// of harness mode. In KeyMode, the harness only ever cares about key
+// events anyway (DoubleClick is a no-op), so the lambda is purely
+// defensive — it converts the arriving InputEvent to a KeyEvent and
+// runs that through the user's key adapter.
+func harnessFullAdapter[M any, T any](h Harness[M, T]) func(InputEvent) T {
+    return h.Mode match {
+        case FullMode(fn) => fn
+        case KeyMode(fn)  => harnessKeyModeAdapter[T](fn)
+    }
+}
+
+func harnessKeyModeAdapter[T any](fn func(KeyEvent) T) func(InputEvent) T =
+    (ev InputEvent) => fn(inputToKeyEv(ev))
+
+func harnessCastDouble[T any](payload any, adapter func(InputEvent) T, fallbackEv InputEvent) T =
+    payload match {
+        case msg: T => msg
+        case _      => adapter(fallbackEv)
+    }
+
 // Release fires the matching button-release event for a previous click.
 // Apps with drag handlers (e.g., column resize) need both press + release.
 func (s Session[M, T]) Release(x int, y int, btn MouseButton) Session[M, T] =

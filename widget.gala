@@ -52,6 +52,15 @@ sealed type Widget {
     // with the payload for row `i` produced by `Payloads(i)`. Used by
     // list / menu / table widgets that want every row clickable.
     case ClickableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
+    // DblClickableW is the double-click sibling of ClickableW: registers
+    // the wrapped widget's rectangle as a *double-click* hit. The runtime
+    // dispatches the payload only when the user clicks the same region
+    // twice within the double-click window. Single clicks pass through
+    // to whatever single-click hit (if any) covers the same area.
+    case DblClickableW(Inner Widget, Payload any)
+    // DblClickableRowsW is the per-row counterpart — each of `Count`
+    // stacked rows fires its `Payloads(rowIdx)` only on a double-click.
+    case DblClickableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
     // CustomW is the escape hatch for user-authored widgets that need
     // pixel-level control. The framework hands the closure the rendered
     // area, the target Buffer, and the live HitRegistry — the user can
@@ -502,6 +511,31 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
+        case DblClickableW(inner, payload) => {
+            if hits != nil {
+                hits.RegisterDouble(area, payload)
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
+        case DblClickableRowsW(inner, count, rowH, payloads) => {
+            if hits != nil && count > 0 && rowH > 0 {
+                var i = 0
+                for i < count {
+                    val rowY = area.Y + i * rowH
+                    if rowY < area.Y + area.Height {
+                        val rowH2 = if (rowY + rowH <= area.Y + area.Height)
+                                        rowH
+                                    else area.Y + area.Height - rowY
+                        hits.RegisterDouble(Rect(
+                            X = area.X, Y = rowY,
+                            Width = area.Width, Height = rowH2,
+                        ), payloads(i))
+                    }
+                    i = i + 1
+                }
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
         case CustomW(_, _, render) =>
             render(area, buf, hits)
     }
@@ -929,6 +963,8 @@ func defaultRenderWidth(w Widget) int {
         case ScrollbarW(_, _, _, _)            => 1
         case ClickableW(inner, _)              => defaultRenderWidth(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
+        case DblClickableW(inner, _)           => defaultRenderWidth(inner)
+        case DblClickableRowsW(inner, _, _, _) => defaultRenderWidth(inner)
         case CustomW(minW, _, _)               => minW
     }
 }
@@ -960,6 +996,8 @@ func defaultRenderHeight(w Widget) int {
         case ScrollbarW(_, _, _, _)            => 1
         case ClickableW(inner, _)              => defaultRenderHeight(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
+        case DblClickableW(inner, _)           => defaultRenderHeight(inner)
+        case DblClickableRowsW(inner, _, _, _) => defaultRenderHeight(inner)
         case CustomW(_, minH, _)               => minH
     }
 }

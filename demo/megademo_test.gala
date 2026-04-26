@@ -423,16 +423,18 @@ func TestHarnessMouseScrollAdvancesBuildsCursor(t T) T {
     return Eq(t, final.Model.BuildsTable.Selected, 1)
 }
 
-// Mouse-click outside any registered hit region is a silent no-op —
-// the megademo only wraps the sidebar rows (y=5..8) in ClickableRows;
-// a click in the table area falls through to MegaInputToMsg, which
-// returns MegaNoOp for MouseLeft, and the model stays put.
+// Mouse-click outside any registered hit region is a silent no-op.
+// On the builds screen the sidebar isn't rendered (so no sidebar hits)
+// and the click coordinate is chosen to land in the header area where
+// no Clickable widget sits — the click falls through to MegaInputToMsg
+// which returns MegaNoOp for MouseLeft, and the model stays put.
 func TestHarnessMouseClickOutsideHitMapIsNoOp(t T) T {
     val before = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
         StepKey(Ev = PlainKey(Down())),
         StepKey(Ev = PlainKey(Enter())),
     ))
-    val after = before.Click(40, 10)
+    // y=0 is the top header bar — no Clickable widgets register there.
+    val after = before.Click(99, 0)
     return Eq(t, after.Model.BuildsTable.Selected, before.Model.BuildsTable.Selected)
 }
 
@@ -514,6 +516,67 @@ func TestHarnessClickReachesEachSidebarRowOnOverview(t T) T {
     val t1 = Eq(t, pipes.Model.Screens.Current(), "pipelines")
     val builds = newMegaHarness().Start().Click(5, 6)        // row 1 → builds
     return Eq(t1, builds.Model.Screens.Current(), "builds")
+}
+
+// ----------------------------------------------------------------------------
+// DataTable click contract — single-click selects a row, double-click
+// "opens" it (toast + log entry). Wires through the framework's
+// HitRegistry; no inputToMsg involvement.
+// ----------------------------------------------------------------------------
+
+// Single-click on a builds-table row selects that row. The harness
+// session lands on the builds screen + table-focused state via the
+// existing Down + Enter keyboard path, then clicks deep inside the
+// table body — far enough from the top that the click lands on a
+// non-first row regardless of the screen's exact header padding.
+func TestHarnessClickOnBuildsTableRowSelects(t T) T {
+    val onBuilds = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),                  // sidebar idx 0 → 1
+        StepKey(Ev = PlainKey(Enter())),                 // commit → builds + focus table
+    ))
+    val before = onBuilds.Model.BuildsTable.Selected
+    val after = onBuilds.Click(40, 12)                   // well into the body
+    val sel = after.Model.BuildsTable.Selected
+    return IsTrue(t, sel != before)
+}
+
+// Double-click on a builds-table row fires MegaOpenRow which pushes a
+// "Opened build" toast. The toast queue counts the active toasts —
+// before the click it was empty, after the double-click there's >=1.
+func TestHarnessDoubleClickOnBuildsTableRowOpens(t T) T {
+    val onBuilds = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Enter())),
+    ))
+    val before = onBuilds.Model.Toasts
+    val after = onBuilds.DoubleClick(40, 12)
+    val countBefore = if (before.IsEmpty()) 0 else 1
+    val countAfter  = if (after.Model.Toasts.IsEmpty()) 0 else 1
+    val t1 = Eq(t, countBefore, 0)
+    return Eq(t1, countAfter, 1)
+}
+
+// Tree click contract — single-click on a node moves the cursor to
+// that flat-row index. Double-click toggles expand/collapse via
+// TreeToggleAt (a row index that lands on a leaf is a visual no-op
+// but we don't assert that — we only assert the cursor moves).
+func TestHarnessClickOnPipelineTreeNodeMovesCursor(t T) T {
+    val (mPipes, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val onPipes = newMegaHarness().StartAt(mPipes)
+    val before = onPipes.Model.PipelinesCursor
+    val after  = onPipes.Click(20, 7)             // somewhere in the tree
+    return IsTrue(t, after.Model.PipelinesCursor != before)
+}
+
+// Double-click on a pipeline node both moves the cursor AND emits the
+// MegaToggleTreeNode message that runs TreeToggleAt. We assert the
+// cursor change (deterministic) — toggling a leaf is a visual no-op
+// so we don't assert on the row count change.
+func TestHarnessDoubleClickOnPipelineTreeNodeToggles(t T) T {
+    val (mPipes, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val onPipes = newMegaHarness().StartAt(mPipes)
+    val after   = onPipes.DoubleClick(20, 7)
+    return IsTrue(t, after.Model.PipelinesCursor != onPipes.Model.PipelinesCursor)
 }
 
 // Resize through the harness — pass StepResize through the input

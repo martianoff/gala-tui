@@ -31,8 +31,11 @@ import (
 // ============================================================================
 
 // HitEntry pairs a rectangle with the payload to dispatch when a click
-// lands inside it.
-struct HitEntry(R Rect, Payload any)
+// lands inside it. `IsDouble` distinguishes double-click registrations
+// (`DblClickableW`/`DblClickableRowsW`) from single-click ones — the
+// runtime resolves them through different lookup paths so a single
+// click never accidentally fires a double-click handler and vice versa.
+struct HitEntry(R Rect, Payload any, IsDouble bool)
 
 // HitRegistry is the mutable accumulator.
 type HitRegistry struct {
@@ -45,19 +48,32 @@ func NewHitRegistry() *HitRegistry {
     return &HitRegistry{entries: SliceEmpty[HitEntry]()}
 }
 
-// Register adds (rect, payload) to the registry. Called by widgets that
-// want to be clickable from inside their render arm. Out-of-area or
-// zero-sized rects are ignored — they could never be hit anyway and
-// pruning early keeps `HitAt` fast.
+// Register adds a single-click `(rect, payload)` to the registry.
+// Out-of-area or zero-sized rects are ignored — they could never be
+// hit anyway and pruning early keeps lookup fast.
 func (h *HitRegistry) Register(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = append(h.entries, HitEntry(R = r, Payload = payload))
+    h.entries = append(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false))
 }
 
-// HitAt returns the payload of the LAST-registered entry whose rectangle
-// contains `(x, y)`, or `None` if no entry matches.
+// RegisterDouble adds a double-click `(rect, payload)` to the registry.
+// The runtime only fires it when the user clicks the same region twice
+// within the double-click window — single-clicks at the same coords
+// dispatch any matching single-click hit (or fall through to the user
+// input adapter) instead.
+func (h *HitRegistry) RegisterDouble(r Rect, payload any) {
+    if r.Zero() {
+        return
+    }
+    h.entries = append(h.entries, HitEntry(R = r, Payload = payload, IsDouble = true))
+}
+
+// HitAt returns the payload of the LAST-registered single-click entry
+// whose rectangle contains `(x, y)`, or `None` if no single-click
+// entry matches. Double-click entries are skipped — query
+// `HitAtDouble` for those.
 //
 // Last-wins is intentional: layouts render children in document order, so
 // a widget rendered later (a modal stacked on top, a row drawn after its
@@ -67,7 +83,25 @@ func (h *HitRegistry) HitAt(x int, y int) Option[any] {
     var i = len(h.entries) - 1
     for i >= 0 {
         val e = h.entries[i]
-        if x >= e.R.X && x < e.R.X + e.R.Width &&
+        if !e.IsDouble &&
+           x >= e.R.X && x < e.R.X + e.R.Width &&
+           y >= e.R.Y && y < e.R.Y + e.R.Height {
+            return Some[any](e.Payload)
+        }
+        i = i - 1
+    }
+    return None[any]()
+}
+
+// HitAtDouble is the double-click counterpart of HitAt. Returns the
+// payload of the LAST-registered double-click entry containing
+// `(x, y)`, or None if no double-click region matches.
+func (h *HitRegistry) HitAtDouble(x int, y int) Option[any] {
+    var i = len(h.entries) - 1
+    for i >= 0 {
+        val e = h.entries[i]
+        if e.IsDouble &&
+           x >= e.R.X && x < e.R.X + e.R.Width &&
            y >= e.R.Y && y < e.R.Y + e.R.Height {
             return Some[any](e.Payload)
         }
