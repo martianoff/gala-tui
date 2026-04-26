@@ -189,10 +189,13 @@ are plaintext-only so they fit in a README.
 Small, focused, single-file apps that show one feature without the noise of
 the full demo:
 
+- [`examples/counter/`](examples/counter/main.gala) — the smallest possible
+  gala-tui app. One field, three messages, `+`/`-` to mutate, `q` quits.
+  Read end-to-end in 30 seconds.
 - [`examples/clickable_list/`](examples/clickable_list/main.gala) — mouse +
   keyboard on a 4-item nav list. Click any row OR press `↑`/`↓`+Enter; both
   paths produce the same model. Demonstrates `RunSimpleWithMouse`,
-  `ClickMap.AtRows`, and `KeyMatchesAny` in <80 lines.
+  `ClickMap.AtRows`, and `KeyMatchesAny` in <90 lines.
 
 ## Status
 

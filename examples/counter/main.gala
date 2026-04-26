@@ -1,0 +1,45 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Counter — the smallest possible gala-tui app. One model field, three
+// messages, +/- to mutate, q to quit.
+//
+//     gala build ./examples/counter
+//     ./gala_tui.exe                          # binary takes the module name
+// ============================================================================
+
+struct Model(N int)
+
+sealed type Msg {
+    case CtInc()
+    case CtDec()
+    case CtQuit()
+    case CtNoOp()
+}
+
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
+    case CtInc()  => (m.Copy(N = m.N + 1), NoCmd[Msg]())
+    case CtDec()  => (m.Copy(N = m.N - 1), NoCmd[Msg]())
+    case CtQuit() => (m, QuitCmd[Msg]())
+    case CtNoOp() => (m, NoCmd[Msg]())
+}
+
+func view(m Model) Widget =
+    TextStyled(s"  Count: ${m.N}    (+ / - / q)",
+        DefaultStyle().WithBold().WithFg(BrightCyan()))
+
+func keyToMsg(ev KeyEvent) Msg {
+    if KeyMatchesAny(ev, "ctrl+c", "q") { return CtQuit() }
+    if KeyMatches(ev, "+") { return CtInc() }
+    if KeyMatches(ev, "-") { return CtDec() }
+    return CtNoOp()
+}
+
+func main() {
+    val _ = RunSimple[Model, Msg](Model(N = 0), update, view, keyToMsg)
+}
