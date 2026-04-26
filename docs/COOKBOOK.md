@@ -488,3 +488,100 @@ case OnRowClicked(idx) =>
 The result is one chainable line per scrollable region, regardless of
 how many rows it contains. Negative or zero counts are a safe no-op so
 you can call it on empty lists without guarding.
+
+## Author your own widget with its own events
+
+The framework's interactive widgets — `Button`, `SelectList`, `Tabs`,
+`DataTableView`, `MenuView`, `Tree`, `Dropdown` — each have a
+click-aware sibling (`ButtonClick`, `SelectListPick`, `TabsClick`,
+`DataTableViewClick`, `MenuViewClick`, `TreeFocusedClick`,
+`DropdownViewClick`) that bakes the click contract into the
+constructor. Same pattern works for widgets you author yourself: pass
+a typed callback and wrap internally with `Clickable[T]` /
+`ClickableRows[T]`. Users of your widget never see the wrap.
+
+Example — a "rating" widget that exposes a single `OnSet(score)`
+event. Each star is a clickable cell; clicking the third star
+dispatches `OnSet(3)`.
+
+```gala
+struct Rating(Score int, Max int)
+
+func RatingView[T any](
+    r Rating,
+    OnSet func(int) T,                 // user defines the event vocab
+) Widget {
+    val cells = arrayRange(1, r.Max + 1).Map((score) => {
+        val glyph = if (score <= r.Score) "★" else "☆"
+        val cell  = TextStyled(" " + glyph + " ", DefaultStyle())
+        // Bake the per-star click into the widget itself — caller
+        // never wraps with Clickable.
+        return Fixed(3, Clickable[T](cell, OnSet(score)))
+    })
+    return Row(cells)
+}
+```
+
+Call site:
+
+```gala
+val stars = RatingView[Msg](
+    m.Rating,
+    OnSet = (score) => RateMovie(Score = score),
+)
+```
+
+Same pattern for any number of events:
+
+```gala
+func KanbanView[T any](
+    board Kanban,
+    focused bool = false,
+    OnCardClick   func(int, int) T,        // (col, row)
+    OnColumnDrop  func(int, int) T,        // (fromCol, toCol)
+    OnAddCard     func(int) T,
+    OnCardDelete  func(int, int) T,
+) Widget = ...
+```
+
+Each event becomes a constructor parameter, the widget assembles its
+inner tree with `Clickable*` wraps where appropriate, and every call
+site stays a single non-nested expression.
+
+### When to reach for `Custom`
+
+If your widget can't be expressed by composing existing primitives —
+e.g., a pixel-level chart, a custom border, anything that wants to
+write directly into the `Buffer` — use `Custom(minW, minH, render)`.
+The `render` closure receives the rendered area, the `Buffer`, and
+the live `HitRegistry`, so you can paint anything *and* register
+your own click hits with `hits.Register(rect, payload)`:
+
+```gala
+func HistogramView[T any](
+    buckets Array[int],
+    OnBarClick func(int) T,
+) Widget = Custom(40, 8, (area, buf, hits) => {
+    val barWidth = area.Width / buckets.Length()
+    var i = 0
+    val n = buckets.Length()
+    for i < n {
+        val barRect = Rect(
+            X = area.X + i * barWidth,
+            Y = area.Y,
+            Width = barWidth,
+            Height = area.Height,
+        )
+        drawBar(buckets.Get(i), barRect, buf)
+        if hits != nil {
+            hits.Register(barRect, OnBarClick(i))
+        }
+        i = i + 1
+    }
+})
+```
+
+Same payload-erasure rule as the built-ins: the `OnBarClick(i)` value
+is type `T`, the registry stores it as `any`, the runtime restores
+the type when it dispatches the click. You never see `any` at the
+call site.

@@ -52,6 +52,16 @@ sealed type Widget {
     // with the payload for row `i` produced by `Payloads(i)`. Used by
     // list / menu / table widgets that want every row clickable.
     case ClickableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
+    // CustomW is the escape hatch for user-authored widgets that need
+    // pixel-level control. The framework hands the closure the rendered
+    // area, the target Buffer, and the live HitRegistry — the user can
+    // paint anything (charts, custom borders, hand-laid text) and
+    // register their own click hits via `hits.Register(...)`.
+    //
+    // `MinW` / `MinH` are intrinsic-size hints used by the layout solver
+    // and `Render()` (the no-area entrypoint). Pass 0 for "no preferred
+    // size" — the widget will expand to whatever its container gives it.
+    case CustomW(MinW int, MinH int, Render func(Rect, *Buffer, *HitRegistry))
 }
 
 // LayoutChild binds a widget to the Constraint Row/Column use when
@@ -163,6 +173,7 @@ func Pct(p int, w Widget) LayoutChild =
 // so the selected row is always visible. Named SelectList (not List) because
 // collection_immutable already exports `List[T]` as a functional linked-list
 // type; this widget is about *selection* over a visible menu.
+//
 // `focused` (default false) brightens the selection row when the
 // keyboard is currently driving this list — bold + bright yellow on
 // reverse so the user sees where arrows will land.
@@ -177,6 +188,38 @@ func SelectList(items Array[ListItem], selected int, focused bool = false) Widge
 // SelectListOf is a convenience wrapper when your items are plain strings.
 func SelectListOf(labels Array[string], selected int, focused bool = false) Widget =
     SelectList(labels.Map((l) => NewListItem(l)), selected, focused)
+
+// SelectListPick is the click-aware sibling: each row is clickable and
+// dispatches `onPick(rowIdx)` when clicked. Saves the explicit
+// `ClickableRows[T](SelectList(...), ...)` wrap at every call site.
+//
+//     val nav = SelectListPick[Msg](items, sel, true,
+//         (i) => OnPick(Idx = i))
+//
+// Equivalent to:
+//
+//     val nav = ClickableRows[Msg](
+//         SelectList(items, sel, true), items.Length(), 1,
+//         (i) => OnPick(Idx = i))
+func SelectListPick[T any](
+    items Array[ListItem],
+    selected int,
+    focused bool,
+    onPick func(int) T,
+) Widget = ClickableRows[T](
+    SelectList(items, selected, focused), items.Length(), 1, onPick,
+)
+
+// SelectListOfPick is the click-aware sibling of SelectListOf — same
+// labels-first ergonomics, but each row dispatches `onPick(i)` on click.
+func SelectListOfPick[T any](
+    labels Array[string],
+    selected int,
+    focused bool,
+    onPick func(int) T,
+) Widget = ClickableRows[T](
+    SelectListOf(labels, selected, focused), labels.Length(), 1, onPick,
+)
 
 // Input renders a single-line text input. `cursor` is the 0-based column of
 // the insertion point. Empty value shows `placeholder` in a dimmed style.
@@ -209,6 +252,14 @@ func Button(label string, focused bool) Widget {
     val style = if (focused) DefaultStyle().WithReverse().WithBold() else DefaultStyle()
     return ButtonW(Label = label, Style = style, Focused = focused)
 }
+
+// ButtonClick is the click-aware sibling: a left-click anywhere on the
+// button dispatches `onClick`. Saves the explicit `Clickable[T](Button(...), msg)`
+// wrap.
+//
+//     val saveBtn = ButtonClick[Msg]("Save", focused, Save())
+func ButtonClick[T any](label string, focused bool, onClick T) Widget =
+    Clickable[T](Button(label, focused), onClick)
 
 // Paragraph renders multi-line text with word-wrapping within the allocated
 // width. Overflow beyond the allocated height is clipped. Long runs of
@@ -249,6 +300,23 @@ func ScrollbarStyled(total int, visible int, offset int, style Style) Widget =
 // view tree on a given frame don't register hits, so apps don't need to
 // gate on which screen / modal / route is active.
 // ----------------------------------------------------------------------------
+
+// Custom is the escape hatch for user-authored widgets that need
+// pixel-level rendering. The closure receives the assigned area, a
+// mutable Buffer to paint into, and the live HitRegistry — register
+// hit regions inside the closure if the widget should be clickable.
+//
+// Use this when the widget can't be expressed by composing built-in
+// primitives (e.g., a custom chart, a bespoke border style). Most
+// user widgets shouldn't need it — composition + `Clickable` /
+// `ClickableRows` covers the ergonomic majority.
+//
+//     val histogram = Custom(40, 8, (area, buf, hits) => {
+//         drawHistogram(buckets, area, buf)
+//         // Optional: hits.Register(area, OnHistogramClicked())
+//     })
+func Custom(minW int, minH int, render func(Rect, *Buffer, *HitRegistry)) Widget =
+    CustomW(MinW = minW, MinH = minH, Render = render)
 
 // Clickable wraps `inner` so that a left-click anywhere in its rendered
 // area dispatches `msg`. Useful for buttons, header bars, modal
@@ -316,9 +384,50 @@ func Tabs(titles Array[string], bodies Array[Widget], sel int, focused bool = fa
     ))
 }
 
+// TabsClick is the click-aware sibling: each title cell becomes clickable
+// and dispatches `onTabClick(idx)` on left-click. Bodies are unchanged —
+// register their own clickability internally as needed.
+//
+//     val pane = TabsClick[Msg](titles, bodies, sel, true,
+//         (i) => SwitchTab(Idx = i))
+func TabsClick[T any](
+    titles Array[string],
+    bodies Array[Widget],
+    sel int,
+    focused bool,
+    onTabClick func(int) T,
+) Widget {
+    val header = tabHeaderRowClick[T](titles, sel, focused, onTabClick)
+    val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Flex(1, body),
+    ))
+}
+
 func tabHeaderRow(titles Array[string], sel int, focused bool) Widget {
     val cells = titles.ZipWithIndex().Map((pair) =>
         tabHeaderCell(pair.V1, pair.V2 == sel, focused))
+    return Row(cells.Append(Flex(1, FillCh(' '))))
+}
+
+// tabHeaderRowClick wraps every title cell with `Clickable[T]` so that
+// clicking it dispatches `onTabClick(idx)`. Cells differ in width per
+// title, so this can't reuse `ClickableRows` (which assumes uniform
+// row-shaped regions).
+func tabHeaderRowClick[T any](
+    titles Array[string],
+    sel int,
+    focused bool,
+    onTabClick func(int) T,
+) Widget {
+    val cells = titles.ZipWithIndex().Map((pair) => {
+        val rawCell = tabHeaderCell(pair.V1, pair.V2 == sel, focused)
+        return LayoutChild(
+            Constraint = rawCell.Constraint,
+            Widget     = Clickable[T](rawCell.Widget, onTabClick(pair.V2)),
+        )
+    })
     return Row(cells.Append(Flex(1, FillCh(' '))))
 }
 
@@ -446,6 +555,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
+        case CustomW(_, _, render) =>
+            render(area, buf, hits)
     }
 }
 
@@ -871,6 +982,7 @@ func defaultRenderWidth(w Widget) int {
         case ScrollbarW(_, _, _, _)            => 1
         case ClickableW(inner, _)              => defaultRenderWidth(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
+        case CustomW(minW, _, _)               => minW
     }
 }
 
@@ -901,6 +1013,7 @@ func defaultRenderHeight(w Widget) int {
         case ScrollbarW(_, _, _, _)            => 1
         case ClickableW(inner, _)              => defaultRenderHeight(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
+        case CustomW(_, minH, _)               => minH
     }
 }
 

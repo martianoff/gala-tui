@@ -151,5 +151,8 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ClickableRowsW(inner, n, h, p)    =>
             ClickableRowsW(Inner = restyleLeaves(inner, f),
                            Count = n, RowH = h, Payloads = p)
+        // CustomW renders by user-supplied closure — restyleLeaves has
+        // no way to inspect or rewrite styles inside it. Pass through.
+        case CustomW(_, _, _)                  => w
     }
 }

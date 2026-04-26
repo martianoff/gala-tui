@@ -569,21 +569,20 @@ func megaSidebar(m MegaModel, th Theme) Widget {
     // cursor (SidebarSel). When it isn't, it follows the active screen.
     val menuSel = if (focused) m.SidebarSel
                   else megaScreenIndex(m.Screens.Current())
-    val menu = ui.SelectListOf(
+    // Click contract baked into the widget constructor: each row of the
+    // nav menu dispatches MegaClickSidebar with the clicked index. When
+    // the sidebar isn't part of the current screen (builds / pipelines /
+    // logs / any modal layer) it simply isn't rendered — and so its
+    // clicks don't fire. No `ClickableRows` wrap visible at the call site.
+    val menu = ui.SelectListOfPick[MegaMsg](
         "sidebar",
         ArrayOf[string]("  Overview", "  Builds", "  Pipelines", "  Logs"),
         menuSel,
-    )
-    // Wrap the nav list so each row registers its own click hit at its
-    // *actually-rendered* rectangle. When the sidebar isn't part of the
-    // current screen (builds / pipelines / logs / any modal layer), it
-    // simply isn't rendered — and so its clicks don't fire.
-    val clickableMenu = ClickableRows[MegaMsg](
-        menu, 4, 1, (i) => MegaClickSidebar(Idx = i),
+        (i) => MegaClickSidebar(Idx = i),
     )
     val inside = Column(ArrayOf[LayoutChild](
         Fixed(1, TextStyled(titleLabel, titleStyle)),
-        Fixed(4, clickableMenu),
+        Fixed(4, menu),
         Fixed(1, Text("")),
         Fixed(1, TextStyled(" Throughput (7d)", th.Heading)),
         Fixed(5, BarChart(ArrayOf[BarChartDatum](

@@ -153,6 +153,27 @@ func MenuView(m Menu, focused bool = false) Widget {
     }
 }
 
+// MenuViewClick is the click-aware sibling: each item is registered as
+// a hit region carrying `onPick(itemIdx)`. Currently only the vertical
+// orientation supports per-row clicks via the `ClickableRows` helper —
+// horizontal menus have variable-width items and would need per-cell
+// hits, so this delegates to the plain `MenuView` for those.
+//
+//     val nav = MenuViewClick[Msg](menu, true, (i) => Pick(Idx = i))
+func MenuViewClick[T any](
+    m Menu,
+    focused bool,
+    onPick func(int) T,
+) Widget {
+    return m.Orientation match {
+        case MenuVertical()   => ClickableRows[T](
+            renderVerticalMenu(m, focused),
+            m.Items.Length(), 1, onPick,
+        )
+        case MenuHorizontal() => renderHorizontalMenu(m, focused)
+    }
+}
+
 func renderVerticalMenu(m Menu, focused bool) Widget {
     var rows = EmptyArray[LayoutChild]()
     var i = 0
@@ -238,5 +259,25 @@ func DropdownView(d Dropdown, focused bool = false) Widget {
     return Column(ArrayOf[LayoutChild](
         Fixed(1, d.Trigger),
         Fixed(menuSlot, MenuView(d.Menu, focused).Bordered()),
+    ))
+}
+
+// DropdownViewClick is the click-aware sibling: items in the open menu
+// register hits via `onSelect(itemIdx)`. The trigger row stays inert
+// — wrap that yourself with `Clickable[T](trigger, ToggleOpen())` if
+// you want clicks to open / close the dropdown.
+func DropdownViewClick[T any](
+    d Dropdown,
+    focused bool,
+    onSelect func(int) T,
+) Widget {
+    if !d.Open {
+        return d.Trigger
+    }
+    val menuSlot = d.Menu.Items.Length() + 2
+    val clickableMenu = MenuViewClick[T](d.Menu, focused, onSelect).Bordered()
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, d.Trigger),
+        Fixed(menuSlot, clickableMenu),
     ))
 }

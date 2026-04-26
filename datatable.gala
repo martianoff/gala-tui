@@ -214,6 +214,29 @@ func DataTableView(dt DataTable, focused bool = false) Widget {
     ))
 }
 
+// DataTableViewClick is the click-aware sibling: each visible row of the
+// body is registered as a hit region carrying `onRowClick(rowIdx)`.
+// `rowIdx` is the absolute row index in the (filtered) data, not the
+// visible offset, so apps can dispatch the same `OpenRow(Idx = i)` for
+// keyboard Enter and a click without translating.
+//
+//     val table = DataTableViewClick[Msg](dt, focused, (i) => OpenRow(Idx = i))
+func DataTableViewClick[T any](
+    dt DataTable,
+    focused bool,
+    onRowClick func(int) T,
+) Widget {
+    val header = dtHeaderRow(dt)
+    val rule = FillCh('─')
+    val body = dtBodyWidget(dt, focused)
+    val clickableBody = ClickableRows[T](body, dt.Rows.Length(), 1, onRowClick)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, rule),
+        Flex(1, clickableBody),
+    ))
+}
+
 func dtHeaderRow(dt DataTable) Widget {
     var cells = EmptyArray[LayoutChild]()
     var i = 0

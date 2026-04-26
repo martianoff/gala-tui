@@ -60,19 +60,17 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
 }
 
 func view(m Model) Widget {
-    val list = items().Map((label) => ListItem(Title = label))
-    val sel = SelectList(list, m.Sel, true)
-    // Wrap the list so each row is clickable. ClickableRows registers
-    // one hit region per row at the actual rendered rectangle — when the
-    // list isn't on screen at all, no rectangles get registered, so
-    // there's no need to gate clicks on visibility.
-    val clickable = ClickableRows[Msg](
-        sel, items().Length(), 1, (i) => ClPickRow(Idx = i),
-    )
+    // Click contract is baked into the widget constructor: SelectListOfPick
+    // wraps the list so each row registers its own hit at its actually-
+    // rendered rectangle. When the list isn't on screen at all, no
+    // rectangles get registered, so there's no need to gate clicks on
+    // visibility.
+    val list = SelectListOfPick[Msg](items(), m.Sel, true,
+        (i) => ClPickRow(Idx = i))
     val footer = TextStyled(s"  Picked: ${m.Picked}  (q to quit)",
         DefaultStyle().WithDim())
     return Column(ArrayOf[LayoutChild](
-        Flex(1, clickable),
+        Flex(1, list),
         Fixed(1, footer),
     ))
 }

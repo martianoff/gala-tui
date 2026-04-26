@@ -90,3 +90,35 @@ func (fb FocusBuilder) Input(pane string, value string, cursor int, placeholder 
 
 func (fb FocusBuilder) Dropdown(pane string, d Dropdown) Widget =
     DropdownView(d, fb.IsFocused(pane))
+
+// ----------------------------------------------------------------------------
+// Click-aware variants. Same naming convention — append the event suffix
+// (Pick / Click / NodeClick / RowClick / TabClick) to the bare method.
+// Each takes a `(idx) => Msg` factory and bakes in `ClickableRows[T]` (or
+// `Clickable[T]` for whole-area widgets) under the hood, so callers never
+// touch the wrapper primitives.
+// ----------------------------------------------------------------------------
+
+func (fb FocusBuilder) DataTableRowClick[T any](
+    pane string, dt DataTable, onRowClick func(int) T,
+) Widget = DataTableViewClick[T](dt, fb.IsFocused(pane), onRowClick)
+
+func (fb FocusBuilder) SelectListPick[T any](
+    pane string, items Array[ListItem], sel int, onPick func(int) T,
+) Widget = SelectListPick[T](items, sel, fb.IsFocused(pane), onPick)
+
+func (fb FocusBuilder) SelectListOfPick[T any](
+    pane string, labels Array[string], sel int, onPick func(int) T,
+) Widget = SelectListOfPick[T](labels, sel, fb.IsFocused(pane), onPick)
+
+func (fb FocusBuilder) TreeNodeClick[T any](
+    pane string, root TreeNode, cursor int, onNodeClick func(int) T,
+) Widget = TreeFocusedClick[T](root, cursor, fb.IsFocused(pane), onNodeClick)
+
+func (fb FocusBuilder) MenuPick[T any](
+    pane string, m Menu, onPick func(int) T,
+) Widget = MenuViewClick[T](m, fb.IsFocused(pane), onPick)
+
+func (fb FocusBuilder) TabsTabClick[T any](
+    pane string, titles Array[string], bodies Array[Widget], sel int, onTabClick func(int) T,
+) Widget = TabsClick[T](titles, bodies, sel, fb.IsFocused(pane), onTabClick)

@@ -243,6 +243,23 @@ func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
     return Column(rows)
 }
 
+// TreeFocusedClick is the click-aware sibling of TreeFocused — every
+// visible row registers a hit so a left-click on row `i` dispatches
+// `onNodeClick(i)` (the flat-row index, the same coordinate the
+// keyboard cursor uses).
+//
+//     val tree = TreeFocusedClick[Msg](root, cur, true,
+//         (i) => OpenNode(FlatIdx = i))
+func TreeFocusedClick[T any](
+    root TreeNode,
+    cursor int,
+    focused bool,
+    onNodeClick func(int) T,
+) Widget {
+    val inner = TreeFocused(root, cursor, focused)
+    return ClickableRows[T](inner, TreeFlatRowCount(root), 1, onNodeClick)
+}
+
 // TreeFlatRowCount returns the number of visible rows in the tree —
 // useful for clamping a cursor at the end of the navigable range.
 func TreeFlatRowCount(root TreeNode) int = flattenTree(root, 0).Length()
