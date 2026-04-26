@@ -26,6 +26,19 @@ sealed type Cmd[T any] {
     case FutureCmd(Fut Future[T])
 }
 
+// Batch is the varargs constructor for `BatchCmd`. Saves the
+// `BatchCmd(ArrayOf[Cmd[T]](...))` boilerplate at the most common call site
+// — combining a handful of commands inline:
+//
+//     return (m1, Batch(MsgCmd(Saved()), FutureCmd(loadNext)))
+//
+// instead of:
+//
+//     return (m1, BatchCmd(ArrayOf[Cmd[Msg]](MsgCmd(Saved()), FutureCmd(loadNext))))
+//
+// Same semantics as `BatchCmd` — the runtime walks the whole tree.
+func Batch[T any](cmds ...Cmd[T]) Cmd[T] = BatchCmd[T](Cmds = ArrayOf[Cmd[T]](cmds...))
+
 // IsQuit walks a command tree and reports whether any branch is a QuitCmd.
 func IsQuit[T any](c Cmd[T]) bool {
     return c match {

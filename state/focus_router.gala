@@ -41,17 +41,38 @@ import (
 // ============================================================================
 
 // FocusedCase pairs a pane ID with a thunk that produces the result when
-// that pane is currently focused. Use with `Routed`.
+// that pane is currently focused. Use with `Routed` / `FocusManager.Route`.
+//
+// Most call sites build cases through the `OnPane` shorthand below; the
+// struct form is exposed for cases that need to construct `FocusedCase`s
+// programmatically (e.g., from a configured-elsewhere list).
 struct FocusedCase[T any](
     Pane    string,
     Handler func() T,
 )
+
+// OnPane is a terse constructor for FocusedCase — saves typing the field
+// names every time. Equivalent to `FocusedCase(Pane = pane, Handler = action)`.
+//
+// Example:
+//
+//     m.Focus.Route(ArrayOf(
+//         OnPane[AppModel]("sidebar", () => moveSidebar(m, +1)),
+//         OnPane[AppModel]("table",   () => moveTable(m, +1)),
+//     ), m)
+func OnPane[T any](pane string, action func() T) FocusedCase[T] =
+    FocusedCase[T](Pane = pane, Handler = action)
 
 // Routed picks the handler for the currently-focused pane and runs it.
 // If no case matches the current focus, returns `fallback`.
 //
 // Cases are evaluated in order — the first match wins. Most apps will
 // have one case per panel and a sensible no-op fallback.
+//
+// Most call sites prefer the method form `fm.Route(cases, fallback)`,
+// which reads as "ask the focus manager to route this" rather than
+// "call a free function on it". This standalone form is the underlying
+// implementation and is kept exposed so existing callers keep working.
 func Routed[T any](
     fm FocusManager,
     cases Array[FocusedCase[T]],
@@ -68,9 +89,11 @@ func Routed[T any](
 // is focused, otherwise return `fallback`. Use when a single key only
 // matters for one specific pane.
 //
+// Most call sites prefer the method form `fm.When(pane, action, fallback)`.
+//
 // Example — Esc closes the drawer only when the drawer is focused:
 //
-//     val m1 = WhenFocused(m.Focus, "drawer", () => m.Copy(ShowDrawer = false), m)
+//     val m1 = m.Focus.When("drawer", () => m.Copy(ShowDrawer = false), m)
 func WhenFocused[T any](
     fm FocusManager,
     pane string,

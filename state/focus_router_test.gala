@@ -161,3 +161,74 @@ func TestWhenFocusedActionDoesNotRunOnMiss(t T) T {
     )
     return Eq(t, calls, 0)
 }
+
+// ----------------------------------------------------------------------------
+// Method form: FocusManager.Route / FocusManager.When + OnPane shorthand.
+// These are thin wrappers over Routed / WhenFocused / FocusedCase, but
+// the tests pin down that the method dispatch + shorthand actually call
+// through to the same logic so users can rely on `m.Focus.Route(...)`.
+// ----------------------------------------------------------------------------
+
+func TestFocusManagerRouteFiresMatchingCase(t T) T {
+    val fm = tableFocused()
+    val got = fm.Route[RouterTestResult](
+        ArrayOf[FocusedCase[RouterTestResult]](
+            OnPane[RouterTestResult]("sidebar", () => RTSidebar()),
+            OnPane[RouterTestResult]("table",   () => RTTable()),
+        ),
+        RTFallback(),
+    )
+    val isTable = got match {
+        case RTTable() => true
+        case _         => false
+    }
+    return IsTrue(t, isTable)
+}
+
+func TestFocusManagerRouteFallback(t T) T {
+    val got = drawerFocused().Route[RouterTestResult](
+        ArrayOf[FocusedCase[RouterTestResult]](
+            OnPane[RouterTestResult]("sidebar", () => RTSidebar()),
+            OnPane[RouterTestResult]("table",   () => RTTable()),
+        ),
+        RTFallback(),
+    )
+    val isFallback = got match {
+        case RTFallback() => true
+        case _            => false
+    }
+    return IsTrue(t, isFallback)
+}
+
+func TestFocusManagerWhenFiresAction(t T) T {
+    val got = tableFocused().When[RouterTestResult]("table",
+        () => RTTable(),
+        RTFallback(),
+    )
+    val isTable = got match {
+        case RTTable() => true
+        case _         => false
+    }
+    return IsTrue(t, isTable)
+}
+
+func TestFocusManagerWhenFallback(t T) T {
+    val got = tableFocused().When[RouterTestResult]("sidebar",
+        () => RTSidebar(),
+        RTFallback(),
+    )
+    val isFallback = got match {
+        case RTFallback() => true
+        case _            => false
+    }
+    return IsTrue(t, isFallback)
+}
+
+// OnPane is a constructor — the test verifies that the resulting
+// FocusedCase carries the same pane and handler as a hand-built one.
+func TestOnPaneShorthandMatchesHandBuilt(t T) T {
+    val byShort = OnPane[int]("table", () => 42)
+    val byLong  = FocusedCase[int](Pane = "table", Handler = () => 42)
+    val t1 = Eq(t, byShort.Pane, byLong.Pane)
+    return Eq(t1, byShort.Handler(), byLong.Handler())
+}

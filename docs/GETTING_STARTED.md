@@ -109,7 +109,7 @@ gala build ./counter
 - **`Cmd[T]`** is data — `NoCmd`, `QuitCmd`, `MsgCmd(t)`,
   `BatchCmd(...)`, `FutureCmd(...)`. The runtime interprets it.
 - **`Run`** is the simple keyboard-only entry point. We'll graduate to
-  `RunFull` (mouse + resize) and `RunRich` (futures + timers) later.
+  `RunWithMouse` (mouse + resize) and `RunWithSub` (futures + timers) later.
 
 ## 2. Add an input field
 
@@ -210,7 +210,7 @@ This needs three new pieces:
   elapses (the callback shape lets the runtime invoke it lazily)
 - **`TickSub(Interval = d, Make = () => msg)`** — a `Sub` that fires a
   message every `d` so the spinner animates
-- **`RunRich`** — the async-aware runtime that polls futures and tickers
+- **`RunWithSub`** — the async-aware runtime that polls futures and tickers
 
 ```gala
 package main
@@ -289,7 +289,7 @@ func main() {
         Interval = Milliseconds(int64(100)),
         Make = () => Tick(),
     )
-    val _ = RunRich[Model, Msg](program, (ev) => keyToMsg(ev), sub)
+    val _ = RunWithSub[Model, Msg](program, (ev) => keyToMsg(ev), sub)
 }
 ```
 
@@ -303,8 +303,8 @@ tracks each ticker's next-due time and fires `Make()` on the clock.
 
 ## 4. Mouse + resize
 
-For mouse and window-resize support, swap `RunRich` for `RunFull`. The
-`makeKeyMsg` parameter becomes `makeInputMsg` and receives an
+For mouse and window-resize support, swap `RunWithSub` for `RunWithMouse`.
+The `makeKeyMsg` parameter becomes `makeInputMsg` and receives an
 `InputEvent` (a sealed sum of key/mouse/resize/unknown):
 
 ```gala
@@ -320,7 +320,7 @@ func inputToMsg(ev InputEvent) Msg = ev match {
 }
 
 // in main:
-val _ = RunFull[Model, Msg](program, (ev) => inputToMsg(ev), sub)
+val _ = RunWithMouse[Model, Msg](program, (ev) => inputToMsg(ev), sub)
 ```
 
 That's it — same program, same model, same view; the runtime now also
@@ -375,7 +375,7 @@ hand-roll any of that:
 | Primitive | What it owns |
 |---|---|
 | `state.FocusManager` | The focus ring + Tab/Shift-Tab cycling |
-| `state.Routed[T]` | "What does an arrow key mean *for the focused pane*?" |
+| `m.Focus.Route[T](...)` | "What does an arrow key mean *for the focused pane*?" |
 | `NewFocusBuilder(fm)` | Per-widget focus visualization (`ui.DataTable("table", dt)`) |
 
 We'll build a tiny **contact browser** — sidebar lists names, main pane
@@ -450,19 +450,13 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] {
     }
 }
 
-// state.Routed dispatches the arrow to whichever pane is focused.
+// m.Focus.Route dispatches the arrow to whichever pane is focused.
 // One declarative call replaces an `if focus == "sidebar" else if ...` chain.
 func arrowByFocus(m Model, delta int) Model =
-    state.Routed[Model](m.Focus,
+    m.Focus.Route[Model](
         ArrayOf[state.FocusedCase[Model]](
-            state.FocusedCase[Model](
-                Pane    = "sidebar",
-                Handler = () => moveSidebar(m, delta),
-            ),
-            state.FocusedCase[Model](
-                Pane    = "details",
-                Handler = () => moveDetails(m, delta),
-            ),
+            state.OnPane[Model]("sidebar", () => moveSidebar(m, delta)),
+            state.OnPane[Model]("details", () => moveDetails(m, delta)),
         ),
         m,   // fallback: nothing focused → unchanged
     )
@@ -563,7 +557,7 @@ zero hand-rolled focus state.
 
 - **Per-widget `IsFocused(...)` lookups in view.** `ui.SelectListOf("sidebar", ...)` looks up focus internally.
 - **A style branch per widget.** When sidebar has focus, the `SelectListOf` cursor row paints `BrightYellow + Bold + Reverse`. Default `false` keeps the unfocused list calm.
-- **An `if focus == "X" else if focus == "Y"` chain in update.** `state.Routed` does the dispatch declaratively.
+- **An `if focus == "X" else if focus == "Y"` chain in update.** `m.Focus.Route(...)` does the dispatch declaratively.
 - **A border swap based on focus.** (You can add one with `if (m.Focus.IsFocused("sidebar")) ThickBorder() else SingleBorder()` if you want — but the cursor highlight alone is usually enough.)
 
 ### Add a third pane
@@ -574,8 +568,8 @@ Want a log drawer that's also focusable? Three steps:
 // 1. Name the new pane in the focus ring:
 Focus = state.NewFocusManager(ArrayOf[string]("sidebar", "details", "drawer"))
 
-// 2. Add a Routed case:
-state.FocusedCase[Model](Pane = "drawer", Handler = () => scrollDrawer(m, delta)),
+// 2. Add a Route case:
+state.OnPane[Model]("drawer", () => scrollDrawer(m, delta)),
 
 // 3. Render it focus-aware:
 val drawer = ui.SelectListOf("drawer", logLines, m.LogCursor)
@@ -585,7 +579,7 @@ That's the full diff for adding a focusable pane.
 
 ### Testing this app
 
-Use `state.Routed` directly in a unit test — no terminal needed:
+Use `m.Focus.Route(...)` directly in a unit test — no terminal needed:
 
 ```gala
 import . "github.com/martianoff/gala-tui"

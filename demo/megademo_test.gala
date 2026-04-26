@@ -597,7 +597,7 @@ func TestMegaConfirmThenYes(t T) T {
 
 // ----------------------------------------------------------------------------
 // MegaInputToMsg adapter — keys, mouse, resize all funnel through one
-// translator when the demo runs under RunFull.
+// translator when the demo runs under RunWithMouse.
 // ----------------------------------------------------------------------------
 
 func TestMegaInputAdapterRoutesKeys(t T) T {

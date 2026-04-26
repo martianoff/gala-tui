@@ -74,6 +74,34 @@ func (f FocusManager) Current() string {
 // IsFocused is the view-layer predicate: "is the pane with this id in focus?"
 func (f FocusManager) IsFocused(id string) bool = f.Current() == id
 
+// Route picks the handler for the currently-focused pane and runs it.
+// If no case matches the current focus, returns `fallback`.
+//
+// This is the method form of the standalone `Routed(fm, cases, fallback)` —
+// reads as `m.Focus.Route(cases, fallback)`, which lines up with the rest of
+// the FocusManager surface (`m.Focus.IsFocused(p)`, `m.Focus.Next()`, …).
+//
+// Example — arrow keys routed by focused pane:
+//
+//     val m1 = m.Focus.Route(ArrayOf(
+//         OnPane[AppModel]("sidebar", () => moveSidebar(m, +1)),
+//         OnPane[AppModel]("table",   () => moveTable(m, +1)),
+//     ), m)
+func (f FocusManager) Route[T any](
+    cases Array[FocusedCase[T]],
+    fallback T,
+) T = Routed[T](f, cases, fallback)
+
+// When is the single-pane form: run `action` if `pane` is focused,
+// otherwise return `fallback`. Method form of `WhenFocused`.
+//
+//     val m1 = m.Focus.When("drawer", () => closeDrawer(m), m)
+func (f FocusManager) When[T any](
+    pane string,
+    action func() T,
+    fallback T,
+) T = WhenFocused[T](f, pane, action, fallback)
+
 // indexOfPane is a small helper — Array[string] doesn't have IndexOf exposed
 // on this battle-tests build, so we implement it directly.
 func indexOfPane(panes Array[string], id string) int {

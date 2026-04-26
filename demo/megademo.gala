@@ -289,12 +289,12 @@ func megaKeyDown(m MegaModel) MegaModel {
 }
 
 // megaArrowByFocus dispatches arrow keys to the focused pane via the
-// framework's `state.Routed` helper — one declarative call replacing
+// framework's `FocusManager.Route` helper — one declarative call replacing
 // the manual focus switch every TUI app would otherwise hand-roll.
 func megaArrowByFocus(m MegaModel, delta int) MegaModel =
-    state.Routed[MegaModel](m.Focus, ArrayOf[state.FocusedCase[MegaModel]](
-        state.FocusedCase[MegaModel](Pane = "sidebar", Handler = () => megaMoveSidebarSel(m, delta)),
-        state.FocusedCase[MegaModel](Pane = "table",   Handler = () => megaArrowOnPane(m, delta)),
+    m.Focus.Route[MegaModel](ArrayOf[state.FocusedCase[MegaModel]](
+        state.OnPane[MegaModel]("sidebar", () => megaMoveSidebarSel(m, delta)),
+        state.OnPane[MegaModel]("table",   () => megaArrowOnPane(m, delta)),
     ), m)
 
 // megaArrowOnPane handles arrows when focus is on the main content pane:
@@ -357,16 +357,15 @@ func megaEnter(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
         if m.ConfirmYes { return (megaConfirmYes(m), NoCmd[MegaMsg]()) }
         return (m.Copy(ConfirmAction = ""), NoCmd[MegaMsg]())
     }
-    return state.Routed[Tuple[MegaModel, Cmd[MegaMsg]]](
-        m.Focus,
+    return m.Focus.Route[Tuple[MegaModel, Cmd[MegaMsg]]](
         ArrayOf[state.FocusedCase[Tuple[MegaModel, Cmd[MegaMsg]]]](
-            state.FocusedCase[Tuple[MegaModel, Cmd[MegaMsg]]](
-                Pane    = "sidebar",
-                Handler = () => (megaJumpToSidebar(m), NoCmd[MegaMsg]()),
+            state.OnPane[Tuple[MegaModel, Cmd[MegaMsg]]](
+                "sidebar",
+                () => (megaJumpToSidebar(m), NoCmd[MegaMsg]()),
             ),
-            state.FocusedCase[Tuple[MegaModel, Cmd[MegaMsg]]](
-                Pane    = "table",
-                Handler = () => megaEnterOnPane(m),
+            state.OnPane[Tuple[MegaModel, Cmd[MegaMsg]]](
+                "table",
+                () => megaEnterOnPane(m),
             ),
         ),
         (m, NoCmd[MegaMsg]()),
@@ -892,15 +891,15 @@ func RunMegaDemo() MegaModel {
         Interval = Milliseconds(int64(100)),
         Make     = () => MegaTick(),
     )
-    return RunFull[MegaModel, MegaMsg](
+    return RunWithMouse[MegaModel, MegaMsg](
         program,
         (ev) => MegaInputToMsg(ev),
         sub,
     )
 }
 
-// MegaInputToMsg adapts the unified InputEvent stream from `RunFull` into the
-// app's MegaMsg vocabulary.
+// MegaInputToMsg adapts the unified InputEvent stream from `RunWithMouse` into
+// the app's MegaMsg vocabulary.
 //
 //   - Keys flow through the existing key-binding table (MegaKeyToMsg).
 //   - Scroll wheel becomes Up/Down so the focused list (datatable, log

@@ -56,10 +56,10 @@ val program = Program[Model, Msg](
     View    = (m) => MyView(m),
 )
 
-// Key-only apps (apps that pass `MyKeyToMsg` to Run / RunRich):
+// Key-only apps (apps that pass `MyKeyToMsg` to Run / RunWithSub):
 val h = NewHarness[Model, Msg](program, MyKeyToMsg, 80, 24)
 
-// Mouse + resize apps (apps that pass MyInputToMsg to RunFull):
+// Mouse + resize apps (apps that pass MyInputToMsg to RunWithMouse):
 val h = NewHarnessFull[Model, Msg](program, MyInputToMsg, 120, 40)
 ```
 
@@ -188,7 +188,7 @@ frames, pair `Trace(steps)` with `SnapshotsEqual` per step.
 
 Mouse interactions go through the same harness API, but `StepClick` /
 `StepScroll` only fire when the harness was built via `NewHarnessFull`
-(apps wired to `RunFull`). On a `NewHarness` (key-only) harness they're
+(apps wired to `RunWithMouse`). On a `NewHarness` (key-only) harness they're
 silently ignored.
 
 ```gala

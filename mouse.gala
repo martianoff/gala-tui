@@ -20,8 +20,9 @@ import (
 //     0-indexed to match our Rect/Cell coordinates.
 //
 // InputEvent unifies keys, mouse, and resize into one sealed sum so the
-// `RunFull` entry point can funnel them through a single `func(InputEvent) T`
-// translator (the same shape as `makeKeyMsg` in Run/RunRich).
+// `RunWithMouse` entry point can funnel them through a single
+// `func(InputEvent) T` translator (the same shape as `makeKeyMsg` in
+// `Run` / `RunWithSub`).
 // ============================================================================
 
 sealed type MouseButton {

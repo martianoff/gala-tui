@@ -117,6 +117,33 @@ func TestReadFileCmdMissingFileRoutesErr(t T) T {
 }
 
 // ----------------------------------------------------------------------------
+// Batch — varargs constructor for BatchCmd.
+// ----------------------------------------------------------------------------
+
+func TestBatchOfMsgCmdsCollectsAllMessages(t T) T {
+    val c = Batch[HMsg](
+        MsgCmd[HMsg](Msg = HVal(V = 1)),
+        MsgCmd[HMsg](Msg = HVal(V = 2)),
+        MsgCmd[HMsg](Msg = HDone()),
+    )
+    return Eq(t, PendingMsgs(c).Length(), 3)
+}
+
+func TestBatchEmptyHasNoPendingWork(t T) T {
+    val c = Batch[HMsg]()
+    val t1 = Eq(t, PendingMsgs(c).Length(), 0)
+    return Eq(t1, PendingFutures(c).Length(), 0)
+}
+
+func TestBatchPropagatesQuit(t T) T {
+    val c = Batch[HMsg](
+        MsgCmd[HMsg](Msg = HVal(V = 1)),
+        QuitCmd[HMsg](),
+    )
+    return IsTrue(t, IsQuit(c))
+}
+
+// ----------------------------------------------------------------------------
 // Helpers.
 // ----------------------------------------------------------------------------
 

@@ -166,7 +166,7 @@ func keyIsCharC(k Key) bool {
 }
 
 // ----------------------------------------------------------------------------
-// RunRich — the async-aware runtime.
+// RunWithSub — the async-aware runtime.
 //
 // Supports everything Run does, plus:
 //   - FutureCmd commands in the Cmd tree are tracked and polled every
@@ -220,7 +220,11 @@ func stdinReadFuture() concurrent.Future[ReadResult] {
     })
 }
 
-func RunRich[M any, T any](
+// RunWithSub adds Sub[T] support to Run: timer ticks, batched async
+// events, etc. Use when the app needs anything beyond synchronous key input.
+//
+// (Originally `RunRich`; the old name is preserved as a delegate below.)
+func RunWithSub[M any, T any](
     program Program[M, T],
     makeKeyMsg func(KeyEvent) T,
     initialSub Sub[T],
@@ -316,19 +320,29 @@ func RunRich[M any, T any](
     return model
 }
 
+// RunRich is the deprecated alias for `RunWithSub`. New code should use
+// `RunWithSub`; this delegate is kept so existing apps don't break.
+func RunRich[M any, T any](
+    program Program[M, T],
+    makeKeyMsg func(KeyEvent) T,
+    initialSub Sub[T],
+) M = RunWithSub[M, T](program, makeKeyMsg, initialSub)
+
 // ----------------------------------------------------------------------------
-// RunFull — the maximal entry point.
+// RunWithMouse — the maximal entry point.
 //
-// Extends RunRich with:
+// Extends RunWithSub with:
 //   - mouse events (SGR mode \x1b[?1006h enabled on entry, cleared on exit)
 //   - terminal resize detection (polled once per loop iteration)
 //
 // `makeInputMsg` receives a unified InputEvent (Key | Mouse | Resize | Unknown)
 // and returns the app's Msg. Apps that don't care about mouse/resize return a
 // NoOp msg for those cases — the runtime dispatches whatever comes back.
+//
+// (Originally `RunFull`; the old name is preserved as a delegate below.)
 // ----------------------------------------------------------------------------
 
-func RunFull[M any, T any](
+func RunWithMouse[M any, T any](
     program Program[M, T],
     makeInputMsg func(InputEvent) T,
     initialSub Sub[T],
@@ -436,6 +450,14 @@ func RunFull[M any, T any](
     }
     return model
 }
+
+// RunFull is the deprecated alias for `RunWithMouse`. Kept so existing apps
+// don't break; new code should use `RunWithMouse`.
+func RunFull[M any, T any](
+    program Program[M, T],
+    makeInputMsg func(InputEvent) T,
+    initialSub Sub[T],
+) M = RunWithMouse[M, T](program, makeInputMsg, initialSub)
 
 // processInputBytes is the InputEvent analogue of processKeyBytes. It walks
 // the read buffer calling ParseInput and dispatches each event as a Msg.

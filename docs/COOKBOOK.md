@@ -167,7 +167,7 @@ func main() {
         Interval = Seconds(int64(1)),
         Make = () => Tick(Now = Now()),
     )
-    val _ = RunRich[Model, Msg](program, (ev) => keyToMsg(ev), sub)
+    val _ = RunWithSub[Model, Msg](program, (ev) => keyToMsg(ev), sub)
 }
 ```
 
@@ -183,14 +183,11 @@ pending futures every loop iteration; whichever resolves first is
 dispatched first.
 
 ```gala
-case StartFanOut() => {
-    val cmds = ArrayOf[Cmd[Msg]](
-        Async[Msg](() => fetchUsers(),    (xs) => GotUsers(Users = xs)),
-        Async[Msg](() => fetchProjects(), (xs) => GotProjects(Projects = xs)),
-        Async[Msg](() => fetchHealth(),   (h)  => GotHealth(H = h)),
-    )
-    (m.Copy(Loading = true), BatchCmd[Msg](Cmds = cmds))
-}
+case StartFanOut() => (m.Copy(Loading = true), Batch[Msg](
+    Async[Msg](() => fetchUsers(),    (xs) => GotUsers(Users = xs)),
+    Async[Msg](() => fetchProjects(), (xs) => GotProjects(Projects = xs)),
+    Async[Msg](() => fetchHealth(),   (h)  => GotHealth(H = h)),
+))
 ```
 
 The `Got*` arms each update one chunk of the model. When all three
@@ -334,28 +331,19 @@ update is error-prone — and makes it easy to leave a pane with no
 handler at all (the bug that made arrow keys "do nothing" on the
 demo's table view for one whole release).
 
-Use `state.Routed[T]` instead. Pass an array of `(paneID, handler)` cases
-and a fallback. The first case whose pane matches the FocusManager's
-current pane fires; the fallback runs if nothing matches.
+Use `FocusManager.Route[T]` instead. Pass an array of `(paneID, handler)`
+cases and a fallback. The first case whose pane matches the
+FocusManager's current pane fires; the fallback runs if nothing matches.
 
 ```gala
 import . "github.com/martianoff/gala-tui"
 import "github.com/martianoff/gala-tui/state"
 
 func arrowDown(m AppModel) AppModel =
-    state.Routed[AppModel](m.Focus, ArrayOf[state.FocusedCase[AppModel]](
-        state.FocusedCase[AppModel](
-            Pane    = "sidebar",
-            Handler = () => moveSidebar(m, +1),
-        ),
-        state.FocusedCase[AppModel](
-            Pane    = "table",
-            Handler = () => moveTableCursor(m, +1),
-        ),
-        state.FocusedCase[AppModel](
-            Pane    = "drawer",
-            Handler = () => scrollDrawer(m, +1),
-        ),
+    m.Focus.Route[AppModel](ArrayOf[state.FocusedCase[AppModel]](
+        state.OnPane[AppModel]("sidebar", () => moveSidebar(m, +1)),
+        state.OnPane[AppModel]("table",   () => moveTableCursor(m, +1)),
+        state.OnPane[AppModel]("drawer",  () => scrollDrawer(m, +1)),
     ), m)   // fallback: unchanged model when no pane matches
 ```
 
@@ -364,11 +352,11 @@ result type `T` is whatever the caller wants — `AppModel`, `AppMsg`,
 `Tuple[AppModel, Cmd[AppMsg]]`, etc.
 
 For the simpler "is THIS one pane focused?" case, use
-`state.WhenFocused[T]` instead:
+`FocusManager.When[T]` instead:
 
 ```gala
-val onEsc = state.WhenFocused[AppModel](
-    m.Focus, "drawer",
+val onEsc = m.Focus.When[AppModel](
+    "drawer",
     () => m.Copy(ShowDrawer = false),
     m,
 )
@@ -441,14 +429,14 @@ constructor:
 val pal = PaletteView[AppMsg](m.Palette, ui.IsFocused("palette"))
 ```
 
-### Combine with `state.Routed` for the full pattern
+### Combine with `m.Focus.Route` for the full pattern
 
 ```gala
 // Update side — arrows route to the focused pane.
 func arrowDown(m AppModel) AppModel =
-    state.Routed[AppModel](m.Focus, ArrayOf[state.FocusedCase[AppModel]](
-        state.FocusedCase[AppModel](Pane = "sidebar", Handler = () => moveSidebar(m, +1)),
-        state.FocusedCase[AppModel](Pane = "table",   Handler = () => moveTable(m, +1)),
+    m.Focus.Route[AppModel](ArrayOf[state.FocusedCase[AppModel]](
+        state.OnPane[AppModel]("sidebar", () => moveSidebar(m, +1)),
+        state.OnPane[AppModel]("table",   () => moveTable(m, +1)),
     ), m)
 
 // View side — every interactive widget reflects current focus.
@@ -461,5 +449,5 @@ func view(m AppModel) Widget {
 }
 ```
 
-That's the entire keyboard-and-visual focus contract: `state.Routed`
+That's the entire keyboard-and-visual focus contract: `m.Focus.Route(...)`
 in update, `NewFocusBuilder(m.Focus)` + a method per widget in view.
