@@ -894,15 +894,15 @@ type BorderGlyphs struct {
 func borderGlyphs(k BorderKind) BorderGlyphs {
     return k match {
         case SingleBorder()  =>
-            BorderGlyphs{TL: '┌', TR: '┐', BL: '└', BR: '┘', H: '─', V: '│'}
+            BorderGlyphs(TL = '┌', TR = '┐', BL = '└', BR = '┘', H = '─', V = '│')
         case DoubleBorder()  =>
-            BorderGlyphs{TL: '╔', TR: '╗', BL: '╚', BR: '╝', H: '═', V: '║'}
+            BorderGlyphs(TL = '╔', TR = '╗', BL = '╚', BR = '╝', H = '═', V = '║')
         case RoundedBorder() =>
-            BorderGlyphs{TL: '╭', TR: '╮', BL: '╰', BR: '╯', H: '─', V: '│'}
+            BorderGlyphs(TL = '╭', TR = '╮', BL = '╰', BR = '╯', H = '─', V = '│')
         case ThickBorder()   =>
-            BorderGlyphs{TL: '┏', TR: '┓', BL: '┗', BR: '┛', H: '━', V: '┃'}
+            BorderGlyphs(TL = '┏', TR = '┓', BL = '┗', BR = '┛', H = '━', V = '┃')
         case AsciiBorder()   =>
-            BorderGlyphs{TL: '+', TR: '+', BL: '+', BR: '+', H: '-', V: '|'}
+            BorderGlyphs(TL = '+', TR = '+', BL = '+', BR = '+', H = '-', V = '|')
     }
 }
 
