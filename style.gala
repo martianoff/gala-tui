@@ -87,7 +87,7 @@ func (s Style) sgrParts() Array[string] {
         (s.Bold,      "1"), (s.Dim,    "2"), (s.Italic,  "3"),
         (s.Underline, "4"), (s.Blink,  "5"), (s.Reverse, "7"),
         (s.Strike,    "9"),
-    ).Filter((p Tuple[bool, string]) => p.V1).Map((p Tuple[bool, string]) => p.V2)
+    ).Collect({ case (true, code) => code })
     val withFg = s.Fg match {
         case DefaultColor() => flagParts
         case _              => flagParts.Append(ToSgrFg(s.Fg))
