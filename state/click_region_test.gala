@@ -1,0 +1,116 @@
+package state
+
+import (
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for ClickMap. Cover hit detection (inside/outside/border edges),
+// first-match-wins, missing-region fallback, and chained construction.
+// ============================================================================
+
+sealed type CMTestMsg {
+    case ClickedSidebar(N int)
+    case ClickedTabs()
+    case ClickedNothing()
+}
+
+func TestClickMapStartsEmpty(t T) T =
+    Eq(t, NewClickMap[CMTestMsg]().Length(), 0)
+
+func TestClickMapAtAddsRegion(t T) T =
+    Eq(t, NewClickMap[CMTestMsg]().At(0, 0, 5, 5, ClickedTabs()).Length(), 1)
+
+func TestClickMapAtIsImmutable(t T) T {
+    val cm0 = NewClickMap[CMTestMsg]()
+    val cm1 = cm0.At(0, 0, 5, 5, ClickedTabs())
+    val t1 = Eq(t, cm0.Length(), 0)
+    return Eq(t1, cm1.Length(), 1)
+}
+
+func TestClickMapHitInsideRegion(t T) T {
+    val cm = NewClickMap[CMTestMsg]().At(2, 3, 4, 4, ClickedTabs())
+    val hit = cm.HitMsg(3, 4)
+    return IsTrue(t, hit.IsDefined())
+}
+
+func TestClickMapHitOnTopLeftIsInclusive(t T) T {
+    val cm = NewClickMap[CMTestMsg]().At(2, 3, 4, 4, ClickedTabs())
+    val hit = cm.HitMsg(2, 3)
+    return IsTrue(t, hit.IsDefined())
+}
+
+func TestClickMapHitOnBottomRightIsExclusive(t T) T {
+    // Region 2..6 in X (W=4), 3..7 in Y. Cell (6,7) is OUTSIDE.
+    val cm = NewClickMap[CMTestMsg]().At(2, 3, 4, 4, ClickedTabs())
+    return IsFalse(t, cm.HitMsg(6, 7).IsDefined())
+}
+
+func TestClickMapMissReturnsNone(t T) T {
+    val cm = NewClickMap[CMTestMsg]().At(0, 0, 5, 5, ClickedTabs())
+    return IsFalse(t, cm.HitMsg(100, 100).IsDefined())
+}
+
+func TestClickMapEmptyMapNeverHits(t T) T =
+    IsFalse(t, NewClickMap[CMTestMsg]().HitMsg(0, 0).IsDefined())
+
+// First-match-wins: overlapping regions, the earlier one fires.
+func TestClickMapFirstMatchWins(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .At(0, 0, 10, 10, ClickedSidebar(N = 1))
+        .At(0, 0, 10, 10, ClickedSidebar(N = 2))
+    val hit = cm.HitMsg(5, 5)
+    val isFirst = hit match {
+        case Some(ClickedSidebar(n)) => n == 1
+        case _                        => false
+    }
+    return IsTrue(t, isFirst)
+}
+
+// HitOr: shorthand for "click here OR fall back to NoOp".
+func TestClickMapHitOrReturnsMatch(t T) T {
+    val cm = NewClickMap[CMTestMsg]().At(0, 0, 5, 5, ClickedTabs())
+    val got = cm.HitOr(2, 2, ClickedNothing())
+    val isTabs = got match {
+        case ClickedTabs() => true
+        case _             => false
+    }
+    return IsTrue(t, isTabs)
+}
+
+func TestClickMapHitOrReturnsFallback(t T) T {
+    val cm = NewClickMap[CMTestMsg]().At(0, 0, 5, 5, ClickedTabs())
+    val got = cm.HitOr(50, 50, ClickedNothing())
+    val isFallback = got match {
+        case ClickedNothing() => true
+        case _                => false
+    }
+    return IsTrue(t, isFallback)
+}
+
+// Practical shape: a sidebar with 4 stacked items at known coords.
+func TestClickMapDispatchesSidebarRowsByY(t T) T {
+    val sidebar = NewClickMap[CMTestMsg]()
+        .At(0, 4, 28, 1, ClickedSidebar(N = 0))   // overview row
+        .At(0, 5, 28, 1, ClickedSidebar(N = 1))   // builds row
+        .At(0, 6, 28, 1, ClickedSidebar(N = 2))   // pipelines row
+        .At(0, 7, 28, 1, ClickedSidebar(N = 3))   // logs row
+
+    val onBuilds = sidebar.HitMsg(10, 5)
+    val isBuilds = onBuilds match {
+        case Some(ClickedSidebar(n)) => n == 1
+        case _                        => false
+    }
+    val t1 = IsTrue(t, isBuilds)
+
+    val onLogs = sidebar.HitMsg(10, 7)
+    val isLogs = onLogs match {
+        case Some(ClickedSidebar(n)) => n == 3
+        case _                        => false
+    }
+    val t2 = IsTrue(t1, isLogs)
+
+    val onGap = sidebar.HitMsg(10, 8)            // below the bottom row
+    return IsFalse(t2, onGap.IsDefined())
+}

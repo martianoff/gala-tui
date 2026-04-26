@@ -913,9 +913,23 @@ func megaMouseToMsg(m MouseEvent) MegaMsg {
     return m.Btn match {
         case MouseScrollUp()    => MegaKeyUp()
         case MouseScrollDown()  => MegaKeyDown()
-        case MouseLeft()        => MegaNoOp()
+        case MouseLeft()        => megaClickAt(m.X, m.Y)
         case MouseMiddle()      => MegaNoOp()
         case MouseRight()       => MegaNoOp()
         case MouseButtonNone()  => MegaNoOp()
     }
 }
+
+// megaClickAt builds the click map for the current view layout and
+// dispatches whatever message the click landed on (or NoOp).
+//
+// The sidebar's nav menu rows are at column 0..28 with the title bar
+// taking 3 rows + a border row + a 1-row title within the sidebar
+// before the menu list starts at y=5.
+func megaClickAt(x int, y int) MegaMsg =
+    state.NewClickMap[MegaMsg]()
+        .At(0,  5, 28, 1, MegaPushScreen(Route = "overview"))
+        .At(0,  6, 28, 1, MegaPushScreen(Route = "builds"))
+        .At(0,  7, 28, 1, MegaPushScreen(Route = "pipelines"))
+        .At(0,  8, 28, 1, MegaPushScreen(Route = "logs"))
+        .HitOr(x, y, MegaNoOp())

@@ -634,9 +634,24 @@ func TestMegaInputAdapterScrollDownIsKeyDown(t T) T {
     return IsTrue(t, isDown)
 }
 
-func TestMegaInputAdapterClickIsNoOp(t T) T {
+// Left-click on the sidebar's nav row navigates to that screen.
+func TestMegaInputAdapterClickOnSidebarNavigates(t T) T {
     val ev = MouseInput(Ev = MouseEvent(
-        Btn = MouseLeft(), X = 5, Y = 5, Pressed = true,
+        Btn = MouseLeft(), X = 5, Y = 6, Pressed = true,   // y=6 = "builds" row
+    ))
+    val msg = MegaInputToMsg(ev)
+    val isPush = msg match {
+        case MegaPushScreen(r) => r == "builds"
+        case _                 => false
+    }
+    return IsTrue(t, isPush)
+}
+
+// Clicks outside any registered region (e.g. far right of the screen)
+// remain no-ops.
+func TestMegaInputAdapterClickInDeadZoneIsNoOp(t T) T {
+    val ev = MouseInput(Ev = MouseEvent(
+        Btn = MouseLeft(), X = 80, Y = 20, Pressed = true,
     ))
     val msg = MegaInputToMsg(ev)
     val isNoOp = msg match {
@@ -644,6 +659,19 @@ func TestMegaInputAdapterClickIsNoOp(t T) T {
         case _          => false
     }
     return IsTrue(t, isNoOp)
+}
+
+// Click on the "logs" sidebar row (y=8) routes to that screen.
+func TestMegaInputAdapterClickOnLogsRowNavigates(t T) T {
+    val ev = MouseInput(Ev = MouseEvent(
+        Btn = MouseLeft(), X = 12, Y = 8, Pressed = true,
+    ))
+    val msg = MegaInputToMsg(ev)
+    val isLogs = msg match {
+        case MegaPushScreen(r) => r == "logs"
+        case _                 => false
+    }
+    return IsTrue(t, isLogs)
 }
 
 func TestMegaInputAdapterResizeIsNoOp(t T) T {

@@ -1,0 +1,163 @@
+package state
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Direct tests for Routed and WhenFocused.
+//
+// The helpers were previously covered only indirectly (through megademo's
+// view-time use). These tests pin down the contract: matching pane wins,
+// fallback when nothing matches, first-case-wins on duplicate panes,
+// thunk laziness (only the matching handler runs).
+// ============================================================================
+
+sealed type RouterTestResult {
+    case RTSidebar()
+    case RTTable()
+    case RTDrawer()
+    case RTFallback()
+}
+
+func ringSidebarTable() FocusManager =
+    NewFocusManager(ArrayOf[string]("sidebar", "table", "drawer"))
+
+func tableFocused() FocusManager = ringSidebarTable().Next()
+func drawerFocused() FocusManager = ringSidebarTable().Next().Next()
+
+// ----------------------------------------------------------------------------
+// Routed
+// ----------------------------------------------------------------------------
+
+func TestRoutedFiresMatchingCase(t T) T {
+    val fm = ringSidebarTable()    // sidebar focused
+    val got = Routed[RouterTestResult](fm,
+        ArrayOf[FocusedCase[RouterTestResult]](
+            FocusedCase[RouterTestResult](Pane = "sidebar", Handler = () => RTSidebar()),
+            FocusedCase[RouterTestResult](Pane = "table",   Handler = () => RTTable()),
+        ),
+        RTFallback(),
+    )
+    val isSidebar = got match {
+        case RTSidebar() => true
+        case _           => false
+    }
+    return IsTrue(t, isSidebar)
+}
+
+func TestRoutedTableFocusFiresTableCase(t T) T {
+    val got = Routed[RouterTestResult](tableFocused(),
+        ArrayOf[FocusedCase[RouterTestResult]](
+            FocusedCase[RouterTestResult](Pane = "sidebar", Handler = () => RTSidebar()),
+            FocusedCase[RouterTestResult](Pane = "table",   Handler = () => RTTable()),
+        ),
+        RTFallback(),
+    )
+    val isTable = got match {
+        case RTTable() => true
+        case _         => false
+    }
+    return IsTrue(t, isTable)
+}
+
+func TestRoutedFallbackOnUnregisteredPane(t T) T {
+    // drawer is focused, but no case for it — fallback fires.
+    val got = Routed[RouterTestResult](drawerFocused(),
+        ArrayOf[FocusedCase[RouterTestResult]](
+            FocusedCase[RouterTestResult](Pane = "sidebar", Handler = () => RTSidebar()),
+            FocusedCase[RouterTestResult](Pane = "table",   Handler = () => RTTable()),
+        ),
+        RTFallback(),
+    )
+    val isFallback = got match {
+        case RTFallback() => true
+        case _            => false
+    }
+    return IsTrue(t, isFallback)
+}
+
+func TestRoutedFallbackWhenCasesEmpty(t T) T {
+    val got = Routed[RouterTestResult](ringSidebarTable(),
+        EmptyArray[FocusedCase[RouterTestResult]](),
+        RTFallback(),
+    )
+    val isFallback = got match {
+        case RTFallback() => true
+        case _            => false
+    }
+    return IsTrue(t, isFallback)
+}
+
+// First-match-wins: if two cases name the same pane, the earlier one fires.
+func TestRoutedFirstMatchingCaseWins(t T) T {
+    val got = Routed[RouterTestResult](ringSidebarTable(),
+        ArrayOf[FocusedCase[RouterTestResult]](
+            FocusedCase[RouterTestResult](Pane = "sidebar", Handler = () => RTSidebar()),
+            FocusedCase[RouterTestResult](Pane = "sidebar", Handler = () => RTTable()),
+        ),
+        RTFallback(),
+    )
+    val isFirst = got match {
+        case RTSidebar() => true
+        case _           => false
+    }
+    return IsTrue(t, isFirst)
+}
+
+// Thunk laziness — non-matching handlers must not run. Verified via a
+// captured counter that increments inside each handler. After Routed
+// returns, only the matching pane's counter should have moved.
+func TestRoutedNonMatchingHandlersDontRun(t T) T {
+    var sidebarCalls = 0
+    var tableCalls = 0
+    val _ = Routed[int](tableFocused(),
+        ArrayOf[FocusedCase[int]](
+            FocusedCase[int](Pane = "sidebar",
+                Handler = () => { sidebarCalls = sidebarCalls + 1; 1 }),
+            FocusedCase[int](Pane = "table",
+                Handler = () => { tableCalls = tableCalls + 1; 2 }),
+        ),
+        0,
+    )
+    val t1 = Eq(t, sidebarCalls, 0)
+    return Eq(t1, tableCalls, 1)
+}
+
+// ----------------------------------------------------------------------------
+// WhenFocused
+// ----------------------------------------------------------------------------
+
+func TestWhenFocusedFiresAction(t T) T {
+    val got = WhenFocused[RouterTestResult](tableFocused(), "table",
+        () => RTTable(),
+        RTFallback(),
+    )
+    val isTable = got match {
+        case RTTable() => true
+        case _         => false
+    }
+    return IsTrue(t, isTable)
+}
+
+func TestWhenFocusedFallsBackWhenWrongPane(t T) T {
+    val got = WhenFocused[RouterTestResult](tableFocused(), "sidebar",
+        () => RTSidebar(),
+        RTFallback(),
+    )
+    val isFallback = got match {
+        case RTFallback() => true
+        case _            => false
+    }
+    return IsTrue(t, isFallback)
+}
+
+func TestWhenFocusedActionDoesNotRunOnMiss(t T) T {
+    var calls = 0
+    val _ = WhenFocused[int](ringSidebarTable(), "table",
+        () => { calls = calls + 1; 99 },
+        0,
+    )
+    return Eq(t, calls, 0)
+}

@@ -1,0 +1,86 @@
+package state
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// ClickRegion + ClickMap — minimal mouse hit-testing.
+//
+// gala-tui's renderer doesn't capture click targets per widget — apps own
+// the layout and so must own the hit-testing. ClickMap is a thin value
+// the app assembles each frame: a list of `(rect, message)` pairs. When
+// a mouse click arrives, `ClickMap.HitMsg(x, y)` returns the message
+// for the first region the click lands in (or None if none matched).
+//
+// Typical use:
+//
+//     // In view (or update — wherever you compute your layout):
+//     val clicks = NewClickMap[Msg]()
+//         .At(0, 4, 28, 5,  MegaPushScreen(Route = "overview"))   // sidebar item 1
+//         .At(0, 5, 28, 5,  MegaPushScreen(Route = "builds"))     // sidebar item 2
+//         .At(0, 6, 28, 5,  MegaPushScreen(Route = "pipelines"))
+//         .At(0, 7, 28, 5,  MegaPushScreen(Route = "logs"))
+//
+//     // In MegaInputToMsg:
+//     case MouseInput(m) =>
+//         if (m.Pressed && isLeftClick(m.Btn)) {
+//             clicks.HitMsg(m.X, m.Y).GetOrElse(MegaNoOp())
+//         } else MegaNoOp()
+//
+// The map is a value, not a registry — you can build it once per frame
+// or thread it through the model. `At` returns a new ClickMap (immutable),
+// so chaining reads naturally.
+// ============================================================================
+
+// ClickRegion pairs a rectangle (top-left X/Y inclusive, W/H size) with
+// a message to dispatch when a mouse click lands inside it.
+struct ClickRegion[T any](
+    X      int,
+    Y      int,
+    W      int,
+    H      int,
+    Msg    T,
+)
+
+// ClickMap is an ordered list of ClickRegions. First match wins on
+// `HitMsg`, so layered regions can put narrower targets first.
+struct ClickMap[T any](Regions Array[ClickRegion[T]])
+
+// NewClickMap returns an empty ClickMap. Build it up with `.At(...)`.
+func NewClickMap[T any]() ClickMap[T] =
+    ClickMap[T](Regions = EmptyArray[ClickRegion[T]]())
+
+// At appends a region to the map. Coordinates are top-left inclusive,
+// width/height in cells. Returns a new ClickMap.
+func (cm ClickMap[T]) At(x int, y int, w int, h int, msg T) ClickMap[T] =
+    ClickMap[T](Regions = cm.Regions.Append(ClickRegion[T](
+        X = x, Y = y, W = w, H = h, Msg = msg,
+    )))
+
+// HitMsg returns the message for the first region whose rectangle
+// contains `(px, py)`, or None if no region matches. Coordinates are
+// terminal-cell, 0-indexed (the same coordinate space MouseEvent uses).
+func (cm ClickMap[T]) HitMsg(px int, py int) Option[T] {
+    val hit = cm.Regions.Find((r) => clickContains(r, px, py))
+    return hit match {
+        case Some(r) => Some[T](r.Msg)
+        case None()  => None[T]()
+    }
+}
+
+// HitOr returns the message for the first matching region, or `fallback`
+// if no region matches. Convenience for the common "click anywhere → some
+// default action or NoOp" shape.
+func (cm ClickMap[T]) HitOr(px int, py int, fallback T) T =
+    cm.HitMsg(px, py) match {
+        case Some(m) => m
+        case None()  => fallback
+    }
+
+// Length reports how many regions are registered. Useful in tests.
+func (cm ClickMap[T]) Length() int = cm.Regions.Length()
+
+func clickContains[T any](r ClickRegion[T], px int, py int) bool =
+    px >= r.X && px < r.X + r.W && py >= r.Y && py < r.Y + r.H
