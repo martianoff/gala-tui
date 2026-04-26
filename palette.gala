@@ -51,15 +51,7 @@ func NewPalette[T any](actions Array[PaletteAction[T]]) Palette[T] {
 }
 
 // rangeIndexes builds [0, 1, 2, ..., n-1].
-func rangeIndexes(n int) Array[int] {
-    var acc = EmptyArray[int]()
-    var i = 0
-    for i < n {
-        acc = acc.Append(i)
-        i = i + 1
-    }
-    return acc
-}
+func rangeIndexes(n int) Array[int] = ArrayTabulate(n, (i int) => i)
 
 // ----------------------------------------------------------------------------
 // Update
@@ -108,59 +100,17 @@ func palRefilter[T any](p Palette[T]) Palette[T] {
     if q == "" {
         return palWithFilter(p, rangeIndexes(p.Actions.Length()))
     }
-    var scored = EmptyArray[palScored]()
-    var i = 0
-    val n = p.Actions.Length()
-    for i < n {
-        val a = p.Actions.Get(i)
-        val s = FuzzyScore(q, strings.ToLower(a.Label))
-        if s > 0 {
-            scored = scored.Append(palScored(Idx = i, Score = s))
-        }
-        i = i + 1
-    }
-    val sorted = palSortByScoreDesc(scored)
-    return palWithFilter(p, sorted.Map((sc) => sc.Idx))
+    val scored = ArrayTabulate(p.Actions.Length(), (i int) =>
+        palScored(Idx = i, Score = FuzzyScore(q, strings.ToLower(p.Actions.Get(i).Label))),
+    ).Filter((sc palScored) => sc.Score > 0)
+    val sorted = scored.SortWith((a palScored, b palScored) => a.Score > b.Score)
+    return palWithFilter(p, sorted.Map((sc palScored) => sc.Idx))
 }
 
 struct palScored(
     Idx   int,
     Score int,
 )
-
-// palSortByScoreDesc does an insertion sort — palettes are typically <100
-// items so the simple quadratic sort is fine and keeps code readable.
-func palSortByScoreDesc(xs Array[palScored]) Array[palScored] {
-    var out = EmptyArray[palScored]()
-    var i = 0
-    val n = xs.Length()
-    for i < n {
-        val x = xs.Get(i)
-        out = palInsertSorted(out, x)
-        i = i + 1
-    }
-    return out
-}
-
-func palInsertSorted(sorted Array[palScored], x palScored) Array[palScored] {
-    var out = EmptyArray[palScored]()
-    var inserted = false
-    var i = 0
-    val n = sorted.Length()
-    for i < n {
-        val cur = sorted.Get(i)
-        if !inserted && x.Score > cur.Score {
-            out = out.Append(x)
-            inserted = true
-        }
-        out = out.Append(cur)
-        i = i + 1
-    }
-    if !inserted {
-        out = out.Append(x)
-    }
-    return out
-}
 
 func palDropLast(s string) string {
     val total = runeCount(s)
@@ -296,15 +246,11 @@ func paletteResultsWidget[T any](p Palette[T], maxRows int, focused bool) Widget
     if actions.IsEmpty() {
         return TextStyled("  (no matches)", DefaultStyle().WithDim())
     }
-    var rows = EmptyArray[LayoutChild]()
-    val shownCount = minInt(actions.Length(), maxRows)
-    var i = 0
-    for i < shownCount {
-        val a = actions.Get(i)
+    val rows = actions.Take(maxRows).ZipWithIndex().Map((pair Tuple[PaletteAction[T], int]) => {
+        val (a, i) = pair
         val selected = i == p.Selected
-        rows = rows.Append(Fixed(1, paletteRowWidget(a, selected, focused)))
-        i = i + 1
-    }
+        return Fixed(1, paletteRowWidget(a, selected, focused))
+    })
     return Column(rows)
 }
 
