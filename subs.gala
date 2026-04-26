@@ -127,14 +127,10 @@ func DispatchDueTicks[T any](states Array[TickerState[T]], now Instant) Tuple[Ar
     // returned array as the new ticker pool, and positional identity matters
     // for stable iteration on the next tick.
     val msgs = states
-        .Filter((st TickerState[T]) => tickerIsDue(st, now))
-        .Map((st TickerState[T]) => st.Make())
-    val next = states.Map((st TickerState[T]) => {
-        if tickerIsDue(st, now) {
-            return tickerAdvance(st)
-        }
-        return st
-    })
+        .Filter((st) => tickerIsDue(st, now))
+        .Map((st) => st.Make())
+    val next = states.Map((st) =>
+        if (tickerIsDue(st, now)) tickerAdvance(st) else st)
     return (msgs, next)
 }
 
