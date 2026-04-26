@@ -2,7 +2,7 @@ package main
 
 import (
     . "github.com/martianoff/gala-tui"
-    "github.com/martianoff/gala-tui/harness"
+    . "github.com/martianoff/gala-tui/harness"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -327,23 +327,23 @@ func TestRegressionSidebarUnfocusedHidesHint(t T) T {
 
 // Build a fresh Harness for the megademo. Used by every RunSequence
 // test below.
-func newMegaHarness() harness.Harness[MegaModel, MegaMsg] {
+func newMegaHarness() Harness[MegaModel, MegaMsg] {
     val program = Program[MegaModel, MegaMsg](
         Initial = NewMegaModel(),
         Update  = (m, msg) => MegaUpdate(m, msg),
         View    = (m) => MegaView(m),
     )
-    return harness.NewHarnessFull[MegaModel, MegaMsg](program, (ev) => MegaInputToMsg(ev), 100, 24)
+    return NewHarnessFull[MegaModel, MegaMsg](program, (ev) => MegaInputToMsg(ev), 100, 24)
 }
 
 // Drive: Down (sidebar cursor 0→1) → Enter → land on builds with focus
 // already on table. Then ↓ → table cursor advances. Snapshot the
 // rendered text — assert the build #4208 row carries the bright cursor.
 func TestHarnessDriveSidebarToBuildsThenScrollTable(t T) T {
-    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // sidebar cursor 0 → 1 (Builds)
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),   // jump → focus auto-shifts to "table"
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // table cursor 0 → 1 ("#4208 …")
+    val final = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),    // sidebar cursor 0 → 1 (Builds)
+        StepKey(Ev = PlainKey(Enter())),   // jump → focus auto-shifts to "table"
+        StepKey(Ev = PlainKey(Down())),    // table cursor 0 → 1 ("#4208 …")
     ))
     val t1 = Eq(t, final.Model.Screens.Current(), "builds")
     val t2 = Eq(t1, final.Model.Focus.Current(), "table")
@@ -355,11 +355,11 @@ func TestHarnessDriveSidebarToBuildsThenScrollTable(t T) T {
 // → Enter → tree collapses ("Pipelines" branch is at cursor 0). Snapshot
 // proves the children disappeared from the rendered output.
 func TestHarnessDrivePipelinesAndCollapseTree(t T) T {
-    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // sidebar 0 → 2 (Pipelines)
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),   // jump
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),   // collapse the root
+    val final = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),    // sidebar 0 → 2 (Pipelines)
+        StepKey(Ev = PlainKey(Enter())),   // jump
+        StepKey(Ev = PlainKey(Enter())),   // collapse the root
     ))
     val t1 = Eq(t, final.Model.Screens.Current(), "pipelines")
     val collapsedRoot = !final.Model.Pipelines.Expanded
@@ -372,10 +372,10 @@ func TestHarnessDrivePipelinesAndCollapseTree(t T) T {
 // Deploy actions → Enter dispatches MegaShowConfirm. Snapshot shows the
 // confirm modal.
 func TestHarnessDrivePaletteToDeployConfirm(t T) T {
-    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = Ctrl(Char('p'))),
-        harness.StepType[MegaMsg](Text = "deploy"),
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
+    val final = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = Ctrl(Char('p'))),
+        StepType(Text = "deploy"),
+        StepKey(Ev = PlainKey(Enter())),
     ))
     val t1 = IsFalse(t, final.Model.PaletteOpen)
     val t2 = IsTrue(t1, final.Model.ConfirmAction != "")
@@ -386,12 +386,12 @@ func TestHarnessDrivePaletteToDeployConfirm(t T) T {
 // Enter. The wraparound is the contract; this catches accidental
 // off-by-one drifts in megaMoveSidebarSel.
 func TestHarnessSidebarWrapsAround(t T) T {
-    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),    // wraps 3 → 0
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
+    val final = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),    // wraps 3 → 0
+        StepKey(Ev = PlainKey(Enter())),
     ))
     return Eq(t, final.Model.Screens.Current(), "overview")
 }
@@ -399,8 +399,8 @@ func TestHarnessSidebarWrapsAround(t T) T {
 // `Trace` exposes the Session AFTER each step, so a test can assert on
 // intermediate frames. Verify the sidebar hint changes as focus moves.
 func TestHarnessTraceShowsSidebarHintAfterFocusShift(t T) T {
-    val trace = newMegaHarness().Trace(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = PlainKey(Tab())),     // sidebar → table
+    val trace = newMegaHarness().Trace(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Tab())),     // sidebar → table
     ))
     val initial = trace.Get(0)
     val afterTab = trace.Get(1)
@@ -415,10 +415,10 @@ func TestHarnessTraceShowsSidebarHintAfterFocusShift(t T) T {
 // MouseEvent, runs through MegaInputToMsg (which maps wheel events to
 // up/down keys), then through update().
 func TestHarnessMouseScrollAdvancesBuildsCursor(t T) T {
-    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),       // sidebar 0 → 1
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),      // jump to builds
-        harness.StepScroll[MegaMsg](X = 0, Y = 0, Up = false), // wheel down
+    val final = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),       // sidebar 0 → 1
+        StepKey(Ev = PlainKey(Enter())),      // jump to builds
+        StepScroll(X = 0, Y = 0, Up = false), // wheel down
     ))
     return Eq(t, final.Model.BuildsTable.Selected, 1)
 }
@@ -427,9 +427,9 @@ func TestHarnessMouseScrollAdvancesBuildsCursor(t T) T {
 // the megademo treats clicks as MegaNoOp). This test documents that
 // contract: clicking shouldn't crash and shouldn't advance the cursor.
 func TestHarnessMouseClickIsNoOpToday(t T) T {
-    val before = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
+    val before = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Enter())),
     ))
     val after = before.Click(40, 10)
     return Eq(t, after.Model.BuildsTable.Selected, before.Model.BuildsTable.Selected)
@@ -439,10 +439,10 @@ func TestHarnessMouseClickIsNoOpToday(t T) T {
 // adapter, verify the model isn't disturbed (resize is a no-op for
 // the megademo since View() re-queries TermSize on each frame).
 func TestHarnessResizeDoesNotDisturbModel(t T) T {
-    val final = newMegaHarness().RunSequence(ArrayOf[harness.HarnessStep[MegaMsg]](
-        harness.StepKey[MegaMsg](Ev = PlainKey(Down())),
-        harness.StepKey[MegaMsg](Ev = PlainKey(Enter())),
-        harness.StepResize[MegaMsg](W = 200, H = 60),
+    val final = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Enter())),
+        StepResize(W = 200, H = 60),
     ))
     return Eq(t, final.Model.Screens.Current(), "builds")
 }
@@ -500,9 +500,9 @@ func TestHarnessSnapshotMatchesAfterRunSequence(t T) T {
         Update  = (m, msg) => counterUpdate(m, msg),
         View    = (m) => counterView(m),
     )
-    val h = harness.NewHarness[CounterModel, CounterMsg](program, (ev) => counterKey(ev), 25, 2)
-    val final = h.RunSequence(ArrayOf[harness.HarnessStep[CounterMsg]](
-        harness.StepType[CounterMsg](Text = "+++"),
+    val h = NewHarness[CounterModel, CounterMsg](program, (ev) => counterKey(ev), 25, 2)
+    val final = h.RunSequence(ArrayOf[HarnessStep[CounterMsg]](
+        StepType(Text = "+++"),
     ))
     val want = " Count: 3                " + "\n" +
                " + / - to change         "
@@ -519,12 +519,12 @@ func TestHarnessSnapshotDiffReportsRow(t T) T {
         Update  = (m, msg) => counterUpdate(m, msg),
         View    = (m) => counterView(m),
     )
-    val h = harness.NewHarness[CounterModel, CounterMsg](program, (ev) => counterKey(ev), 25, 2)
-    val s1 = h.RunSequence(ArrayOf[harness.HarnessStep[CounterMsg]](
-        harness.StepType[CounterMsg](Text = "+"),
+    val h = NewHarness[CounterModel, CounterMsg](program, (ev) => counterKey(ev), 25, 2)
+    val s1 = h.RunSequence(ArrayOf[HarnessStep[CounterMsg]](
+        StepType(Text = "+"),
     ))
-    val s2 = h.RunSequence(ArrayOf[harness.HarnessStep[CounterMsg]](
-        harness.StepType[CounterMsg](Text = "++"),
+    val s2 = h.RunSequence(ArrayOf[HarnessStep[CounterMsg]](
+        StepType(Text = "++"),
     ))
     val diff = SnapshotDiff(s1.Text(), s2.Text())
     return IsTrue(t, diff.IsDefined())

@@ -6,8 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# We track gala master rather than a published release because gala-tui
+# exercises several language-edge cases (cross-pkg sealed-case generic
+# inference, cross-pkg dot-import collision detection) whose fixes are
+# typically merged to master well before the next release tag. Pin to a
+# specific gala commit when reproducibility matters.
 env:
-  GALA_VERSION: "0.35.0"
+  GALA_REF: master
 
 jobs:
   test:
@@ -20,11 +25,11 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Install GALA CLI
+      - name: Build GALA CLI from source
         run: |
-          curl -fsSL -o /usr/local/bin/gala \
-            "https://github.com/martianoff/gala/releases/download/${GALA_VERSION}/gala-linux-amd64"
-          chmod +x /usr/local/bin/gala
+          git clone --depth 1 --branch "${GALA_REF}" https://github.com/martianoff/gala.git /tmp/gala
+          cd /tmp/gala
+          go build -o /usr/local/bin/gala ./cmd/gala
           gala version
 
       - name: Test
