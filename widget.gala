@@ -675,11 +675,10 @@ func renderScrollbar(total int, visible int, offset int, style Style, area Rect,
     }
 }
 
-func clampInt(v int, lo int, hi int) int {
-    if v < lo { return lo }
-    if v > hi { return hi }
-    return v
-}
+func clampInt(v int, lo int, hi int) int =
+    if (v < lo) lo
+    else if (v > hi) hi
+    else v
 
 // renderList paints each visible item into `area`. The viewport scrolls so
 // that `sel` is always in view.
@@ -720,20 +719,10 @@ func renderList(items Array[ListItem], sel int, selStyle Style, area Rect, buf *
 
 // listViewportOffset computes the top-of-viewport index so that `sel` is
 // on-screen. Simple top-or-bottom anchor.
-func listViewportOffset(n int, sel int, height int) int {
-    if height <= 0 || n <= height {
-        return 0
-    }
-    if sel < height {
-        return 0
-    }
-    val max = n - height
-    val anchored = sel - height + 1
-    if anchored > max {
-        return max
-    }
-    return anchored
-}
+func listViewportOffset(n int, sel int, height int) int =
+    if (height <= 0 || n <= height) 0
+    else if (sel < height) 0
+    else minInt(sel - height + 1, n - height)
 
 // renderInput paints a value or a placeholder, plus a visible cursor.
 func renderInput(value string, cursor int, placeholder string, style Style, phStyle Style, area Rect, buf *Buffer) {
@@ -1017,16 +1006,10 @@ func RuneCount(s string) int {
 }
 
 // MaxInt returns the larger of two ints.
-func MaxInt(a int, b int) int {
-    if a > b { return a }
-    return b
-}
+func MaxInt(a int, b int) int = if (a > b) a else b
 
 // MinInt returns the smaller of two ints.
-func MinInt(a int, b int) int {
-    if a < b { return a }
-    return b
-}
+func MinInt(a int, b int) int = if (a < b) a else b
 
 // runeCount / minInt / maxInt — internal aliases kept for backward compat
 // across the library's existing call sites; new code should use the
