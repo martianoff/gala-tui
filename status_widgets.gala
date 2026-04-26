@@ -1,0 +1,100 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Status widgets — small composable indicators for transient app state:
+// "loading", "no results", "alive". Each is data-only; pass an animation
+// frame counter from the model (driven by a TickSub) and the widget
+// renders the right phase.
+//
+//   Loader(text, frame)        — spinner + label, e.g. "⠋ Loading…"
+//   LoaderStyled(...)          — same with caller-picked SpinnerKind + Style
+//   EmptyState(icon, text)     — "📭 No items yet" placeholder
+//   EmptyStateHinted(...)      — same plus a dimmed hint line
+//   Pulse(frame, color)        — animated " ● " dot fading on the clock
+// ============================================================================
+
+// Loader renders a single-line "⠋ Loading…" indicator. Pair with a
+// TickSub that increments a model counter every 100ms or so:
+//
+//     Loader("Fetching builds…", m.Tick)
+func Loader(text string, frame int) Widget =
+    LoaderStyled(text, frame, BrailleSpinner(),
+        DefaultStyle().WithFg(BrightCyan()),
+        DefaultStyle().WithDim())
+
+// LoaderStyled is `Loader` with caller-picked spinner kind and styles.
+//
+//     LoaderStyled("Saving", m.Tick, DotsSpinner(),
+//         DefaultStyle().WithFg(BrightYellow()),
+//         DefaultStyle())
+func LoaderStyled(text string, frame int, kind SpinnerKind, spinStyle Style, textStyle Style) Widget {
+    val glyph = SpinnerGlyph(kind, frame)
+    val spin = TextStyled(string(glyph), spinStyle)
+    val label = TextStyled(" " + text, textStyle)
+    return Row(ArrayOf[LayoutChild](
+        Fixed(1, spin),
+        Fixed(RuneCount(text) + 1, label),
+    ))
+}
+
+// EmptyState renders a centered placeholder for "no items yet" panels:
+// an icon character followed by a friendly message.
+//
+//     EmptyState("📭", "No builds match this filter")
+//
+// `icon` is rendered bright; `text` is dim. Caller decides positioning
+// (wrap in `Align(..., Center())` or pad as needed).
+func EmptyState(icon string, text string) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(RuneCount(icon) + 1,
+            TextStyled(icon + " ",
+                DefaultStyle().WithBold().WithFg(BrightCyan()))),
+        Fixed(RuneCount(text),
+            TextStyled(text, DefaultStyle().WithDim())),
+    ))
+
+// EmptyStateHinted is `EmptyState` plus a dimmed "hint" line below
+// (a Column of two rows). Useful when the empty state has a
+// suggested next action: "Press Ctrl-N to add one".
+func EmptyStateHinted(icon string, text string, hint string) Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, EmptyState(icon, text)),
+        Fixed(1, TextStyled("  " + hint,
+            DefaultStyle().WithDim().WithItalic())),
+    ))
+
+// Pulse renders a single bullet character ` ● ` whose foreground colour
+// pulses on a clock — full bright on even ticks, dim on odd. Use as a
+// "live"/"connected" indicator next to a status label.
+//
+//     Pulse(m.Tick, BrightGreen())
+//
+// The animation has period 2 (one tick on, one off). For a smoother
+// 4-frame fade use `PulseFrames` with explicit phase.
+func Pulse(frame int, color Color) Widget {
+    val style = if (frame % 2 == 0)
+        DefaultStyle().WithBold().WithFg(color)
+    else
+        DefaultStyle().WithDim().WithFg(color)
+    return TextStyled(" ● ", style)
+}
+
+// PulseFrames is `Pulse` with a 4-phase fade — bright → mid → dim →
+// mid → repeat. Smoother visual but uses more cells of intensity
+// state on the wire.
+func PulseFrames(frame int, color Color) Widget {
+    val phase = frame % 4
+    val style = if (phase == 0)
+        DefaultStyle().WithBold().WithFg(color)
+    else if (phase == 1)
+        DefaultStyle().WithFg(color)
+    else if (phase == 2)
+        DefaultStyle().WithDim().WithFg(color)
+    else
+        DefaultStyle().WithFg(color)
+    return TextStyled(" ● ", style)
+}

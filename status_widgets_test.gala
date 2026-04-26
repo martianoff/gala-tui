@@ -1,0 +1,106 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tests for Loader, EmptyState, Pulse.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Loader
+// ----------------------------------------------------------------------------
+
+func TestLoaderRendersTextAndSpinner(t T) T {
+    val buf = NewBuffer(30, 1)
+    RenderTo(Loader("Loading…", 0),
+        Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
+    return IsTrue(t, megaContains(BufferText(buf, 0), "Loading…"))
+}
+
+func TestLoaderSpinnerAdvancesOnFrameChange(t T) T {
+    val buf1 = NewBuffer(20, 1)
+    RenderTo(Loader("X", 0), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf1)
+    val frame0 = buf1.CharAt(0, 0)
+
+    val buf2 = NewBuffer(20, 1)
+    RenderTo(Loader("X", 1), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf2)
+    val frame1 = buf2.CharAt(0, 0)
+
+    return IsTrue(t, frame0 != frame1)
+}
+
+func TestLoaderSpinnerIsBrightCyan(t T) T {
+    val buf = NewBuffer(20, 1)
+    RenderTo(Loader("X", 0), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
+}
+
+// ----------------------------------------------------------------------------
+// EmptyState
+// ----------------------------------------------------------------------------
+
+func TestEmptyStateRendersIconAndText(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(EmptyState("X", "no items"),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    val row = BufferText(buf, 0)
+    val t1 = IsTrue(t, megaContains(row, "X"))
+    return IsTrue(t1, megaContains(row, "no items"))
+}
+
+func TestEmptyStateTextIsDim(t T) T {
+    val buf = NewBuffer(40, 1)
+    RenderTo(EmptyState("X", "abc"),
+        Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
+    // The 'a' is at column 2 (icon + space). Dim attribute on the text style.
+    return IsTrue(t, buf.StyleAt(2, 0).Dim)
+}
+
+func TestEmptyStateHintedHasTwoRows(t T) T {
+    val buf = NewBuffer(40, 2)
+    RenderTo(EmptyStateHinted("X", "no items", "press N to add"),
+        Rect(X = 0, Y = 0, Width = 40, Height = 2), buf)
+    val t1 = IsTrue(t, megaContains(BufferText(buf, 0), "no items"))
+    return IsTrue(t1, megaContains(BufferText(buf, 1), "press N to add"))
+}
+
+// ----------------------------------------------------------------------------
+// Pulse
+// ----------------------------------------------------------------------------
+
+func TestPulseEvenFrameIsBold(t T) T {
+    val buf = NewBuffer(5, 1)
+    RenderTo(Pulse(0, BrightGreen()),
+        Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    return IsTrue(t, buf.StyleAt(1, 0).Bold)
+}
+
+func TestPulseOddFrameIsDim(t T) T {
+    val buf = NewBuffer(5, 1)
+    RenderTo(Pulse(1, BrightGreen()),
+        Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    return IsTrue(t, buf.StyleAt(1, 0).Dim)
+}
+
+func TestPulseUsesGivenColor(t T) T {
+    val buf = NewBuffer(5, 1)
+    RenderTo(Pulse(0, BrightRed()),
+        Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    return IsTrue(t, ColorEq(buf.StyleAt(1, 0).Fg, BrightRed()))
+}
+
+// PulseFrames cycles through 4 phases — successive frames must produce
+// different style combinations on at least one frame transition.
+func TestPulseFramesAdvanceProducesStyleChange(t T) T {
+    val buf0 = NewBuffer(5, 1)
+    RenderTo(PulseFrames(0, BrightGreen()),
+        Rect(X = 0, Y = 0, Width = 5, Height = 1), buf0)
+    val buf2 = NewBuffer(5, 1)
+    RenderTo(PulseFrames(2, BrightGreen()),
+        Rect(X = 0, Y = 0, Width = 5, Height = 1), buf2)
+    val s0 = buf0.StyleAt(1, 0)
+    val s2 = buf2.StyleAt(1, 0)
+    return IsTrue(t, s0.Bold != s2.Bold || s0.Dim != s2.Dim)
+}

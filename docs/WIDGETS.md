@@ -219,6 +219,31 @@ val crumbs = Breadcrumb(ArrayOf[string]("App", "Builds", "#4211"))
 val beta = Tag("Beta", BrightYellow())
 ```
 
+## Status indicators
+
+Transient app state widgets — pair with a `TickSub` so the animation
+phases advance.
+
+| Widget | Signature | Notes |
+|---|---|---|
+| `Loader(text, frame)` | `(string, int) Widget` | "⠋ Loading…" — bright spinner + dim label. |
+| `LoaderStyled(text, frame, kind, spinStyle, textStyle)` | | Caller-picked spinner kind + colours. |
+| `EmptyState(icon, text)` | `(string, string) Widget` | "📭 No items yet" placeholder; bright icon + dim text. |
+| `EmptyStateHinted(icon, text, hint)` | `(string, string, string) Widget` | …plus a dimmed italic hint line below. |
+| `Pulse(frame, color)` | `(int, Color) Widget` | " ● " dot pulsing on a 2-phase clock. |
+| `PulseFrames(frame, color)` | `(int, Color) Widget` | " ● " dot with a 4-phase fade — smoother. |
+
+```gala
+val sub = TickSub[Msg](Interval = Milliseconds(int64(120)),
+                       Make = () => Tick())
+// ...
+val view = Column(ArrayOf[LayoutChild](
+    Fixed(1, Loader("Fetching builds…", m.Tick)),
+    Fixed(1, Pulse(m.Tick, BrightGreen())),    // "live" indicator
+    Fixed(2, EmptyStateHinted("📭", "No matches", "Press / to filter")),
+))
+```
+
 ## Themed helpers
 
 These pick fg/bg/border from a `Theme` so you don't have to wire each
