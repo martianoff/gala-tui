@@ -112,8 +112,8 @@ func (ks KeySpec) Matches(ev KeyEvent) bool {
 func KeyBind[T any](spec string, msg T) KeyBinding[T] {
     val ks = ParseKeySpec(spec)
     return KeyBinding[T](
-        Match = (ev KeyEvent) => ks.Matches(ev),
-        Make  = (ev KeyEvent) => msg,
+        Match = (ev) => ks.Matches(ev),
+        Make  = (ev) => msg,
     )
 }
 
@@ -122,7 +122,7 @@ func KeyBind[T any](spec string, msg T) KeyBinding[T] {
 func KeyBindMake[T any](spec string, make func(KeyEvent) T) KeyBinding[T] {
     val ks = ParseKeySpec(spec)
     return KeyBinding[T](
-        Match = (ev KeyEvent) => ks.Matches(ev),
+        Match = (ev) => ks.Matches(ev),
         Make  = make,
     )
 }
