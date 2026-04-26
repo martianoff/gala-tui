@@ -43,22 +43,14 @@ func BreadcrumbStyled(
 ) Widget {
     val n = parts.Length()
     if n == 0 { return Empty() }
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    for i < n {
-        val seg = parts.Get(i)
-        val isLast = i == n - 1
+    val cells = parts.ZipWithIndex().FlatMap((p) => {
+        val isLast = p.V2 == n - 1
         val style = if (isLast) active else inactive
-        val text = TextStyled(seg, style)
-        cells = cells.Append(Fixed(RuneCount(seg), text))
-        if !isLast {
-            val sep = TextStyled(separator, inactive)
-            cells = cells.Append(Fixed(RuneCount(separator), sep))
-        }
-        i = i + 1
-    }
-    cells = cells.Append(Flex(1, Empty()))   // trailing flex absorbs slack
-    return Row(cells)
+        val seg = Fixed(RuneCount(p.V1), TextStyled(p.V1, style))
+        return if (isLast) ArrayOf[LayoutChild](seg)
+               else ArrayOf[LayoutChild](seg, Fixed(RuneCount(separator), TextStyled(separator, inactive)))
+    })
+    return Row(cells.Append(Flex(1, Empty())))   // trailing flex absorbs slack
 }
 
 // Tag renders a colored "[label]" pill — small inline status badge.
@@ -107,28 +99,23 @@ func KeyHint(spec string, description string) Widget {
 func KeyHintRow(pairs Array[string]) Widget {
     val n = pairs.Length()
     if n == 0 { return Empty() }
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    for i + 1 < n {
-        val spec = pairs.Get(i)
-        val desc = pairs.Get(i + 1)
-        val hint = KeyHint(spec, desc)
-        cells = cells.Append(Fixed(RuneCount(spec) + RuneCount(desc) + 1, hint))
-        if i + 2 < n {
-            val sep = TextStyled(" · ", DefaultStyle().WithDim())
-            cells = cells.Append(Fixed(3, sep))
-        }
-        i = i + 2
-    }
-    // Odd-length: render the last spec alone with no description.
-    if i < n {
-        val spec = pairs.Get(i)
-        val sep = TextStyled(" · ", DefaultStyle().WithDim())
-        val tail = TextStyled(spec,
-            DefaultStyle().WithBold().WithFg(BrightCyan()))
-        cells = cells.Append(Fixed(3, sep))
-        cells = cells.Append(Fixed(RuneCount(spec), tail))
-    }
-    cells = cells.Append(Flex(1, Empty()))
-    return Row(cells)
+    val sep = TextStyled(" · ", DefaultStyle().WithDim())
+    val groups = pairs.Grouped(2)
+    val cells = groups.ZipWithIndex().FlatMap((g) => {
+        val pair = g.V1
+        val isFirst = g.V2 == 0
+        val sepCells = if (isFirst) EmptyArray[LayoutChild]()
+                       else ArrayOf[LayoutChild](Fixed(3, sep))
+        return sepCells.AppendAll(if (pair.Length() == 2) {
+            val spec = pair.Get(0)
+            val desc = pair.Get(1)
+            ArrayOf[LayoutChild](Fixed(RuneCount(spec) + RuneCount(desc) + 1, KeyHint(spec, desc)))
+        } else {
+            // Odd-length tail: spec alone, no description.
+            val spec = pair.Get(0)
+            val tail = TextStyled(spec, DefaultStyle().WithBold().WithFg(BrightCyan()))
+            ArrayOf[LayoutChild](Fixed(RuneCount(spec), tail))
+        })
+    })
+    return Row(cells.Append(Flex(1, Empty())))
 }

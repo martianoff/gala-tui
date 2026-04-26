@@ -558,16 +558,10 @@ func (h Harness[M, T]) RunSequence(steps Array[HarnessStep[T]]) Session[M, T] {
 // Use it when a test needs to assert on intermediate states — for example,
 // "the toast appeared after step 2 and was gone after step 5".
 func (h Harness[M, T]) Trace(steps Array[HarnessStep[T]]) Array[Session[M, T]] {
-    var states = ArrayOf[Session[M, T]](h.Start())
-    var cur = h.Start()
-    var i = 0
-    val n = steps.Length()
-    for i < n {
-        cur = applyStep(cur, steps.Get(i))
-        states = states.Append(cur)
-        i = i + 1
-    }
-    return states
+    val initial = ArrayOf[Session[M, T]](h.Start())
+    return steps.FoldLeft[Array[Session[M, T]]](initial,
+        (acc Array[Session[M, T]], step HarnessStep[T]) =>
+            acc.Append(applyStep(acc.Last(), step)))
 }
 
 func applySteps[M any, T any](s Session[M, T], steps Array[HarnessStep[T]]) Session[M, T] {

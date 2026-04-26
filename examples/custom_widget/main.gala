@@ -50,10 +50,7 @@ func RatingView[T any](
     r Model,
     OnSet func(int) T,
 ) Widget {
-    var cells = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = r.Max
-    for i < n {
+    val cells = ArrayTabulate(r.Max, (i int) => {
         val star = i + 1                                      // 1-based score
         val glyph = if (star <= r.Score) "★" else "☆"
         val style = if (star <= r.Score)
@@ -61,9 +58,8 @@ func RatingView[T any](
         else
             DefaultStyle().WithDim()
         val cell = TextStyled(" " + glyph + " ", style).OnClick(OnSet(star))
-        cells = cells.Append(Fixed(3, cell))
-        i = i + 1
-    }
+        return Fixed(3, cell)
+    })
     return Row(cells)
 }
 

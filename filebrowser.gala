@@ -65,19 +65,12 @@ func readDirEntries(path string) Array[FileEntry] {
     if err != nil {
         return EmptyArray[FileEntry]()
     }
-    var out = EmptyArray[FileEntry]()
     // Always offer ".." for navigation.
-    out = out.Append(FileEntry(Name = "..", IsDir = true))
-    var i = 0
-    for i < len(entries) {
-        val e = entries[i]
-        val name = e.Name()
-        if !startsWithDotPrefix(name) {
-            out = out.Append(FileEntry(Name = name, IsDir = e.IsDir()))
-        }
-        i = i + 1
-    }
-    return out
+    val parent = ArrayOf(FileEntry(Name = "..", IsDir = true))
+    val rest = ArrayFromSlice(entries).
+        FilterNot((e os.DirEntry) => startsWithDotPrefix(e.Name())).
+        Map((e os.DirEntry) => FileEntry(Name = e.Name(), IsDir = e.IsDir()))
+    return parent.AppendAll(rest)
 }
 
 func startsWithDotPrefix(s string) bool {
