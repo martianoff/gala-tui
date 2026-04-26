@@ -474,10 +474,8 @@ func megaCopyRow(m MegaModel) MegaModel {
 func megaSelectRow(m MegaModel, idx int) MegaModel {
     val rows = m.BuildsTable.Rows.Length()
     if idx < 0 || idx >= rows { return m }
-    val table = m.BuildsTable
-    val updated = table.Copy(Selected = idx)
     return m.Copy(
-        BuildsTable = updated,
+        BuildsTable = m.BuildsTable.Copy(Selected = idx),
         Focus       = m.Focus.FocusOn("table"),
     )
 }
@@ -488,8 +486,7 @@ func megaSelectRow(m MegaModel, idx int) MegaModel {
 func megaOpenRow(m MegaModel, idx int) MegaModel {
     val rows = m.BuildsTable.Rows.Length()
     if idx < 0 || idx >= rows { return m }
-    val table = m.BuildsTable
-    val sel = table.Copy(Selected = idx)
+    val sel = m.BuildsTable.Copy(Selected = idx)
     val row = SelectedRow(sel)
     val label = if (row.IsEmpty()) s"row #$idx" else megaJoinCells(row, " ")
     val msg = "Opened build: " + label
