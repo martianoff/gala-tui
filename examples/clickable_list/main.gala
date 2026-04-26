@@ -1,0 +1,96 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    "github.com/martianoff/gala-tui/state"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Clickable list — minimal example showing how mouse, keyboard, and the
+// "click = arrow + Enter" pattern fit together. Run with:
+//
+//     gala build ./examples/clickable_list
+//     ./gala_tui.exe                          # binary takes the module name
+//
+// Click any row OR use ↑/↓ + Enter; both paths produce the same model.
+// q or Ctrl+C quits.
+//
+// All Msg cases use the `Cl` prefix because dot-importing gala-tui pulls in
+// a number of sealed types whose case constructors would otherwise shadow
+// generic names like `NoOp` / `Quit` / `Up` / `Down`.
+// ============================================================================
+
+struct Model(Sel int, Picked string)
+
+sealed type Msg {
+    case ClMoveUp()
+    case ClMoveDown()
+    case ClPickRow(Idx int)        // mouse click — explicit row index
+    case ClPickCurrent()           // Enter on the highlighted row
+    case ClQuit()
+    case ClNoOp()
+}
+
+func items() Array[string] =
+    ArrayOf[string]("Inbox", "Drafts", "Archive", "Spam")
+
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
+    case ClQuit()       => (m, QuitCmd[Msg]())
+    case ClMoveUp()     => {
+        var next = m.Sel - 1
+        if next < 0 { next = 0 }
+        return (m.Copy(Sel = next), NoCmd[Msg]())
+    }
+    case ClMoveDown()   => {
+        val n = items().Length()
+        var next = m.Sel + 1
+        if next >= n { next = n - 1 }
+        return (m.Copy(Sel = next), NoCmd[Msg]())
+    }
+    case ClPickRow(i)   => (m.Copy(Sel = i, Picked = items().Get(i)), NoCmd[Msg]())
+    case ClPickCurrent() => (m.Copy(Picked = items().Get(m.Sel)), NoCmd[Msg]())
+    case ClNoOp()       => (m, NoCmd[Msg]())
+}
+
+func view(m Model) Widget {
+    val list = items().Map((label) => ListItem(Title = label))
+    val sel = SelectList(list, m.Sel, true)
+    val footer = TextStyled(s"  Picked: ${m.Picked}  (q to quit)",
+        DefaultStyle().WithDim())
+    return Column(ArrayOf[LayoutChild](
+        Flex(1, sel),
+        Fixed(1, footer),
+    ))
+}
+
+func keyToMsg(ev KeyEvent) Msg {
+    if KeyMatchesAny(ev, "ctrl+c", "q") { return ClQuit() }
+    return ev.Key match {
+        case Up()    => ClMoveUp()
+        case Down()  => ClMoveDown()
+        case Enter() => ClPickCurrent()
+        case _       => ClNoOp()
+    }
+}
+
+func inputToMsg(ev InputEvent) Msg = ev match {
+    case KeyInput(k)   => keyToMsg(k)
+    case MouseInput(m) => m.Btn match {
+        case MouseLeft() =>
+            state.NewClickMap[Msg]()
+                .AtRows(0, 0, 30, items().Length(), 1, (i) => ClPickRow(Idx = i))
+                .HitOr(m.X, m.Y, ClNoOp())
+        case _           => ClNoOp()
+    }
+    case _             => ClNoOp()
+}
+
+func main() {
+    val _ = RunSimpleWithMouse[Model, Msg](
+        Model(Sel = 0, Picked = ""),
+        update, view, inputToMsg,
+        NoSubs[Msg](),
+    )
+}

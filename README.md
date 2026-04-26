@@ -184,6 +184,16 @@ are plaintext-only so they fit in a README.
 - [Testing](docs/TESTING.md) — `StepAll` / `Harness` / `Snapshot` and the focus-contract helpers
 - [Project structure](STRUCTURE.md) — where each file lives in this repo
 
+## Examples
+
+Small, focused, single-file apps that show one feature without the noise of
+the full demo:
+
+- [`examples/clickable_list/`](examples/clickable_list/main.gala) — mouse +
+  keyboard on a 4-item nav list. Click any row OR press `↑`/`↓`+Enter; both
+  paths produce the same model. Demonstrates `RunSimpleWithMouse`,
+  `ClickMap.AtRows`, and `KeyMatchesAny` in <80 lines.
+
 ## Status
 
 - 564 tests passing
