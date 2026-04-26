@@ -31,6 +31,9 @@ func cdFallback() func(InputEvent) CdMsg = (ev) => CdNone()
 func cdLeftClick(x int, y int) InputEvent =
     MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true))
 
+func cdLeftRelease(x int, y int) InputEvent =
+    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = false))
+
 // ----------------------------------------------------------------------------
 // Single-click only
 // ----------------------------------------------------------------------------
@@ -83,6 +86,47 @@ func TestResolveSinglePlusDoubleDefersTheSingle(t T) T {
     )
     val t1 = Eq(t, msgs.Length(), 0)
     return IsTrue(t1, pend.IsDefined())
+}
+
+// Real terminals deliver a press AND a release for each click, so a
+// real double-click is press / release / press / release. The release
+// between the two presses must NOT flush the pending single — that
+// was the bug that made tree fold/unfold not work in the megademo.
+func TestResolveReleaseBetweenPressesPreservesPending(t T) T {
+    val hits = NewHitRegistry()
+    val rect = Rect(X = 0, Y = 0, Width = 10, Height = 1)
+    hits.Register(rect, CdSingle(N = 1))
+    hits.RegisterDouble(rect, CdDouble(N = 99))
+
+    val now = Now()
+    val (msgs1, pend1) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+    )
+    val (msgsRel, pendRel) = ResolveClickEvent[CdMsg](
+        cdLeftRelease(5, 0), now.Plus(Milliseconds(int64(10))),
+        hits, pend1, cdFallback(),
+    )
+    val (msgs2, pend2) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), now.Plus(Milliseconds(int64(80))),
+        hits, pendRel, cdFallback(),
+    )
+    val t1 = Eq(t, msgs1.Length(), 0)              // press defers, no dispatch
+    // Release passes through to the fallback (apps can handle it if
+    // they want) but the pending double-click state is *not* flushed.
+    val t2 = Eq(t1, msgsRel.Length(), 1)           // fallback dispatched
+    val isReleaseFallback = msgsRel.Get(0) match {
+        case CdNone() => true
+        case _        => false
+    }
+    val t3 = IsTrue(t2, isReleaseFallback)
+    val t4 = IsTrue(t3, pendRel.IsDefined())       // pending still around after release
+    val t5 = Eq(t4, msgs2.Length(), 1)             // 2nd press fires double
+    val isDouble = msgs2.Get(0) match {
+        case CdDouble(n) => n == 99
+        case _           => false
+    }
+    val t6 = IsTrue(t5, isDouble)
+    return IsFalse(t6, pend2.IsDefined())
 }
 
 // Two clicks at the same coords within window → fires double, suppresses

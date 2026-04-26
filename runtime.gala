@@ -584,6 +584,13 @@ func castPayloadOrSkip[T any](payload any, fallback T) T = payload match {
 // HitRegistry, taking and returning pending-click state. Returns the
 // list of Msgs to dispatch (0, 1, or 2 entries) along with the new
 // pending state. The runtime threads `pending` across loop iterations.
+//
+// Mouse-release / motion / scroll events pass through *without*
+// touching pending — they're part of the same physical click gesture
+// and would otherwise flush the deferred single before the second
+// press can arrive (a real double-click in SGR mode delivers
+// press/release/press/release, and the release between the two
+// presses must NOT cancel the pending).
 func ResolveClickEvent[T any](
     ev InputEvent,
     now Instant,
@@ -593,21 +600,27 @@ func ResolveClickEvent[T any](
 ) Tuple[Array[T], Option[ClickPending]] {
     return ev match {
         case MouseInput(m) => {
-            if !m.Pressed { return resolveNonClick[T](ev, pending, fallback) }
-            val isLeft = m.Btn match {
+            // Only a fresh left-button PRESS engages click resolution.
+            // Releases / scroll-wheel / non-left buttons are part of
+            // the same gesture (or unrelated mouse activity) — they go
+            // straight to the user adapter, leaving pending untouched.
+            val isLeftPress = m.Pressed && (m.Btn match {
                 case MouseLeft() => true
                 case _           => false
+            })
+            if isLeftPress {
+                return resolveLeftClick[T](m.X, m.Y, now, hits, pending, fallback, ev)
             }
-            if !isLeft { return resolveNonClick[T](ev, pending, fallback) }
-            return resolveLeftClick[T](m.X, m.Y, now, hits, pending, fallback, ev)
+            return (ArrayOf[T](fallback(ev)), pending)
         }
         case _ => resolveNonClick[T](ev, pending, fallback)
     }
 }
 
-// resolveNonClick: any non-left-click event. If a deferred single is
-// pending, fire it now (so input that ended the double-click window
-// flushes the pending), then dispatch the user adapter on the event.
+// resolveNonClick: any non-mouse event (keys, resize, unknown). If a
+// deferred single is pending, fire it now — these events are clearly
+// the user's "I'm done double-clicking, moving on" signal — then
+// dispatch the user adapter on the event itself.
 func resolveNonClick[T any](
     ev InputEvent,
     pending Option[ClickPending],
