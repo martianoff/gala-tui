@@ -65,7 +65,7 @@ func LineChartRows(values Array[int], bounds LineChartBounds, rows int) Array[st
     val hi = bounds.Max
     val span = maxInt(1, hi - lo)
     val total = rows * 8                          // eighths per column
-    return ArrayTabulate(rows, (y int) => {
+    return ArrayTabulate(rows, (y) => {
         // `y = 0` is the top row (height = rows); we convert to a "band
         // threshold" in eighths where `topEighths` is the upper edge of the
         // row and `bottomEighths` the lower edge.

@@ -51,7 +51,7 @@ func NewPalette[T any](actions Array[PaletteAction[T]]) Palette[T] {
 }
 
 // rangeIndexes builds [0, 1, 2, ..., n-1].
-func rangeIndexes(n int) Array[int] = ArrayTabulate(n, (i int) => i)
+func rangeIndexes(n int) Array[int] = ArrayTabulate(n, (i) => i)
 
 // ----------------------------------------------------------------------------
 // Update
@@ -100,11 +100,11 @@ func palRefilter[T any](p Palette[T]) Palette[T] {
     if q == "" {
         return palWithFilter(p, rangeIndexes(p.Actions.Length()))
     }
-    val scored = ArrayTabulate(p.Actions.Length(), (i int) =>
+    val scored = ArrayTabulate(p.Actions.Length(), (i) =>
         palScored(Idx = i, Score = FuzzyScore(q, strings.ToLower(p.Actions.Get(i).Label))),
-    ).Filter((sc palScored) => sc.Score > 0)
-    val sorted = scored.SortWith((a palScored, b palScored) => a.Score > b.Score)
-    return palWithFilter(p, sorted.Map((sc palScored) => sc.Idx))
+    ).Filter((sc) => sc.Score > 0)
+    val sorted = scored.SortWith((a, b) => a.Score > b.Score)
+    return palWithFilter(p, sorted.Map((sc) => sc.Idx))
 }
 
 struct palScored(
@@ -281,7 +281,7 @@ func paletteResultsWidget[T any](p Palette[T], maxRows int, focused bool) Widget
     if actions.IsEmpty() {
         return TextStyled("  (no matches)", DefaultStyle().WithDim())
     }
-    val rows = actions.Take(maxRows).ZipWithIndex().Map((pair Tuple[PaletteAction[T], int]) => {
+    val rows = actions.Take(maxRows).ZipWithIndex().Map((pair) => {
         val (a, i) = pair
         val selected = i == p.Selected
         return Fixed(1, paletteRowWidget(a, selected, focused))

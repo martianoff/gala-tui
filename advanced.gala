@@ -166,9 +166,9 @@ func BarChart(data Array[BarChartDatum]) Widget {
     if data.IsEmpty() {
         return Empty()
     }
-    val labelWidth = data.FoldLeft(0, (acc int, d BarChartDatum) => maxInt(acc, runeCount(d.Label)))
-    val maxV = data.FoldLeft(1, (acc int, d BarChartDatum) => maxInt(acc, d.Value))
-    val rows = data.Map((d BarChartDatum) => {
+    val labelWidth = data.FoldLeft(0, (acc, d) => maxInt(acc, runeCount(d.Label)))
+    val maxV = data.FoldLeft(1, (acc, d) => maxInt(acc, d.Value))
+    val rows = data.Map((d) => {
         val pct = d.Value * 100 / maxV
         return Fixed(1, Row(ArrayOf[LayoutChild](
             Fixed(labelWidth + 1, Text(d.Label)),
@@ -220,7 +220,7 @@ func Tree(root TreeNode) Widget {
 // The plain `Tree` widget is unchanged — TreeFocused is opt-in.
 func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
     val lines = flattenTree(root, 0)
-    val rows = lines.ZipWithIndex().Map((pair Tuple[string, int]) => {
+    val rows = lines.ZipWithIndex().Map((pair) => {
         val (line, i) = pair
         val isCursor = i == cursor
         val style = if (isCursor && focused)
@@ -279,7 +279,7 @@ func treeToggleHelper(node TreeNode, target int, idx int) Tuple[TreeNode, int] {
     val seed = (EmptyArray[TreeNode](), idx + 1)
     val (newChildren, cur) = node.Children.FoldLeft(
         seed,
-        (acc Tuple[Array[TreeNode], int], child TreeNode) => {
+        (acc, child) => {
             val (kids, curIdx) = acc
             val (newChild, advancedIdx) = treeToggleHelper(child, target, curIdx)
             return (kids.Append(newChild), advancedIdx)
@@ -296,7 +296,7 @@ func flattenTree(node TreeNode, depth int) Array[string] {
     val line = indent + marker + " " + node.Label
     if node.Expanded && node.Children.NonEmpty() {
         return ArrayOf(line).AppendAll(
-            node.Children.FlatMap((child TreeNode) => flattenTree(child, depth + 1)),
+            node.Children.FlatMap((child) => flattenTree(child, depth + 1)),
         )
     }
     return ArrayOf(line)

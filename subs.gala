@@ -127,14 +127,10 @@ func DispatchDueTicks[T any](states Array[TickerState[T]], now Instant) Tuple[Ar
     // returned array as the new ticker pool, and positional identity matters
     // for stable iteration on the next tick.
     val msgs = states
-        .Filter((st TickerState[T]) => tickerIsDue(st, now))
-        .Map((st TickerState[T]) => st.Make())
-    val next = states.Map((st TickerState[T]) => {
-        if tickerIsDue(st, now) {
-            return tickerAdvance(st)
-        }
-        return st
-    })
+        .Filter((st) => tickerIsDue(st, now))
+        .Map((st) => st.Make())
+    val next = states.Map((st) =>
+        if (tickerIsDue(st, now)) tickerAdvance(st) else st)
     return (msgs, next)
 }
 
@@ -173,20 +169,20 @@ struct KeyBinding[T any](
 // Bind builds a KeyBinding from a pure-key predicate and a zero-arg message
 // factory. Shortest form for the common case: "Esc → Quit".
 func Bind[T any](k Key, msg T) KeyBinding[T] = KeyBinding[T](
-    Match = (ev KeyEvent) => KeyEqual(ev.Key, k) && !ev.Ctrl && !ev.Alt,
-    Make  = (ev KeyEvent) => msg,
+    Match = (ev) => KeyEqual(ev.Key, k) && !ev.Ctrl && !ev.Alt,
+    Make  = (ev) => msg,
 )
 
 // BindCtrl binds Ctrl+<key>.
 func BindCtrl[T any](k Key, msg T) KeyBinding[T] = KeyBinding[T](
-    Match = (ev KeyEvent) => KeyEqual(ev.Key, k) && ev.Ctrl,
-    Make  = (ev KeyEvent) => msg,
+    Match = (ev) => KeyEqual(ev.Key, k) && ev.Ctrl,
+    Make  = (ev) => msg,
 )
 
 // BindAny matches every key and hands the raw KeyEvent to a user function.
 // Useful for "every typed Char → AppendChar" input-field patterns.
 func BindAny[T any](make func(KeyEvent) T) KeyBinding[T] = KeyBinding[T](
-    Match = (ev KeyEvent) => true,
+    Match = (ev) => true,
     Make  = make,
 )
 
