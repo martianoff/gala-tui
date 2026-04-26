@@ -423,16 +423,45 @@ func TestHarnessMouseScrollAdvancesBuildsCursor(t T) T {
     return Eq(t, final.Model.BuildsTable.Selected, 1)
 }
 
-// Mouse-click on the demo is currently a no-op (no hit-testing yet —
-// the megademo treats clicks as MegaNoOp). This test documents that
-// contract: clicking shouldn't crash and shouldn't advance the cursor.
-func TestHarnessMouseClickIsNoOpToday(t T) T {
+// Mouse-click outside any registered hit region is a silent no-op —
+// the megademo's ClickMap covers only sidebar rows (y=5..8); a click
+// in the table area emits MegaNoOp and the model stays put.
+func TestHarnessMouseClickOutsideHitMapIsNoOp(t T) T {
     val before = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
         StepKey(Ev = PlainKey(Down())),
         StepKey(Ev = PlainKey(Enter())),
     ))
     val after = before.Click(40, 10)
     return Eq(t, after.Model.BuildsTable.Selected, before.Model.BuildsTable.Selected)
+}
+
+// Clicking a sidebar row should behave exactly like "arrow to that
+// row, then press Enter": selection moves to the clicked index and
+// focus jumps to the table pane. Pinning the contract here so a
+// click can never silently regress to "switches view but leaves
+// focus stranded on the sidebar".
+func TestHarnessClickSidebarBuildsMatchesEnterFlow(t T) T {
+    // Click the "builds" row (index 1, y = 6).
+    val viaClick = newMegaHarness().Start().Click(5, 6)
+    // Equivalent keyboard path: Down once + Enter.
+    val viaKeys  = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Enter())),
+    ))
+    val t1 = Eq(t, viaClick.Model.SidebarSel, viaKeys.Model.SidebarSel)
+    val t2 = Eq(t1, viaClick.Model.Screens.Current(), viaKeys.Model.Screens.Current())
+    return IsTrue(t2,
+        viaClick.Model.Focus.IsFocused("table") &&
+        viaKeys.Model.Focus.IsFocused("table"))
+}
+
+// Clicking a different sidebar row jumps directly there — no need
+// to press Down N times first. Click on "logs" (index 3, y = 8).
+func TestHarnessClickSidebarJumpsDirectlyToRow(t T) T {
+    val final = newMegaHarness().Start().Click(5, 8)
+    val t1 = Eq(t, final.Model.SidebarSel, 3)
+    val t2 = Eq(t1, final.Model.Screens.Current(), "logs")
+    return IsTrue(t2, final.Model.Focus.IsFocused("table"))
 }
 
 // Resize through the harness — pass StepResize through the input
@@ -634,17 +663,18 @@ func TestMegaInputAdapterScrollDownIsKeyDown(t T) T {
     return IsTrue(t, isDown)
 }
 
-// Left-click on the sidebar's nav row navigates to that screen.
+// Left-click on the sidebar's nav row emits a MegaClickSidebar with
+// the row index (which the update arm turns into "select + jump").
 func TestMegaInputAdapterClickOnSidebarNavigates(t T) T {
     val ev = MouseInput(Ev = MouseEvent(
-        Btn = MouseLeft(), X = 5, Y = 6, Pressed = true,   // y=6 = "builds" row
+        Btn = MouseLeft(), X = 5, Y = 6, Pressed = true,   // y=6 = "builds" row, idx 1
     ))
     val msg = MegaInputToMsg(ev)
-    val isPush = msg match {
-        case MegaPushScreen(r) => r == "builds"
-        case _                 => false
+    val isClick = msg match {
+        case MegaClickSidebar(i) => i == 1
+        case _                   => false
     }
-    return IsTrue(t, isPush)
+    return IsTrue(t, isClick)
 }
 
 // Clicks outside any registered region (e.g. far right of the screen)
@@ -661,15 +691,15 @@ func TestMegaInputAdapterClickInDeadZoneIsNoOp(t T) T {
     return IsTrue(t, isNoOp)
 }
 
-// Click on the "logs" sidebar row (y=8) routes to that screen.
+// Click on the "logs" sidebar row (y=8, idx 3) emits MegaClickSidebar(3).
 func TestMegaInputAdapterClickOnLogsRowNavigates(t T) T {
     val ev = MouseInput(Ev = MouseEvent(
         Btn = MouseLeft(), X = 12, Y = 8, Pressed = true,
     ))
     val msg = MegaInputToMsg(ev)
     val isLogs = msg match {
-        case MegaPushScreen(r) => r == "logs"
-        case _                 => false
+        case MegaClickSidebar(i) => i == 3
+        case _                   => false
     }
     return IsTrue(t, isLogs)
 }

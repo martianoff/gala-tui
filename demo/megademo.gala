@@ -65,6 +65,7 @@ sealed type MegaMsg {
     case MegaLogPgUp()
     case MegaLogPgDn()
     case MegaLogJumpEnd()
+    case MegaClickSidebar(Idx int)
     case MegaNoOp()
 }
 
@@ -232,6 +233,7 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaLogPgUp()             => (megaLogScroll(m, 4), NoCmd[MegaMsg]())
         case MegaLogPgDn()             => (megaLogScroll(m, -4), NoCmd[MegaMsg]())
         case MegaLogJumpEnd()          => (m.Copy(LogScroll = 0), NoCmd[MegaMsg]())
+        case MegaClickSidebar(idx)     => (megaJumpToSidebar(m.Copy(SidebarSel = idx)), NoCmd[MegaMsg]())
         case MegaNoOp()                => (m, NoCmd[MegaMsg]())
     }
 }
@@ -934,10 +936,15 @@ func megaMouseToMsg(m MouseEvent) MegaMsg {
 // The sidebar's nav menu rows are at column 0..28 with the title bar
 // taking 3 rows + a border row + a 1-row title within the sidebar
 // before the menu list starts at y=5.
+//
+// A click on a sidebar row behaves exactly like "arrow to that row,
+// then press Enter" — selection moves to the clicked index and focus
+// jumps to the table pane. Clicking the already-active row simply
+// re-asserts the same state (idempotent).
 func megaClickAt(x int, y int) MegaMsg =
     state.NewClickMap[MegaMsg]()
-        .At(0,  5, 28, 1, MegaPushScreen(Route = "overview"))
-        .At(0,  6, 28, 1, MegaPushScreen(Route = "builds"))
-        .At(0,  7, 28, 1, MegaPushScreen(Route = "pipelines"))
-        .At(0,  8, 28, 1, MegaPushScreen(Route = "logs"))
+        .At(0,  5, 28, 1, MegaClickSidebar(Idx = 0))
+        .At(0,  6, 28, 1, MegaClickSidebar(Idx = 1))
+        .At(0,  7, 28, 1, MegaClickSidebar(Idx = 2))
+        .At(0,  8, 28, 1, MegaClickSidebar(Idx = 3))
         .HitOr(x, y, MegaNoOp())
