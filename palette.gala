@@ -272,7 +272,50 @@ func PaletteView[T any](p Palette[T], focused bool = true) Widget =
 
 // PaletteViewAtHeight lets callers fix the result-list height.
 func PaletteViewAtHeight[T any](p Palette[T], maxRows int, focused bool = true) Widget {
-    val header = Row(ArrayOf[LayoutChild](
+    val header = paletteHeaderRow[T](p)
+    val separator = FillCh('─')
+    val results = paletteResultsWidget[T](p, maxRows, focused)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, separator),
+        Flex(1, results),
+    ))
+}
+
+// PaletteViewClick is the click-aware sibling: each visible result row
+// is registered as a hit; a left-click on row `i` (index in the
+// filtered result list) dispatches `onPick(i)`. Defaults to 8 visible
+// rows.
+//
+//     val pal = PaletteViewClick[Msg](m.Palette, true,
+//         (i) => OnPalRow(Idx = i))
+func PaletteViewClick[T any](
+    p Palette[T],
+    focused bool,
+    onPick func(int) T,
+) Widget = PaletteViewAtHeightClick[T](p, 8, focused, onPick)
+
+// PaletteViewAtHeightClick is the height-explicit click-aware variant.
+func PaletteViewAtHeightClick[T any](
+    p Palette[T],
+    maxRows int,
+    focused bool,
+    onPick func(int) T,
+) Widget {
+    val header = paletteHeaderRow[T](p)
+    val separator = FillCh('─')
+    val results = paletteResultsWidget[T](p, maxRows, focused)
+    val visible = minInt(p.FilteredActions().Length(), maxRows)
+    val clickable = results.OnPickRow[T](visible, onPick)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, separator),
+        Flex(1, clickable),
+    ))
+}
+
+func paletteHeaderRow[T any](p Palette[T]) Widget =
+    Row(ArrayOf[LayoutChild](
         Fixed(3, TextStyled(" > ", DefaultStyle().WithBold().WithFg(BrightYellow()))),
         Flex(1, InputW(
             Value            = p.Query,
@@ -282,14 +325,6 @@ func PaletteViewAtHeight[T any](p Palette[T], maxRows int, focused bool = true) 
             PlaceholderStyle = DefaultStyle().WithDim(),
         )),
     ))
-    val separator = FillCh('─')
-    val results = paletteResultsWidget[T](p, maxRows, focused)
-    return Column(ArrayOf[LayoutChild](
-        Fixed(1, header),
-        Fixed(1, separator),
-        Flex(1, results),
-    ))
-}
 
 func paletteResultsWidget[T any](p Palette[T], maxRows int, focused bool) Widget {
     val actions = p.FilteredActions()

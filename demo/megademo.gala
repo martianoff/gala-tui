@@ -70,6 +70,8 @@ sealed type MegaMsg {
     case MegaOpenRow(Idx int)          // double-click on a row → open (toast + log)
     case MegaSelectTreeNode(Idx int)   // single-click on a pipeline tree row → cursor jump
     case MegaToggleTreeNode(Idx int)   // double-click → expand / collapse
+    case MegaPalRowClick(Idx int)      // left-click on a palette result row
+    case MegaSortColumn(Col int)       // left-click on a builds-table header → sort
     case MegaNoOp()
 }
 
@@ -243,6 +245,11 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaSelectTreeNode(idx)   => (m.Copy(PipelinesCursor = idx), NoCmd[MegaMsg]())
         case MegaToggleTreeNode(idx)   => (m.Copy(Pipelines = TreeToggleAt(m.Pipelines, idx),
                                                   PipelinesCursor = idx), NoCmd[MegaMsg]())
+        case MegaPalRowClick(idx)      => megaConfirmPalette(m.Copy(
+                                              Palette = megaPalSelected(m.Palette, idx)))
+        case MegaSortColumn(col)       => (m.Copy(BuildsTable =
+                                              DataTableUpdate(m.BuildsTable, DTSort(Col = col))),
+                                              NoCmd[MegaMsg]())
         case MegaNoOp()                => (m, NoCmd[MegaMsg]())
     }
 }
@@ -264,6 +271,17 @@ func megaTogglePalette(m MegaModel) MegaModel {
     }
     return m.Copy(PaletteOpen = true, Palette = NewPalette[MegaMsg](megaPaletteActions()))
 }
+
+// megaPalSelected rebuilds a Palette with `Selected = idx`. Generic
+// structs can't use `.Copy(...)` overrides on this transpiler version,
+// so construct the value by hand.
+func megaPalSelected(p Palette[MegaMsg], idx int) Palette[MegaMsg] =
+    Palette[MegaMsg](
+        Actions     = p.Actions,
+        Query       = p.Query,
+        FilteredIdx = p.FilteredIdx,
+        Selected    = idx,
+    )
 
 func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
     return m.Palette.Current() match {
@@ -672,8 +690,9 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
     // double-click "opens" it (toast + log entry). The framework
     // dispatches both via the HitRegistry — no input-adapter code.
     val rowCount = m.BuildsTable.Rows.Length()
-    val table = ui.DataTableRowClick[MegaMsg]("table", m.BuildsTable,
-                    (i) => MegaSelectRow(Idx = i))
+    val table = ui.DataTableClickable[MegaMsg]("table", m.BuildsTable,
+                    (i) => MegaSelectRow(Idx = i),
+                    (c) => MegaSortColumn(Col = c))
                 .OnDoublePickRow[MegaMsg](rowCount, (i) => MegaOpenRow(Idx = i))
     val tabs = ui.Tabs(
         "table",
@@ -769,29 +788,33 @@ func megaLogLine(line LogLine) Widget {
     ))
 }
 
-func megaLayerConfirm(below Widget, m MegaModel) Widget =
-    Stack(ArrayOf[Widget](
-        below,
-        Modal(50, 7, ConfirmDialog(
-            "Confirm action",
-            m.ConfirmAction + "? Tab to switch, Enter to commit, Esc to cancel.",
-            m.ConfirmYes,
-        )),
-    ))
+// Each modal layer wraps Modal(...) in `.OnClick(MegaNoOp())` so the
+// dim backdrop absorbs clicks instead of letting them through to the
+// sidebar / table behind. The palette body itself registers its own
+// per-row hits *after* the backdrop wrap, so they win on last-wins
+// lookup.
+
+func megaLayerConfirm(below Widget, m MegaModel) Widget {
+    val dialog = Modal(50, 7, ConfirmDialog(
+        "Confirm action",
+        m.ConfirmAction + "? Tab to switch, Enter to commit, Esc to cancel.",
+        m.ConfirmYes,
+    )).OnClick(MegaNoOp())
+    return Stack(ArrayOf[Widget](below, dialog))
+}
 
 func megaLayerHelp(below Widget, m MegaModel) Widget {
     val panel = MarkdownView(megaHelpMarkdown())
-    return Stack(ArrayOf[Widget](
-        below,
-        Modal(70, 18, panel),
-    ))
+    val masked = Modal(70, 18, panel).OnClick(MegaNoOp())
+    return Stack(ArrayOf[Widget](below, masked))
 }
 
-func megaLayerPalette(below Widget, m MegaModel) Widget =
-    Stack(ArrayOf[Widget](
-        below,
-        Modal(60, 12, PaletteView(m.Palette)),
-    ))
+func megaLayerPalette(below Widget, m MegaModel) Widget {
+    val palette = PaletteViewClick[MegaMsg](m.Palette, true,
+        (i) => MegaPalRowClick(Idx = i))
+    val masked = Modal(60, 12, palette).OnClick(MegaNoOp())
+    return Stack(ArrayOf[Widget](below, masked))
+}
 
 func megaToastLayer(q ToastQueue) Widget =
     Column(ArrayOf[LayoutChild](

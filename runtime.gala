@@ -560,7 +560,11 @@ struct ClickPending(
 
 // DoubleClickWindow is the maximum gap between two clicks for them to
 // register as a double-click. 400 ms is the de-facto desktop default.
-func doubleClickWindow() Duration = Milliseconds(int64(400))
+// 500 ms matches Windows' default GetDoubleClickTime — forgiving
+// enough for terminal-mediated input where the second click can
+// arrive a bit later than on a desktop GUI (the original 400 ms was
+// too tight for typical real-world double-clicks).
+func doubleClickWindow() Duration = Milliseconds(int64(500))
 
 func pendingActive(p ClickPending, x int, y int, t Instant) bool =
     t.IsBefore(p.At.Plus(doubleClickWindow())) &&

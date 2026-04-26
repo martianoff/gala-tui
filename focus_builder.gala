@@ -103,6 +103,13 @@ func (fb FocusBuilder) DataTableRowClick[T any](
     pane string, dt DataTable, onRowClick func(int) T,
 ) Widget = DataTableViewClick[T](dt, fb.IsFocused(pane), onRowClick)
 
+// DataTableClickable bakes both row + header click contracts into a
+// single FocusBuilder call.
+func (fb FocusBuilder) DataTableClickable[T any](
+    pane string, dt DataTable,
+    onRowClick func(int) T, onHeaderClick func(int) T,
+) Widget = DataTableViewClickable[T](dt, fb.IsFocused(pane), onRowClick, onHeaderClick)
+
 func (fb FocusBuilder) SelectListPick[T any](
     pane string, items Array[ListItem], sel int, onPick func(int) T,
 ) Widget = SelectListPick[T](items, sel, fb.IsFocused(pane), onPick)

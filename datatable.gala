@@ -224,10 +224,47 @@ func DataTableViewClick[T any](
     ))
 }
 
+// DataTableViewClickable is the full click-aware DataTable: row clicks
+// AND header clicks. Header cells dispatch `onHeaderClick(colIdx)` —
+// the canonical "click column header → sort by column" shape — and
+// body rows dispatch `onRowClick(rowIdx)` like `DataTableViewClick`.
+//
+// To add row-double-click on top, chain `.OnDoublePickRow(...)`:
+//
+//     DataTableViewClickable[Msg](dt, focused,
+//         (i) => SelectRow(Idx = i),
+//         (c) => SortBy(Col = c),
+//     ).OnDoublePickRow[Msg](dt.Rows.Length(), (i) => OpenRow(Idx = i))
+func DataTableViewClickable[T any](
+    dt DataTable,
+    focused bool,
+    onRowClick func(int) T,
+    onHeaderClick func(int) T,
+) Widget {
+    val header = dtHeaderRowClick[T](dt, onHeaderClick)
+    val rule = FillCh('─')
+    val body = dtBodyWidget(dt, focused)
+    val clickableBody = body.OnPickRow[T](dt.Rows.Length(), onRowClick)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, rule),
+        Flex(1, clickableBody),
+    ))
+}
+
 func dtHeaderRow(dt DataTable) Widget =
     Row(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
         Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
         Widget     = TextStyled(dtHeaderLabel(dt, p.V2), DefaultStyle().WithBold()),
+    )))
+
+// dtHeaderRowClick wraps each header cell with `.OnClick` so clicking
+// a header dispatches `onHeaderClick(colIdx)`.
+func dtHeaderRowClick[T any](dt DataTable, onHeaderClick func(int) T) Widget =
+    Row(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
+        Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
+        Widget     = TextStyled(dtHeaderLabel(dt, p.V2), DefaultStyle().WithBold())
+                         .OnClick[T](onHeaderClick(p.V2)),
     )))
 
 func dtHeaderLabel(dt DataTable, col int) string {
