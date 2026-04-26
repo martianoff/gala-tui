@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # Bump GALA_VERSION whenever a new gala release ships. gala-tui's master
 # typically depends on language-edge fixes that are on gala master before
