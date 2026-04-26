@@ -146,5 +146,10 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
             ViewportW(Inner = restyleLeaves(inner, f), Offset = off, ContentHeight = ch)
         case ScrollbarW(tot, vis, off, s)      =>
             ScrollbarW(Total = tot, Visible = vis, Offset = off, Style = f(s))
+        case ClickableW(inner, payload)        =>
+            ClickableW(Inner = restyleLeaves(inner, f), Payload = payload)
+        case ClickableRowsW(inner, n, h, p)    =>
+            ClickableRowsW(Inner = restyleLeaves(inner, f),
+                           Count = n, RowH = h, Payloads = p)
     }
 }

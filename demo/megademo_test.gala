@@ -424,8 +424,9 @@ func TestHarnessMouseScrollAdvancesBuildsCursor(t T) T {
 }
 
 // Mouse-click outside any registered hit region is a silent no-op —
-// the megademo's ClickMap covers only sidebar rows (y=5..8); a click
-// in the table area emits MegaNoOp and the model stays put.
+// the megademo only wraps the sidebar rows (y=5..8) in ClickableRows;
+// a click in the table area falls through to MegaInputToMsg, which
+// returns MegaNoOp for MouseLeft, and the model stays put.
 func TestHarnessMouseClickOutsideHitMapIsNoOp(t T) T {
     val before = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
         StepKey(Ev = PlainKey(Down())),
@@ -462,6 +463,57 @@ func TestHarnessClickSidebarJumpsDirectlyToRow(t T) T {
     val t1 = Eq(t, final.Model.SidebarSel, 3)
     val t2 = Eq(t1, final.Model.Screens.Current(), "logs")
     return IsTrue(t2, final.Model.Focus.IsFocused("table"))
+}
+
+// ----------------------------------------------------------------------------
+// Cross-screen click visibility — the framework's HitRegistry only sees
+// widgets that *actually rendered*, so a click at the same on-screen y
+// dispatches differently depending on which screen is active. These
+// tests pin that contract: when the sidebar isn't part of the current
+// view tree (builds / pipelines / logs), a click at the y where the
+// sidebar would have been is inert (no MegaClickSidebar fires) — which
+// is the bug the widget-owned hit-registry refactor was designed to
+// fix.
+// ----------------------------------------------------------------------------
+
+// On the builds screen the sidebar isn't rendered. Clicking at sidebar
+// row y=6 should NOT trigger sidebar navigation back to "overview"
+// (which is what the old hand-rolled ClickMap did, even when invisible).
+func TestHarnessClickAtSidebarYOnBuildsScreenIsInert(t T) T {
+    val final = newMegaHarness().RunSequence(ArrayOf[HarnessStep[MegaMsg]](
+        StepKey(Ev = PlainKey(Down())),                  // sidebar idx 0 → 1
+        StepKey(Ev = PlainKey(Enter())),                 // commit → builds + focus table
+        StepClick(X = 5, Y = 6),                         // click where sidebar row 1 used to be
+    ))
+    // We must STILL be on builds. Pre-refactor, this click would have
+    // re-jumped to "builds" (no-op screen) but importantly the bug
+    // earlier landed wherever the registered y said.
+    return Eq(t, final.Model.Screens.Current(), "builds")
+}
+
+// Same contract on pipelines.
+func TestHarnessClickAtSidebarYOnPipelinesScreenIsInert(t T) T {
+    val (mPipes, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
+    val final = newMegaHarness().StartAt(mPipes).Click(5, 7)
+    return Eq(t, final.Model.Screens.Current(), "pipelines")
+}
+
+// And on logs — the original failure mode the user observed in
+// PowerShell ("clicking the empty area triggers nav").
+func TestHarnessClickAtSidebarYOnLogsScreenIsInert(t T) T {
+    val (mLogs, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "logs"))
+    val final = newMegaHarness().StartAt(mLogs).Click(5, 8)
+    return Eq(t, final.Model.Screens.Current(), "logs")
+}
+
+// And the dual: while still on overview, clicking each sidebar row
+// reaches the corresponding screen — pinning the positive path lined
+// up against the visibility tests above.
+func TestHarnessClickReachesEachSidebarRowOnOverview(t T) T {
+    val pipes = newMegaHarness().Start().Click(5, 7)         // row 2 → pipelines
+    val t1 = Eq(t, pipes.Model.Screens.Current(), "pipelines")
+    val builds = newMegaHarness().Start().Click(5, 6)        // row 1 → builds
+    return Eq(t1, builds.Model.Screens.Current(), "builds")
 }
 
 // Resize through the harness — pass StepResize through the input
@@ -663,22 +715,15 @@ func TestMegaInputAdapterScrollDownIsKeyDown(t T) T {
     return IsTrue(t, isDown)
 }
 
-// Left-click on the sidebar's nav row emits a MegaClickSidebar with
-// the row index (which the update arm turns into "select + jump").
-func TestMegaInputAdapterClickOnSidebarNavigates(t T) T {
-    val ev = MouseInput(Ev = MouseEvent(
-        Btn = MouseLeft(), X = 5, Y = 6, Pressed = true,   // y=6 = "builds" row, idx 1
-    ))
-    val msg = MegaInputToMsg(ev)
-    val isClick = msg match {
-        case MegaClickSidebar(i) => i == 1
-        case _                   => false
-    }
-    return IsTrue(t, isClick)
-}
-
-// Clicks outside any registered region (e.g. far right of the screen)
-// remain no-ops.
+// Click handling is now framework-owned: the sidebar's nav rows are
+// registered with the HitRegistry during render via `ClickableRows`,
+// and the runtime / harness dispatches the matching MegaClickSidebar
+// directly. The user's MegaInputToMsg never sees these clicks at all,
+// so we assert through the harness — driving end-to-end semantics.
+//
+// Clicks landing outside any registered widget keep flowing through
+// MegaInputToMsg, where MouseLeft is intentionally a NoOp; the
+// dead-zone test below pins that contract.
 func TestMegaInputAdapterClickInDeadZoneIsNoOp(t T) T {
     val ev = MouseInput(Ev = MouseEvent(
         Btn = MouseLeft(), X = 80, Y = 20, Pressed = true,
@@ -689,19 +734,6 @@ func TestMegaInputAdapterClickInDeadZoneIsNoOp(t T) T {
         case _          => false
     }
     return IsTrue(t, isNoOp)
-}
-
-// Click on the "logs" sidebar row (y=8, idx 3) emits MegaClickSidebar(3).
-func TestMegaInputAdapterClickOnLogsRowNavigates(t T) T {
-    val ev = MouseInput(Ev = MouseEvent(
-        Btn = MouseLeft(), X = 12, Y = 8, Pressed = true,
-    ))
-    val msg = MegaInputToMsg(ev)
-    val isLogs = msg match {
-        case MegaClickSidebar(i) => i == 3
-        case _                   => false
-    }
-    return IsTrue(t, isLogs)
 }
 
 func TestMegaInputAdapterResizeIsNoOp(t T) T {

@@ -574,9 +574,16 @@ func megaSidebar(m MegaModel, th Theme) Widget {
         ArrayOf[string]("  Overview", "  Builds", "  Pipelines", "  Logs"),
         menuSel,
     )
+    // Wrap the nav list so each row registers its own click hit at its
+    // *actually-rendered* rectangle. When the sidebar isn't part of the
+    // current screen (builds / pipelines / logs / any modal layer), it
+    // simply isn't rendered — and so its clicks don't fire.
+    val clickableMenu = ClickableRows[MegaMsg](
+        menu, 4, 1, (i) => MegaClickSidebar(Idx = i),
+    )
     val inside = Column(ArrayOf[LayoutChild](
         Fixed(1, TextStyled(titleLabel, titleStyle)),
-        Fixed(4, menu),
+        Fixed(4, clickableMenu),
         Fixed(1, Text("")),
         Fixed(1, TextStyled(" Throughput (7d)", th.Heading)),
         Fixed(5, BarChart(ArrayOf[BarChartDatum](
@@ -919,29 +926,19 @@ func MegaInputToMsg(ev InputEvent) MegaMsg {
     }
 }
 
+// megaMouseToMsg covers the non-click mouse events. Left-click dispatch
+// is owned by the framework: each `Clickable` / `ClickableRows` widget
+// registers its rendered rectangle with the runtime's HitRegistry, and
+// the runtime resolves left-clicks against that registry before this
+// adapter ever sees them. Apps therefore never compute click rectangles
+// by hand and never gate clicks on widget visibility.
 func megaMouseToMsg(m MouseEvent) MegaMsg {
     return m.Btn match {
         case MouseScrollUp()    => MegaKeyUp()
         case MouseScrollDown()  => MegaKeyDown()
-        case MouseLeft()        => megaClickAt(m.X, m.Y)
+        case MouseLeft()        => MegaNoOp()    // unrouted clicks (no widget) are no-ops
         case MouseMiddle()      => MegaNoOp()
         case MouseRight()       => MegaNoOp()
         case MouseButtonNone()  => MegaNoOp()
     }
 }
-
-// megaClickAt builds the click map for the current view layout and
-// dispatches whatever message the click landed on (or NoOp).
-//
-// The sidebar's nav menu rows are at column 0..28 with the title bar
-// taking 3 rows + a border row + a 1-row title within the sidebar
-// before the menu list starts at y=5.
-//
-// A click on a sidebar row behaves exactly like "arrow to that row,
-// then press Enter" — selection moves to the clicked index and focus
-// jumps to the table pane. Clicking the already-active row simply
-// re-asserts the same state (idempotent).
-func megaClickAt(x int, y int) MegaMsg =
-    state.NewClickMap[MegaMsg]()
-        .AtRows(0, 5, 28, 4, 1, (i) => MegaClickSidebar(Idx = i))
-        .HitOr(x, y, MegaNoOp())

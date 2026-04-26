@@ -189,3 +189,40 @@ func TestAtRowsComposesWithExistingRegions(t T) T {
     }
     return IsTrue(t, isTabs)
 }
+
+// ----------------------------------------------------------------------------
+// When — conditionally extend the map.
+// ----------------------------------------------------------------------------
+
+func TestWhenTrueAppliesBuilder(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .When(true, (b) => b.At(0, 0, 5, 1, ClickedTabs()))
+    return Eq(t, cm.Length(), 1)
+}
+
+func TestWhenFalseLeavesMapUnchanged(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .When(false, (b) => b.At(0, 0, 5, 1, ClickedTabs()))
+    return Eq(t, cm.Length(), 0)
+}
+
+// The closure is only invoked when the condition is true — verified
+// via a captured counter.
+func TestWhenFalseDoesNotInvokeBuilder(t T) T {
+    var calls = 0
+    val _ = NewClickMap[CMTestMsg]()
+        .When(false, (b) => { calls = calls + 1; b })
+    return Eq(t, calls, 0)
+}
+
+// Chained `When` calls compose with intervening unconditional `At`s —
+// gates can be sprinkled freely.
+func TestWhenChainsWithAt(t T) T {
+    val cm = NewClickMap[CMTestMsg]()
+        .At(0, 0, 5, 1, ClickedTabs())                            // always
+        .When(true, (b) =>
+            b.At(0, 5, 28, 1, ClickedSidebar(N = 0)))             // gated open
+        .When(false, (b) =>
+            b.At(0, 9, 28, 1, ClickedSidebar(N = 99)))            // gated shut
+    return Eq(t, cm.Length(), 2)
+}

@@ -37,6 +37,21 @@ sealed type Widget {
     case ParagraphW(Content string, Style Style)
     case ViewportW(Inner Widget, Offset int, ContentHeight int)
     case ScrollbarW(Total int, Visible int, Offset int, Style Style)
+    // ClickableW wraps an inner widget and registers its rendered area
+    // as a single hit region carrying `Payload`. The runtime's
+    // HitRegistry receives the rect during rendering — invisible
+    // widgets simply never register, so hidden widgets cannot be
+    // clicked.
+    //
+    // The payload is `any` because the widget tree is type-erased over
+    // the app's `Msg` type; the runtime restores the type when it
+    // dispatches the click.
+    case ClickableW(Inner Widget, Payload any)
+    // ClickableRowsW slices its rendered area into `Count` horizontal
+    // rows of `RowH` cells each and registers one hit region per row,
+    // with the payload for row `i` produced by `Payloads(i)`. Used by
+    // list / menu / table widgets that want every row clickable.
+    case ClickableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
 }
 
 // LayoutChild binds a widget to the Constraint Row/Column use when
@@ -226,6 +241,59 @@ func ScrollbarStyled(total int, visible int, offset int, style Style) Widget =
     ScrollbarW(Total = total, Visible = visible, Offset = offset, Style = style)
 
 // ----------------------------------------------------------------------------
+// Clickable / ClickableRows — widgets register their own click hits.
+//
+// Wrap an existing widget to make it dispatch a Msg on left-click — at
+// the rectangle the widget *actually* renders into, not at hand-rolled
+// coordinates. Visibility is automatic: widgets that aren't part of the
+// view tree on a given frame don't register hits, so apps don't need to
+// gate on which screen / modal / route is active.
+// ----------------------------------------------------------------------------
+
+// Clickable wraps `inner` so that a left-click anywhere in its rendered
+// area dispatches `msg`. Useful for buttons, header bars, modal
+// backdrops, and any single-target click region.
+//
+//     val quitBtn = Clickable[Msg](Text("[ quit ]"), Quit())
+//
+// The whole rendered area becomes the hit region; if you only want a
+// sub-rectangle to be clickable, wrap that sub-rectangle (e.g.,
+// `Clickable(Padding(0, 1, 0, 1, label), msg)`).
+func Clickable[T any](inner Widget, msg T) Widget =
+    ClickableW(Inner = inner, Payload = msg)
+
+// ClickableRows wraps `inner` (typically a list / menu / table) and
+// registers `count` row-shaped hit regions stacked vertically inside
+// the rendered area. Row `i` dispatches `msgFor(i)` on left-click.
+//
+//     val sidebar = ClickableRows[Msg](
+//         SelectListOf(items, sel, focused),
+//         items.Length(), 1,
+//         (i) => OnSidebar(Idx = i),
+//     )
+//
+// `rowH` is the per-row height in cells (usually 1). Rows that fall
+// outside the rendered area are silently skipped — safe to pass a
+// `count` larger than what fits.
+func ClickableRows[T any](
+    inner Widget,
+    count int,
+    rowH int,
+    msgFor func(int) T,
+) Widget {
+    // Erase the function's element type to `any` so it fits the
+    // single, non-generic Widget sealed type. The cast is safe by
+    // construction — every payload was a T just before assignment.
+    val erased = (i int) => any(msgFor(i))
+    return ClickableRowsW(
+        Inner    = inner,
+        Count    = count,
+        RowH     = rowH,
+        Payloads = erased,
+    )
+}
+
+// ----------------------------------------------------------------------------
 // Tabs
 // ----------------------------------------------------------------------------
 //
@@ -278,7 +346,28 @@ func Render(w Widget) string {
 }
 
 // RenderTo paints `w` into `buf`, restricted to the given `area`.
+//
+// This is the hit-unaware form — handy for tests and any one-shot
+// rendering where click registration doesn't matter. The runtime uses
+// `RenderToWithHits` instead so that `Clickable`/`ClickableRows`
+// widgets inside `w` can register their rectangles for click dispatch.
 func RenderTo(w Widget, area Rect, buf *Buffer) {
+    renderToInternal(w, area, buf, nil)
+}
+
+// RenderToWithHits is the hit-aware form used by the runtime: any
+// `Clickable`/`ClickableRows` widget reached during rendering registers
+// its rectangle into `hits`. The runtime then queries the registry on
+// every left-click to dispatch the right message — apps don't compute
+// click rectangles by hand.
+//
+// Pass `nil` for `hits` to mirror the plain `RenderTo` behaviour
+// (Clickable widgets render their inner content but skip registration).
+func RenderToWithHits(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
+    renderToInternal(w, area, buf, hits)
+}
+
+func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
     if area.Zero() {
         return
     }
@@ -289,21 +378,21 @@ func RenderTo(w Widget, area Rect, buf *Buffer) {
         case FillWidget(ch, style) =>
             renderFill(ch, style, area, buf)
         case BorderWidget(inner, kind) =>
-            renderBorder(inner, kind, area, buf)
+            renderBorder(inner, kind, area, buf, hits)
         case PaddingWidget(top, right, bottom, left, inner) =>
-            renderPadding(top, right, bottom, left, inner, area, buf)
+            renderPadding(top, right, bottom, left, inner, area, buf, hits)
         case AlignWidget(inner, horiz, cw, ch) =>
-            renderAlign(inner, horiz, cw, ch, area, buf)
+            renderAlign(inner, horiz, cw, ch, area, buf, hits)
         case OverlayWidget(bottom, top) => {
-            RenderTo(bottom, area, buf)
-            RenderTo(top, area, buf)
+            renderToInternal(bottom, area, buf, hits)
+            renderToInternal(top, area, buf, hits)
         }
         case RowWidget(children) =>
-            renderRow(children, area, buf)
+            renderRow(children, area, buf, hits)
         case ColumnWidget(children) =>
-            renderColumn(children, area, buf)
+            renderColumn(children, area, buf, hits)
         case StackWidget(layers) =>
-            layers.ForEach((layer) => RenderTo(layer, area, buf))
+            layers.ForEach((layer) => renderToInternal(layer, area, buf, hits))
         case ListW(items, sel, selStyle) =>
             renderList(items, sel, selStyle, area, buf)
         case InputW(value, cursor, placeholder, style, phStyle) =>
@@ -325,9 +414,38 @@ func RenderTo(w Widget, area Rect, buf *Buffer) {
         case ParagraphW(content, style) =>
             renderParagraph(content, style, area, buf)
         case ViewportW(inner, offset, ch) =>
+            // Viewports render inner into a hidden buffer at translated
+            // coordinates, so widget-owned hit registration would land at
+            // the wrong place. We deliberately drop `hits` here — clicks
+            // on scrolled viewport content are unsupported for now.
             renderViewport(inner, offset, ch, area, buf)
         case ScrollbarW(total, visible, offset, style) =>
             renderScrollbar(total, visible, offset, style, area, buf)
+        case ClickableW(inner, payload) => {
+            if hits != nil {
+                hits.Register(area, payload)
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
+        case ClickableRowsW(inner, count, rowH, payloads) => {
+            if hits != nil && count > 0 && rowH > 0 {
+                var i = 0
+                for i < count {
+                    val rowY = area.Y + i * rowH
+                    if rowY < area.Y + area.Height {
+                        val rowH2 = if (rowY + rowH <= area.Y + area.Height)
+                                        rowH
+                                    else area.Y + area.Height - rowY
+                        hits.Register(Rect(
+                            X = area.X, Y = rowY,
+                            Width = area.Width, Height = rowH2,
+                        ), payloads(i))
+                    }
+                    i = i + 1
+                }
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
     }
 }
 
@@ -566,7 +684,7 @@ func renderInput(value string, cursor int, placeholder string, style Style, phSt
 
 // renderRow walks children left-to-right, handing each a Rect whose width
 // comes from the Constraint solver.
-func renderRow(children Array[LayoutChild], area Rect, buf *Buffer) {
+func renderRow(children Array[LayoutChild], area Rect, buf *Buffer, hits *HitRegistry) {
     val widths = Solve(area.Width, children.Map((c) => c.Constraint))
     var x = area.X
     var i = 0
@@ -574,14 +692,15 @@ func renderRow(children Array[LayoutChild], area Rect, buf *Buffer) {
     for i < n {
         val child = children.Get(i)
         val w = widths.Get(i)
-        RenderTo(child.Widget, Rect(X = x, Y = area.Y, Width = w, Height = area.Height), buf)
+        renderToInternal(child.Widget,
+            Rect(X = x, Y = area.Y, Width = w, Height = area.Height), buf, hits)
         x = x + w
         i = i + 1
     }
 }
 
 // renderColumn is the vertical twin of renderRow.
-func renderColumn(children Array[LayoutChild], area Rect, buf *Buffer) {
+func renderColumn(children Array[LayoutChild], area Rect, buf *Buffer, hits *HitRegistry) {
     val heights = Solve(area.Height, children.Map((c) => c.Constraint))
     var y = area.Y
     var i = 0
@@ -589,7 +708,8 @@ func renderColumn(children Array[LayoutChild], area Rect, buf *Buffer) {
     for i < n {
         val child = children.Get(i)
         val h = heights.Get(i)
-        RenderTo(child.Widget, Rect(X = area.X, Y = y, Width = area.Width, Height = h), buf)
+        renderToInternal(child.Widget,
+            Rect(X = area.X, Y = y, Width = area.Width, Height = h), buf, hits)
         y = y + h
         i = i + 1
     }
@@ -628,7 +748,7 @@ func renderFill(ch rune, style Style, area Rect, buf *Buffer) {
 
 // renderBorder paints a 4-corner + 4-edge frame using the glyph set chosen
 // by `kind`, then recurses into the inner widget on the 1-cell-inset area.
-func renderBorder(inner Widget, kind BorderKind, area Rect, buf *Buffer) {
+func renderBorder(inner Widget, kind BorderKind, area Rect, buf *Buffer, hits *HitRegistry) {
     val g = borderGlyphs(kind)
     val st = DefaultStyle()
     // Corners
@@ -660,35 +780,37 @@ func renderBorder(inner Widget, kind BorderKind, area Rect, buf *Buffer) {
             Width  = area.Width - 2,
             Height = area.Height - 2,
         )
-        RenderTo(inner, inside, buf)
+        renderToInternal(inner, inside, buf, hits)
     }
 }
 
 // renderPadding reduces the area by the padding values and recurses.
-func renderPadding(top int, right int, bottom int, left int, inner Widget, area Rect, buf *Buffer) {
+func renderPadding(top int, right int, bottom int, left int, inner Widget,
+                   area Rect, buf *Buffer, hits *HitRegistry) {
     val newW = maxInt(0, area.Width - left - right)
     val newH = maxInt(0, area.Height - top - bottom)
-    RenderTo(inner, Rect(
+    renderToInternal(inner, Rect(
         X      = area.X + left,
         Y      = area.Y + top,
         Width  = newW,
         Height = newH,
-    ), buf)
+    ), buf, hits)
 }
 
 // renderAlign picks the horizontal position of an inner widget.
-func renderAlign(inner Widget, horiz Align, cw int, ch int, area Rect, buf *Buffer) {
+func renderAlign(inner Widget, horiz Align, cw int, ch int,
+                 area Rect, buf *Buffer, hits *HitRegistry) {
     val dx = horiz match {
         case AlignLeft()   => 0
         case AlignCenter() => maxInt(0, (area.Width - cw) / 2)
         case AlignRight()  => maxInt(0, area.Width - cw)
     }
-    RenderTo(inner, Rect(
+    renderToInternal(inner, Rect(
         X      = area.X + dx,
         Y      = area.Y,
         Width  = minInt(cw, area.Width - dx),
         Height = minInt(ch, area.Height),
-    ), buf)
+    ), buf, hits)
 }
 
 // borderGlyphs is a tuple-ish holder for the six glyphs a border uses.
@@ -747,6 +869,8 @@ func defaultRenderWidth(w Widget) int {
         case ParagraphW(content, _)            => paragraphIntrinsicWidth(content)
         case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
         case ScrollbarW(_, _, _, _)            => 1
+        case ClickableW(inner, _)              => defaultRenderWidth(inner)
+        case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
     }
 }
 
@@ -775,6 +899,8 @@ func defaultRenderHeight(w Widget) int {
         case ParagraphW(content, _)            => paragraphIntrinsicHeight(content)
         case ViewportW(_, _, _)                => 1
         case ScrollbarW(_, _, _, _)            => 1
+        case ClickableW(inner, _)              => defaultRenderHeight(inner)
+        case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
     }
 }
 

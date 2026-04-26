@@ -311,8 +311,36 @@ func (s Session[M, T]) Resize(w int, h int) Session[M, T] =
 
 // SendInput dispatches any InputEvent — useful for synthesizing complex
 // mouse sequences or driving custom InputEvent variants.
-func (s Session[M, T]) SendInput(ev InputEvent) Session[M, T] =
-    s.dispatchMsg(s.H.dispatchInput(ev))
+//
+// For full-mode harnesses we mirror the runtime's click-dispatch
+// semantics: the current view is rendered into a throwaway buffer to
+// populate a HitRegistry, and a left-click that lands on a `Clickable`
+// or `ClickableRows` widget dispatches that widget's payload directly
+// — without going through the user's `inputToMsg`. Misses fall through
+// to the user adapter exactly the way they do in production.
+func (s Session[M, T]) SendInput(ev InputEvent) Session[M, T] {
+    return s.dispatchMsg(s.resolveInput(ev))
+}
+
+// resolveInput is the harness analogue of the runtime's click intercept:
+// in full mode, render the current view to populate a HitRegistry and
+// route the event through `ResolveClickOrInput` so widget-owned hits
+// fire just as they would on a real terminal. Key-only mode bypasses
+// the registry — its sessions don't render mouse events anyway.
+func (s Session[M, T]) resolveInput(ev InputEvent) T {
+    return s.H.Mode match {
+        case FullMode(adapter) => {
+            val hits = NewHitRegistry()
+            val view = s.H.Program.View(s.Model)
+            val buf = NewBuffer(s.H.Width, s.H.Height)
+            RenderToWithHits(view,
+                Rect(X = 0, Y = 0, Width = s.H.Width, Height = s.H.Height),
+                buf, hits)
+            return ResolveClickOrInput[T](ev, hits, adapter)
+        }
+        case KeyMode(fn) => fn(inputToKeyEv(ev))
+    }
+}
 
 // SendMsg dispatches a pre-built Msg directly, bypassing input
 // translation. Use it to simulate a timer tick, an async result arriving,

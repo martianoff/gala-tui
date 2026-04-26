@@ -1,0 +1,87 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// HitRegistry — per-frame, widget-owned click hit-test storage.
+//
+// Replaces the pre-existing "hand-rolled ClickMap" pattern, where every app
+// computed widget rectangles by hand and matched clicks against them. That
+// approach broke whenever a widget was hidden (clicks at the same coords
+// kept firing) or moved (a scroll, resize, or layout tweak silently
+// invalidated the hand-rolled map).
+//
+// The registry is mutated *during* a render pass: widgets that want to be
+// clickable (`Clickable`, `ClickableRows`, …) call `Register` with their
+// actual rendered rectangle. After the frame is painted, the runtime keeps
+// the registry around; on the next mouse click, `HitAt(x, y)` returns the
+// payload of the topmost widget under the cursor.
+//
+// Mutability is intentional and matches `Buffer`'s shape — a TUI redraw can
+// touch tens of thousands of cells per frame, and doing it functionally
+// would mean an allocation per registered region.
+//
+// The payload is `any` because the widget tree itself is type-erased over
+// the app's `Msg` type. Runtime callers cast it back to their `Msg` via
+// `castHitPayload`. The runtime owns the cast point so app code never sees
+// `any` — apps just hand a typed `Msg` to `Clickable(...)`.
+// ============================================================================
+
+// HitEntry pairs a rectangle with the payload to dispatch when a click
+// lands inside it.
+struct HitEntry(R Rect, Payload any)
+
+// HitRegistry is the mutable accumulator.
+type HitRegistry struct {
+    var entries []HitEntry
+}
+
+// NewHitRegistry allocates an empty registry. The runtime calls this once
+// per frame before painting the widget tree.
+func NewHitRegistry() *HitRegistry {
+    return &HitRegistry{entries: SliceEmpty[HitEntry]()}
+}
+
+// Register adds (rect, payload) to the registry. Called by widgets that
+// want to be clickable from inside their render arm. Out-of-area or
+// zero-sized rects are ignored — they could never be hit anyway and
+// pruning early keeps `HitAt` fast.
+func (h *HitRegistry) Register(r Rect, payload any) {
+    if r.Zero() {
+        return
+    }
+    h.entries = append(h.entries, HitEntry(R = r, Payload = payload))
+}
+
+// HitAt returns the payload of the LAST-registered entry whose rectangle
+// contains `(x, y)`, or `None` if no entry matches.
+//
+// Last-wins is intentional: layouts render children in document order, so
+// a widget rendered later (a modal stacked on top, a row drawn after its
+// container) appears at later indices. Walking entries back-to-front
+// surfaces the topmost hit naturally.
+func (h *HitRegistry) HitAt(x int, y int) Option[any] {
+    var i = len(h.entries) - 1
+    for i >= 0 {
+        val e = h.entries[i]
+        if x >= e.R.X && x < e.R.X + e.R.Width &&
+           y >= e.R.Y && y < e.R.Y + e.R.Height {
+            return Some[any](e.Payload)
+        }
+        i = i - 1
+    }
+    return None[any]()
+}
+
+// Length reports how many entries are registered. Used by tests; the
+// runtime does not need it.
+func (h *HitRegistry) Length() int = len(h.entries)
+
+// Reset wipes the registry without freeing the slice — the runtime calls
+// this between frames so each repaint starts from a clean slate.
+func (h *HitRegistry) Reset() {
+    h.entries = SliceEmpty[HitEntry]()
+}

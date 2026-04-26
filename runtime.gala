@@ -362,7 +362,11 @@ func RunWithMouse[M any, T any](
     val (initW, initH) = TermSize()
     var lastW = initW
     var lastH = initH
-    var prevFrame = paintFrameDiff(program.View(model), nil)
+    // The HitRegistry lives across frames: each render resets it before
+    // re-populating, and each click consults the most recently rendered
+    // version to decide which Clickable widget (if any) was hit.
+    val hits = NewHitRegistry()
+    var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits)
 
     for {
         // 1. Drain ready async Cmds.
@@ -401,7 +405,7 @@ func RunWithMouse[M any, T any](
         }
 
         if asyncMsgs.NonEmpty() || tickMsgs.NonEmpty() || resizeMsgs.NonEmpty() {
-            prevFrame = paintFrameDiff(program.View(model), prevFrame)
+            prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
         }
 
         // 4. Ensure a stdin read future is in flight and wait briefly for it.
@@ -428,15 +432,106 @@ func RunWithMouse[M any, T any](
         }
 
         // 5. Dispatch buffered input bytes — mouse, keys, resize — through
-        //    ParseInput so mouse packets take their dedicated path.
-        val exitNow = processInputBytes(program, &model, &pending, rr.Buf, rr.N, makeInputMsg)
+        //    ParseInput. Left-clicks first consult the HitRegistry so
+        //    Clickable/ClickableRows widgets fire automatically; only
+        //    clicks that miss every registered widget reach the user's
+        //    `makeInputMsg`.
+        val exitNow = processInputBytesWithHits(
+            program, &model, &pending, rr.Buf, rr.N, makeInputMsg, hits,
+        )
         if exitNow {
             return model
         }
 
-        prevFrame = paintFrameDiff(program.View(model), prevFrame)
+        prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
     }
     return model
+}
+
+// processInputBytesWithHits is `processInputBytes` plus widget-owned
+// click dispatch. For every parsed left-click event, it first looks up
+// `hits.HitAt(x, y)`: if a widget has registered itself there, its
+// payload is cast to `T` and dispatched directly — apps don't write any
+// click-handling code. Misses (and all non-click events) fall through
+// to the user's `makeInputMsg`.
+func processInputBytesWithHits[M any, T any](
+    program Program[M, T],
+    model *M,
+    pending *Array[concurrent.Future[T]],
+    buf []byte,
+    n int,
+    makeInputMsg func(InputEvent) T,
+    hits *HitRegistry,
+) bool {
+    var consumed = 0
+    for consumed < n {
+        val (ev, c) = ParseInput(Slice(buf, consumed, n))
+        if c == 0 {
+            return false
+        }
+        consumed = consumed + c
+
+        if isForcedQuit(ev) {
+            return true
+        }
+
+        val msg = ResolveClickOrInput[T](ev, hits, makeInputMsg)
+        val (newModel, cmd) = program.Update(*model, msg)
+        *model = newModel
+        if IsQuit(cmd) {
+            return true
+        }
+        *pending = pending.AppendAll(PendingFutures(cmd))
+
+        val emitted = PendingMsgs(cmd)
+        var i = 0
+        for i < emitted.Length() {
+            val (nm, nc) = program.Update(*model, emitted.Get(i))
+            *model = nm
+            if IsQuit(nc) {
+                return true
+            }
+            *pending = pending.AppendAll(PendingFutures(nc))
+            i = i + 1
+        }
+    }
+    return false
+}
+
+// ResolveClickOrInput resolves a left-click against the HitRegistry,
+// falling back to `makeInputMsg` for misses and non-click events. The
+// payload-to-Msg cast is a runtime type assertion: it succeeds because
+// every payload was a `T` at the point `Clickable[T](inner, msg)` was
+// constructed; on the off chance the cast fails (e.g., misuse from a
+// custom widget), we degrade to the user adapter rather than panic.
+//
+// Exported so the test harness can mirror the runtime's click-dispatch
+// semantics — same "widgets own their hits" contract whether you're in
+// production or in a unit test.
+func ResolveClickOrInput[T any](
+    ev InputEvent,
+    hits *HitRegistry,
+    fallback func(InputEvent) T,
+) T {
+    return ev match {
+        case MouseInput(m) => {
+            if !m.Pressed { return fallback(ev) }
+            val isLeft = m.Btn match {
+                case MouseLeft() => true
+                case _           => false
+            }
+            if !isLeft { return fallback(ev) }
+            val opt = hits.HitAt(m.X, m.Y)
+            return opt match {
+                case Some(payload) => payload match {
+                    case msg: T => msg
+                    case _      => fallback(ev)
+                }
+                case None() => fallback(ev)
+            }
+        }
+        case _ => fallback(ev)
+    }
 }
 
 // processInputBytes is the InputEvent analogue of processKeyBytes. It walks
@@ -612,10 +707,23 @@ func paintFrame(w Widget) {
 // This is what keeps the wire traffic down when only a spinner frame or a
 // highlighted row moves: typical diff is 80–200 bytes versus a few KB for a
 // full repaint.
-func paintFrameDiff(w Widget, prev *Buffer) *Buffer {
+func paintFrameDiff(w Widget, prev *Buffer) *Buffer =
+    paintFrameDiffWithHits(w, prev, nil)
+
+// paintFrameDiffWithHits is the hit-aware variant used by `RunWithMouse`:
+// before painting it resets `hits`, then renders through the hit-aware
+// renderer so any `Clickable` / `ClickableRows` widgets in `w` register
+// their actual rendered rectangles. The runtime keeps the registry across
+// frames and consults it on every mouse click.
+//
+// Pass `nil` for `hits` to mirror the plain `paintFrameDiff` shape.
+func paintFrameDiffWithHits(w Widget, prev *Buffer, hits *HitRegistry) *Buffer {
     val (width, height) = TermSize()
     val buf = NewBuffer(width, height)
-    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
+    if hits != nil {
+        hits.Reset()
+    }
+    RenderToWithHits(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf, hits)
     fmt.Fprint(os.Stdout, buf.DiffString(prev))
     return buf
 }

@@ -98,6 +98,41 @@ func (cm ClickMap[T]) AtRows(
     return out
 }
 
+// When conditionally extends the map: if `cond` is true, the closure
+// is invoked with the current map and its result becomes the new map;
+// otherwise the map is returned unchanged.
+//
+// Use this to gate hit regions on widget visibility — clicks should
+// only fire on widgets that are *actually* on screen. Without this,
+// every app writes the same imperative pattern by hand:
+//
+//     var cm = state.NewClickMap[Msg]()
+//     if sidebarVisible {
+//         cm = cm.AtRows(0, 5, 28, 4, 1, (i) => OnSidebar(Idx = i))
+//     }
+//     if !anyModalOpen {
+//         cm = cm.At(0, 0, 30, 1, headerClick)
+//     }
+//
+// With `When`, the same wiring stays declarative and chainable:
+//
+//     state.NewClickMap[Msg]()
+//         .When(sidebarVisible, (cm) =>
+//             cm.AtRows(0, 5, 28, 4, 1, (i) => OnSidebar(Idx = i)))
+//         .When(!anyModalOpen,  (cm) =>
+//             cm.At(0, 0, 30, 1, headerClick))
+//         .HitOr(x, y, NoOp())
+//
+// The closure is only invoked when `cond` is true, so building the
+// inner regions has no cost when the gate is closed.
+func (cm ClickMap[T]) When(
+    cond bool,
+    build func(ClickMap[T]) ClickMap[T],
+) ClickMap[T] {
+    if !cond { return cm }
+    return build(cm)
+}
+
 // HitMsg returns the message for the first region whose rectangle
 // contains `(px, py)`, or None if no region matches. Coordinates are
 // terminal-cell, 0-indexed (the same coordinate space MouseEvent uses).
