@@ -468,12 +468,10 @@ val nav = ui.SelectListOfPick[Msg](
 
 `SelectListOfPick` (and its siblings `SelectListPick`,
 `DataTableViewClick`, `TreeFocusedClick`, `MenuViewClick`,
-`TabsClick`, `ButtonClick`, `DropdownViewClick`) wrap the widget
-internally with `ClickableRows[T]` / `Clickable[T]` so each row
-registers its actual rendered rectangle with the runtime's
-`HitRegistry`. On a left-click the runtime queries the registry
-*first* and dispatches the matching row's payload before the
-user's `inputToMsg` ever runs.
+`TabsClick`, `ButtonClick`, `DropdownViewClick`) register each row's
+actual rendered rectangle with the runtime's `HitRegistry`. On a
+left-click the runtime queries the registry *first* and dispatches
+the matching row's payload before the user's `inputToMsg` ever runs.
 
 Pair it with the "click = select + Enter" pattern from the demo:
 
@@ -488,9 +486,9 @@ sidebar would render — while a different screen is active — is
 inert by construction. No manual gating required.
 
 For widgets the framework doesn't ship (or for click contracts the
-built-in `*Click` siblings don't cover) reach for the underlying
-`Clickable[T]` and `ClickableRows[T]` primitives directly. See the
-next section for the full author-your-own-widget recipe.
+built-in `*Click` siblings don't cover), attach a click directly with
+the fluent `.OnClick` / `.OnPickRow` methods — see the next section
+for the full author-your-own-widget recipe.
 
 ## Author your own widget with its own events
 
@@ -499,9 +497,10 @@ The framework's interactive widgets — `Button`, `SelectList`, `Tabs`,
 click-aware sibling (`ButtonClick`, `SelectListPick`, `TabsClick`,
 `DataTableViewClick`, `MenuViewClick`, `TreeFocusedClick`,
 `DropdownViewClick`) that bakes the click contract into the
-constructor. Same pattern works for widgets you author yourself: pass
-a typed callback and wrap internally with `Clickable[T]` /
-`ClickableRows[T]`. Users of your widget never see the wrap.
+constructor. Same pattern works for widgets you author yourself:
+take a typed callback as a parameter and attach it inside the widget
+with `.OnClick(msg)` (whole-area click) or `.OnPickRow(count, fn)`
+(per-row click). Callers compose your widget like a built-in.
 
 Example — a "rating" widget that exposes a single `OnSet(score)`
 event. Each star is a clickable cell; clicking the third star
@@ -516,14 +515,20 @@ func RatingView[T any](
 ) Widget {
     val cells = arrayRange(1, r.Max + 1).Map((score) => {
         val glyph = if (score <= r.Score) "★" else "☆"
-        val cell  = TextStyled(" " + glyph + " ", DefaultStyle())
-        // Bake the per-star click into the widget itself — caller
-        // never wraps with Clickable.
-        return Fixed(3, Clickable[T](cell, OnSet(score)))
+        // .OnClick attaches the per-star click contract — fluent
+        // method, type inferred from the message.
+        return Fixed(3, TextStyled(" " + glyph + " ", DefaultStyle())
+            .OnClick(OnSet(score)))
     })
     return Row(cells)
 }
 ```
+
+Available fluent click attachers:
+
+- `widget.OnClick(msg)` — whole rendered area is a single hit
+- `widget.OnPickRow(count, (i) => msg)` — N stacked rows, click row i fires msg(i)
+- `widget.OnPickRowH(count, rowH, (i) => msg)` — same but with custom row height
 
 Call site:
 
@@ -547,9 +552,9 @@ func KanbanView[T any](
 ) Widget = ...
 ```
 
-Each event becomes a constructor parameter, the widget assembles its
-inner tree with `Clickable*` wraps where appropriate, and every call
-site stays a single non-nested expression.
+Each event becomes a constructor parameter, the widget attaches it
+to the right inner sub-region via `.OnClick` / `.OnPickRow`, and
+every call site stays a single non-nested expression.
 
 ### When to reach for `Custom`
 

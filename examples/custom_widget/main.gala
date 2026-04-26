@@ -18,8 +18,9 @@ import (
 // model field, so the rating reflects whichever path the user took.
 //
 // The takeaway: a user-authored widget defines its own constructor that
-// takes typed callbacks and wraps each interactive sub-region with the
-// framework's `Clickable[T]` primitive. Call sites never see the wrap.
+// takes typed callbacks and attaches them to interactive sub-regions
+// with the fluent `.OnClick(msg)` method. Call sites read the widget
+// like a built-in.
 //
 // All Msg cases use the `Cw` prefix because dot-importing gala-tui pulls
 // in sealed-type case constructors (`NoOp`, `Quit`, `Up`, `Down`, …)
@@ -39,12 +40,12 @@ sealed type Msg {
 // ----- The user-authored widget --------------------------------------------
 
 // RatingView renders `r.Score` filled stars followed by `r.Max - r.Score`
-// empty stars. Each star is a clickable cell whose click dispatches
-// `OnSet(starIndex + 1)` — i.e. clicking the third star sets Score to 3.
+// empty stars. Each star fires `OnSet(starIndex + 1)` on click — i.e.,
+// clicking the third star sets Score to 3.
 //
-// The constructor's callback parameter `OnSet` is the entire event
-// contract. Users of this widget never deal with `Clickable[T]` — that
-// wrap is an internal detail.
+// The constructor's `OnSet` parameter is the entire event contract.
+// Each cell uses the fluent `.OnClick(msg)` method to attach its click
+// payload — no wrapper widgets visible in the call shape.
 func RatingView[T any](
     r Model,
     OnSet func(int) T,
@@ -59,11 +60,7 @@ func RatingView[T any](
             DefaultStyle().WithBold().WithFg(BrightYellow())
         else
             DefaultStyle().WithDim()
-        // Bake the per-star click into the cell — caller never wraps.
-        val cell = Clickable[T](
-            TextStyled(" " + glyph + " ", style),
-            OnSet(star),
-        )
+        val cell = TextStyled(" " + glyph + " ", style).OnClick(OnSet(star))
         cells = cells.Append(Fixed(3, cell))
         i = i + 1
     }

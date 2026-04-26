@@ -22,6 +22,34 @@ import (
 // to the same AST. Picks whichever form reads better at the call site.
 // ============================================================================
 
+// OnClick attaches a click contract to the widget: a left-click anywhere
+// on its rendered area dispatches `msg`. Equivalent to
+// `Clickable[T](w, msg)`, but reads as a single chained method —
+// preferred when authoring custom widgets that want their inner cells
+// to fire typed messages.
+//
+//     val cell = TextStyled(label, style).OnClick(OnPicked(Idx = i))
+//
+// `T` is inferred from `msg` — no explicit type parameter at the call
+// site.
+func (w Widget) OnClick[T any](msg T) Widget = Clickable[T](w, msg)
+
+// OnPickRow attaches a per-row click contract: the widget's rendered
+// area is sliced into `count` rows of height 1 and row `i` dispatches
+// `msgFor(i)` on click. Equivalent to
+// `ClickableRows[T](w, count, 1, msgFor)`.
+//
+//     val list = SelectList(items, sel, focused)
+//         .OnPickRow(items.Length(), (i) => Pick(Idx = i))
+func (w Widget) OnPickRow[T any](count int, msgFor func(int) T) Widget =
+    ClickableRows[T](w, count, 1, msgFor)
+
+// OnPickRowH is `OnPickRow` with an explicit per-row height — for
+// widgets where each row spans more than one cell (e.g., a grid with
+// padded entries). Equivalent to `ClickableRows[T](w, count, rowH, msgFor)`.
+func (w Widget) OnPickRowH[T any](count int, rowH int, msgFor func(int) T) Widget =
+    ClickableRows[T](w, count, rowH, msgFor)
+
 // Padded wraps the widget in equal-margin Padding.
 func (w Widget) Padded(n int) Widget = Padding(n, w)
 

@@ -199,8 +199,8 @@ the full demo:
 - [`examples/custom_widget/`](examples/custom_widget/main.gala) — author
   your own widget (a clickable star-rating row) with its own event
   vocabulary. Shows the recommended composition pattern: take typed
-  callbacks, wrap internally with `Clickable[T]`, callers never see the
-  wrap.
+  callbacks, attach them to inner widgets via the fluent `.OnClick(msg)`
+  method, callers compose the result like a built-in.
 
 ## Status
 

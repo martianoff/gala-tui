@@ -318,31 +318,21 @@ func ScrollbarStyled(total int, visible int, offset int, style Style) Widget =
 func Custom(minW int, minH int, render func(Rect, *Buffer, *HitRegistry)) Widget =
     CustomW(MinW = minW, MinH = minH, Render = render)
 
-// Clickable wraps `inner` so that a left-click anywhere in its rendered
-// area dispatches `msg`. Useful for buttons, header bars, modal
-// backdrops, and any single-target click region.
+// Clickable is the low-level click-wrapping primitive — included
+// here as a building block. Prefer the fluent `widget.OnClick(msg)`
+// method (defined in fluent.gala) at call sites; it produces the
+// same widget tree but reads as a single chained method.
 //
-//     val quitBtn = Clickable[Msg](Text("[ quit ]"), Quit())
-//
-// The whole rendered area becomes the hit region; if you only want a
-// sub-rectangle to be clickable, wrap that sub-rectangle (e.g.,
-// `Clickable(Padding(0, 1, 0, 1, label), msg)`).
+// Likewise, prefer the click-aware widget constructors (`ButtonClick`,
+// `SelectListPick`, `DataTableViewClick`, …) when wrapping a built-in
+// interactive widget.
 func Clickable[T any](inner Widget, msg T) Widget =
     ClickableW(Inner = inner, Payload = msg)
 
-// ClickableRows wraps `inner` (typically a list / menu / table) and
-// registers `count` row-shaped hit regions stacked vertically inside
-// the rendered area. Row `i` dispatches `msgFor(i)` on left-click.
-//
-//     val sidebar = ClickableRows[Msg](
-//         SelectListOf(items, sel, focused),
-//         items.Length(), 1,
-//         (i) => OnSidebar(Idx = i),
-//     )
-//
-// `rowH` is the per-row height in cells (usually 1). Rows that fall
-// outside the rendered area are silently skipped — safe to pass a
-// `count` larger than what fits.
+// ClickableRows is the low-level per-row click-wrapping primitive.
+// Prefer the fluent `widget.OnPickRow(count, msgFor)` method at call
+// sites, or one of the click-aware sibling constructors above when
+// wrapping a built-in list / menu / tree.
 func ClickableRows[T any](
     inner Widget,
     count int,
