@@ -11,7 +11,7 @@ on:
 # the next tag — when CI is red after a workaround removal, the gating
 # release is coming.
 env:
-  GALA_VERSION: "0.35.1"
+  GALA_VERSION: "0.35.2"
 
 jobs:
   test:
