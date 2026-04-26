@@ -91,6 +91,19 @@ func TestKeyMatchesAdHoc(t T) T {
     return IsFalse(t1, KeyMatches(PlainKey(Char('c')), "ctrl+c"))
 }
 
+// KeyMatchesAny — single-call OR over several specs.
+func TestKeyMatchesAnyHitsFirst(t T) T =
+    IsTrue(t, KeyMatchesAny(Ctrl(Char('c')), "ctrl+c", "q", "esc"))
+
+func TestKeyMatchesAnyHitsLast(t T) T =
+    IsTrue(t, KeyMatchesAny(PlainKey(Esc()), "ctrl+c", "q", "esc"))
+
+func TestKeyMatchesAnyMisses(t T) T =
+    IsFalse(t, KeyMatchesAny(PlainKey(Char('a')), "ctrl+c", "q", "esc"))
+
+func TestKeyMatchesAnyEmptySpecsReturnsFalse(t T) T =
+    IsFalse(t, KeyMatchesAny(PlainKey(Char('a'))))
+
 func TestKeyBindMakeReceivesEvent(t T) T {
     val b = KeyBindMake[KsMsg]("enter", (ev) => KSomething())
     return IsTrue(t, b.Match(PlainKey(Enter())))

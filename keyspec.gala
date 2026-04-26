@@ -133,6 +133,23 @@ func KeyBindMake[T any](spec string, make func(KeyEvent) T) KeyBinding[T] {
 func KeyMatches(ev KeyEvent, spec string) bool =
     ParseKeySpec(spec).Matches(ev)
 
+// KeyMatchesAny returns true if `ev` matches any of the supplied specs.
+// Saves the chained `if KeyMatches(ev, "esc") || KeyMatches(ev, "q") || ...`
+// pattern that comes up whenever a single action has several aliases:
+//
+//     if KeyMatchesAny(ev, "ctrl+c", "q", "esc") { return Quit() }
+func KeyMatchesAny(ev KeyEvent, specs ...string) bool {
+    var i = 0
+    val n = len(specs)
+    for i < n {
+        if KeyMatches(ev, specs[i]) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 // ----------------------------------------------------------------------------
 // Internals.
 // ----------------------------------------------------------------------------
