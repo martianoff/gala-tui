@@ -80,11 +80,12 @@ func keyToMsg(ev KeyEvent) Msg {
     }
 }
 
-func charToMsg(c rune) Msg {
-    if c == '+' || c == '=' { return Inc() }   // most keyboards put + on shift
-    if c == '-'             { return Dec() }
-    if c == 'q'             { return Quit() }
-    return Inc()
+func charToMsg(c rune) Msg = c match {
+    case '+' => Inc()       // most keyboards put + on shift
+    case '=' => Inc()
+    case '-' => Dec()
+    case 'q' => Quit()
+    case _   => Inc()
 }
 
 // ----- main ------------------------------------------------------------------
@@ -476,18 +477,12 @@ func arrowByFocus(m Model, delta int) Model =
 
 func moveSidebar(m Model, delta int) Model {
     val n = m.Contacts.Length()
-    var next = m.Sel + delta
-    if next < 0  { next = 0 }
-    if next >= n { next = n - 1 }
+    val next = clampInt(m.Sel + delta, 0, n - 1)
     return m.Copy(Sel = next, DetailLn = 0)  // reset detail cursor on switch
 }
 
-func moveDetails(m Model, delta int) Model {
-    var next = m.DetailLn + delta
-    if next < 0  { next = 0 }
-    if next > 2  { next = 2 }
-    return m.Copy(DetailLn = next)
-}
+func moveDetails(m Model, delta int) Model =
+    m.Copy(DetailLn = clampInt(m.DetailLn + delta, 0, 2))
 
 // ----- View -----------------------------------------------------------------
 
@@ -545,9 +540,9 @@ func keyToMsg(ev KeyEvent) Msg {
     }
 }
 
-func charToMsg(c rune) Msg {
-    if c == 'q' { return Quit() }
-    return NoOp()
+func charToMsg(c rune) Msg = c match {
+    case 'q' => Quit()
+    case _   => NoOp()
 }
 
 // ----- main -----------------------------------------------------------------

@@ -135,11 +135,10 @@ func view(m Model) Widget {
     return ScrollableViewport(full, m.Top, m.Items.Length())
 }
 
-func scrollToShow(sel int, top int, rows int) int {
-    if sel < top                 { return sel }
-    if sel >= top + rows         { return sel - rows + 1 }
-    return top
-}
+func scrollToShow(sel int, top int, rows int) int =
+    if (sel < top) sel
+    else if (sel >= top + rows) sel - rows + 1
+    else top
 ```
 
 For very large lists (>10k items), don't pass them all into
