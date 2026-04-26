@@ -65,9 +65,7 @@ func LineChartRows(values Array[int], bounds LineChartBounds, rows int) Array[st
     val hi = bounds.Max
     val span = maxInt(1, hi - lo)
     val total = rows * 8                          // eighths per column
-    var out = EmptyArray[string]()
-    var y = 0
-    for y < rows {
+    return ArrayTabulate(rows, (y) => {
         // `y = 0` is the top row (height = rows); we convert to a "band
         // threshold" in eighths where `topEighths` is the upper edge of the
         // row and `bottomEighths` the lower edge.
@@ -92,10 +90,8 @@ func LineChartRows(values Array[int], bounds LineChartBounds, rows int) Array[st
             }
             i = i + 1
         }
-        out = out.Append(line)
-        y = y + 1
-    }
-    return out
+        return line
+    })
 }
 
 // chartGlyph picks a partial-block glyph for an eighths-of-cell value.
@@ -174,15 +170,10 @@ func MultiLineChartAtHeight(series Array[Array[int]], styles Array[Style], rows 
     // Build each layer as its own LineChart and stack them. StackWidget
     // draws layers in order; last-drawn wins. The effect: every series is
     // visible except where one overwrites another.
-    var layers = EmptyArray[Widget]()
-    var i = 0
-    val n = series.Length()
-    for i < n {
-        val s = series.Get(i)
-        val style = if (i < styles.Length()) styles.Get(i) else defaultSeriesStyle(i)
-        layers = layers.Append(LineChartAtHeight(s, style, bounds, rows))
-        i = i + 1
-    }
+    val layers = series.ZipWithIndex().Map((p) => {
+        val style = if (p.V2 < styles.Length()) styles.Get(p.V2) else defaultSeriesStyle(p.V2)
+        return LineChartAtHeight(p.V1, style, bounds, rows)
+    })
     return Stack(layers)
 }
 
