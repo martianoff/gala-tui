@@ -1,0 +1,134 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Compact widgets — small composable building blocks for chrome (headers,
+// footers, status bars). Each is a thin wrapper over Text/Row primitives,
+// but pulled out as a named widget so apps don't re-derive the formatting
+// every time.
+//
+//   Breadcrumb  — "Home › Settings › Profile" trail with consistent style
+//   Tag         — colored "[Beta]" pill
+//   KeyHint     — "[Ctrl+P]" inline keybind label
+//
+// All return plain Widgets and compose with everything else. None require
+// state.
+// ============================================================================
+
+// Breadcrumb renders an Array of segment names joined with `separator`
+// (default "›"). The active (last) segment is bright; earlier segments
+// are dim. Use in headers when the user has navigated through nested
+// screens — `parts = ArrayOf("App", "Builds", "#4211")`.
+//
+// Empty input renders an empty string (caller decides spacing).
+func Breadcrumb(parts Array[string], separator string = " › ") Widget =
+    BreadcrumbStyled(
+        parts,
+        separator,
+        DefaultStyle().WithDim(),
+        DefaultStyle().WithBold().WithFg(BrightCyan()),
+    )
+
+// BreadcrumbStyled lets the caller pick the per-segment styles.
+// `inactive` paints all segments except the last; `active` paints
+// the last segment (and the only segment, if there's just one).
+func BreadcrumbStyled(
+    parts Array[string],
+    separator string,
+    inactive Style,
+    active Style,
+) Widget {
+    val n = parts.Length()
+    if n == 0 { return Empty() }
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    for i < n {
+        val seg = parts.Get(i)
+        val isLast = i == n - 1
+        val style = if (isLast) active else inactive
+        val text = TextStyled(seg, style)
+        cells = cells.Append(Fixed(RuneCount(seg), text))
+        if !isLast {
+            val sep = TextStyled(separator, inactive)
+            cells = cells.Append(Fixed(RuneCount(separator), sep))
+        }
+        i = i + 1
+    }
+    cells = cells.Append(Flex(1, Empty()))   // trailing flex absorbs slack
+    return Row(cells)
+}
+
+// Tag renders a colored "[label]" pill — small inline status badge.
+// Common uses: "[Beta]" next to a section title, "[v2]" version chip,
+// "[Failed]" status indicator.
+//
+//     Tag("Beta", BrightYellow())             // dim brackets, bright label
+//     Tag("Failed", BrightRed())              // for errors / red states
+//
+// Renders as " label " (single-space-padded) styled with reverse + the
+// chosen colour, so it pops on any background.
+func Tag(label string, color Color) Widget =
+    TextStyled(" " + label + " ",
+        DefaultStyle().WithReverse().WithBold().WithFg(color))
+
+// TagPlain is `Tag` without reverse — flat label with a coloured fg.
+// Use when reverse-on-status-row would conflict with the row highlight.
+func TagPlain(label string, color Color) Widget =
+    TextStyled("[" + label + "]",
+        DefaultStyle().WithBold().WithFg(color))
+
+// KeyHint renders an inline keybinding label like "[Ctrl+P palette]"
+// with the spec in bright + the description dim. Common in footer
+// status rows: "Ctrl-P palette · Tab cycle · q quit".
+//
+//     KeyHint("Ctrl+P", "palette")
+//     KeyHint("Tab", "cycle focus")
+//
+// Returns a plain widget; compose with `Row` to assemble the strip.
+func KeyHint(spec string, description string) Widget {
+    val specCell = TextStyled(spec,
+        DefaultStyle().WithBold().WithFg(BrightCyan()))
+    val descCell = TextStyled(" " + description,
+        DefaultStyle().WithDim())
+    return Row(ArrayOf[LayoutChild](
+        Fixed(RuneCount(spec), specCell),
+        Fixed(RuneCount(" " + description), descCell),
+    ))
+}
+
+// KeyHintRow joins multiple KeyHint pairs with " · " separators —
+// the canonical bottom-of-screen "shortcut strip". Pass alternating
+// (spec, description) pairs; odd lengths render the last spec alone.
+//
+//     KeyHintRow(ArrayOf("Ctrl+P", "palette", "Tab", "cycle", "q", "quit"))
+func KeyHintRow(pairs Array[string]) Widget {
+    val n = pairs.Length()
+    if n == 0 { return Empty() }
+    var cells = EmptyArray[LayoutChild]()
+    var i = 0
+    for i + 1 < n {
+        val spec = pairs.Get(i)
+        val desc = pairs.Get(i + 1)
+        val hint = KeyHint(spec, desc)
+        cells = cells.Append(Fixed(RuneCount(spec) + RuneCount(desc) + 1, hint))
+        if i + 2 < n {
+            val sep = TextStyled(" · ", DefaultStyle().WithDim())
+            cells = cells.Append(Fixed(3, sep))
+        }
+        i = i + 2
+    }
+    // Odd-length: render the last spec alone with no description.
+    if i < n {
+        val spec = pairs.Get(i)
+        val sep = TextStyled(" · ", DefaultStyle().WithDim())
+        val tail = TextStyled(spec,
+            DefaultStyle().WithBold().WithFg(BrightCyan()))
+        cells = cells.Append(Fixed(3, sep))
+        cells = cells.Append(Fixed(RuneCount(spec), tail))
+    }
+    cells = cells.Append(Flex(1, Empty()))
+    return Row(cells)
+}

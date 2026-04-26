@@ -329,6 +329,11 @@ func RunFull[M any, T any](
     }
     defer term.Restore(fd, state)
 
+    // Windows: enable ENABLE_VIRTUAL_TERMINAL_INPUT so the ANSI mouse
+    // sequences below actually take effect on conhost / PowerShell. No-op
+    // on Linux / macOS.
+    val _ = EnableVTInput()
+
     fmt.Fprint(os.Stdout, ansiAltScreenOn())
     fmt.Fprint(os.Stdout, ansiCursorHide())
     fmt.Fprint(os.Stdout, ansiMouseOn())
