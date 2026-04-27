@@ -1,0 +1,149 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// IntrinsicHeightAt — width-aware row count for any Widget tree.
+//
+// The contract under test: `IntrinsicHeightAt(w, width)` returns the EXACT
+// row count `w` will occupy when rendered into a column of the given
+// `width`. The two scenarios this guards against:
+//
+//   1. ParagraphW wrap math. A long paragraph reports 1 row from the
+//      width-blind `defaultRenderHeight`; the width-aware variant must
+//      count wrapped lines so callers like ConversationLog don't
+//      undercount and clip the body.
+//
+//   2. Composition: BorderWidget adds 2, PaddingWidget adds top+bottom,
+//      ColumnWidget sums Fixed children, AlignWidget reports its
+//      declared height regardless of inner — every primitive must
+//      compose correctly.
+// ============================================================================
+
+func TestIntrinsicHeightEmptyIsZero(t T) T =
+    Eq(t, IntrinsicHeightAt(Empty(), 80), 0)
+
+func TestIntrinsicHeightTextIsOne(t T) T =
+    Eq(t, IntrinsicHeightAt(Text("hello"), 80), 1)
+
+func TestIntrinsicHeightFillIsOne(t T) T =
+    Eq(t, IntrinsicHeightAt(FillCh(' '), 80), 1)
+
+// Paragraph: short content fits in 1 row, long content wraps to N rows.
+func TestIntrinsicHeightParagraphShortFitsOneRow(t T) T =
+    Eq(t, IntrinsicHeightAt(Paragraph("hello world"), 80), 1)
+
+func TestIntrinsicHeightParagraphLongWrapsAtNarrowWidth(t T) T {
+    val p = Paragraph("the quick brown fox jumps over the lazy dog twice")
+    val wrapped = WrapParagraph("the quick brown fox jumps over the lazy dog twice", 20)
+    return Eq(t, IntrinsicHeightAt(p, 20), wrapped.Length())
+}
+
+func TestIntrinsicHeightParagraphRespectsExplicitNewlines(t T) T {
+    val p = Paragraph("alpha\nbeta\ngamma")
+    return Eq(t, IntrinsicHeightAt(p, 80), 3)
+}
+
+// Border adds 2 rows (top + bottom edges).
+func TestIntrinsicHeightBorderAddsTwoRows(t T) T {
+    val w = BorderOf(Text("hi"), SingleBorder())
+    return Eq(t, IntrinsicHeightAt(w, 10), 3)        // 1 + 2 frame
+}
+
+// Padding adds top + bottom rows; width passed inward shrinks by l + r.
+// PaddingHV(v, h, inner) — v applies top AND bottom; h applies left AND right.
+func TestIntrinsicHeightPaddingAddsRows(t T) T {
+    val w = PaddingHV(1, 0, Text("hi"))               // v=1 → top+bottom = 2 rows
+    return Eq(t, IntrinsicHeightAt(w, 10), 3)         // 1 + 2 padding
+}
+
+func TestIntrinsicHeightPaddingShrinksWidthForWrap(t T) T {
+    val inner = Paragraph("the quick brown fox jumps over the lazy dog twice")
+    val padded = PaddingHV(0, 5, inner)               // h=5 → left+right = 10 cols
+    val expected = WrapParagraph("the quick brown fox jumps over the lazy dog twice", 20).Length()
+    return Eq(t, IntrinsicHeightAt(padded, 30), expected)
+}
+
+// Column: sum of Fixed children's declared heights, irrespective of width.
+func TestIntrinsicHeightColumnSumsFixedChildren(t T) T {
+    val col = Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("a")),
+        Fixed(2, Text("b")),
+        Fixed(3, Text("c")),
+    ))
+    return Eq(t, IntrinsicHeightAt(col, 80), 6)
+}
+
+// Column with a wrapping paragraph in a Flex child: width is honored.
+func TestIntrinsicHeightColumnWithWrappingFlexUsesWidth(t T) T {
+    val col = Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("header")),
+        Flex(1, Paragraph("the quick brown fox jumps over the lazy dog twice")),
+        Fixed(1, Text("footer")),
+    ))
+    val expected = 1 + WrapParagraph("the quick brown fox jumps over the lazy dog twice", 20).Length() + 1
+    return Eq(t, IntrinsicHeightAt(col, 20), expected)
+}
+
+// Stack: max of layer heights.
+func TestIntrinsicHeightStackTakesMax(t T) T {
+    val s = Stack(ArrayOf[Widget](Text("a"), BorderOf(Text("b"), SingleBorder())))
+    return Eq(t, IntrinsicHeightAt(s, 10), 3)
+}
+
+// Overlay: max of bottom and top.
+func TestIntrinsicHeightOverlayTakesMax(t T) T {
+    val o = Overlay(BorderOf(Text("a"), SingleBorder()), Text("b"))
+    return Eq(t, IntrinsicHeightAt(o, 10), 3)
+}
+
+// Align: reports its declared ChildH directly.
+func TestIntrinsicHeightAlignUsesChildH(t T) T {
+    val w = AlignWidget(Inner = Text("hi"), Horiz = AlignCenter(), ChildW = 10, ChildH = 5)
+    return Eq(t, IntrinsicHeightAt(w, 80), 5)
+}
+
+// Viewport: reports its ContentHeight (what it'll render into its slot).
+func TestIntrinsicHeightViewportReportsContentHeight(t T) T {
+    val v = ViewportW(Inner = Text("hi"), Offset = 0, ContentHeight = 7)
+    return Eq(t, IntrinsicHeightAt(v, 10), 7)
+}
+
+// Click wrappers are pass-throughs.
+func TestIntrinsicHeightClickableWrapperTransparent(t T) T {
+    val inner = BorderOf(Text("hi"), SingleBorder())
+    return Eq(t, IntrinsicHeightAt(inner.OnClick(0), 10), IntrinsicHeightAt(inner, 10))
+}
+
+func TestIntrinsicHeightDoubleClickableTransparent(t T) T {
+    val inner = BorderOf(Text("hi"), SingleBorder())
+    return Eq(t, IntrinsicHeightAt(inner.OnDoubleClick(0), 10), IntrinsicHeightAt(inner, 10))
+}
+
+// Width too small clamps to 1 internally so we never divide by zero or
+// underflow inside WrapParagraph.
+func TestIntrinsicHeightHandlesZeroWidthGracefully(t T) T {
+    val p = Paragraph("anything")
+    val h = IntrinsicHeightAt(p, 0)
+    return IsTrue(t, h >= 1)
+}
+
+// MinLen LayoutChild: at least N rows, but prefers inner intrinsic when
+// it's larger. Built directly since there's no shorthand constructor.
+func TestIntrinsicHeightMinLenChildHonoursLowerBound(t T) T {
+    val col = Column(ArrayOf[LayoutChild](
+        LayoutChild(Widget = Text("hi"), Constraint = MinLen(N = 5)),
+    ))
+    return Eq(t, IntrinsicHeightAt(col, 80), 5)
+}
+
+func TestIntrinsicHeightMinLenChildHonoursTallerInner(t T) T {
+    val col = Column(ArrayOf[LayoutChild](
+        LayoutChild(Widget = BorderOf(Text("hi"), SingleBorder()), Constraint = MinLen(N = 2)),
+    ))
+    return Eq(t, IntrinsicHeightAt(col, 80), 3)             // inner wants 3
+}

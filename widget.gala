@@ -975,6 +975,77 @@ func defaultRenderHeight(w Widget) int {
     }
 }
 
+// IntrinsicHeightAt is the width-aware counterpart of
+// `defaultRenderHeight`. It returns the EXACT row count `w` will occupy
+// when rendered into a column of the given `width` — accounting for
+// `ParagraphW`'s wrap, `BorderWidget`'s frame, `PaddingWidget`'s
+// padding, and `ColumnWidget`'s summing of `Fixed` children.
+//
+// This is the foundation primitive callers like `ConversationLog` need
+// when storing a pre-computed `Height` next to a `Widget`: tell us the
+// width you'll lay it out at and we'll tell you how many rows to
+// allocate. If `Height` and the actual render diverge, partial-clip
+// math drifts and tall content gets truncated.
+//
+// Caveats / current scope:
+//   - `RowWidget` falls back to `defaultRenderHeight` (max child
+//     height). The proper answer requires running the layout solver
+//     to know each child's allocated width — we don't do that here.
+//   - `Flex`/`Percent` layout-children inside a Column are treated as
+//     their inner widget's intrinsic height (they have no intrinsic
+//     row count of their own). In practice the natural use case is a
+//     Column of `Fixed`s, where this method is exact.
+//   - `ViewportW` reports `ContentHeight` (what it WILL render once
+//     given its full slot). The default-render variant returns 1
+//     because viewport's actual painted height is whatever slot it
+//     gets — you almost always pair it with `Fixed(N, ViewportW(...))`.
+func IntrinsicHeightAt(w Widget, width int) int {
+    return w match {
+        case EmptyWidget()                     => 0
+        case TextWidget(_, _)                  => 1
+        case FillWidget(_, _)                  => 1
+        case BorderWidget(inner, _)            =>
+            IntrinsicHeightAt(inner, MaxInt(0, width - 2)) + 2
+        case PaddingWidget(t, r, b, l, inner)  =>
+            IntrinsicHeightAt(inner, MaxInt(0, width - r - l)) + t + b
+        case AlignWidget(_, _, _, ch)          => ch
+        case OverlayWidget(bottom, top)        =>
+            MaxInt(IntrinsicHeightAt(bottom, width), IntrinsicHeightAt(top, width))
+        case RowWidget(_)                      => defaultRenderHeight(w)
+        case ColumnWidget(children)            =>
+            children.FoldLeft(0, (acc, c) => acc + intrinsicChildHeight(c, width))
+        case StackWidget(layers)               =>
+            layers.FoldLeft(0, (acc, l) => MaxInt(acc, IntrinsicHeightAt(l, width)))
+        case ListW(items, _, _)                => MaxInt(1, items.Length())
+        case InputW(_, _, _, _, _)             => 1
+        case ProgressW(_, _)                   => 1
+        case GaugeW(_, _)                      => 1
+        case SpinnerW(_, _, _)                 => 1
+        case ButtonW(_, _, _)                  => 1
+        case ParagraphW(content, _)            =>
+            MaxInt(1, WrapParagraph(content, MaxInt(1, width)).Length())
+        case ViewportW(_, _, contentHeight)    => contentHeight
+        case ScrollbarW(_, _, _, _)            => 1
+        case ClickableW(inner, _)              => IntrinsicHeightAt(inner, width)
+        case ClickableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
+        case DblClickableW(inner, _)           => IntrinsicHeightAt(inner, width)
+        case DblClickableRowsW(inner, _, _, _) => IntrinsicHeightAt(inner, width)
+        case CustomW(_, minH, _)               => minH
+    }
+}
+
+// intrinsicChildHeight collapses a `LayoutChild`'s contribution to its
+// parent Column's height. Fixed contributes its declared height
+// regardless of inner widget; Flex/Percent fall back to the inner
+// widget's intrinsic height (they have no intrinsic row count of their
+// own).
+func intrinsicChildHeight(c LayoutChild, width int) int = c.Constraint match {
+    case Length(n)  => n
+    case Fill(_)    => IntrinsicHeightAt(c.Widget, width)
+    case Percent(_) => IntrinsicHeightAt(c.Widget, width)
+    case MinLen(n)  => MaxInt(n, IntrinsicHeightAt(c.Widget, width))
+}
+
 // paragraphIntrinsicWidth returns the widest line in `content` (split on
 // newlines) — what a fully-expanded Paragraph would want as its natural
 // width before any wrap happens.
