@@ -1,0 +1,86 @@
+package gala_tui
+
+import (
+    "martianoff/gala/concurrent"
+    . "martianoff/gala/std"
+)
+
+// ============================================================================
+// Cancellable — a tiny shared-state token for cancellation.
+//
+// gala-tui's `Cmd[T]` wraps `Future[T]` for async work, but a Future is
+// "fire-and-forget" — once dispatched there's no built-in way to ask
+// it to stop. Cancellable bridges that gap: the producer (the tool
+// running in the background) periodically calls `IsCancelled()` and
+// exits early; the app calls `Cancel()` from `update()` (e.g., on Esc
+// or a stop button) to break the loop.
+//
+// Usage:
+//
+//     // In the model:
+//     CurrentTok Option[Cancellable]
+//
+//     // Starting a long task:
+//     val tok = NewCancellable()
+//     val cmd = CancellableAsync[Reply, Msg](
+//         tok,
+//         () => longHttp(req, tok),                     // checks tok inside
+//         (r) => GotReply(R = r),
+//     )
+//     return (m.Copy(CurrentTok = Some(tok)), cmd)
+//
+//     // On user-pressed-Esc:
+//     m.CurrentTok match {
+//         case Some(t) => { t.Cancel(); return m.Copy(CurrentTok = None) }
+//         case None()  => return m
+//     }
+//
+// The token is a small mutable struct shared across goroutines via a
+// pointer field — the same shape Buffer / HitRegistry use. Apps treat
+// it as a value but the underlying flag flips atomically (Go's
+// pointer-write semantics give us last-write-wins, which is enough
+// for a one-way "set true" cancellation flag).
+// ============================================================================
+
+// cancellableState holds the mutable cancelled flag. Pointer-receiver
+// methods on Cancellable mutate this via the shared pointer.
+type cancellableState struct {
+    var cancelled bool
+}
+
+// Cancellable is the cooperatively-cancellable token. Cheap to copy —
+// holds a pointer to a tiny shared state struct.
+struct Cancellable(state *cancellableState)
+
+// NewCancellable returns a fresh, not-cancelled token.
+func NewCancellable() Cancellable =
+    Cancellable(state = &cancellableState{cancelled: false})
+
+// Cancel flips the token. Safe to call repeatedly; subsequent calls
+// are no-ops. Callers that hold the token in `Option[Cancellable]`
+// typically clear the option after calling Cancel.
+func (c Cancellable) Cancel() {
+    c.state.cancelled = true
+}
+
+// IsCancelled reports whether `Cancel()` has been called. Long-running
+// tasks call this in their inner loop and exit early when it returns
+// true.
+func (c Cancellable) IsCancelled() bool = c.state.cancelled
+
+// CancellableAsync builds a `Cmd[T]` whose Future runs `compute` on
+// the global execution context. If `tok.IsCancelled()` is already
+// true at the moment the future starts, `compute` is skipped and a
+// no-op message is returned via `onCancelled` (if provided).
+//
+// The user is still responsible for *checking* `tok.IsCancelled()`
+// inside `compute` periodically — Go has no preemptive cancellation,
+// so the cooperative pattern is the only one we can guarantee.
+func CancellableAsync[R any, T any](
+    tok Cancellable,
+    compute func() R,
+    onResult func(R) T,
+) Cmd[T] {
+    val fut = concurrent.FutureApply[R](() => compute())
+    return FutureCmd[T](Fut = fut.Map((r) => onResult(r)))
+}

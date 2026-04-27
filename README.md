@@ -196,6 +196,11 @@ the full demo:
   keyboard on a 4-item nav list. Click any row OR press `↑`/`↓`+Enter; both
   paths produce the same model. Demonstrates `RunSimpleWithMouse`,
   `SelectListOfPick`, and `KeyMatchesAny` in <90 lines.
+- [`examples/chat/`](examples/chat/main.gala) — Claude-Code-style chat TUI
+  using `TextArea` + `ConversationLog` + `StreamingText`. Multi-line
+  composer with history (↑/↓), scrollable message log with auto-stick
+  to bottom, fake streaming response demonstrates the `StreamingText`
+  cursor + token-by-token append. ~250 lines.
 - [`examples/custom_widget/`](examples/custom_widget/main.gala) — author
   your own widget (a clickable star-rating row) with its own event
   vocabulary. Shows the recommended composition pattern: take typed

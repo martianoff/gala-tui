@@ -1,0 +1,313 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// chat — Claude-Code-style chat TUI demo using gala-tui's new widget set.
+//
+//     gala build ./examples/chat
+//     ./gala_tui.exe                          # binary takes the module name
+//
+// Layout:
+//   - Header (1 row)
+//   - ConversationLog (rest)        ← scrollback of messages
+//   - Streaming preview (2 rows)    ← visible while a response streams
+//   - Footer hint (1 row)
+//   - TextArea composer (3 rows)    ← multi-line input at the bottom
+//
+// What you can do:
+//   - Type → text appears in the composer.
+//   - Enter → submit; pushes a "you" message into the log, then a fake
+//     "ai" response starts streaming (tokens appear via TickSub).
+//   - Shift+Enter NOT distinguishable in standard terminals, so we use
+//     Tab to insert a newline in the composer.
+//   - ↑/↓ at the top/bottom of the composer steps through history.
+//   - PageUp/PageDown scrolls the conversation log.
+//   - End re-sticks the log to the bottom.
+//   - Ctrl+C / Ctrl+D quits.
+//
+// All Msg cases use the `Ch` prefix to avoid shadowing dot-imported
+// case constructors from gala-tui.
+// ============================================================================
+
+// ----- Domain types --------------------------------------------------------
+
+sealed type Author { case ChUser() case ChAssistant() }
+
+struct ChatMessage(Who Author, Body string)
+
+// ----- Model ---------------------------------------------------------------
+
+struct Model(
+    Composer  TextArea,
+    Log       ConversationLog,
+    Streaming StreamingText,
+    InFlight  bool,                  // true while a response is streaming
+    Tick      int,                   // animates the streaming cursor
+)
+
+func initial() Model = Model(
+    Composer  = NewTextArea(),
+    Log       = appendLog(NewConversationLog(), ChAssistant(),
+                  "Welcome — type a message and press Enter. " +
+                  "Tab inserts a newline. ↑/↓ recalls history. " +
+                  "PgUp/PgDn scrolls. Ctrl+C quits."),
+    Streaming = NewStreamingText(),
+    InFlight  = false,
+    Tick      = 0,
+)
+
+// ----- Messages ------------------------------------------------------------
+
+sealed type Msg {
+    case ChChar(C rune)
+    case ChBackspace()
+    case ChCursorUp()
+    case ChCursorDown()
+    case ChCursorLeft()
+    case ChCursorRight()
+    case ChNewline()
+    case ChSubmit()
+    case ChScrollUp()
+    case ChScrollDown()
+    case ChStickEnd()
+    case ChTick()
+    case ChStreamChunk(S string)
+    case ChStreamDone()
+    case ChQuit()
+    case ChNoOp()
+}
+
+// ----- Update --------------------------------------------------------------
+
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
+    case ChQuit()           => (m, QuitCmd[Msg]())
+    case ChNoOp()           => (m, NoCmd[Msg]())
+    case ChChar(c)          => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsert(C = c))), NoCmd[Msg]())
+    case ChBackspace()      => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaBackspace())), NoCmd[Msg]())
+    case ChCursorUp()       => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorUp())), NoCmd[Msg]())
+    case ChCursorDown()     => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorDown())), NoCmd[Msg]())
+    case ChCursorLeft()     => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorLeft())), NoCmd[Msg]())
+    case ChCursorRight()    => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorRight())), NoCmd[Msg]())
+    case ChNewline()        => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsertNewline())), NoCmd[Msg]())
+    case ChScrollUp()       => (m.Copy(Log = ConversationLogUpdate(m.Log, CvScrollUp(Lines = 3))), NoCmd[Msg]())
+    case ChScrollDown()     => (m.Copy(Log = ConversationLogUpdate(m.Log, CvScrollDown(Lines = 3))), NoCmd[Msg]())
+    case ChStickEnd()       => (m.Copy(Log = ConversationLogUpdate(m.Log, CvStickToBottom())), NoCmd[Msg]())
+    case ChTick()           => (m.Copy(Tick = m.Tick + 1), NoCmd[Msg]())
+    case ChSubmit()         => onSubmit(m)
+    case ChStreamChunk(s)   => onStreamChunk(m, s)
+    case ChStreamDone()     => onStreamDone(m)
+}
+
+func onSubmit(m Model) Tuple[Model, Cmd[Msg]] {
+    val text = TextAreaContent(m.Composer)
+    if text == "" { return (m, NoCmd[Msg]()) }
+    val taSubmitted = TextAreaUpdate(m.Composer, TaSubmit())
+    val logWithUser = appendLog(m.Log, ChUser(), text)
+    val started = NewStreamingText()
+    val resp = fakeReply(text)
+    // Schedule the streaming chunks: each chunk arrives 80ms apart.
+    val chunkCmds = streamChunkCmds(resp)
+    val finalCmd = AfterDelay[Msg](
+        Milliseconds(int64(80 * resp.Length() + 200)),
+        () => ChStreamDone(),
+    )
+    val cmd = BatchCmd[Msg](Cmds = chunkCmds.Append(finalCmd))
+    return (m.Copy(
+        Composer  = taSubmitted,
+        Log       = logWithUser,
+        Streaming = started,
+        InFlight  = true,
+    ), cmd)
+}
+
+func onStreamChunk(m Model, chunk string) Tuple[Model, Cmd[Msg]] =
+    (m.Copy(Streaming = StreamingTextUpdate(m.Streaming, StAppend(Chunk = chunk))),
+     NoCmd[Msg]())
+
+func onStreamDone(m Model) Tuple[Model, Cmd[Msg]] {
+    val text = m.Streaming.Buffer
+    val logWithReply = appendLog(m.Log, ChAssistant(), text)
+    return (m.Copy(
+        Log       = logWithReply,
+        Streaming = StreamingTextUpdate(m.Streaming, StReset()),
+        InFlight  = false,
+    ), NoCmd[Msg]())
+}
+
+// ----- Streaming simulation ------------------------------------------------
+
+// Split the canned reply into ~5-char chunks; emit one every 80 ms.
+func streamChunkCmds(text Array[string]) Array[Cmd[Msg]] {
+    var out = EmptyArray[Cmd[Msg]]()
+    var i = 0
+    val n = text.Length()
+    for i < n {
+        val s = text.Get(i)
+        out = out.Append(AfterDelay[Msg](
+            Milliseconds(int64(80 * (i + 1))),
+            () => ChStreamChunk(S = s),
+        ))
+        i = i + 1
+    }
+    return out
+}
+
+// fakeReply produces a canned response by chopping a quirky message
+// into 5-rune chunks. In a real app these would be tokens streamed
+// from an HTTP response.
+func fakeReply(prompt string) Array[string] {
+    val canned = "I hear you said \"" + prompt + "\". " +
+                 "Here's a streaming demo of gala-tui's StreamingText " +
+                 "+ ConversationLog widgets. Each chunk arrives via a " +
+                 "FutureCmd so the UI updates between renders without " +
+                 "blocking the input loop."
+    var chunks = EmptyArray[string]()
+    var cur = ""
+    var i = 0
+    for _, c := range canned {
+        cur = cur + string(c)
+        if i % 5 == 4 {
+            chunks = chunks.Append(cur)
+            cur = ""
+        }
+        i = i + 1
+    }
+    if cur != "" { chunks = chunks.Append(cur) }
+    return chunks
+}
+
+// ----- Log helpers ---------------------------------------------------------
+
+func appendLog(log ConversationLog, who Author, body string) ConversationLog {
+    val entry = ConversationEntry(
+        Body   = messageView(who, body),
+        Height = messageHeight(body),
+    )
+    return ConversationLogUpdate(log, CvAppend(Entry = entry))
+}
+
+func messageHeight(body string) int {
+    // 1 row for header + roughly one row per 90 cols of text.
+    val lines = stringToLineCount(body)
+    return 1 + lines + 1                 // header + body + spacer
+}
+
+func stringToLineCount(s string) int {
+    if s == "" { return 1 }
+    var lines = 1
+    for _, c := range s {
+        if c == '\n' { lines = lines + 1 }
+    }
+    return lines
+}
+
+func messageView(who Author, body string) Widget {
+    val (label, color) = who match {
+        case ChUser()      => ("You", BrightCyan())
+        case ChAssistant() => ("AI",  BrightGreen())
+    }
+    val header = TextStyled("  " + label + " ",
+        DefaultStyle().WithBold().WithFg(color))
+    val bodyW = ParagraphW(Content = "  " + body, Style = DefaultStyle())
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Flex(1, bodyW),
+        Fixed(1, Text("")),
+    ))
+}
+
+// ----- View ----------------------------------------------------------------
+
+func view(m Model) Widget {
+    val (_, h) = TermSize()
+    val composerH = 3
+    val streamingH = if (m.InFlight) 3 else 0
+    val footerH = 1
+    val headerH = 2
+    val logH = h - headerH - streamingH - footerH - composerH
+    val logHClamped = if (logH < 1) 1 else logH
+    val log = ConversationLogView(m.Log, logHClamped)
+    val streamingPane = if (m.InFlight)
+                            BorderOf(StreamingTextStyled(
+                                m.Streaming, m.Tick,
+                                DefaultStyle().WithFg(BrightGreen())),
+                                SingleBorder())
+                        else Empty()
+    val composerBorder = if (m.InFlight) th_dim() else th_focus()
+    val composer = BorderOf(
+        TextAreaView(m.Composer, !m.InFlight, "Type a message…"),
+        composerBorder,
+    )
+    return Column(ArrayOf[LayoutChild](
+        Fixed(headerH, headerWidget(m)),
+        Flex(1, log),
+        Fixed(streamingH, streamingPane),
+        Fixed(footerH, footerWidget()),
+        Fixed(composerH, composer),
+    ))
+}
+
+func headerWidget(m Model) Widget {
+    val title = TextStyled(" gala-tui chat — Ctrl+C quits, Tab newline, ↑/↓ history, PgUp/PgDn scroll ",
+        DefaultStyle().WithBold().WithFg(BrightWhite()).On(Blue()))
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, title),
+        Fixed(1, FillCh(' ')),
+    ))
+}
+
+func footerWidget() Widget =
+    TextStyled("  Press End to re-stick the log to the bottom.",
+        DefaultStyle().WithDim())
+
+func th_dim() BorderKind   = SingleBorder()
+func th_focus() BorderKind = ThickBorder()
+
+// ----- Input adapter -------------------------------------------------------
+
+func keyToMsg(ev KeyEvent) Msg {
+    if KeyMatchesAny(ev, "ctrl+c", "ctrl+d") { return ChQuit() }
+    return ev.Key match {
+        case Char(c)    => ChChar(C = c)
+        case Backspace() => ChBackspace()
+        case Up()       => ChCursorUp()
+        case Down()     => ChCursorDown()
+        case ArrowLeft() => ChCursorLeft()
+        case ArrowRight() => ChCursorRight()
+        case Enter()    => ChSubmit()
+        case Tab()      => ChNewline()
+        case PageUp()   => ChScrollUp()
+        case PageDown() => ChScrollDown()
+        case End()      => ChStickEnd()
+        case _          => ChNoOp()
+    }
+}
+
+func inputToMsg(ev InputEvent) Msg = ev match {
+    case KeyInput(k)   => keyToMsg(k)
+    case MouseInput(m) => m.Btn match {
+        case MouseScrollUp()   => ChScrollUp()
+        case MouseScrollDown() => ChScrollDown()
+        case _                 => ChNoOp()
+    }
+    case _             => ChNoOp()
+}
+
+func main() {
+    val program = Program[Model, Msg](
+        Initial = initial(),
+        Update  = (m, msg) => update(m, msg),
+        View    = (m) => view(m),
+    )
+    val sub = TickSub[Msg](
+        Interval = Milliseconds(int64(100)),
+        Make     = () => ChTick(),
+    )
+    val _ = RunWithMouse[Model, Msg](program, (ev) => inputToMsg(ev), sub)
+}
