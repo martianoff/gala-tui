@@ -253,6 +253,40 @@ func TestConversationLogPartialEntryAtBottomShowsTopRows(t T) T {
 }
 
 // ----------------------------------------------------------------------------
+// CvReplaceAt: in-place entry replacement preserves scroll state
+//
+// Regression for the tool-call-toggle path: clicking a Disclosure card
+// should swap the entry for one with a different Height (collapsed
+// vs. expanded). Offset and StickToBottom must be preserved so the
+// user's view doesn't jump.
+// ----------------------------------------------------------------------------
+
+func TestConversationLogReplaceAtSwapsEntry(t T) T {
+    val log = clBuildLog(3, 3)
+    val newEntry = clMakeEntry("Z", 5)
+    val replaced = ConversationLogUpdate(log, CvReplaceAt(Idx = 1, Entry = newEntry))
+    val t1 = Eq(t, replaced.Entries.Length(), 3)
+    val t2 = Eq(t1, replaced.Entries.Get(1).Height, 5)
+    return Eq(t2, cvTotalLines(replaced.Entries), 11)   // 3 + 5 + 3
+}
+
+func TestConversationLogReplaceAtPreservesScrollState(t T) T {
+    val log = clBuildLog(3, 3)
+    val scrolled = ConversationLogUpdate(log, CvScrollUp(Lines = 5))
+    val newEntry = clMakeEntry("Z", 4)
+    val replaced = ConversationLogUpdate(scrolled, CvReplaceAt(Idx = 0, Entry = newEntry))
+    val t1 = Eq(t, replaced.Offset, scrolled.Offset)
+    return Eq(t1, replaced.StickToBottom, false)
+}
+
+func TestConversationLogReplaceAtOutOfRangeIsNoOp(t T) T {
+    val log = clBuildLog(2, 3)
+    val newEntry = clMakeEntry("Z", 5)
+    val replaced = ConversationLogUpdate(log, CvReplaceAt(Idx = 99, Entry = newEntry))
+    return Eq(t, replaced.Entries.Length(), 2)
+}
+
+// ----------------------------------------------------------------------------
 // WrapParagraph contract test
 //
 // This is the contract chat's `messageHeight` relies on: WrapParagraph at

@@ -1,0 +1,165 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Chat demo — model + slash-popup + help-modal + tool-call regression tests.
+//
+// These tests exercise the chat's reducer and helpers directly; rendering
+// is covered in the framework's `conversation_log_test.gala`.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// stringHasPrefix
+// ----------------------------------------------------------------------------
+
+func TestChatStringHasPrefixMatches(t T) T =
+    Eq(t, stringHasPrefix("/clear", "/cl"), true)
+
+func TestChatStringHasPrefixRejects(t T) T =
+    Eq(t, stringHasPrefix("/help", "/cl"), false)
+
+func TestChatStringHasPrefixEmptyPrefix(t T) T =
+    Eq(t, stringHasPrefix("/anything", ""), true)
+
+func TestChatStringHasPrefixSelfMatch(t T) T =
+    Eq(t, stringHasPrefix("/help", "/help"), true)
+
+func TestChatStringHasPrefixLongerPrefixRejects(t T) T =
+    Eq(t, stringHasPrefix("/cl", "/clear"), false)
+
+// ----------------------------------------------------------------------------
+// filteredSlashCommands
+// ----------------------------------------------------------------------------
+
+func TestChatFilterByCletterMatchesClear(t T) T {
+    val m = composerWith("/cl")
+    val filtered = filteredSlashCommands(m)
+    val t1 = Eq(t, filtered.Length(), 1)
+    return Eq(t1, filtered.Get(0).Name, "/clear")
+}
+
+func TestChatFilterByRMatchesRun(t T) T {
+    val m = composerWith("/r")
+    val filtered = filteredSlashCommands(m)
+    val t1 = Eq(t, filtered.Length(), 1)
+    return Eq(t1, filtered.Get(0).Name, "/run")
+}
+
+func TestChatFilterEmptyShowsAll(t T) T {
+    val m = initial()
+    val filtered = filteredSlashCommands(m)
+    return Eq(t, filtered.Length(), 4)            // /help /run /clear /quit
+}
+
+// ----------------------------------------------------------------------------
+// /help → modal
+// ----------------------------------------------------------------------------
+
+func TestChatShowHelpOpensModal(t T) T {
+    val (m1, _) = update(initial(), ChShowHelp())
+    return IsTrue(t, m1.HelpOpen)
+}
+
+func TestChatCloseHelpClearsFlag(t T) T {
+    val (m1, _) = update(initial(), ChShowHelp())
+    val (m2, _) = update(m1, ChCloseHelp())
+    return IsFalse(t, m2.HelpOpen)
+}
+
+func TestChatEscClosesHelp(t T) T {
+    val (m1, _) = update(initial(), ChShowHelp())
+    val (m2, _) = update(m1, ChEsc())
+    return IsFalse(t, m2.HelpOpen)
+}
+
+func TestChatEscWhenHelpClosedClearsComposer(t T) T {
+    val typed = composerWith("hello")
+    val (m1, _) = update(typed, ChEsc())
+    return Eq(t, TextAreaContent(m1.Composer), "")
+}
+
+func TestChatShowHelpClearsComposer(t T) T {
+    val typed = composerWith("/help")
+    val (m1, _) = update(typed, ChShowHelp())
+    val t1 = Eq(t, TextAreaContent(m1.Composer), "")
+    return IsTrue(t1, m1.HelpOpen)
+}
+
+// ----------------------------------------------------------------------------
+// /run → tool-call card
+// ----------------------------------------------------------------------------
+
+func TestChatToolDemoAppendsEntry(t T) T {
+    val m = initial()
+    val before = m.Log.Entries.Length()
+    val (m1, _) = update(m, ChToolDemo())
+    val after = m1.Log.Entries.Length()
+    val t1 = Eq(t, after, before + 1)
+    return Eq(t1, m1.ToolCalls.Length(), 1)
+}
+
+func TestChatToolDemoStartsExpanded(t T) T {
+    val (m1, _) = update(initial(), ChToolDemo())
+    return IsTrue(t, m1.ToolCalls.Get(0).Expanded)
+}
+
+func TestChatToolToggleFlipsExpanded(t T) T {
+    val (m1, _) = update(initial(), ChToolDemo())
+    val tcIdx = m1.ToolCalls.Get(0).Idx
+    val (m2, _) = update(m1, ChToolToggle(Idx = tcIdx))
+    return IsFalse(t, m2.ToolCalls.Get(0).Expanded)
+}
+
+func TestChatToolToggleTwiceRestoresExpanded(t T) T {
+    val (m1, _) = update(initial(), ChToolDemo())
+    val tcIdx = m1.ToolCalls.Get(0).Idx
+    val (m2, _) = update(m1, ChToolToggle(Idx = tcIdx))
+    val (m3, _) = update(m2, ChToolToggle(Idx = tcIdx))
+    return IsTrue(t, m3.ToolCalls.Get(0).Expanded)
+}
+
+func TestChatToolToggleUnknownIdxIsNoOp(t T) T {
+    val (m1, _) = update(initial(), ChToolDemo())
+    val (m2, _) = update(m1, ChToolToggle(Idx = 999))
+    return Eq(t, m2.ToolCalls.Length(), m1.ToolCalls.Length())
+}
+
+func TestChatToolToggleChangesEntryHeight(t T) T {
+    val (m1, _) = update(initial(), ChToolDemo())
+    val tcIdx = m1.ToolCalls.Get(0).Idx
+    val expandedHeight = m1.Log.Entries.Get(tcIdx).Height
+    val (m2, _) = update(m1, ChToolToggle(Idx = tcIdx))
+    val collapsedHeight = m2.Log.Entries.Get(tcIdx).Height
+    return IsTrue(t, collapsedHeight < expandedHeight)
+}
+
+// ----------------------------------------------------------------------------
+// /clear wipes log + tool calls
+// ----------------------------------------------------------------------------
+
+func TestChatClearLogWipesEverything(t T) T {
+    val (m1, _) = update(initial(), ChToolDemo())
+    val (m2, _) = update(m1, ChClearLog())
+    val t1 = Eq(t, m2.Log.Entries.Length(), 0)
+    return Eq(t1, m2.ToolCalls.Length(), 0)
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+// composerWith returns a Model whose composer contains `s`. Inserts
+// runes one at a time via TaInsert — same path the runtime uses for
+// real keypresses.
+func composerWith(s string) Model {
+    var m = initial()
+    for _, c := range s {
+        m = m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsert(C = c)))
+    }
+    return m
+}
