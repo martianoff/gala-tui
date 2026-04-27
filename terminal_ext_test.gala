@@ -57,7 +57,7 @@ func TestClipboardSequenceEncodesBase64(t T) T {
 
 func TestClipboardSequenceNonEmpty(t T) T {
     val s = ClipboardSequence("arbitrary data")
-    return IsTrue(t, runeCount(s) > 10)
+    return IsTrue(t, RuneCount(s) > 10)
 }
 
 // ----------------------------------------------------------------------------

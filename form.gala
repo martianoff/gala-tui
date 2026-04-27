@@ -236,7 +236,7 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
     val phStyle = DefaultStyle().WithDim()
     return InputW(
         Value            = fld.Value,
-        Cursor           = runeCount(fld.Value),
+        Cursor           = RuneCount(fld.Value),
         Placeholder      = fld.Placeholder,
         Style            = style,
         PlaceholderStyle = phStyle,
@@ -256,7 +256,7 @@ func replaceAt[T any](xs Array[T], i int, v T) Array[T] {
 // dropLastRuneForm strips the last rune from `s`. Duplicated from other
 // files to keep this module self-contained.
 func dropLastRuneForm(s string) string {
-    val total = runeCount(s)
+    val total = RuneCount(s)
     if total == 0 { return s }
     var kept = ""
     var seen = 0

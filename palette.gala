@@ -113,7 +113,7 @@ struct palScored(
 )
 
 func palDropLast(s string) string {
-    val total = runeCount(s)
+    val total = RuneCount(s)
     if total == 0 { return s }
     var kept = ""
     var seen = 0
@@ -255,7 +255,7 @@ func PaletteViewAtHeightClick[T any](
     val header = paletteHeaderRow[T](p)
     val separator = FillCh('─')
     val results = paletteResultsWidget[T](p, maxRows, focused)
-    val visible = minInt(p.FilteredActions().Length(), maxRows)
+    val visible = MinInt(p.FilteredActions().Length(), maxRows)
     val clickable = results.OnPickRow[T](visible, onPick)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
@@ -269,7 +269,7 @@ func paletteHeaderRow[T any](p Palette[T]) Widget =
         Fixed(3, TextStyled(" > ", DefaultStyle().WithBold().WithFg(BrightYellow()))),
         Flex(1, InputW(
             Value            = p.Query,
-            Cursor           = runeCount(p.Query),
+            Cursor           = RuneCount(p.Query),
             Placeholder      = "Type a command…",
             Style            = DefaultStyle(),
             PlaceholderStyle = DefaultStyle().WithDim(),
@@ -302,7 +302,7 @@ func paletteRowWidget[T any](a PaletteAction[T], selected bool, focused bool) Wi
     }
     return Row(ArrayOf[LayoutChild](
         Flex(1, TextStyled(" " + a.Label, base)),
-        Fixed(runeCount(a.Category) + 2,
+        Fixed(RuneCount(a.Category) + 2,
               TextStyled(" " + a.Category + " ", catStyle)),
     ))
 }

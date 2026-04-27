@@ -48,12 +48,12 @@ func ScrollPaneUpdate(s ScrollPaneState, ev ScrollPaneEvent, contentH int, viewp
         case SpPageUp(n)      => spClamp(s.Offset - n, contentH, viewportH)
         case SpPageDown(n)    => spClamp(s.Offset + n, contentH, viewportH)
         case SpHome()         => ScrollPaneState(Offset = 0)
-        case SpEnd(ch)        => spClamp(maxInt(0, ch - viewportH), ch, viewportH)
+        case SpEnd(ch)        => spClamp(MaxInt(0, ch - viewportH), ch, viewportH)
         case SpNoOp()         => s
     }
 
 func spClamp(proposed int, contentH int, viewportH int) ScrollPaneState {
-    val maxOff = maxInt(0, contentH - viewportH)
+    val maxOff = MaxInt(0, contentH - viewportH)
     val clamped = if (proposed < 0) 0
                   else if (proposed > maxOff) maxOff
                   else proposed

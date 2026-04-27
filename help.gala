@@ -42,7 +42,7 @@ func HelpView[T any](entries Array[HelpSpec[T]]) Widget {
     if entries.IsEmpty() {
         return TextStyled("(no shortcuts)", DefaultStyle().WithDim())
     }
-    val specWidth = entries.FoldLeft(0, (acc, h) => maxInt(acc, runeCount(h.Spec)))
+    val specWidth = entries.FoldLeft(0, (acc, h) => MaxInt(acc, RuneCount(h.Spec)))
     val rows = entries.Map((h) => Fixed(1, helpRow(h, specWidth)))
     return Column(rows)
 }
@@ -50,8 +50,8 @@ func HelpView[T any](entries Array[HelpSpec[T]]) Widget {
 // HelpModalView wraps HelpView in a centered modal — pass the terminal's
 // (width × height) so the caller doesn't have to remember to center.
 func HelpModalView[T any](entries Array[HelpSpec[T]], termW int, termH int) Widget {
-    val panelW = minInt(60, termW - 4)
-    val panelH = minInt(entries.Length() + 4, termH - 4)
+    val panelW = MinInt(60, termW - 4)
+    val panelH = MinInt(entries.Length() + 4, termH - 4)
     val title = TextStyled(" Keyboard shortcuts ",
         DefaultStyle().WithBold().WithReverse())
     val body = Column(ArrayOf[LayoutChild](

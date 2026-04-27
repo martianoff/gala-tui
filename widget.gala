@@ -395,7 +395,7 @@ func tabHeaderCell(title string, selected bool, focused bool) LayoutChild {
     else
         DefaultStyle().WithDim()
     val padded = " " + title + " "
-    return Fixed(runeCount(padded), TextStyled(padded, style))
+    return Fixed(RuneCount(padded), TextStyled(padded, style))
 }
 
 // ----------------------------------------------------------------------------
@@ -549,7 +549,7 @@ func renderParagraph(content string, style Style, area Rect, buf *Buffer) {
     }
     val lines = wrapParagraph(content, area.Width)
     var y = 0
-    val limit = minInt(lines.Length(), area.Height)
+    val limit = MinInt(lines.Length(), area.Height)
     for y < limit {
         renderText(lines.Get(y), style, Rect(
             X = area.X, Y = area.Y + y,
@@ -568,10 +568,10 @@ struct wrapState(Out Array[string], Line string, Word string)
 // Idempotent when Word is empty.
 func wrapCommitWord(s wrapState, width int) wrapState {
     if s.Word == "" { return s }
-    if runeCount(s.Line) == 0 {
+    if RuneCount(s.Line) == 0 {
         return wrapState(Out = s.Out, Line = s.Word, Word = "")
     }
-    if runeCount(s.Line) + 1 + runeCount(s.Word) <= width {
+    if RuneCount(s.Line) + 1 + RuneCount(s.Word) <= width {
         return wrapState(Out = s.Out, Line = s.Line + " " + s.Word, Word = "")
     }
     return wrapState(Out = s.Out.Append(s.Line), Line = s.Word, Word = "")
@@ -588,8 +588,8 @@ func wrapStepRune(s wrapState, c rune, width int) wrapState {
     }
     // Regular rune. Break a pathologically long word if it alone would
     // overflow the current line.
-    if runeCount(s.Word) + 1 > width {
-        val outAfterLine = if (runeCount(s.Line) > 0) s.Out.Append(s.Line) else s.Out
+    if RuneCount(s.Word) + 1 > width {
+        val outAfterLine = if (RuneCount(s.Line) > 0) s.Out.Append(s.Line) else s.Out
         return wrapState(Out = outAfterLine.Append(s.Word), Line = "", Word = string(c))
     }
     return wrapState(Out = s.Out, Line = s.Line, Word = s.Word + string(c))
@@ -621,10 +621,10 @@ func renderViewport(inner Widget, offset int, contentHeight int, area Rect, buf 
     if area.Width <= 0 || area.Height <= 0 {
         return
     }
-    val ch = maxInt(area.Height, contentHeight)
+    val ch = MaxInt(area.Height, contentHeight)
     var hidden = NewBuffer(area.Width, ch)
     RenderTo(inner, Rect(X = 0, Y = 0, Width = area.Width, Height = ch), hidden)
-    val clampedOffset = clampInt(offset, 0, maxInt(0, ch - area.Height))
+    val clampedOffset = clampInt(offset, 0, MaxInt(0, ch - area.Height))
     var y = 0
     for y < area.Height {
         val srcY = clampedOffset + y
@@ -664,7 +664,7 @@ func renderScrollbar(total int, visible int, offset int, style Style, area Rect,
         }
         return
     }
-    val thumbSize = maxInt(1, area.Height * visible / total)
+    val thumbSize = MaxInt(1, area.Height * visible / total)
     val maxOffset = total - visible
     val clamped = clampInt(offset, 0, maxOffset)
     val thumbStart = clamped * (area.Height - thumbSize) / maxOffset
@@ -722,7 +722,7 @@ func renderList(items Array[ListItem], sel int, selStyle Style, area Rect, buf *
 func listViewportOffset(n int, sel int, height int) int =
     if (height <= 0 || n <= height) 0
     else if (sel < height) 0
-    else minInt(sel - height + 1, n - height)
+    else MinInt(sel - height + 1, n - height)
 
 // renderInput paints a value or a placeholder, plus a visible cursor.
 func renderInput(value string, cursor int, placeholder string, style Style, phStyle Style, area Rect, buf *Buffer) {
@@ -843,8 +843,8 @@ func renderBorder(inner Widget, kind BorderKind, area Rect, buf *Buffer, hits *H
 // renderPadding reduces the area by the padding values and recurses.
 func renderPadding(top int, right int, bottom int, left int, inner Widget,
                    area Rect, buf *Buffer, hits *HitRegistry) {
-    val newW = maxInt(0, area.Width - left - right)
-    val newH = maxInt(0, area.Height - top - bottom)
+    val newW = MaxInt(0, area.Width - left - right)
+    val newH = MaxInt(0, area.Height - top - bottom)
     renderToInternal(inner, Rect(
         X      = area.X + left,
         Y      = area.Y + top,
@@ -858,14 +858,14 @@ func renderAlign(inner Widget, horiz Align, cw int, ch int,
                  area Rect, buf *Buffer, hits *HitRegistry) {
     val dx = horiz match {
         case AlignLeft()   => 0
-        case AlignCenter() => maxInt(0, (area.Width - cw) / 2)
-        case AlignRight()  => maxInt(0, area.Width - cw)
+        case AlignCenter() => MaxInt(0, (area.Width - cw) / 2)
+        case AlignRight()  => MaxInt(0, area.Width - cw)
     }
     renderToInternal(inner, Rect(
         X      = area.X + dx,
         Y      = area.Y,
-        Width  = minInt(cw, area.Width - dx),
-        Height = minInt(ch, area.Height),
+        Width  = MinInt(cw, area.Width - dx),
+        Height = MinInt(ch, area.Height),
     ), buf, hits)
 }
 
@@ -902,26 +902,26 @@ func borderGlyphs(k BorderKind) BorderGlyphs {
 func defaultRenderWidth(w Widget) int {
     return w match {
         case EmptyWidget()                     => 0
-        case TextWidget(content, _)            => runeCount(content)
+        case TextWidget(content, _)            => RuneCount(content)
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _)            => defaultRenderWidth(inner) + 2
         case PaddingWidget(_, r, _, l, inner)  => defaultRenderWidth(inner) + l + r
         case AlignWidget(_, _, cw, _)          => cw
         case OverlayWidget(bottom, top)        =>
-            maxInt(defaultRenderWidth(bottom), defaultRenderWidth(top))
+            MaxInt(defaultRenderWidth(bottom), defaultRenderWidth(top))
         case RowWidget(children)               =>
             children.FoldLeft(0, (acc, c) => acc + defaultRenderWidth(c.Widget))
         case ColumnWidget(children)            =>
-            children.FoldLeft(0, (acc, c) => maxInt(acc, defaultRenderWidth(c.Widget)))
+            children.FoldLeft(0, (acc, c) => MaxInt(acc, defaultRenderWidth(c.Widget)))
         case StackWidget(layers)               =>
-            layers.FoldLeft(0, (acc, w) => maxInt(acc, defaultRenderWidth(w)))
+            layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderWidth(w)))
         case ListW(items, _, _)                =>
-            items.FoldLeft(0, (acc, it) => maxInt(acc, runeCount(it.Label)))
-        case InputW(value, _, ph, _, _)        => maxInt(runeCount(value), runeCount(ph))
+            items.FoldLeft(0, (acc, it) => MaxInt(acc, RuneCount(it.Label)))
+        case InputW(value, _, ph, _, _)        => MaxInt(RuneCount(value), RuneCount(ph))
         case ProgressW(_, _)                   => 20
         case GaugeW(_, _)                      => 20
         case SpinnerW(_, _, _)                 => 1
-        case ButtonW(label, _, _)              => runeCount(label) + 4
+        case ButtonW(label, _, _)              => RuneCount(label) + 4
         case ParagraphW(content, _)            => paragraphIntrinsicWidth(content)
         case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
         case ScrollbarW(_, _, _, _)            => 1
@@ -942,14 +942,14 @@ func defaultRenderHeight(w Widget) int {
         case PaddingWidget(t, _, b, _, inner)  => defaultRenderHeight(inner) + t + b
         case AlignWidget(_, _, _, ch)          => ch
         case OverlayWidget(bottom, top)        =>
-            maxInt(defaultRenderHeight(bottom), defaultRenderHeight(top))
+            MaxInt(defaultRenderHeight(bottom), defaultRenderHeight(top))
         case RowWidget(children)               =>
-            children.FoldLeft(0, (acc, c) => maxInt(acc, defaultRenderHeight(c.Widget)))
+            children.FoldLeft(0, (acc, c) => MaxInt(acc, defaultRenderHeight(c.Widget)))
         case ColumnWidget(children)            =>
             children.FoldLeft(0, (acc, c) => acc + defaultRenderHeight(c.Widget))
         case StackWidget(layers)               =>
-            layers.FoldLeft(0, (acc, w) => maxInt(acc, defaultRenderHeight(w)))
-        case ListW(items, _, _)                => maxInt(1, items.Length())
+            layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderHeight(w)))
+        case ListW(items, _, _)                => MaxInt(1, items.Length())
         case InputW(_, _, _, _, _)             => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
@@ -1011,9 +1011,3 @@ func MaxInt(a int, b int) int = if (a > b) a else b
 // MinInt returns the smaller of two ints.
 func MinInt(a int, b int) int = if (a < b) a else b
 
-// runeCount / minInt / maxInt — internal aliases kept for backward compat
-// across the library's existing call sites; new code should use the
-// PascalCase exported names.
-func runeCount(s string) int = RuneCount(s)
-func maxInt(a int, b int) int = MaxInt(a, b)
-func minInt(a int, b int) int = MinInt(a, b)
