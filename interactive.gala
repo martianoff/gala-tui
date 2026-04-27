@@ -48,7 +48,7 @@ func NewListItem(label string) ListItem =
 // Called by ProgressWidget's render path.
 func renderProgressBar(percent int, width int, filled rune, empty rune) string {
     val p = clampPct(percent)
-    val inner = maxInt(0, width - 2)
+    val inner = MaxInt(0, width - 2)
     val fillCells = inner * p / 100
     var sb strings.Builder
     sb.WriteRune('[')

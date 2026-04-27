@@ -122,7 +122,7 @@ func SparklineStyled(values Array[int], style Style) Widget {
     if values.IsEmpty() {
         return Empty()
     }
-    val maxV = values.FoldLeft(0, (acc, v) => maxInt(acc, v))
+    val maxV = values.FoldLeft(0, (acc, v) => MaxInt(acc, v))
     if maxV == 0 {
         return Text(sparklineBarString(values, 1))
     }
@@ -166,8 +166,8 @@ func BarChart(data Array[BarChartDatum]) Widget {
     if data.IsEmpty() {
         return Empty()
     }
-    val labelWidth = data.FoldLeft(0, (acc, d) => maxInt(acc, runeCount(d.Label)))
-    val maxV = data.FoldLeft(1, (acc, d) => maxInt(acc, d.Value))
+    val labelWidth = data.FoldLeft(0, (acc, d) => MaxInt(acc, RuneCount(d.Label)))
+    val maxV = data.FoldLeft(1, (acc, d) => MaxInt(acc, d.Value))
     val rows = data.Map((d) => {
         val pct = d.Value * 100 / maxV
         return Fixed(1, Row(ArrayOf[LayoutChild](

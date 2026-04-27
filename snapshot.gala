@@ -105,7 +105,7 @@ func SnapshotDiff(got string, want string) Option[string] {
     if got == want { return None[string]() }
     val gotLines = splitLines(got)
     val wantLines = splitLines(want)
-    val maxLines = maxInt(gotLines.Length(), wantLines.Length())
+    val maxLines = MaxInt(gotLines.Length(), wantLines.Length())
     var sb strings.Builder
     var i = 0
     for i < maxLines {

@@ -435,7 +435,7 @@ func renderMdBlockHeight(b MdBlock) int {
         case MdParagraph(_)         => 1
         case MdBullet(_)            => 1
         case MdNumbered(_, _)       => 1
-        case MdCodeBlock(_, lines)  => maxInt(3, lines.Length() + 3)   // title + top border + lines + bottom border
+        case MdCodeBlock(_, lines)  => MaxInt(3, lines.Length() + 3)   // title + top border + lines + bottom border
         case MdRule()               => 1
         case MdBlank()              => 1
     }
@@ -499,7 +499,7 @@ func renderMdInlineRow(inlines Array[MdInline]) Widget =
 func renderMdInlineRowStyled(inlines Array[MdInline], base Style, prefix string) Widget {
     var cells = EmptyArray[LayoutChild]()
     if prefix != "" {
-        cells = cells.Append(Fixed(runeCount(prefix), TextStyled(prefix, base)))
+        cells = cells.Append(Fixed(RuneCount(prefix), TextStyled(prefix, base)))
     }
     var i = 0
     val n = inlines.Length()
@@ -507,7 +507,7 @@ func renderMdInlineRowStyled(inlines Array[MdInline], base Style, prefix string)
         val run = inlines.Get(i)
         val text = mdInlineText(run)
         val style = mdInlineStyle(run, base)
-        cells = cells.Append(Fixed(runeCount(text), TextStyled(text, style)))
+        cells = cells.Append(Fixed(RuneCount(text), TextStyled(text, style)))
         i = i + 1
     }
     cells = cells.Append(Flex(1, FillCh(' ')))

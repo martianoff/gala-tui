@@ -185,7 +185,7 @@ func renderMenuRow(it MenuItem, selected bool, focused bool) Widget {
     // Right-align the hint. Use a Row with a flex spacer between.
     return Row(ArrayOf[LayoutChild](
         Flex(1, TextStyled(" " + it.Label, base)),
-        Fixed(runeCount(it.Hint) + 2, TextStyled(" " + it.Hint + " ", base)),
+        Fixed(RuneCount(it.Hint) + 2, TextStyled(" " + it.Hint + " ", base)),
     ))
 }
 
@@ -193,7 +193,7 @@ func renderHorizontalMenu(m Menu, focused bool) Widget {
     val cells = m.Items.ZipWithIndex().Map((p) => {
         val base = baseMenuStyle(p.V1, p.V2 == m.Selected, focused)
         val cell = " " + p.V1.Label + " "
-        return Fixed(runeCount(cell), TextStyled(cell, base))
+        return Fixed(RuneCount(cell), TextStyled(cell, base))
     })
     return Row(cells.Append(Flex(1, FillCh(' '))))
 }

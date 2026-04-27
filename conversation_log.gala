@@ -125,7 +125,7 @@ func ConversationLogView(c ConversationLog, height int) Widget {
         return Empty()
     }
     val total = cvTotalLines(c.Entries)
-    val viewportTop = if (c.StickToBottom) maxInt(0, total - height)
+    val viewportTop = if (c.StickToBottom) MaxInt(0, total - height)
                       else c.Offset
     var children = EmptyArray[LayoutChild]()
     var lineCursor = 0
@@ -138,8 +138,8 @@ func ConversationLogView(c ConversationLog, height int) Widget {
         val entryStart = lineCursor
         val entryEnd = lineCursor + entry.Height
         // Is any part of this entry inside the viewport?
-        val visTop = maxInt(viewportTop, entryStart)
-        val visBot = minInt(viewportTop + height, entryEnd)
+        val visTop = MaxInt(viewportTop, entryStart)
+        val visBot = MinInt(viewportTop + height, entryEnd)
         if visBot > visTop {
             val skipTop = visTop - entryStart
             val take = visBot - visTop
@@ -180,7 +180,7 @@ func cvBuildClickableView[T any](
 ) Widget {
     if c.Entries.IsEmpty() || height <= 0 { return Empty() }
     val total = cvTotalLines(c.Entries)
-    val viewportTop = if (c.StickToBottom) maxInt(0, total - height)
+    val viewportTop = if (c.StickToBottom) MaxInt(0, total - height)
                       else c.Offset
     var children = EmptyArray[LayoutChild]()
     var lineCursor = 0
@@ -192,8 +192,8 @@ func cvBuildClickableView[T any](
         val entry = c.Entries.Get(i)
         val entryStart = lineCursor
         val entryEnd = lineCursor + entry.Height
-        val visTop = maxInt(viewportTop, entryStart)
-        val visBot = minInt(viewportTop + height, entryEnd)
+        val visTop = MaxInt(viewportTop, entryStart)
+        val visBot = MinInt(viewportTop + height, entryEnd)
         if visBot > visTop {
             val skipTop = visTop - entryStart
             val take = visBot - visTop

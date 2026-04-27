@@ -88,7 +88,7 @@ func TextAreaUpdate(t TextArea, ev TextAreaEvent) TextArea = ev match {
     case TaCursorLeft()     => taCursorLeft(t)
     case TaCursorRight()    => taCursorRight(t)
     case TaCursorHome()     => taLinesWith(t, t.Row, 0)
-    case TaCursorEnd()      => taLinesWith(t, t.Row, runeCount(t.Lines.Get(t.Row)))
+    case TaCursorEnd()      => taLinesWith(t, t.Row, RuneCount(t.Lines.Get(t.Row)))
     case TaHistoryPrev()    => taHistoryStep(t, -1)
     case TaHistoryNext()    => taHistoryStep(t, +1)
     case TaClickAt(r, c)    => taClickAt(t, r, c)
@@ -100,7 +100,7 @@ func TextAreaUpdate(t TextArea, ev TextAreaEvent) TextArea = ev match {
 func taLinesWith(t TextArea, row int, col int) TextArea = TextArea(
     Lines      = t.Lines,
     Row        = clampInt(row, 0, t.Lines.Length() - 1),
-    Col        = clampInt(col, 0, runeCount(t.Lines.Get(clampInt(row, 0, t.Lines.Length() - 1)))),
+    Col        = clampInt(col, 0, RuneCount(t.Lines.Get(clampInt(row, 0, t.Lines.Length() - 1)))),
     History    = t.History,
     HistoryIdx = -1,             // editing breaks history navigation
     Draft      = t.Draft,
@@ -128,7 +128,7 @@ func taBackspace(t TextArea) TextArea {
     if t.Col > 0 {
         val line = t.Lines.Get(t.Row)
         val (lhs, rhs) = runeSplitAt(line, t.Col)
-        val newLine = runeSliceTo(lhs, runeCount(lhs) - 1) + rhs
+        val newLine = runeSliceTo(lhs, RuneCount(lhs) - 1) + rhs
         val newLines = t.Lines.Updated(t.Row, newLine)
         return taLinesAndCursor(t, newLines, t.Row, t.Col - 1)
     }
@@ -139,12 +139,12 @@ func taBackspace(t TextArea) TextArea {
     val before = t.Lines.Slice(0, t.Row - 1)
     val after = t.Lines.Slice(t.Row + 1, t.Lines.Length())
     val newLines = before.Append(merged).AppendAll(after)
-    return taLinesAndCursor(t, newLines, t.Row - 1, runeCount(prev))
+    return taLinesAndCursor(t, newLines, t.Row - 1, RuneCount(prev))
 }
 
 func taDelete(t TextArea) TextArea {
     val line = t.Lines.Get(t.Row)
-    val n = runeCount(line)
+    val n = RuneCount(line)
     if t.Col < n {
         val (lhs, rhs) = runeSplitAt(line, t.Col)
         val newLine = lhs + runeSliceFrom(rhs, 1)
@@ -181,12 +181,12 @@ func taCursorLeft(t TextArea) TextArea {
     if t.Col > 0 { return taLinesWith(t, t.Row, t.Col - 1) }
     if t.Row == 0 { return t }
     val prev = t.Lines.Get(t.Row - 1)
-    return taLinesWith(t, t.Row - 1, runeCount(prev))
+    return taLinesWith(t, t.Row - 1, RuneCount(prev))
 }
 
 func taCursorRight(t TextArea) TextArea {
     val line = t.Lines.Get(t.Row)
-    val n = runeCount(line)
+    val n = RuneCount(line)
     if t.Col < n { return taLinesWith(t, t.Row, t.Col + 1) }
     if t.Row + 1 >= t.Lines.Length() { return t }
     return taLinesWith(t, t.Row + 1, 0)
@@ -222,7 +222,7 @@ func taHistoryStep(t TextArea, delta int) TextArea {
     val newContent = if (nextIdx == -1) savedDraft else t.History.Get(nextIdx)
     val newLines = stringToLines(newContent)
     val newRow = newLines.Length() - 1
-    val newCol = runeCount(newLines.Get(newRow))
+    val newCol = RuneCount(newLines.Get(newRow))
     return TextArea(
         Lines      = newLines,
         Row        = newRow,
@@ -259,7 +259,7 @@ func taClear(t TextArea) TextArea = TextArea(
 func taLinesAndCursor(t TextArea, lines Array[string], row int, col int) TextArea = TextArea(
     Lines      = lines,
     Row        = clampInt(row, 0, lines.Length() - 1),
-    Col        = clampInt(col, 0, runeCount(lines.Get(clampInt(row, 0, lines.Length() - 1)))),
+    Col        = clampInt(col, 0, RuneCount(lines.Get(clampInt(row, 0, lines.Length() - 1)))),
     History    = t.History,
     HistoryIdx = -1,
     Draft      = t.Draft,

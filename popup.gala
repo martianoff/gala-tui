@@ -50,14 +50,14 @@ func PopupStyled(x int, y int, w int, h int, body Widget, border BorderKind) Wid
 // would otherwise spill off-screen — but the user supplies `screenW`
 // for that calculation.
 func PopupAbove(anchorX int, anchorY int, w int, h int, screenW int, body Widget) Widget {
-    val popupX = if (anchorX + w <= screenW) anchorX else maxInt(0, screenW - w)
-    val popupY = maxInt(0, anchorY - h)
+    val popupX = if (anchorX + w <= screenW) anchorX else MaxInt(0, screenW - w)
+    val popupY = MaxInt(0, anchorY - h)
     return Popup(popupX, popupY, w, h, body)
 }
 
 // PopupBelow positions the popup directly below the anchor.
 func PopupBelow(anchorX int, anchorY int, w int, h int, screenW int, body Widget) Widget {
-    val popupX = if (anchorX + w <= screenW) anchorX else maxInt(0, screenW - w)
+    val popupX = if (anchorX + w <= screenW) anchorX else MaxInt(0, screenW - w)
     val popupY = anchorY
     return Popup(popupX, popupY, w, h, body)
 }
@@ -74,12 +74,12 @@ func PopupOver(below Widget, popup Widget) Widget =
 // way to position absolutely without a dedicated AlignWidget variant.
 func popupAtAbsolute(x int, y int, w int, h int, inner Widget) Widget {
     val rowed = Row(ArrayOf[LayoutChild](
-        Fixed(maxInt(0, x), Empty()),
+        Fixed(MaxInt(0, x), Empty()),
         Fixed(w, inner),
         Flex(1, Empty()),
     ))
     return Column(ArrayOf[LayoutChild](
-        Fixed(maxInt(0, y), Empty()),
+        Fixed(MaxInt(0, y), Empty()),
         Fixed(h, rowed),
         Flex(1, Empty()),
     ))

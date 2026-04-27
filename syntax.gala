@@ -55,7 +55,7 @@ func codeBaseStyle() Style = DefaultStyle().WithFg(BrightWhite()).On(Black())
 func tokenWidget(tok SyntaxToken) LayoutChild {
     val text = tokenText(tok)
     val style = tokenStyle(tok)
-    return Fixed(runeCount(text), TextStyled(text, style))
+    return Fixed(RuneCount(text), TextStyled(text, style))
 }
 
 func tokenText(tok SyntaxToken) string {
