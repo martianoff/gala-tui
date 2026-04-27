@@ -47,6 +47,16 @@ sealed type Author { case ChUser() case ChAssistant() }
 
 struct ChatMessage(Who Author, Body string)
 
+// ToolCall: per-entry state for `$ cmd` cards rendered as a Disclosure.
+// Idx is the entry's index in `m.Log.Entries` — used to find the entry
+// for in-place replacement when the user toggles expansion.
+struct ToolCall(
+    Idx      int,
+    Command  string,
+    Output   string,
+    Expanded bool,
+)
+
 // ----- Model ---------------------------------------------------------------
 
 struct Model(
@@ -56,6 +66,8 @@ struct Model(
     InFlight  bool,                  // true while a response is streaming
     Tick      int,                   // animates the streaming cursor
     SlashSel  int,                   // selected row in the slash popup (when visible)
+    HelpOpen  bool,                  // true while the /help modal is showing
+    ToolCalls Array[ToolCall],       // per-tool-entry expanded state
 )
 
 func initial() Model = Model(
@@ -69,6 +81,8 @@ func initial() Model = Model(
     InFlight  = false,
     Tick      = 0,
     SlashSel  = 0,
+    HelpOpen  = false,
+    ToolCalls = EmptyArray[ToolCall](),
 )
 
 // ----- Messages ------------------------------------------------------------
@@ -89,9 +103,13 @@ sealed type Msg {
     case ChStreamChunk(S string)
     case ChStreamDone()
     case ChSlashSelect(Idx int)         // mouse click on slash row
-    case ChEsc()                          // close popup
+    case ChEsc()                          // close popup / modal
     case ChQuit()
     case ChClearLog()                     // /clear handler
+    case ChShowHelp()                     // /help — open modal
+    case ChCloseHelp()                    // close /help modal
+    case ChToolDemo()                     // /run — append a fake tool-call card
+    case ChToolToggle(Idx int)            // click on a tool card header
     case ChNoOp()
 }
 
@@ -100,7 +118,8 @@ sealed type Msg {
 struct SlashCommand(Name string, Hint string, Build func() Msg)
 
 func slashCommands() Array[SlashCommand] = ArrayOf[SlashCommand](
-    SlashCommand(Name = "/help",  Hint = "show help",            Build = () => ChNoOp()),
+    SlashCommand(Name = "/help",  Hint = "show help",            Build = () => ChShowHelp()),
+    SlashCommand(Name = "/run",   Hint = "demo a tool-call card", Build = () => ChToolDemo()),
     SlashCommand(Name = "/clear", Hint = "clear the log",        Build = () => ChClearLog()),
     SlashCommand(Name = "/quit",  Hint = "exit the app",         Build = () => ChQuit()),
 )
@@ -165,12 +184,28 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
     case ChSubmit()         => onSubmit(m)
     case ChStreamChunk(s)   => onStreamChunk(m, s)
     case ChStreamDone()     => onStreamDone(m)
-    case ChEsc()            => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaClear()),
-                                         SlashSel = 0), NoCmd[Msg]())
+    case ChEsc()            => onEsc(m)
     case ChSlashSelect(idx) => onSlashSelect(m, idx)
     case ChClearLog()       => (m.Copy(Log = NewConversationLog(),
                                          Composer = TextAreaUpdate(m.Composer, TaClear()),
+                                         SlashSel = 0,
+                                         ToolCalls = EmptyArray[ToolCall]()), NoCmd[Msg]())
+    case ChShowHelp()       => (m.Copy(HelpOpen = true,
+                                         Composer = TextAreaUpdate(m.Composer, TaClear()),
                                          SlashSel = 0), NoCmd[Msg]())
+    case ChCloseHelp()      => (m.Copy(HelpOpen = false), NoCmd[Msg]())
+    case ChToolDemo()       => onToolDemo(m)
+    case ChToolToggle(idx)  => onToolToggle(m, idx)
+}
+
+// onEsc routes Esc to the topmost overlay: close /help if open,
+// otherwise clear the composer (which also dismisses the slash popup
+// since the popup is driven by composer content).
+func onEsc(m Model) Tuple[Model, Cmd[Msg]] {
+    if m.HelpOpen {
+        return (m.Copy(HelpOpen = false), NoCmd[Msg]())
+    }
+    return (m.Copy(Composer = TextAreaUpdate(m.Composer, TaClear()), SlashSel = 0), NoCmd[Msg]())
 }
 
 func onCharInPopupAware(m Model, c rune) Tuple[Model, Cmd[Msg]] {
@@ -338,6 +373,110 @@ func messageView(who Author, wrapped Array[string]) Widget {
     return Column(children)
 }
 
+// ----- Tool-call cards (Disclosure) ---------------------------------------
+//
+// A tool-call card renders like a Claude Code shell-tool tile:
+//   ▸ $ ls /tmp                            ← header (collapsed)
+// or
+//   ▾ $ ls /tmp                            ← header (expanded)
+//     fake-output-line-1
+//     fake-output-line-2
+//     ...
+//
+// Click on the header dispatches `ChToolToggle(Idx)`; the update
+// handler rebuilds the entry and replaces it in the log via
+// `CvReplaceAt`. Body output is pre-wrapped to the current term width
+// so `entry.Height` matches rendered rows exactly (same contract as
+// `messageView`).
+
+func toolCallEntry(tc ToolCall, termW int) ConversationEntry {
+    val width = bodyTextWidth(termW)
+    val outputWrapped = WrapParagraph(tc.Output, width)
+    val headerText = "  " + DisclosureMarker(tc.Expanded) + "$ " + tc.Command
+    val headerStyle = DefaultStyle().WithBold().WithFg(BrightYellow())
+    val headerW = TextStyled(headerText, headerStyle)
+    val outputRows = outputWrapped.Map((line) =>
+        Fixed(1, TextStyled("  " + line, DefaultStyle().WithDim())))
+    val baseChildren = ArrayOf[LayoutChild](Fixed(1, headerW))
+    val children = if (tc.Expanded) baseChildren.AppendAll(outputRows).Append(Fixed(1, Text("")))
+                   else             baseChildren.Append(Fixed(1, Text("")))
+    val height = if (tc.Expanded) 1 + outputWrapped.Length() + 1 else 2
+    val body = Column(children).OnClick(ChToolToggle(Idx = tc.Idx))
+    return ConversationEntry(Body = body, Height = height)
+}
+
+func onToolDemo(m Model) Tuple[Model, Cmd[Msg]] {
+    val (termW, _) = TermSize()
+    val newIdx = m.Log.Entries.Length()
+    val tc = ToolCall(
+        Idx      = newIdx,
+        Command  = "ls /tmp",
+        Output   = "drwxr-xr-x  4 user user  128 Apr 26 12:34 .\n" +
+                   "drwxr-xr-x 64 root root 2048 Apr 26 12:00 ..\n" +
+                   "-rw-r--r--  1 user user  256 Apr 26 12:30 demo.txt\n" +
+                   "-rw-r--r--  1 user user 1024 Apr 26 12:31 example.gala\n" +
+                   "-rw-r--r--  1 user user 4096 Apr 26 12:32 README.md",
+        Expanded = true,
+    )
+    val entry = toolCallEntry(tc, termW)
+    val newLog = ConversationLogUpdate(m.Log, CvAppend(Entry = entry))
+    val updated = m.Copy(
+        Log       = newLog,
+        Composer  = TextAreaUpdate(m.Composer, TaClear()),
+        SlashSel  = 0,
+        ToolCalls = m.ToolCalls.Append(tc),
+    )
+    return (updated, NoCmd[Msg]())
+}
+
+func onToolToggle(m Model, idx int) Tuple[Model, Cmd[Msg]] {
+    val (termW, _) = TermSize()
+    return m.ToolCalls.Find((tc) => tc.Idx == idx) match {
+        case Some(old) => applyToolToggle(m, old, termW)
+        case None()    => (m, NoCmd[Msg]())
+    }
+}
+
+func applyToolToggle(m Model, old ToolCall, termW int) Tuple[Model, Cmd[Msg]] {
+    val toggled = ToolCall(
+        Idx      = old.Idx,
+        Command  = old.Command,
+        Output   = old.Output,
+        Expanded = !old.Expanded,
+    )
+    val newEntry = toolCallEntry(toggled, termW)
+    val newLog = ConversationLogUpdate(m.Log, CvReplaceAt(Idx = old.Idx, Entry = newEntry))
+    val newTools = m.ToolCalls.Map((tc) => if (tc.Idx == old.Idx) toggled else tc)
+    return (m.Copy(Log = newLog, ToolCalls = newTools), NoCmd[Msg]())
+}
+
+// ----- Help modal ---------------------------------------------------------
+
+func helpPanel() Widget {
+    val title = TextStyled(" gala-tui chat — keys ",
+        DefaultStyle().WithBold().WithReverse())
+    val lines = ArrayOf[string](
+        "",
+        "  Enter         submit message",
+        "  Tab           insert newline in composer",
+        "  ↑ / ↓         history (or slash popup nav)",
+        "  PgUp / PgDn   scroll the conversation log",
+        "  End           re-stick log to bottom",
+        "  Esc           close popup / modal / clear composer",
+        "  Ctrl+C        quit",
+        "",
+        "  /help         this screen",
+        "  /run          demo a tool-call card",
+        "  /clear        wipe the conversation log",
+        "  /quit         exit",
+        "",
+        "  Press Esc to close.",
+    )
+    val rows = lines.Map((s) => Fixed(1, Text(s)))
+    val body = Column(ArrayOf[LayoutChild](Fixed(1, title)).AppendAll(rows))
+    return PaddingHV(0, 1, body)
+}
+
 // ----- View ----------------------------------------------------------------
 
 func view(m Model) Widget {
@@ -367,15 +506,26 @@ func view(m Model) Widget {
         Fixed(footerH, footerWidget()),
         Fixed(composerH, composer),
     ))
-    if !slashPopupOpen(m) {
-        return base
-    }
+    val withSlash = if (slashPopupOpen(m)) viewWithSlashPopup(m, base, h, composerH) else base
+    return if (m.HelpOpen) viewWithHelpModal(withSlash) else withSlash
+}
+
+// viewWithHelpModal layers `base` under a centered help dialog. The
+// modal eats clicks on its own area (so a click inside the dialog
+// doesn't fall through to the chat below) by wrapping in OnClick(NoOp).
+// Esc closes — handled in onEsc.
+func viewWithHelpModal(base Widget) Widget {
+    val modal = Modal(54, 17, helpPanel()).OnClick(ChNoOp())
+    return Stack(ArrayOf[Widget](base, modal))
+}
+
+func viewWithSlashPopup(m Model, base Widget, screenH int, composerH int) Widget {
     val cmds = filteredSlashCommands(m)
     if cmds.IsEmpty() { return base }
     val popH = cmds.Length() + 2          // border + N rows
     val popW = 32
     // Composer is at the very bottom; popup floats just above it.
-    val composerTop = h - composerH
+    val composerTop = screenH - composerH
     val popY = composerTop - popH
     val popX = 2
     val popupBody = slashPopupBody(cmds, m.SlashSel)

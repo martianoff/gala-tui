@@ -52,6 +52,7 @@ func NewConversationLog() ConversationLog =
 
 sealed type ConversationLogEvent {
     case CvAppend(Entry ConversationEntry)
+    case CvReplaceAt(Idx int, Entry ConversationEntry)
     case CvScrollUp(Lines int)
     case CvScrollDown(Lines int)
     case CvPageUp(Lines int)             // pass viewport height
@@ -62,6 +63,7 @@ sealed type ConversationLogEvent {
 
 func ConversationLogUpdate(c ConversationLog, ev ConversationLogEvent) ConversationLog = ev match {
     case CvAppend(e)        => cvAppend(c, e)
+    case CvReplaceAt(i, e)  => cvReplaceAt(c, i, e)
     case CvScrollUp(n)      => cvScroll(c, -n)
     case CvScrollDown(n)    => cvScroll(c, n)
     case CvPageUp(n)        => cvScroll(c, -n)
@@ -72,6 +74,20 @@ func ConversationLogUpdate(c ConversationLog, ev ConversationLogEvent) Conversat
                                    StickToBottom = true,
                                )
     case CvNoOp()           => c
+}
+
+// cvReplaceAt swaps the entry at `idx` with `e` while preserving the
+// scroll state. Used by entries whose body changes after append (e.g.,
+// a Disclosure tool-call card that toggles its own height when expanded
+// or collapsed). Out-of-range `idx` returns `c` unchanged so a stale
+// click doesn't crash the app.
+func cvReplaceAt(c ConversationLog, idx int, e ConversationEntry) ConversationLog {
+    if idx < 0 || idx >= c.Entries.Length() { return c }
+    return ConversationLog(
+        Entries       = c.Entries.Updated(idx, e),
+        Offset        = c.Offset,
+        StickToBottom = c.StickToBottom,
+    )
 }
 
 func cvAppend(c ConversationLog, e ConversationEntry) ConversationLog {
