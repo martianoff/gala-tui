@@ -286,43 +286,56 @@ func chatRunes(s string) Array[rune] {
 }
 
 // ----- Log helpers ---------------------------------------------------------
+//
+// The conversation log stores ConversationEntry values whose `Height` is
+// the EXACT number of rendered rows the entry will occupy. Scroll math
+// (offset, viewport top/bottom, partial-visibility clipping) all relies
+// on that equality — if `Height` undercounts the rendered rows, tall
+// entries get clipped to a single row of body and the visible region
+// drifts as the user scrolls.
+//
+// To keep `Height` honest we pre-wrap the body using the same routine
+// `ParagraphW` uses at render time (`WrapParagraph`), then build the
+// entry view as a Column of fixed-1-height Text rows from those exact
+// wrapped lines. No `Flex` — every row's height is statically known.
+//
+// `bodyTextWidth(termW)` is the width passed to wrap; it accounts for
+// the leading `"  "` margin we render.
 
 func appendLog(log ConversationLog, who Author, body string) ConversationLog {
+    val (termW, _) = TermSize()
+    val width = bodyTextWidth(termW)
+    val wrapped = WrapParagraph(body, width)
     val entry = ConversationEntry(
-        Body   = messageView(who, body),
-        Height = messageHeight(body),
+        Body   = messageView(who, wrapped),
+        Height = messageHeight(wrapped),
     )
     return ConversationLogUpdate(log, CvAppend(Entry = entry))
 }
 
-func messageHeight(body string) int {
-    // 1 row for header + roughly one row per 90 cols of text.
-    val lines = stringToLineCount(body)
-    return 1 + lines + 1                 // header + body + spacer
-}
+// bodyTextWidth: terminal width minus the 2-cell left margin we prepend
+// to body lines. Floor at 20 so very narrow terminals don't divide-by-zero
+// inside wrapParagraph.
+func bodyTextWidth(termW int) int = MaxInt(20, termW - 2)
 
-func stringToLineCount(s string) int {
-    if s == "" { return 1 }
-    var lines = 1
-    for _, c := range s {
-        if c == '\n' { lines = lines + 1 }
-    }
-    return lines
-}
+// messageHeight: exact rendered row count = header + wrapped body lines
+// + spacer. Empty body still consumes one row so successive empty
+// entries don't overlap visually.
+func messageHeight(wrapped Array[string]) int =
+    1 + MaxInt(1, wrapped.Length()) + 1
 
-func messageView(who Author, body string) Widget {
+func messageView(who Author, wrapped Array[string]) Widget {
     val (label, color) = who match {
         case ChUser()      => ("You", BrightCyan())
         case ChAssistant() => ("AI",  BrightGreen())
     }
     val header = TextStyled("  " + label + " ",
         DefaultStyle().WithBold().WithFg(color))
-    val bodyW = ParagraphW(Content = "  " + body, Style = DefaultStyle())
-    return Column(ArrayOf[LayoutChild](
-        Fixed(1, header),
-        Flex(1, bodyW),
-        Fixed(1, Text("")),
-    ))
+    val bodyRows = wrapped.Map((line) => Fixed(1, Text("  " + line)))
+    val children = ArrayOf[LayoutChild](Fixed(1, header))
+        .AppendAll(if (bodyRows.IsEmpty()) ArrayOf[LayoutChild](Fixed(1, Text(""))) else bodyRows)
+        .Append(Fixed(1, Text("")))
+    return Column(children)
 }
 
 // ----- View ----------------------------------------------------------------

@@ -1,0 +1,337 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// ConversationLog regression tests.
+//
+// The malformation bug we're guarding against: when a caller declares an
+// entry with `Height = H` but the entry's Body widget actually wants more
+// than H rows (or H rows where each row is a fixed-1-height child), the
+// scroll math computes viewports against H — every line cursor, scroll
+// clamp, and partial-visibility skip uses H. If the rendered Body is
+// taller, lines disappear; if shorter, dead space appears between
+// entries.
+//
+// These tests build entries whose Body is a known Column of
+// `Fixed(1, Text("…"))` rows (so rendered height equals exactly the
+// number of rows we built) and assert that:
+//   1. cvTotalLines sums Height fields exactly.
+//   2. ConversationLogView at H = total renders every body line in order.
+//   3. ConversationLogView at H < total renders only the trailing rows
+//      when sticky, and the offset window when scrolled.
+//   4. PgUp / PgDn move the offset by the requested amount and the
+//      visible rows shift accordingly.
+//   5. WrapParagraph + Height-from-wrapped contract: width-aware wrap
+//      gives the EXACT same line count as the rendered ParagraphW so
+//      `ConversationEntry.Height = wrapped.Length() + decorations` is
+//      correct.
+// ============================================================================
+
+// clMakeEntry: build a ConversationEntry whose Body is a Column of N
+// fixed-1-height rows tagged with `prefix-i`. Height = N. Renders to
+// exactly N rows (no Flex, no wrapping) so we can assert text exactly.
+func clMakeEntry(prefix string, n int) ConversationEntry {
+    val rows = ArrayTabulate(n, (i) =>
+        Fixed(1, Text(prefix + "-" + clIntStr(i))))
+    return ConversationEntry(Body = Column(rows), Height = n)
+}
+
+func clIntStr(n int) string {
+    if n == 0 { return "0" }
+    var x = n
+    var digits = ""
+    val negative = x < 0
+    if negative { x = -x }
+    for x > 0 {
+        val d = x % 10
+        digits = clDigit(d) + digits
+        x = x / 10
+    }
+    return if (negative) "-" + digits else digits
+}
+
+func clDigit(d int) string = d match {
+    case 0 => "0"
+    case 1 => "1"
+    case 2 => "2"
+    case 3 => "3"
+    case 4 => "4"
+    case 5 => "5"
+    case 6 => "6"
+    case 7 => "7"
+    case 8 => "8"
+    case 9 => "9"
+    case _ => "?"
+}
+
+// clBuildLog appends `count` entries of height 3 each, stripe text
+// "A-0..A-2", "B-0..B-2", ... so we can spot which entry's body is
+// rendered.
+func clBuildLog(count int, perEntryHeight int) ConversationLog {
+    val labels = ArrayOf[string]("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
+    var log = NewConversationLog()
+    var i = 0
+    for i < count {
+        val prefix = if (i < labels.Length()) labels.Get(i) else "X"
+        log = ConversationLogUpdate(log, CvAppend(Entry = clMakeEntry(prefix, perEntryHeight)))
+        i = i + 1
+    }
+    return log
+}
+
+// ----------------------------------------------------------------------------
+// Total-lines / append / scroll-clamp behaviour
+// ----------------------------------------------------------------------------
+
+func TestConversationLogTotalLinesSumsHeights(t T) T {
+    val log = clBuildLog(4, 3)            // 12 lines total
+    return Eq(t, cvTotalLines(log.Entries), 12)
+}
+
+func TestConversationLogAppendStaysSticky(t T) T {
+    val log = clBuildLog(3, 3)
+    val t1 = Eq(t, log.StickToBottom, true)
+    return Eq(t1, log.Offset, 9)          // total lines, stuck to bottom
+}
+
+func TestConversationLogScrollUpUnsticks(t T) T {
+    val log = clBuildLog(3, 3)
+    val scrolled = ConversationLogUpdate(log, CvScrollUp(Lines = 4))
+    val t1 = Eq(t, scrolled.StickToBottom, false)
+    return Eq(t1, scrolled.Offset, 5)
+}
+
+func TestConversationLogScrollClampsAtZero(t T) T {
+    val log = clBuildLog(3, 3)
+    val way = ConversationLogUpdate(log, CvScrollUp(Lines = 999))
+    val t1 = Eq(t, way.Offset, 0)
+    return Eq(t1, way.StickToBottom, false)
+}
+
+func TestConversationLogStickEndResnaps(t T) T {
+    val log = clBuildLog(3, 3)
+    val scrolled = ConversationLogUpdate(log, CvScrollUp(Lines = 5))
+    val resnapped = ConversationLogUpdate(scrolled, CvStickToBottom())
+    val t1 = Eq(t, resnapped.Offset, 9)
+    return Eq(t1, resnapped.StickToBottom, true)
+}
+
+// ----------------------------------------------------------------------------
+// View: full-height render shows every entry's body in order
+// ----------------------------------------------------------------------------
+
+func TestConversationLogRendersAllRowsAtFullHeight(t T) T {
+    val log = clBuildLog(2, 3)
+    val view = ConversationLogView(log, 6)        // total = 6, no scrolling
+    val rows = SnapshotLines(view, 12, 6)
+    val t1 = Eq(t, clTrimRow(rows.Get(0)), "A-0")
+    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "A-1")
+    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "A-2")
+    val t4 = Eq(t3, clTrimRow(rows.Get(3)), "B-0")
+    val t5 = Eq(t4, clTrimRow(rows.Get(4)), "B-1")
+    return Eq(t5, clTrimRow(rows.Get(5)), "B-2")
+}
+
+// ----------------------------------------------------------------------------
+// View: when content > viewport and sticky, last `height` rows are shown
+// ----------------------------------------------------------------------------
+
+func TestConversationLogStickyShowsTrailingRows(t T) T {
+    val log = clBuildLog(3, 3)                    // 9 total rows
+    val view = ConversationLogView(log, 4)
+    val rows = SnapshotLines(view, 12, 4)
+    // Sticky → trailing 4 rows: last 1 of B + all 3 of C.
+    val t1 = Eq(t, clTrimRow(rows.Get(0)), "B-2")
+    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "C-0")
+    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "C-1")
+    return Eq(t3, clTrimRow(rows.Get(3)), "C-2")
+}
+
+// ----------------------------------------------------------------------------
+// View: scrolled-up window shows the right rows for the offset
+// ----------------------------------------------------------------------------
+
+func TestConversationLogScrolledShowsCorrectWindow(t T) T {
+    val log = clBuildLog(3, 3)
+    // Offset = 2 means viewport top is line 2 (third line of A).
+    val scrolled = ConversationLogUpdate(log, CvScrollUp(Lines = 7))
+    val t1 = Eq(t, scrolled.Offset, 2)
+    val view = ConversationLogView(scrolled, 4)
+    val rows = SnapshotLines(view, 12, 4)
+    val u1 = Eq(t1, clTrimRow(rows.Get(0)), "A-2")
+    val u2 = Eq(u1, clTrimRow(rows.Get(1)), "B-0")
+    val u3 = Eq(u2, clTrimRow(rows.Get(2)), "B-1")
+    return Eq(u3, clTrimRow(rows.Get(3)), "B-2")
+}
+
+// ----------------------------------------------------------------------------
+// View: PgUp moves offset by N lines; rendered window shifts by N rows
+// ----------------------------------------------------------------------------
+
+func TestConversationLogPageUpShiftsWindow(t T) T {
+    val log = clBuildLog(4, 3)                    // 12 rows total
+    val view0 = ConversationLogView(log, 4)
+    val rows0 = SnapshotLines(view0, 12, 4)
+    // Sticky tail = window [8, 12): C-2, D-0, D-1, D-2.
+    val sticky0 = Eq(t, clTrimRow(rows0.Get(0)), "C-2")
+
+    // PgUp(8) moves offset from sticky-bottom 12 down to 4 → window [4, 8):
+    // B-1, B-2, C-0, C-1.
+    val pgup = ConversationLogUpdate(log, CvPageUp(Lines = 8))
+    val t1 = Eq(sticky0, pgup.Offset, 4)
+    val viewU = ConversationLogView(pgup, 4)
+    val rowsU = SnapshotLines(viewU, 12, 4)
+    val u1 = Eq(t1, clTrimRow(rowsU.Get(0)), "B-1")
+    val u2 = Eq(u1, clTrimRow(rowsU.Get(1)), "B-2")
+    val u3 = Eq(u2, clTrimRow(rowsU.Get(2)), "C-0")
+    return Eq(u3, clTrimRow(rowsU.Get(3)), "C-1")
+}
+
+// ----------------------------------------------------------------------------
+// View: PgDn re-sticks when it reaches/passes the bottom
+// ----------------------------------------------------------------------------
+
+func TestConversationLogPageDownResticks(t T) T {
+    val log = clBuildLog(3, 3)
+    val up = ConversationLogUpdate(log, CvPageUp(Lines = 3))
+    val t1 = Eq(t, up.StickToBottom, false)
+    val down = ConversationLogUpdate(up, CvPageDown(Lines = 99))
+    val t2 = Eq(t1, down.StickToBottom, true)
+    return Eq(t2, down.Offset, 9)
+}
+
+// ----------------------------------------------------------------------------
+// View: tall entry partially visible at the top still shows its bottom rows
+//
+// Regression for the scroll-clip bug: when offset puts us partway through
+// a tall entry, only the bottom slice of that entry should appear at the
+// top of the viewport. If `Height` is undercounted, ViewportW(Inner =
+// body, ContentHeight = Height) renders the body in too few rows and
+// truncates content.
+// ----------------------------------------------------------------------------
+
+func TestConversationLogPartialEntryAtTopShowsBottomRows(t T) T {
+    var log = NewConversationLog()
+    log = ConversationLogUpdate(log, CvAppend(Entry = clMakeEntry("A", 5)))
+    log = ConversationLogUpdate(log, CvAppend(Entry = clMakeEntry("B", 3)))
+    // Total = 8. View height 5 sticky → trailing 5 rows: last 2 of A + all 3 of B.
+    val view = ConversationLogView(log, 5)
+    val rows = SnapshotLines(view, 12, 5)
+    val t1 = Eq(t, clTrimRow(rows.Get(0)), "A-3")
+    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "A-4")
+    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "B-0")
+    val t4 = Eq(t3, clTrimRow(rows.Get(3)), "B-1")
+    return Eq(t4, clTrimRow(rows.Get(4)), "B-2")
+}
+
+// ----------------------------------------------------------------------------
+// View: tall entry partially visible at the bottom shows its TOP rows
+//
+// Reversed slice: scrolling up so a tall entry is partially clipped at the
+// bottom of the viewport — only its head rows should appear, not its tail.
+// ----------------------------------------------------------------------------
+
+func TestConversationLogPartialEntryAtBottomShowsTopRows(t T) T {
+    var log = NewConversationLog()
+    log = ConversationLogUpdate(log, CvAppend(Entry = clMakeEntry("A", 3)))
+    log = ConversationLogUpdate(log, CvAppend(Entry = clMakeEntry("B", 5)))
+    // Total = 8. Scroll up by 6 → offset = 2.
+    val scrolled = ConversationLogUpdate(log, CvScrollUp(Lines = 6))
+    val t0 = Eq(t, scrolled.Offset, 2)
+    val view = ConversationLogView(scrolled, 4)
+    val rows = SnapshotLines(view, 12, 4)
+    // Window is lines [2, 6): A-2 + B-0..B-2
+    val t1 = Eq(t0, clTrimRow(rows.Get(0)), "A-2")
+    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "B-0")
+    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "B-1")
+    return Eq(t3, clTrimRow(rows.Get(3)), "B-2")
+}
+
+// ----------------------------------------------------------------------------
+// WrapParagraph contract test
+//
+// This is the contract chat's `messageHeight` relies on: WrapParagraph at
+// width W returns lines that fit in W, and the count is the EXACT number
+// of rows ParagraphW will render at width W. If this drifts, chat's entry
+// heights drift and the whole log mis-clips.
+// ----------------------------------------------------------------------------
+
+func TestWrapParagraphSimpleSentenceFitsAtWideWidth(t T) T {
+    val lines = WrapParagraph("hello world", 20)
+    return Eq(t, lines.Length(), 1)
+}
+
+func TestWrapParagraphLongSentenceWrapsAtNarrowWidth(t T) T {
+    val s = "the quick brown fox jumps over the lazy dog twice"
+    val lines = WrapParagraph(s, 20)
+    val t1 = Greater(t, lines.Length(), 1)
+    // Every wrapped line must fit in width.
+    return Eq(t1, lines.ForAll((l) => RuneCount(l) <= 20), true)
+}
+
+func TestWrapParagraphRespectsExplicitNewlines(t T) T {
+    val lines = WrapParagraph("alpha\nbeta\ngamma", 80)
+    val t1 = Eq(t, lines.Length(), 3)
+    val t2 = Eq(t1, lines.Get(0), "alpha")
+    val t3 = Eq(t2, lines.Get(1), "beta")
+    return Eq(t3, lines.Get(2), "gamma")
+}
+
+func TestWrapParagraphCountMatchesParagraphRender(t T) T {
+    // The whole-message regression: wrap N lines, render ParagraphW into
+    // a buffer N rows tall, assert every wrapped line appears in the
+    // rendered output.
+    val s = "the quick brown fox jumps over the lazy dog twice"
+    val width = 20
+    val wrapped = WrapParagraph(s, width)
+    val n = wrapped.Length()
+    val rendered = SnapshotLines(Paragraph(s), width, n)
+    var passed = t
+    var i = 0
+    for i < n {
+        passed = Eq(passed, clTrimRow(rendered.Get(i)), wrapped.Get(i))
+        i = i + 1
+    }
+    return passed
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+// clTrimRow strips trailing spaces from a snapshot row so equality
+// comparisons against the bare body string work regardless of buffer
+// width.
+func clTrimRow(s string) string {
+    var end = RuneCount(s)
+    for end > 0 {
+        val r = clRuneAt(s, end - 1)
+        if r != ' ' { return clRuneSliceTo(s, end) }
+        end = end - 1
+    }
+    return ""
+}
+
+func clRuneAt(s string, idx int) rune {
+    var i = 0
+    for _, c := range s {
+        if i == idx { return c }
+        i = i + 1
+    }
+    return rune(0)
+}
+
+func clRuneSliceTo(s string, end int) string {
+    var out = ""
+    var i = 0
+    for _, c := range s {
+        if i < end { out = out + string(c) }
+        i = i + 1
+    }
+    return out
+}

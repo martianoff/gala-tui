@@ -271,6 +271,15 @@ func Paragraph(content string) Widget =
 func ParagraphStyled(content string, style Style) Widget =
     ParagraphW(Content = content, Style = style)
 
+// WrapParagraph is the same word-wrap routine `ParagraphW` uses at render
+// time, exposed so callers can pre-compute exact line counts at the same
+// width the renderer will use. Useful for variable-height widgets like
+// `ConversationLog` where the entry's height MUST match the rendered
+// content — otherwise scroll math drifts and tall messages get clipped
+// to a single row of body. Caller passes the body width (post-margins).
+func WrapParagraph(content string, width int) Array[string] =
+    wrapParagraph(content, width)
+
 // ScrollableViewport wraps `inner` so only rows [offset, offset+visibleHeight)
 // of its content are shown. `contentHeight` is what the caller expects the
 // inner widget to render at full size; the runtime allocates a hidden buffer
