@@ -24,9 +24,15 @@ import (
 //   - Type → text appears in the composer.
 //   - Enter → submit; pushes a "you" message into the log, then a fake
 //     "ai" response starts streaming (tokens appear via TickSub).
-//   - Shift+Enter NOT distinguishable in standard terminals, so we use
-//     Tab to insert a newline in the composer.
-//   - ↑/↓ at the top/bottom of the composer steps through history.
+//   - Tab inserts a newline in the composer (terminals can't
+//     distinguish Shift+Enter, so we use Tab).
+//   - Type `/` at the start of a line to open a slash-command
+//     popup; click an entry or press Enter to run the command:
+//        /help    show this help message
+//        /clear   wipe the conversation log
+//        /quit    exit the app
+//   - ↑/↓ at the top/bottom of the composer steps through history
+//     (or moves through the slash popup if it's open).
 //   - PageUp/PageDown scrolls the conversation log.
 //   - End re-sticks the log to the bottom.
 //   - Ctrl+C / Ctrl+D quits.
@@ -49,6 +55,7 @@ struct Model(
     Streaming StreamingText,
     InFlight  bool,                  // true while a response is streaming
     Tick      int,                   // animates the streaming cursor
+    SlashSel  int,                   // selected row in the slash popup (when visible)
 )
 
 func initial() Model = Model(
@@ -56,10 +63,12 @@ func initial() Model = Model(
     Log       = appendLog(NewConversationLog(), ChAssistant(),
                   "Welcome — type a message and press Enter. " +
                   "Tab inserts a newline. ↑/↓ recalls history. " +
-                  "PgUp/PgDn scrolls. Ctrl+C quits."),
+                  "Type `/` for a command list. PgUp/PgDn scrolls. " +
+                  "Ctrl+C quits."),
     Streaming = NewStreamingText(),
     InFlight  = false,
     Tick      = 0,
+    SlashSel  = 0,
 )
 
 // ----- Messages ------------------------------------------------------------
@@ -79,8 +88,61 @@ sealed type Msg {
     case ChTick()
     case ChStreamChunk(S string)
     case ChStreamDone()
+    case ChSlashSelect(Idx int)         // mouse click on slash row
+    case ChEsc()                          // close popup
     case ChQuit()
+    case ChClearLog()                     // /clear handler
     case ChNoOp()
+}
+
+// ----- Slash commands ------------------------------------------------------
+
+struct SlashCommand(Name string, Hint string, Build func() Msg)
+
+func slashCommands() Array[SlashCommand] = ArrayOf[SlashCommand](
+    SlashCommand(Name = "/help",  Hint = "show help",            Build = () => ChNoOp()),
+    SlashCommand(Name = "/clear", Hint = "clear the log",        Build = () => ChClearLog()),
+    SlashCommand(Name = "/quit",  Hint = "exit the app",         Build = () => ChQuit()),
+)
+
+// Visible slash popup ↔ composer starts with `/`.
+func slashPopupOpen(m Model) bool =
+    TextAreaContent(m.Composer) != "" &&
+    runeAt(TextAreaContent(m.Composer), 0) == '/'
+
+func runeAt(s string, idx int) rune {
+    var i = 0
+    for _, c := range s {
+        if i == idx { return c }
+        i = i + 1
+    }
+    return rune(0)
+}
+
+func filteredSlashCommands(m Model) Array[SlashCommand] {
+    val q = TextAreaContent(m.Composer)
+    val cmds = slashCommands()
+    if q == "" || runeAt(q, 0) != '/' { return cmds }
+    return cmds.Filter((cmd) => stringHasPrefix(cmd.Name, q))
+}
+
+func stringHasPrefix(s string, prefix string) bool {
+    var i = 0
+    val pn = RuneCount(prefix)
+    for _, c := range s {
+        if i >= pn { return true }
+        // Compare i-th rune of s with i-th rune of prefix.
+        var j = 0
+        var p = rune(0)
+        for _, pc := range prefix {
+            if j == i { p = pc; j = pn; }
+            else { j = j + 1 }
+        }
+        if c != p { return false }
+        i = i + 1
+        if i >= pn { return true }
+    }
+    return RuneCount(s) >= pn
 }
 
 // ----- Update --------------------------------------------------------------
@@ -88,10 +150,11 @@ sealed type Msg {
 func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
     case ChQuit()           => (m, QuitCmd[Msg]())
     case ChNoOp()           => (m, NoCmd[Msg]())
-    case ChChar(c)          => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsert(C = c))), NoCmd[Msg]())
-    case ChBackspace()      => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaBackspace())), NoCmd[Msg]())
-    case ChCursorUp()       => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorUp())), NoCmd[Msg]())
-    case ChCursorDown()     => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorDown())), NoCmd[Msg]())
+    case ChChar(c)          => onCharInPopupAware(m, c)
+    case ChBackspace()      => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaBackspace()),
+                                         SlashSel = 0), NoCmd[Msg]())
+    case ChCursorUp()       => onCursorUp(m)
+    case ChCursorDown()     => onCursorDown(m)
     case ChCursorLeft()     => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorLeft())), NoCmd[Msg]())
     case ChCursorRight()    => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorRight())), NoCmd[Msg]())
     case ChNewline()        => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsertNewline())), NoCmd[Msg]())
@@ -102,9 +165,64 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
     case ChSubmit()         => onSubmit(m)
     case ChStreamChunk(s)   => onStreamChunk(m, s)
     case ChStreamDone()     => onStreamDone(m)
+    case ChEsc()            => (m.Copy(Composer = TextAreaUpdate(m.Composer, TaClear()),
+                                         SlashSel = 0), NoCmd[Msg]())
+    case ChSlashSelect(idx) => onSlashSelect(m, idx)
+    case ChClearLog()       => (m.Copy(Log = NewConversationLog(),
+                                         Composer = TextAreaUpdate(m.Composer, TaClear()),
+                                         SlashSel = 0), NoCmd[Msg]())
+}
+
+func onCharInPopupAware(m Model, c rune) Tuple[Model, Cmd[Msg]] {
+    val nm = m.Copy(
+        Composer = TextAreaUpdate(m.Composer, TaInsert(C = c)),
+        SlashSel = 0,
+    )
+    return (nm, NoCmd[Msg]())
+}
+
+// Cursor-up: in the slash popup, move selection up; otherwise step
+// composer / history as before.
+func onCursorUp(m Model) Tuple[Model, Cmd[Msg]] {
+    if slashPopupOpen(m) {
+        val cmds = filteredSlashCommands(m)
+        val n = cmds.Length()
+        if n == 0 { return (m, NoCmd[Msg]()) }
+        val nextSel = if (m.SlashSel - 1 < 0) n - 1 else m.SlashSel - 1
+        return (m.Copy(SlashSel = nextSel), NoCmd[Msg]())
+    }
+    return (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorUp())), NoCmd[Msg]())
+}
+
+func onCursorDown(m Model) Tuple[Model, Cmd[Msg]] {
+    if slashPopupOpen(m) {
+        val cmds = filteredSlashCommands(m)
+        val n = cmds.Length()
+        if n == 0 { return (m, NoCmd[Msg]()) }
+        val nextSel = if (m.SlashSel + 1 >= n) 0 else m.SlashSel + 1
+        return (m.Copy(SlashSel = nextSel), NoCmd[Msg]())
+    }
+    return (m.Copy(Composer = TextAreaUpdate(m.Composer, TaCursorDown())), NoCmd[Msg]())
+}
+
+func onSlashSelect(m Model, idx int) Tuple[Model, Cmd[Msg]] {
+    val cmds = filteredSlashCommands(m)
+    if idx < 0 || idx >= cmds.Length() {
+        return (m, NoCmd[Msg]())
+    }
+    val cmd = cmds.Get(idx)
+    val withClearedComposer = m.Copy(
+        Composer = TextAreaUpdate(m.Composer, TaClear()),
+        SlashSel = 0,
+    )
+    return (withClearedComposer, MsgCmd[Msg](Msg = cmd.Build()))
 }
 
 func onSubmit(m Model) Tuple[Model, Cmd[Msg]] {
+    // Slash-popup is open: Enter selects the highlighted command.
+    if slashPopupOpen(m) {
+        return onSlashSelect(m, m.SlashSel)
+    }
     val text = TextAreaContent(m.Composer)
     if text == "" { return (m, NoCmd[Msg]()) }
     val taSubmitted = TextAreaUpdate(m.Composer, TaSubmit())
@@ -244,13 +362,43 @@ func view(m Model) Widget {
         TextAreaView(m.Composer, !m.InFlight, "Type a message…"),
         composerBorder,
     )
-    return Column(ArrayOf[LayoutChild](
+    val base = Column(ArrayOf[LayoutChild](
         Fixed(headerH, headerWidget(m)),
         Flex(1, log),
         Fixed(streamingH, streamingPane),
         Fixed(footerH, footerWidget()),
         Fixed(composerH, composer),
     ))
+    if !slashPopupOpen(m) {
+        return base
+    }
+    val cmds = filteredSlashCommands(m)
+    if cmds.IsEmpty() { return base }
+    val popH = cmds.Length() + 2          // border + N rows
+    val popW = 32
+    // Composer is at the very bottom; popup floats just above it.
+    val composerTop = h - composerH
+    val popY = composerTop - popH
+    val popX = 2
+    val popupBody = slashPopupBody(cmds, m.SlashSel)
+    val popup = Popup(popX, popY, popW, popH, popupBody)
+    return PopupOver(base, popup.OnClick(ChNoOp()))
+}
+
+func slashPopupBody(cmds Array[SlashCommand], selected int) Widget {
+    val rows = cmds.ZipWithIndex().Map((p) =>
+        Fixed(1, slashRowWidget(p.V1, p.V2 == selected)))
+    val list = Column(rows)
+    return list.OnPickRow[Msg](cmds.Length(), (i) => ChSlashSelect(Idx = i))
+}
+
+func slashRowWidget(cmd SlashCommand, selected bool) Widget {
+    val style = if (selected)
+                    DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow())
+                else
+                    DefaultStyle()
+    val label = " " + cmd.Name + "  " + cmd.Hint + " "
+    return TextStyled(label, style)
 }
 
 func headerWidget(m Model) Widget {
@@ -285,6 +433,7 @@ func keyToMsg(ev KeyEvent) Msg {
         case PageUp()   => ChScrollUp()
         case PageDown() => ChScrollDown()
         case End()      => ChStickEnd()
+        case Esc()      => ChEsc()
         case _          => ChNoOp()
     }
 }

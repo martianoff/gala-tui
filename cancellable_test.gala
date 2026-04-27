@@ -1,0 +1,56 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Cancellable — token semantics tests.
+//
+// The actual cancellation propagation runs inside a background Future,
+// which makes an end-to-end test fiddly. The tests below pin the
+// observable contract: fresh = not cancelled, Cancel flips the flag,
+// Cancel is idempotent, and copies of the token share state (the
+// pointer-receiver pattern).
+// ============================================================================
+
+func TestCancellableFreshIsNotCancelled(t T) T {
+    val tok = NewCancellable()
+    return IsFalse(t, tok.IsCancelled())
+}
+
+func TestCancellableCancelFlipsFlag(t T) T {
+    val tok = NewCancellable()
+    tok.Cancel()
+    return IsTrue(t, tok.IsCancelled())
+}
+
+// Calling Cancel twice is a no-op — the flag is already true and
+// further Cancel calls don't error or change anything.
+func TestCancellableIdempotent(t T) T {
+    val tok = NewCancellable()
+    tok.Cancel()
+    tok.Cancel()
+    return IsTrue(t, tok.IsCancelled())
+}
+
+// Two `var` references to the same token share state via the underlying
+// pointer — so a Cancel on one observes from the other. This is what
+// makes the producer/consumer pattern work: producer holds a copy,
+// consumer holds a copy, Cancel on either flips both.
+func TestCancellableSharedStateAcrossCopies(t T) T {
+    val a = NewCancellable()
+    val b = a                                 // copy by value, shares pointer
+    a.Cancel()
+    val t1 = IsTrue(t, a.IsCancelled())
+    return IsTrue(t1, b.IsCancelled())
+}
+
+// Different tokens are independent.
+func TestCancellableDistinctTokens(t T) T {
+    val a = NewCancellable()
+    val b = NewCancellable()
+    a.Cancel()
+    val t1 = IsTrue(t, a.IsCancelled())
+    return IsFalse(t1, b.IsCancelled())
+}
