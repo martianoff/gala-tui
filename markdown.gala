@@ -418,8 +418,41 @@ func mdSubstring(rs Array[rune], lo int, hi int) string {
 
 // MarkdownView parses `source` and returns a Column of widgets, one per
 // parsed block. Inline runs are joined into a single styled line per block.
+//
+// NOTE: this variant treats every paragraph / bullet / numbered item as a
+// single 1-row block — content longer than the rendered width is clipped.
+// For variable-height widgets that need exact row counts (e.g.
+// `ConversationLog` entries that pre-compute `Height`), use
+// `MarkdownViewAt(source, width)` paired with `MarkdownLineCountAt`.
 func MarkdownView(source string) Widget =
     renderMdBlocks(ParseMarkdown(source))
+
+// MarkdownViewAt is the width-aware variant. Paragraphs / bullets /
+// numbered items wrap at the given width using the same routine
+// `Paragraph` does at render time. Per-block heights match what the
+// renderer will actually produce, so this is the variant to use when
+// the parent layout needs exact heights up-front.
+//
+// Tradeoff: when a paragraph wraps to more than one row, inline styling
+// (bold / italic / inline-code / link) is dropped — wrap is computed on
+// the joined plain text. Short (1-row) paragraphs keep their styling.
+func MarkdownViewAt(source string, width int) Widget =
+    renderMdBlocksWidth(ParseMarkdown(source), width)
+
+// MarkdownLineCountAt: total rendered row count for `source` at `width`.
+// Mirrors `MarkdownViewAt` row-for-row so callers can pre-compute the
+// height they need to allocate.
+func MarkdownLineCountAt(source string, width int) int {
+    val blocks = ParseMarkdown(source)
+    var total = 0
+    var i = 0
+    val n = blocks.Length()
+    for i < n {
+        total = total + mdBlockHeightAt(blocks.Get(i), width)
+        i = i + 1
+    }
+    return total
+}
 
 func renderMdBlocks(blocks Array[MdBlock]) Widget {
     if blocks.IsEmpty() {
@@ -427,6 +460,73 @@ func renderMdBlocks(blocks Array[MdBlock]) Widget {
     }
     val rows = blocks.Map((b) => Fixed(renderMdBlockHeight(b), renderMdBlock(b)))
     return Column(rows)
+}
+
+// renderMdBlocksWidth: width-aware sibling of `renderMdBlocks`. Each
+// block is given a Fixed slot whose height equals what the renderer
+// will actually produce given `width`.
+func renderMdBlocksWidth(blocks Array[MdBlock], width int) Widget {
+    if blocks.IsEmpty() {
+        return Empty()
+    }
+    val rows = blocks.Map((b) => Fixed(mdBlockHeightAt(b, width), renderMdBlockWidth(b, width)))
+    return Column(rows)
+}
+
+func mdBlockHeightAt(b MdBlock, width int) int = b match {
+    case MdHeading(_, _)        => 1
+    case MdParagraph(inlines)   => MaxInt(1, WrapParagraph(mdInlinesToText(inlines), MaxInt(1, width)).Length())
+    case MdBullet(inlines)      => MaxInt(1, WrapParagraph(mdInlinesToText(inlines), MaxInt(1, width - 3)).Length())
+    case MdNumbered(_, inlines) => MaxInt(1, WrapParagraph(mdInlinesToText(inlines), MaxInt(1, width - 4)).Length())
+    case MdCodeBlock(_, lines)  => MaxInt(3, lines.Length() + 3)
+    case MdRule()               => 1
+    case MdBlank()              => 1
+}
+
+func renderMdBlockWidth(b MdBlock, width int) Widget = b match {
+    case MdHeading(level, inlines)   => renderMdHeading(level, inlines)
+    case MdParagraph(inlines)        => renderMdParagraphWidth(inlines, MaxInt(1, width))
+    case MdBullet(inlines)           =>
+        Row(ArrayOf[LayoutChild](
+            Fixed(2, TextStyled(" •", DefaultStyle().WithBold())),
+            Flex(1, PaddingHV(0, 1, renderMdParagraphWidth(inlines, MaxInt(1, width - 3)))),
+        ))
+    case MdNumbered(num, inlines)    =>
+        Row(ArrayOf[LayoutChild](
+            Fixed(4, TextStyled(s"$num. ", DefaultStyle().WithBold())),
+            Flex(1, renderMdParagraphWidth(inlines, MaxInt(1, width - 4))),
+        ))
+    case MdCodeBlock(lang, lines)    => renderMdCodeBlock(lang, lines)
+    case MdRule()                    => FillCh('─')
+    case MdBlank()                   => Empty()
+}
+
+// renderMdParagraphWidth: short paragraphs (fit on one line) keep
+// inline styling via `renderMdInlineRow`; multi-line wrapped content
+// renders as a Column of plain text rows. The styling tradeoff buys
+// exact heights for the parent layout — necessary for variable-height
+// containers like `ConversationLog`.
+func renderMdParagraphWidth(inlines Array[MdInline], width int) Widget {
+    val text = mdInlinesToText(inlines)
+    val wrapped = WrapParagraph(text, width)
+    if wrapped.Length() <= 1 { return renderMdInlineRow(inlines) }
+    val rows = wrapped.Map((line) => Fixed(1, Text(line)))
+    return Column(rows)
+}
+
+// mdInlinesToText collapses an inline-run sequence to its bare text
+// content (no styling, no link URLs) so callers like
+// `renderMdParagraphWidth` can ask `WrapParagraph` how many rows the
+// rendered paragraph will occupy.
+func mdInlinesToText(inlines Array[MdInline]) string {
+    var out = ""
+    var i = 0
+    val n = inlines.Length()
+    for i < n {
+        out = out + mdInlineText(inlines.Get(i))
+        i = i + 1
+    }
+    return out
 }
 
 func renderMdBlockHeight(b MdBlock) int {

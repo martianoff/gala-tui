@@ -151,6 +151,104 @@ func TestMarkdownViewBulletHasDotPrefix(t T) T {
 }
 
 // ----------------------------------------------------------------------------
+// Width-aware: MarkdownLineCountAt + MarkdownViewAt
+//
+// The width-blind `MarkdownView` renders every paragraph in 1 row, so a
+// long paragraph clips to its first wrapped line. The width-aware
+// variant wraps paragraphs at the given width and reports an honest
+// row count callers can use to allocate space.
+// ----------------------------------------------------------------------------
+
+func TestMarkdownLineCountShortParagraphIsOne(t T) T =
+    Eq(t, MarkdownLineCountAt("hello world", 80), 1)
+
+func TestMarkdownLineCountLongParagraphWraps(t T) T {
+    val n = MarkdownLineCountAt("the quick brown fox jumps over the lazy dog twice", 20)
+    return IsTrue(t, n > 1)
+}
+
+func TestMarkdownLineCountHeadingIsOne(t T) T =
+    Eq(t, MarkdownLineCountAt("# Title", 80), 1)
+
+func TestMarkdownLineCountCodeBlockIsLinesPlusBorder(t T) T {
+    val src = "```gala\nval x = 1\nval y = 2\n```"
+    return Eq(t, MarkdownLineCountAt(src, 80), 5)   // title + 2 lines + 2 border
+}
+
+func TestMarkdownLineCountSumsBlocks(t T) T {
+    val src = "# Title\n\nA paragraph.\n\n- bullet one\n- bullet two\n"
+    // heading(1) + blank(1) + paragraph(1) + blank(1) + bullet(1) + bullet(1) = 6
+    return Eq(t, MarkdownLineCountAt(src, 80), 6)
+}
+
+func TestMarkdownLineCountMultiLineParagraphSummed(t T) T {
+    val src = "Hello.\n\n" +
+              "the quick brown fox jumps over the lazy dog twice"
+    // "Hello." (1) + blank (1) + wrapped paragraph at width 20.
+    val wrapped = WrapParagraph("the quick brown fox jumps over the lazy dog twice", 20)
+    val expected = 1 + 1 + wrapped.Length()
+    return Eq(t, MarkdownLineCountAt(src, 20), expected)
+}
+
+func TestMarkdownViewAtRendersWrappedParagraph(t T) T {
+    val src = "the quick brown fox jumps over the lazy dog twice"
+    val w = MarkdownViewAt(src, 20)
+    val n = MarkdownLineCountAt(src, 20)
+    val rows = SnapshotLines(w, 20, n)
+    // Last visible row matches the last wrapped line.
+    val wrapped = WrapParagraph(src, 20)
+    return Eq(t, mdTrim(rows.Get(n - 1)), wrapped.Get(wrapped.Length() - 1))
+}
+
+func TestMarkdownViewAtBlanksBetweenParagraphs(t T) T {
+    val src = "First.\n\nSecond."
+    val w = MarkdownViewAt(src, 20)
+    val rows = SnapshotLines(w, 20, 3)
+    val t1 = Eq(t, mdTrim(rows.Get(0)), "First.")
+    val t2 = Eq(t1, mdTrim(rows.Get(1)), "")
+    return Eq(t2, mdTrim(rows.Get(2)), "Second.")
+}
+
+func TestMarkdownViewAtRendersHeadingAtAnyWidth(t T) T {
+    val w = MarkdownViewAt("# Big Title", 80)
+    val rows = SnapshotLines(w, 80, 1)
+    return IsTrue(t, RuneCount(mdTrim(rows.Get(0))) >= RuneCount("Big Title"))
+}
+
+// IntrinsicHeightAt round-trip: the width-aware Markdown view's
+// intrinsic height equals MarkdownLineCountAt for the same width.
+func TestMarkdownViewAtIntrinsicHeightMatchesLineCount(t T) T {
+    val src = "# Title\n\nA somewhat long paragraph that should wrap when " +
+              "rendered into a narrow column of cells.\n\n- bullet one\n"
+    val w = MarkdownViewAt(src, 30)
+    val n = MarkdownLineCountAt(src, 30)
+    return Eq(t, IntrinsicHeightAt(w, 30), n)
+}
+
+func mdTrim(s string) string {
+    var end = RuneCount(s)
+    for end > 0 {
+        var i = 0
+        var r = rune(0)
+        for _, c := range s {
+            if i == end - 1 { r = c; i = end }
+            else { i = i + 1 }
+        }
+        if r != ' ' {
+            var out = ""
+            var j = 0
+            for _, c := range s {
+                if j < end { out = out + string(c) }
+                j = j + 1
+            }
+            return out
+        }
+        end = end - 1
+    }
+    return ""
+}
+
+// ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
 
