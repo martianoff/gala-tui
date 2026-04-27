@@ -162,44 +162,7 @@ func TestDisclosureMarker(t T) T {
     return Eq(t1, DisclosureMarker(false), "▸ ")
 }
 
-// ============================================================================
-// ConversationLog
-// ============================================================================
-
-func TestConversationLogAppendStaysSticky(t T) T {
-    var c = NewConversationLog()
-    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
-        Body = Text("hi"), Height = 1,
-    )))
-    val t1 = IsTrue(t, c.StickToBottom)
-    return Eq(t1, c.Entries.Length(), 1)
-}
-
-// ScrollUp unsticks; subsequent appends don't auto-scroll.
-func TestConversationLogScrollUpUnsticks(t T) T {
-    var c = NewConversationLog()
-    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
-        Body = Text("a"), Height = 5,
-    )))
-    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
-        Body = Text("b"), Height = 5,
-    )))
-    val before = c.Offset
-    c = ConversationLogUpdate(c, CvScrollUp(Lines = 2))
-    val t1 = IsFalse(t, c.StickToBottom)
-    return IsTrue(t1, c.Offset < before)
-}
-
-// StickToBottom event re-sticks regardless of current offset.
-func TestConversationLogStickReclaims(t T) T {
-    var c = NewConversationLog()
-    c = ConversationLogUpdate(c, CvAppend(Entry = ConversationEntry(
-        Body = Text("a"), Height = 5,
-    )))
-    c = ConversationLogUpdate(c, CvScrollUp(Lines = 100))
-    c = ConversationLogUpdate(c, CvStickToBottom())
-    return IsTrue(t, c.StickToBottom)
-}
+// ConversationLog tests live in conversation_log_test.gala.
 
 // ============================================================================
 // ScrollPane
