@@ -261,20 +261,11 @@ func onStreamDone(m Model) Tuple[Model, Cmd[Msg]] {
 // ----- Streaming simulation ------------------------------------------------
 
 // Split the canned reply into ~5-char chunks; emit one every 80 ms.
-func streamChunkCmds(text Array[string]) Array[Cmd[Msg]] {
-    var out = EmptyArray[Cmd[Msg]]()
-    var i = 0
-    val n = text.Length()
-    for i < n {
-        val s = text.Get(i)
-        out = out.Append(AfterDelay[Msg](
-            Milliseconds(int64(80 * (i + 1))),
-            () => ChStreamChunk(S = s),
-        ))
-        i = i + 1
-    }
-    return out
-}
+func streamChunkCmds(text Array[string]) Array[Cmd[Msg]] =
+    ArrayTabulate(text.Length(), (i) => AfterDelay[Msg](
+        Milliseconds(int64(80 * (i + 1))),
+        () => ChStreamChunk(S = text.Get(i)),
+    ))
 
 // fakeReply produces a canned response by chopping a quirky message
 // into 5-rune chunks. In a real app these would be tokens streamed
@@ -285,19 +276,13 @@ func fakeReply(prompt string) Array[string] {
                  "+ ConversationLog widgets. Each chunk arrives via a " +
                  "FutureCmd so the UI updates between renders without " +
                  "blocking the input loop."
-    var chunks = EmptyArray[string]()
-    var cur = ""
-    var i = 0
-    for _, c := range canned {
-        cur = cur + string(c)
-        if i % 5 == 4 {
-            chunks = chunks.Append(cur)
-            cur = ""
-        }
-        i = i + 1
-    }
-    if cur != "" { chunks = chunks.Append(cur) }
-    return chunks
+    return chatRunes(canned).Grouped(5).Map((g) => string(g.ToGoSlice()))
+}
+
+func chatRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s { acc = acc.Append(c) }
+    return acc
 }
 
 // ----- Log helpers ---------------------------------------------------------
