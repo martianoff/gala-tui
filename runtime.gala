@@ -409,12 +409,15 @@ func RunWithMouse[M any, T any](
 
         // 3. Detect resize and dispatch it as a ResizeInput event.
         val (curW, curH) = TermSize()
-        var resizeMsgs = EmptyArray[T]()
-        if curW != lastW || curH != lastH {
+        val sizeChanged = curW != lastW || curH != lastH
+        if sizeChanged {
             lastW = curW
             lastH = curH
-            resizeMsgs = resizeMsgs.Append(makeInputMsg(ResizeInput(W = curW, H = curH)))
         }
+        val resizeMsgs = if (sizeChanged)
+                             ArrayOf[T](makeInputMsg(ResizeInput(W = curW, H = curH)))
+                         else
+                             EmptyArray[T]()
         val resRes = dispatchAll(program, model, resizeMsgs)
         model = resRes.Model
         pending = pending.AppendAll(resRes.NewFutures)

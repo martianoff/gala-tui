@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
 )
@@ -280,20 +281,8 @@ func taContentOf(lines Array[string]) string {
     return s
 }
 
-func stringToLines(s string) Array[string] {
-    if s == "" { return ArrayOf[string]("") }
-    var out = EmptyArray[string]()
-    var cur = ""
-    for _, c := range s {
-        if c == '\n' {
-            out = out.Append(cur)
-            cur = ""
-        } else {
-            cur = cur + string(c)
-        }
-    }
-    return out.Append(cur)
-}
+func stringToLines(s string) Array[string] =
+    ArrayFromSlice(strings.Split(s, "\n"))
 
 // runeSplitAt returns (lhs, rhs) such that lhs has `col` runes and rhs has
 // the remainder. Out-of-range cols clamp to the string boundaries.
@@ -349,17 +338,11 @@ func TextAreaView(t TextArea, focused bool, placeholder string) Widget {
                 else
                     t.Lines
     val placeholderShown = taIsEmpty(t) && placeholder != ""
-    var rows = EmptyArray[LayoutChild]()
-    var i = 0
-    val n = lines.Length()
-    for i < n {
-        rows = rows.Append(Fixed(1, taRowWidget(
-            lines.Get(i),
-            i, t.Row, t.Col,
-            focused, placeholderShown,
-        )))
-        i = i + 1
-    }
+    val rows = ArrayTabulate(lines.Length(), (i) => Fixed(1, taRowWidget(
+        lines.Get(i),
+        i, t.Row, t.Col,
+        focused, placeholderShown,
+    )))
     return Column(rows)
 }
 

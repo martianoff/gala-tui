@@ -81,6 +81,6 @@ func CancellableAsync[R any, T any](
     compute func() R,
     onResult func(R) T,
 ) Cmd[T] {
-    val fut = concurrent.FutureApply[R](() => compute())
+    val fut = concurrent.FutureApply(compute)
     return FutureCmd[T](Fut = fut.Map((r) => onResult(r)))
 }

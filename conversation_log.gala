@@ -120,63 +120,31 @@ func cvTotalLines(entries Array[ConversationEntry]) int {
 // Each entry is wrapped in a `ViewportW` so partial visibility works:
 // if an entry's height exceeds remaining space, we render only the
 // visible portion.
-func ConversationLogView(c ConversationLog, height int) Widget {
-    if c.Entries.IsEmpty() || height <= 0 {
-        return Empty()
-    }
-    val total = cvTotalLines(c.Entries)
-    val viewportTop = if (c.StickToBottom) MaxInt(0, total - height)
-                      else c.Offset
-    var children = EmptyArray[LayoutChild]()
-    var lineCursor = 0
-    var rowsLeft = height
-    var i = 0
-    val n = c.Entries.Length()
-    for i < n {
-        if rowsLeft <= 0 { i = n; continue }
-        val entry = c.Entries.Get(i)
-        val entryStart = lineCursor
-        val entryEnd = lineCursor + entry.Height
-        // Is any part of this entry inside the viewport?
-        val visTop = MaxInt(viewportTop, entryStart)
-        val visBot = MinInt(viewportTop + height, entryEnd)
-        if visBot > visTop {
-            val skipTop = visTop - entryStart
-            val take = visBot - visTop
-            if skipTop > 0 || take < entry.Height {
-                children = children.Append(Fixed(take, ViewportW(
-                    Inner         = entry.Body,
-                    Offset        = skipTop,
-                    ContentHeight = entry.Height,
-                )))
-            } else {
-                children = children.Append(Fixed(take, entry.Body))
-            }
-            rowsLeft = rowsLeft - take
-        }
-        lineCursor = entryEnd
-        i = i + 1
-    }
-    return Column(children)
-}
+func ConversationLogView(c ConversationLog, height int) Widget =
+    cvBuildLayout(c, height, (body, _) => body)
 
 // ConversationLogViewClick is the click-aware sibling: a left-click on
 // a rendered entry dispatches `onPickEntry(idx)` where `idx` is the
-// entry's index in `Entries` (0-based, oldest first).
+// entry's index in `Entries` (0-based, oldest first). Per-entry hits
+// at variable y / height — we can't use OnPickRow (uniform row height)
+// — so each entry's body widget is wrapped in `OnClick` before being
+// composed into the Column.
 func ConversationLogViewClick[T any](
     c ConversationLog, height int, onPickEntry func(int) T,
-) Widget {
-    val view = ConversationLogView(c, height)
-    if c.Entries.IsEmpty() { return view }
-    // Per-entry hits at variable y / height. We can't use OnPickRow
-    // (uniform row height), so wrap each entry's child in a Clickable
-    // before composing the Column. To keep the layout shape, rebuild
-    // the inner Column with click-wrapped children.
-    return cvBuildClickableView[T](c, height, onPickEntry)
-}
+) Widget =
+    cvBuildLayout(c, height, (body, i) => body.OnClick[T](onPickEntry(i)))
 
-func cvBuildClickableView[T any](
-    c ConversationLog, height int, onPickEntry func(int) T,
+// cvBuildLayout walks `c.Entries`, computes which slice of each entry
+// is visible in the viewport, and lays them out in a Column. Each
+// (already-viewported) entry body is passed through `wrapEntry` along
+// with its entry index — view callers pass identity, click callers
+// attach an OnClick. The walk is stateful (line cursor + remaining
+// rows) so it stays imperative; the loop-bound Append is the single
+// emit point per visible entry.
+func cvBuildLayout(
+    c ConversationLog,
+    height int,
+    wrapEntry func(Widget, int) Widget,
 ) Widget {
     if c.Entries.IsEmpty() || height <= 0 { return Empty() }
     val total = cvTotalLines(c.Entries)
@@ -204,7 +172,7 @@ func cvBuildClickableView[T any](
                                ContentHeight = entry.Height,
                            )
                        else entry.Body
-            children = children.Append(Fixed(take, body.OnClick[T](onPickEntry(i))))
+            children = children.Append(Fixed(take, wrapEntry(body, i)))
             rowsLeft = rowsLeft - take
         }
         lineCursor = entryEnd
