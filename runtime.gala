@@ -419,15 +419,12 @@ func RunWithMouse[M any, T any](
 
         // 3. Detect resize and dispatch it as a ResizeInput event.
         val (curW, curH) = TermSize()
-        val sizeChanged = curW != lastW || curH != lastH
-        if sizeChanged {
+        var resizeMsgs = EmptyArray[T]()
+        if curW != lastW || curH != lastH {
             lastW = curW
             lastH = curH
+            resizeMsgs = resizeMsgs.Append(makeInputMsg(ResizeInput(W = curW, H = curH)))
         }
-        val resizeMsgs = if (sizeChanged)
-                             ArrayOf[T](makeInputMsg(ResizeInput(W = curW, H = curH)))
-                         else
-                             EmptyArray[T]()
         val resRes = dispatchAll(program, model, resizeMsgs)
         model = resRes.Model
         pending = pending.AppendAll(resRes.NewFutures)
@@ -821,9 +818,35 @@ func processInputBytes[M any, T any](
     return false
 }
 
-// isForcedQuit recognises Ctrl-C so the runtime always has an escape hatch,
-// regardless of what the app's update() decides.
+// EscapeHatchOnCtrlC controls whether the runtime intercepts
+// Ctrl-C as an unconditional quit. The default is `true` for
+// backward compatibility — apps that just want a quick TUI without
+// thinking about lifecycle don't have to bind anything. Apps with
+// their own quit / confirmation / cleanup flow (gala_team, for
+// example, surfaces a "press Ctrl-C again to confirm" prompt and
+// closes spawned subprocesses before exit) flip this to `false`
+// before calling Run* so Ctrl-C flows through the keymap as a
+// regular KeyInput.
+//
+// Set via SetEscapeHatchOnCtrlC; read via the isForcedQuit dispatch
+// below. Lives at package scope so a test can flip it without
+// having to plumb a config struct through every Run* signature.
+var escapeHatchOnCtrlC = true
+
+// SetEscapeHatchOnCtrlC toggles the runtime-level Ctrl-C escape
+// hatch. Call this once at startup (before Run / RunWithSub /
+// RunWithMouse) — toggling mid-run is allowed but the change only
+// affects keystrokes parsed after the call returns.
+func SetEscapeHatchOnCtrlC(enabled bool) {
+    escapeHatchOnCtrlC = enabled
+}
+
+// isForcedQuit recognises Ctrl-C as a quit when the escape hatch
+// is enabled (the default). When disabled, Ctrl-C is delivered to
+// the app's keymap as a normal KeyInput and the app decides what
+// to do with it.
 func isForcedQuit(ev InputEvent) bool {
+    if !escapeHatchOnCtrlC { return false }
     return ev match {
         case KeyInput(k)    => k.Ctrl && keyIsCharC(k.Key)
         case MouseInput(_)  => false
