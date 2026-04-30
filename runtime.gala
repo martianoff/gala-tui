@@ -38,13 +38,23 @@ func ansiClear() string        = "\x1b[2J"
 func ansiHome() string         = "\x1b[H"
 
 // TermSize returns the current terminal width and height in cells.
-// Falls back to 80x24 if the detection fails (e.g., not a tty).
+// Probes stdout, stdin, and stderr in turn — at least one of those
+// fds is usually a tty even when the others are redirected (e.g.
+// `gala_team < input.txt`, `gala_team | tee log`). Falls back to
+// 80x24 only when none of them is a real terminal.
+//
+// Querying stdin alone — the previous implementation — silently
+// shrank the UI to 80x24 whenever stdin happened to be redirected,
+// which was hard to diagnose from the user's side ("the TUI is
+// tiny on my 200-column terminal").
 func TermSize() Tuple[int, int] {
-    var w, h, err = term.GetSize(int(os.Stdin.Fd()))
-    if err != nil {
-        return (80, 24)
-    }
-    return (w, h)
+    var w, h, err = term.GetSize(int(os.Stdout.Fd()))
+    if err == nil { return (w, h) }
+    w, h, err = term.GetSize(int(os.Stdin.Fd()))
+    if err == nil { return (w, h) }
+    w, h, err = term.GetSize(int(os.Stderr.Fd()))
+    if err == nil { return (w, h) }
+    return (80, 24)
 }
 
 // Run drives `program` against the user's terminal until an update() returns

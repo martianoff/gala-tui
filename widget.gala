@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
 )
 
 // Widget is the user-facing rendering primitive. A widget is a pure
@@ -117,6 +118,34 @@ func Text(content string) Widget = TextWidget(Content = content, Style = Default
 // TextStyled wraps a string with an explicit style.
 func TextStyled(content string, style Style) Widget =
     TextWidget(Content = content, Style = style)
+
+// TextEllipsis is `Text` plus a hard column cap. When `content` is
+// wider than `maxCols`, the result is `<first maxCols-1 cols>…`;
+// otherwise it's `content` verbatim. Use this for header lines or
+// other single-row labels that must fit a fixed slot — the
+// underlying terminal will clip mid-grapheme without a marker if
+// you don't cap, which reads as "the UI is broken" to users.
+//
+// `maxCols <= 0` disables the cap (passes through, useful for
+// callers that compute the cap from layout).
+func TextEllipsis(content string, maxCols int) Widget =
+    TextStyled(ellipsisCap(content, maxCols), DefaultStyle())
+
+// TextEllipsisStyled is `TextEllipsis` with an explicit style.
+func TextEllipsisStyled(content string, maxCols int, style Style) Widget =
+    TextStyled(ellipsisCap(content, maxCols), style)
+
+// ellipsisCap truncates `s` so the rendered string fits in
+// `maxCols` cells. Counts runes, not bytes — so multi-byte
+// characters (CJK, emoji) don't break the cap. The trailing "…"
+// is one rune wide and is included in the budget.
+func ellipsisCap(s string, maxCols int) string {
+    if maxCols <= 0 { return s }
+    val rs = ToRunes(s)
+    if len(rs) <= maxCols { return s }
+    if maxCols == 1 { return "…" }
+    return string(SliceTo(rs, maxCols - 1)) + "…"
+}
 
 // FillCh paints the entire area with `ch` in the default style.
 // Useful as a background / spacer. Named FillCh because Fill is already the
