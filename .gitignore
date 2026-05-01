@@ -7,15 +7,14 @@ gala_tui.exe
 .gala/
 .gala-cache/
 
-# Bazel/Go artifacts that gala build / gala test regenerate locally
-BUILD.bazel
-MODULE.bazel
+# Bazel/Go artifacts that gala build / gala test regenerate locally.
+# The committed copies serve downstream Bazel consumers that clone
+# gala-tui in CI without running `gala build` first; locally,
+# `gala build` overwrites them as before.
 MODULE.bazel.lock
 bazel-*/
 .bazelbsp/
 .claude/
-go.mod
-go.sum
 
 # IDE
 .idea/
