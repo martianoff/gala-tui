@@ -37,6 +37,10 @@ func ansiCursorShow() string   = "\x1b[?25h"
 func ansiClear() string        = "\x1b[2J"
 func ansiHome() string         = "\x1b[H"
 
+// installCleanupGuard is provided by `cleanup_guard.go` — Go-side
+// because signal handling, channels, and goroutines aren't expressible
+// in gala source. See the .go file for the rationale.
+
 // TermSize returns the current terminal width and height in cells.
 // Probes stdout, stdin, and stderr in turn — at least one of those
 // fds is usually a tty even when the others are redirected (e.g.
@@ -88,6 +92,8 @@ func Run[M any, T any](
     }
     // Guarantee restoration on every exit path.
     defer term.Restore(fd, state)
+    // Signal handler covers paths defer can't (Ctrl+C, SIGTERM, kill).
+    installCleanupGuard(fd, state, false)
 
     // Enter the alt screen so our UI doesn't trash the user's shell history.
     fmt.Fprint(os.Stdout, ansiAltScreenOn())
@@ -244,6 +250,7 @@ func RunWithSub[M any, T any](
         return program.Initial
     }
     defer term.Restore(fd, state)
+    installCleanupGuard(fd, state, false)
 
     fmt.Fprint(os.Stdout, ansiAltScreenOn())
     fmt.Fprint(os.Stdout, ansiCursorHide())
@@ -352,6 +359,7 @@ func RunWithMouse[M any, T any](
         return program.Initial
     }
     defer term.Restore(fd, state)
+    installCleanupGuard(fd, state, true)
 
     // Windows: enable ENABLE_VIRTUAL_TERMINAL_INPUT so the ANSI mouse
     // sequences below actually take effect on conhost / PowerShell. No-op
