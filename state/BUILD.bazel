@@ -1,0 +1,17 @@
+load("@gala//:gala.bzl", "gala_library")
+
+_GALA_SRCS = glob(
+    ["*.gala"],
+    exclude = ["*_test.gala"],
+)
+
+gala_library(
+    name = "state",
+    srcs = _GALA_SRCS,
+    importpath = "github.com/martianoff/gala-tui/state",
+    deps = [
+        "@gala//collection_immutable",
+        "@gala//time_utils",
+    ],
+    visibility = ["//visibility:public"],
+)

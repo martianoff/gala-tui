@@ -1,0 +1,38 @@
+load("@gala//:gala.bzl", "gala_library")
+
+exports_files(
+    ["go.mod"],
+    visibility = ["//visibility:public"],
+)
+
+_GALA_SRCS = glob(
+    ["*.gala"],
+    exclude = [
+        "*_test.gala",
+        # Excluded due to a cross-module transpiler bug: 3-tuple return
+        # type emits `std.Tuple[int, int, int]` (2-arg type) for the
+        # signature but `std.Tuple3[…]` for the value. File for upstream.
+        "diff_view.gala",
+    ],
+)
+
+gala_library(
+    name = "gala_tui",
+    srcs = _GALA_SRCS,
+    go_srcs = [
+        "cleanup_guard.go",
+        "console_setup_other.go",
+        "console_setup_windows.go",
+    ],
+    importpath = "github.com/martianoff/gala-tui",
+    deps = [
+        "//state",
+        "@gala//collection_immutable",
+        "@gala//concurrent",
+        "@gala//go_interop",
+        "@gala//time_utils",
+        "@org_golang_x_sys//windows:windows",
+        "@org_golang_x_term//:term",
+    ],
+    visibility = ["//visibility:public"],
+)
