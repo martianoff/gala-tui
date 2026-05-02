@@ -70,7 +70,7 @@ func TestParseDeleteInsert(t T) T {
 }
 
 func TestParseFunctionKeys(t T) T {
-    // ESC O P/Q/R/S → F1..F4
+    // ESC O P/Q/R/S → F1..F4 (VT100 / SS3 path)
     val (f1, _) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x50))
     val (f2, _) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x51))
     val (f3, _) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x52))
@@ -79,6 +79,30 @@ func TestParseFunctionKeys(t T) T {
     val t2 = IsTrue(t1, KeyEqual(f2.Key, FKey(2)))
     val t3 = IsTrue(t2, KeyEqual(f3.Key, FKey(3)))
     return IsTrue(t3, KeyEqual(f4.Key, FKey(4)))
+}
+
+// F5..F12 use the xterm CSI two-digit form: ESC [ NN ~ where NN is
+// 15/17/18/19 (F5..F8) and 20/21/23/24 (F9..F12). 16 and 22 are
+// gaps in the table — never emitted by terminals. This test covers
+// every key in the F5..F12 range so a regression that drops one
+// of them doesn't slip through.
+func TestParseFunctionKeysF5ToF12(t T) T {
+    val (f5,  n5)  = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x31, 0x35, 0x7E))
+    val (f6,  n6)  = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x31, 0x37, 0x7E))
+    val (f7,  n7)  = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x31, 0x38, 0x7E))
+    val (f8,  n8)  = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x31, 0x39, 0x7E))
+    val (f9,  n9)  = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x32, 0x30, 0x7E))
+    val (f10, n10) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x32, 0x31, 0x7E))
+    val (f11, n11) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x32, 0x33, 0x7E))
+    val (f12, n12) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x32, 0x34, 0x7E))
+    val t1 = IsTrue(t,  KeyEqual(f5.Key,  FKey(5))  && n5  == 5)
+    val t2 = IsTrue(t1, KeyEqual(f6.Key,  FKey(6))  && n6  == 5)
+    val t3 = IsTrue(t2, KeyEqual(f7.Key,  FKey(7))  && n7  == 5)
+    val t4 = IsTrue(t3, KeyEqual(f8.Key,  FKey(8))  && n8  == 5)
+    val t5 = IsTrue(t4, KeyEqual(f9.Key,  FKey(9))  && n9  == 5)
+    val t6 = IsTrue(t5, KeyEqual(f10.Key, FKey(10)) && n10 == 5)
+    val t7 = IsTrue(t6, KeyEqual(f11.Key, FKey(11)) && n11 == 5)
+    return IsTrue(t7, KeyEqual(f12.Key, FKey(12)) && n12 == 5)
 }
 
 func TestParseEscAlone(t T) T {
