@@ -133,7 +133,7 @@ func parseCsi(buf []byte) Tuple[KeyEvent, int] {
     if b2 == 0x46 {
         return (PlainKey(End()), 3)
     }
-    // ESC [ digit ~  — numbered keys (tilde = 0x7E)
+    // ESC [ digit ~  — numbered keys (tilde = 0x7E, single digit)
     if len(buf) >= 4 && int(buf[3]) == 0x7E {
         if b2 == 0x31 {                 // "1~" = Home
             return (PlainKey(Home()), 4)
@@ -152,6 +152,33 @@ func parseCsi(buf []byte) Tuple[KeyEvent, int] {
         }
         if b2 == 0x36 {                 // "6~" = PageDown
             return (PlainKey(PageDown()), 4)
+        }
+    }
+    // ESC [ digit digit ~  — F5..F12 (xterm convention, also used
+    // by Windows Terminal / iTerm2 / kitty / modern xterm). Each
+    // function key has its own two-digit code; mapping per the
+    // VT220 / xterm tables:
+    //   "15~" F5    "17~" F6    "18~" F7    "19~" F8
+    //   "20~" F9    "21~" F10   "23~" F11   "24~" F12
+    // Note "16~" / "22~" are unused.
+    //
+    // Without this, the parser falls through to PlainKey(Unknown())
+    // after consuming only 3 bytes, and the trailing "5~" gets
+    // re-fed as garbage. F5/F6/etc. silently drop in any host app.
+    if len(buf) >= 5 && int(buf[4]) == 0x7E {
+        if b2 == 0x31 {
+            val b3 = int(buf[3])
+            if b3 == 0x35 { return (PlainKey(FKey(5)),  5) }   // "15~"
+            if b3 == 0x37 { return (PlainKey(FKey(6)),  5) }   // "17~"
+            if b3 == 0x38 { return (PlainKey(FKey(7)),  5) }   // "18~"
+            if b3 == 0x39 { return (PlainKey(FKey(8)),  5) }   // "19~"
+        }
+        if b2 == 0x32 {
+            val b3 = int(buf[3])
+            if b3 == 0x30 { return (PlainKey(FKey(9)),  5) }   // "20~"
+            if b3 == 0x31 { return (PlainKey(FKey(10)), 5) }   // "21~"
+            if b3 == 0x33 { return (PlainKey(FKey(11)), 5) }   // "23~"
+            if b3 == 0x34 { return (PlainKey(FKey(12)), 5) }   // "24~"
         }
     }
     return (PlainKey(Unknown()), 3)
