@@ -619,10 +619,14 @@ func ResolveClickEvent[T any](
     return ev match {
         case MouseInput(m) => {
             // Only a fresh left-button PRESS engages click resolution.
-            // Releases / scroll-wheel / non-left buttons are part of
-            // the same gesture (or unrelated mouse activity) — they go
-            // straight to the user adapter, leaving pending untouched.
-            val isLeftPress = m.Pressed && (m.Btn match {
+            // Releases / motion-while-held (under ?1002 button-event
+            // tracking) / scroll-wheel / non-left buttons all bypass
+            // the click-pending machinery and go straight to the user
+            // adapter, leaving pending untouched. Without the !m.Motion
+            // guard a drag would be interpreted as a stream of fresh
+            // clicks and fire the click hit's payload on every motion
+            // frame.
+            val isLeftPress = m.Pressed && !m.Motion && (m.Btn match {
                 case MouseLeft() => true
                 case _           => false
             })
@@ -758,6 +762,14 @@ func ResolveClickOrInput[T any](
     return ev match {
         case MouseInput(m) => {
             if !m.Pressed { return fallback(ev) }
+            // Motion-while-held events (delivered under ?1002 button-
+            // event tracking) carry Pressed=true even though they
+            // aren't a fresh click. Routing them through HitAt would
+            // re-dispatch the click hit's payload on every drag
+            // frame, which is what nobody wants. Pass them through
+            // as MouseAt fallback so consumers that care about drag
+            // can read MouseEvent.Motion themselves.
+            if m.Motion { return fallback(ev) }
             val isLeft = m.Btn match {
                 case MouseLeft() => true
                 case _           => false

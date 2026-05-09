@@ -13,9 +13,20 @@ import (
 // arbitrary (x, y) coordinates up to 32767 whereas the legacy `\x1b[?1000h`
 // mode encodes coords as bytes and tops out at 223.
 //
+// We also enable button-event tracking (`\x1b[?1002h`) so the terminal sends
+// motion-while-button-held events. This is what consumers need to implement
+// click-and-drag UX — text selection, range pickers, drag-to-resize, etc.
+// Pure motion (no button held) is intentionally NOT enabled (`?1003h`)
+// because it would flood the input pump with hover events the app rarely
+// needs and would force every consumer to opt out.
+//
 // A mouse packet in SGR mode looks like:
 //     ESC [ < btnCode ; x ; y ; (M|m)
-//   - M = press, m = release
+//   - M = press OR motion-while-held, m = release
+//   - btnCode bit 5 (mask 32) signals motion (button held) — distinguished
+//     on parse and surfaced as MouseEvent.Motion. Bit 5 is masked out
+//     before mapping the button so the same Btn (e.g. MouseLeft) is
+//     emitted for "press at (x,y)" and "drag motion at (x',y')".
 //   - x, y are 1-indexed; subtract 1 on ingest so everything downstream is
 //     0-indexed to match our Rect/Cell coordinates.
 //
@@ -38,7 +49,8 @@ struct MouseEvent(
     Btn     MouseButton,
     X       int,                    // 0-indexed column
     Y       int,                    // 0-indexed row
-    Pressed bool,                   // true = press, false = release
+    Pressed bool,                   // true = press OR drag-motion, false = release
+    Motion  bool,                   // true when this is a motion event with a button held (drag)
 )
 
 sealed type InputEvent {
@@ -49,8 +61,13 @@ sealed type InputEvent {
 }
 
 // ANSI enable/disable strings — written to stdout on runtime entry and exit.
-func ansiMouseOn() string  = "\x1b[?1000h\x1b[?1006h"
-func ansiMouseOff() string = "\x1b[?1006l\x1b[?1000l"
+//   ?1000h — basic press/release tracking
+//   ?1002h — button-event tracking (adds motion-while-held; what drag UX
+//            needs). Skipping ?1003h (any-motion) because its hover-flood
+//            isn't worth the input-pump cost for most apps.
+//   ?1006h — SGR encoding (arbitrary coordinates).
+func ansiMouseOn() string  = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
+func ansiMouseOff() string = "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
 
 // ----------------------------------------------------------------------------
 // Parsing
@@ -131,11 +148,17 @@ func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
         // Incomplete — wait for more bytes next read.
         return (UnknownInput(), 0)
     }
+    // Bit 5 (mask 32) of the SGR button code signals "motion event with
+    // button held" under ?1002 button-event tracking. The button bits
+    // remain set so motion preserves which button is dragging — extract
+    // the motion bit before mouseBtnFromCode masks it out.
+    val motion = (btnNum & 32) != 0
     return (MouseInput(Ev = MouseEvent(
         Btn     = mouseBtnFromCode(btnNum),
         X       = x - 1,
         Y       = y - 1,
         Pressed = pressed,
+        Motion  = motion,
     )), i)
 }
 
@@ -143,9 +166,11 @@ func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
 // xterm codes:
 //   0 = left, 1 = middle, 2 = right
 //   64 = scroll up, 65 = scroll down
-// Bit 5 (32) signals motion — we mask it out; bit 2 (4) = shift, bit 3 (8) =
-// alt, bit 4 (16) = ctrl — also masked out for now. Future iterations can
-// expose modifier bits if needed.
+// Bit 5 (32) signals motion — masked out here so a "drag motion" event
+// emits the same Btn as the originating press (extracted separately by
+// parseSgrMouse and surfaced as MouseEvent.Motion). Bit 2 (4) = shift,
+// bit 3 (8) = alt, bit 4 (16) = ctrl — also masked out for now. Future
+// iterations can expose modifier bits if needed.
 func mouseBtnFromCode(code int) MouseButton {
     val masked = code & 0xC3
     if masked == 0  { return MouseLeft() }
