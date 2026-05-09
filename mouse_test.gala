@@ -156,6 +156,90 @@ func TestParseInputIncompleteMouseReturnsZeroConsumed(t T) T {
     return Eq(t, n, 0)
 }
 
+// Motion-while-held: SGR button code 32 (left button + motion bit 5).
+// Surfaces as Motion=true and the same Btn as the originating press
+// (left), so consumers can implement drag tracking by remembering
+// the press's button and reading subsequent motion events.
+func TestParseInputMouseLeftDragMotion(t T) T {
+    val buf = mousePacket(32, 12, 7, true)
+    val (ev, _) = ParseInput(buf)
+    return ev match {
+        case MouseInput(m) => {
+            val t1 = IsTrue(t, m.Motion)
+            val t2 = IsTrue(t1, m.Pressed)
+            val t3 = IsTrue(t2, mouseBtnIs(m.Btn, "left"))
+            val t4 = Eq(t3, m.X, 11)
+            return Eq(t4, m.Y, 6)
+        }
+        case _ => IsTrue(t, false)
+    }
+}
+
+// A plain left press (code 0, no motion bit) MUST surface Motion=false.
+// Guards against a regression where the bit-extraction logic could
+// flip the flag for non-motion events.
+func TestParseInputMouseLeftPressMotionFalse(t T) T {
+    val buf = mousePacket(0, 5, 5, true)
+    val (ev, _) = ParseInput(buf)
+    return ev match {
+        case MouseInput(m) => IsFalse(t, m.Motion)
+        case _             => IsTrue(t, false)
+    }
+}
+
+// Right-button drag: code = 2 (right) | 32 (motion) = 34. Btn must
+// resolve to MouseRight and Motion must be true.
+func TestParseInputMouseRightDragMotion(t T) T {
+    val buf = mousePacket(34, 8, 4, true)
+    val (ev, _) = ParseInput(buf)
+    return ev match {
+        case MouseInput(m) => {
+            val t1 = IsTrue(t, m.Motion)
+            return IsTrue(t1, mouseBtnIs(m.Btn, "right"))
+        }
+        case _ => IsTrue(t, false)
+    }
+}
+
+// ansiMouseOn must include the ?1002h button-event tracking sequence
+// alongside ?1000h and ?1006h. Without ?1002h the terminal never
+// emits motion-while-held packets and drag UX in consumers silently
+// dies.
+func TestAnsiMouseOnIncludesButtonEventTracking(t T) T {
+    val on = ansiMouseOn()
+    return IsTrue(t, contains(on, "?1002h"))
+}
+
+// And ansiMouseOff must disable it on shutdown — orphaned ?1002 mode
+// would leak motion events into whatever shell takes over the
+// terminal after the app exits.
+func TestAnsiMouseOffDisablesButtonEventTracking(t T) T {
+    val off = ansiMouseOff()
+    return IsTrue(t, contains(off, "?1002l"))
+}
+
+// contains is a tiny strings.Contains shim — pulling in the strings
+// import for one call would inflate the test file's imports.
+func contains(haystack string, needle string) bool {
+    val hLen = len(haystack)
+    val nLen = len(needle)
+    if nLen == 0 { return true }
+    if nLen > hLen { return false }
+    var i = 0
+    val limit = hLen - nLen
+    for i <= limit {
+        var j = 0
+        var match = true
+        for j < nLen {
+            if haystack[i+j] != needle[j] { match = false; j = nLen }
+            else { j = j + 1 }
+        }
+        if match { return true }
+        i = i + 1
+    }
+    return false
+}
+
 // ----------------------------------------------------------------------------
 // MouseButton tag helper — isolates the sealed match so callers don't
 // duplicate the boilerplate.
