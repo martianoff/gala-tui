@@ -676,6 +676,12 @@ func ResolveClickEventWithDrag[T any](
     return ev match {
         case MouseInput(m) => {
             // 1) Release: end any active drag, then pass through.
+            //    A release between the two presses of a double-click
+            //    must NOT flush the pending deferred-single — apps
+            //    expect press/release/press/release to still resolve
+            //    as a single double-click. We dispatch the fallback
+            //    so apps can observe the release if they want, but
+            //    leave pending and drag state alone otherwise.
             if !m.Pressed {
                 if drag.IsDefined() {
                     val active = drag.Get()
@@ -686,8 +692,11 @@ func ResolveClickEventWithDrag[T any](
                         Drag    = None[DragActive](),
                     )
                 }
-                val (msgs, newPending) = resolveNonClick[T](ev, pending, fallback)
-                return DragResolution[T](Msgs = msgs, Pending = newPending, Drag = drag)
+                return DragResolution[T](
+                    Msgs    = ArrayOf[T](fallback(ev)),
+                    Pending = pending,
+                    Drag    = drag,
+                )
             }
             // 2) Motion-while-held: route to drag if active.
             if m.Motion {
