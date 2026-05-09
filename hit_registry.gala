@@ -30,12 +30,17 @@ import (
 // `any` — apps just hand a typed `Msg` to `Clickable(...)`.
 // ============================================================================
 
-// HitEntry pairs a rectangle with the payload to dispatch when a click
-// lands inside it. `IsDouble` distinguishes double-click registrations
-// (`DblClickableW`/`DblClickableRowsW`) from single-click ones — the
-// runtime resolves them through different lookup paths so a single
-// click never accidentally fires a double-click handler and vice versa.
-struct HitEntry(R Rect, Payload any, IsDouble bool)
+// HitEntry pairs a rectangle with the payload to dispatch when a
+// click / double-click / drag lands inside it. The Kind discriminator
+// keeps single-click / double-click / drag lookups separate so a
+// click never accidentally fires a double-click handler and a drag
+// motion never re-dispatches a click region's payload mid-drag.
+//
+// Encoded as two flags rather than a sealed enum because the Widget
+// type is sealed and adding a new HitEntry case rippled into many
+// match sites; the runtime only switches on these two flags so the
+// dispatch paths stay simple.
+struct HitEntry(R Rect, Payload any, IsDouble bool, IsDrag bool)
 
 // HitRegistry is the mutable accumulator.
 type HitRegistry struct {
@@ -55,7 +60,7 @@ func (h *HitRegistry) Register(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = append(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false))
+    h.entries = append(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false, IsDrag = false))
 }
 
 // RegisterDouble adds a double-click `(rect, payload)` to the registry.
@@ -67,13 +72,30 @@ func (h *HitRegistry) RegisterDouble(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = append(h.entries, HitEntry(R = r, Payload = payload, IsDouble = true))
+    h.entries = append(h.entries, HitEntry(R = r, Payload = payload, IsDouble = true, IsDrag = false))
+}
+
+// RegisterDrag adds a drag `(rect, payload)` to the registry. The
+// runtime threads drag state across press / motion / release events
+// and dispatches phase-tagged messages — consumers register ONE
+// region per draggable element and receive DragPress / DragOver /
+// DragRelease through the same payload.
+//
+// Payloads here are typically functions of shape `func(DragPhase) any`
+// — DraggableW stores the user's `msgFor` closure as `any` and the
+// runtime calls it with the phase before dispatching. Consumer code
+// uses `OnDrag` (the fluent method) which hides this detail.
+func (h *HitRegistry) RegisterDrag(r Rect, payload any) {
+    if r.Zero() {
+        return
+    }
+    h.entries = append(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false, IsDrag = true))
 }
 
 // HitAt returns the payload of the LAST-registered single-click entry
 // whose rectangle contains `(x, y)`, or `None` if no single-click
-// entry matches. Double-click entries are skipped — query
-// `HitAtDouble` for those.
+// entry matches. Double-click and drag entries are skipped — query
+// `HitAtDouble` / `HitAtDrag` for those.
 //
 // Last-wins is intentional: layouts render children in document order, so
 // a widget rendered later (a modal stacked on top, a row drawn after its
@@ -83,7 +105,7 @@ func (h *HitRegistry) HitAt(x int, y int) Option[any] {
     var i = len(h.entries) - 1
     for i >= 0 {
         val e = h.entries[i]
-        if !e.IsDouble &&
+        if !e.IsDouble && !e.IsDrag &&
            x >= e.R.X && x < e.R.X + e.R.Width &&
            y >= e.R.Y && y < e.R.Y + e.R.Height {
             return Some[any](e.Payload)
@@ -101,6 +123,25 @@ func (h *HitRegistry) HitAtDouble(x int, y int) Option[any] {
     for i >= 0 {
         val e = h.entries[i]
         if e.IsDouble &&
+           x >= e.R.X && x < e.R.X + e.R.Width &&
+           y >= e.R.Y && y < e.R.Y + e.R.Height {
+            return Some[any](e.Payload)
+        }
+        i = i - 1
+    }
+    return None[any]()
+}
+
+// HitAtDrag is the drag-region counterpart of HitAt. Returns the
+// payload of the LAST-registered drag entry containing `(x, y)`,
+// or None if no drag region matches. The runtime calls this on
+// press to start a drag, and on each motion-while-held event to
+// resolve which region the cursor is currently over.
+func (h *HitRegistry) HitAtDrag(x int, y int) Option[any] {
+    var i = len(h.entries) - 1
+    for i >= 0 {
+        val e = h.entries[i]
+        if e.IsDrag &&
            x >= e.R.X && x < e.R.X + e.R.Width &&
            y >= e.R.Y && y < e.R.Y + e.R.Height {
             return Some[any](e.Payload)

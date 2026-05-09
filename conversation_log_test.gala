@@ -287,6 +287,71 @@ func TestConversationLogReplaceAtOutOfRangeIsNoOp(t T) T {
 }
 
 // ----------------------------------------------------------------------------
+// EntryAtRow — query helper for drag-aware consumers.
+// ----------------------------------------------------------------------------
+
+// Three entries with heights 2, 3, 4 (total 9). A viewport sized 9
+// shows everything, no sticky offset. Row 0 is in entry 0 (height 2),
+// row 2 is in entry 1 (height 3), row 5 is in entry 2 (height 4).
+func TestEntryAtRowFullViewportNoStick(t T) T {
+    val log = ConversationLog(
+        Entries       = ArrayOf(clMakeEntry("a", 2), clMakeEntry("b", 3), clMakeEntry("c", 4)),
+        Offset        = 0,
+        StickToBottom = false,
+    )
+    val r0 = ConversationLogEntryAt(log, 9, 0).GetOrElse(-1)
+    val r2 = ConversationLogEntryAt(log, 9, 2).GetOrElse(-1)
+    val r5 = ConversationLogEntryAt(log, 9, 5).GetOrElse(-1)
+    val r8 = ConversationLogEntryAt(log, 9, 8).GetOrElse(-1)
+    val t1 = Eq(t,  r0, 0)
+    val t2 = Eq(t1, r2, 1)
+    val t3 = Eq(t2, r5, 2)
+    return Eq(t3, r8, 2)
+}
+
+// Sticky-bottom viewport smaller than total content: the visible
+// rows are the trailing slice, so row 0 of the viewport corresponds
+// to the FIRST row of the trailing window — which can land mid-entry.
+func TestEntryAtRowStickyTrailingWindow(t T) T {
+    // Heights 2, 3, 4 (total 9). Viewport 5: trailing rows correspond
+    // to log rows 4..8. Row 0 (in viewport) = log row 4 = inside
+    // entry 1 (which spans log rows 2..4). Row 1 = log row 5 = entry 2.
+    val log = ConversationLog(
+        Entries       = ArrayOf(clMakeEntry("a", 2), clMakeEntry("b", 3), clMakeEntry("c", 4)),
+        Offset        = 0,
+        StickToBottom = true,
+    )
+    val r0 = ConversationLogEntryAt(log, 5, 0).GetOrElse(-1)
+    val r1 = ConversationLogEntryAt(log, 5, 1).GetOrElse(-1)
+    val r4 = ConversationLogEntryAt(log, 5, 4).GetOrElse(-1)
+    val t1 = Eq(t,  r0, 1)
+    val t2 = Eq(t1, r1, 2)
+    return Eq(t2, r4, 2)
+}
+
+// Out-of-range row returns None — both negative and beyond the
+// viewport's height.
+func TestEntryAtRowOutOfRangeIsNone(t T) T {
+    val log = ConversationLog(
+        Entries       = ArrayOf(clMakeEntry("a", 2)),
+        Offset        = 0,
+        StickToBottom = false,
+    )
+    val t1 = IsFalse(t,  ConversationLogEntryAt(log, 5, -1).IsDefined())
+    return IsFalse(t1, ConversationLogEntryAt(log, 5, 5).IsDefined())
+}
+
+// Empty log returns None for any row.
+func TestEntryAtRowEmptyLogIsNone(t T) T {
+    val log = ConversationLog(
+        Entries       = EmptyArray[ConversationEntry](),
+        Offset        = 0,
+        StickToBottom = false,
+    )
+    return IsFalse(t, ConversationLogEntryAt(log, 5, 0).IsDefined())
+}
+
+// ----------------------------------------------------------------------------
 // WrapParagraph contract test
 //
 // This is the contract chat's `messageHeight` relies on: WrapParagraph at

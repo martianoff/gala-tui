@@ -386,6 +386,10 @@ func RunWithMouse[M any, T any](
     val hits = NewHitRegistry()
     // Pending single-click state for double-click dispatch (Model B).
     var pendingClick = None[ClickPending]()
+    // Drag-active state — Some between an OnDrag press and its
+    // release, regardless of whether the cursor wanders off the
+    // press's region in between.
+    var dragActive = None[DragActive]()
     var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits)
 
     for {
@@ -476,7 +480,7 @@ func RunWithMouse[M any, T any](
         //    loop). Only clicks that miss every registered widget reach
         //    the user's `makeInputMsg`.
         val exitNow = processInputBytesWithHits(
-            program, &model, &pending, &pendingClick,
+            program, &model, &pending, &pendingClick, &dragActive,
             rr.Buf, rr.N, makeInputMsg, hits,
         )
         if exitNow {
@@ -499,6 +503,7 @@ func processInputBytesWithHits[M any, T any](
     model *M,
     pending *Array[concurrent.Future[T]],
     pendingClick *Option[ClickPending],
+    dragActive *Option[DragActive],
     buf []byte,
     n int,
     makeInputMsg func(InputEvent) T,
@@ -516,10 +521,12 @@ func processInputBytesWithHits[M any, T any](
             return true
         }
 
-        val (msgs, newPending) = ResolveClickEvent[T](
-            ev, Now(), hits, *pendingClick, makeInputMsg,
+        val resolution = ResolveClickEventWithDrag[T](
+            ev, Now(), hits, *pendingClick, *dragActive, makeInputMsg,
         )
-        *pendingClick = newPending
+        *pendingClick = resolution.Pending
+        *dragActive   = resolution.Drag
+        val msgs = resolution.Msgs
         var mi = 0
         for mi < msgs.Length() {
             val msg = msgs.Get(mi)
@@ -566,6 +573,21 @@ func processInputBytesWithHits[M any, T any](
 //     double; window elapses = nothing.
 // ----------------------------------------------------------------------------
 
+// DragActive tracks an in-progress click-and-drag gesture between
+// the originating press and the eventual release. The runtime holds
+// the originating press's payload — the type-erased
+// `func(DragPhase) any` produced by `OnDrag(...)` / `OnDragPickRow(...)`
+// — and uses it to dispatch DragRelease at the end of the gesture
+// regardless of where the cursor sits when the user releases. Motion-
+// while-held events look up the CURRENT drag region under the cursor
+// (a different row in the same list, for instance) and dispatch
+// DragOver via THAT region's payload, so consumers naturally see
+// the row-under-cursor change while the press payload still owns
+// the release.
+struct DragActive(
+    PressPayload any,    // type-erased func(DragPhase) any from the originating press
+)
+
 // ClickPending tracks a click whose dispatch is deferred awaiting either
 // a follow-up click (which would upgrade it to a double-click) or the
 // timeout (which would dispatch the deferred single).
@@ -598,15 +620,25 @@ func castPayloadOrSkip[T any](payload any, fallback T) T = payload match {
     case _      => fallback
 }
 
+// DragResolution carries the result of resolving a single mouse
+// event against drag + click + double-click state. Threaded through
+// the main loop so each event updates exactly one of the slots.
+struct DragResolution[T any](
+    Msgs    Array[T],
+    Pending Option[ClickPending],
+    Drag    Option[DragActive],
+)
+
 // ResolveClickEvent processes a single InputEvent against the
-// HitRegistry, taking and returning pending-click state. Returns the
-// list of Msgs to dispatch (0, 1, or 2 entries) along with the new
-// pending state. The runtime threads `pending` across loop iterations.
+// HitRegistry for click-only consumers (no drag registration).
+// Threads click-pending state across loop iterations and returns
+// the dispatched Msgs alongside the new pending. Apps that don't
+// register drag regions see no behavior change from prior versions.
 //
 // Mouse-release / motion / scroll events pass through *without*
 // touching pending — they're part of the same physical click gesture
-// and would otherwise flush the deferred single before the second
-// press can arrive (a real double-click in SGR mode delivers
+// and would otherwise flush a deferred single before the second
+// press could arrive (a real double-click in SGR mode delivers
 // press/release/press/release, and the release between the two
 // presses must NOT cancel the pending).
 func ResolveClickEvent[T any](
@@ -616,26 +648,131 @@ func ResolveClickEvent[T any](
     pending Option[ClickPending],
     fallback func(InputEvent) T,
 ) Tuple[Array[T], Option[ClickPending]] {
+    val res = ResolveClickEventWithDrag[T](ev, now, hits, pending, None[DragActive](), fallback)
+    return (res.Msgs, res.Pending)
+}
+
+// ResolveClickEventWithDrag is the drag-aware resolver. The runtime
+// threads BOTH click-pending and drag-active state across loop
+// iterations.
+//
+// Drag dispatch: presses on a drag region produce DragPress and
+// engage the drag-active slot; subsequent motion-while-held events
+// produce DragOver against whichever drag region sits under the
+// cursor right now (which can be a sibling region of the press —
+// e.g. a different row in the same list); the release that ends
+// the gesture produces DragRelease against the ORIGINATING press's
+// payload, not the cursor's current position. Click and double-
+// click semantics for press/release are unchanged on regions that
+// have no drag registration.
+func ResolveClickEventWithDrag[T any](
+    ev InputEvent,
+    now Instant,
+    hits *HitRegistry,
+    pending Option[ClickPending],
+    drag Option[DragActive],
+    fallback func(InputEvent) T,
+) DragResolution[T] {
     return ev match {
         case MouseInput(m) => {
-            // Only a fresh left-button PRESS engages click resolution.
-            // Releases / motion-while-held (under ?1002 button-event
-            // tracking) / scroll-wheel / non-left buttons all bypass
-            // the click-pending machinery and go straight to the user
-            // adapter, leaving pending untouched. Without the !m.Motion
-            // guard a drag would be interpreted as a stream of fresh
-            // clicks and fire the click hit's payload on every motion
-            // frame.
-            val isLeftPress = m.Pressed && !m.Motion && (m.Btn match {
+            // 1) Release: end any active drag, then pass through.
+            //    A release between the two presses of a double-click
+            //    must NOT flush the pending deferred-single — apps
+            //    expect press/release/press/release to still resolve
+            //    as a single double-click. We dispatch the fallback
+            //    so apps can observe the release if they want, but
+            //    leave pending and drag state alone otherwise.
+            if !m.Pressed {
+                if drag.IsDefined() {
+                    val active = drag.Get()
+                    val msg = invokeDragPayload[T](active.PressPayload, DragRelease(), fallback(ev))
+                    return DragResolution[T](
+                        Msgs    = ArrayOf[T](msg),
+                        Pending = pending,
+                        Drag    = None[DragActive](),
+                    )
+                }
+                return DragResolution[T](
+                    Msgs    = ArrayOf[T](fallback(ev)),
+                    Pending = pending,
+                    Drag    = drag,
+                )
+            }
+            // 2) Motion-while-held: route to drag if active.
+            if m.Motion {
+                if drag.IsDefined() {
+                    val region = hits.HitAtDrag(m.X, m.Y)
+                    return region match {
+                        case Some(payload) => {
+                            val msg = invokeDragPayload[T](payload, DragOver(), fallback(ev))
+                            return DragResolution[T](
+                                Msgs    = ArrayOf[T](msg),
+                                Pending = pending,
+                                Drag    = drag,
+                            )
+                        }
+                        // Cursor outside any drag region — don't dispatch
+                        // a phantom DragOver, keep the drag state alive.
+                        case None() => DragResolution[T](
+                            Msgs    = ArrayOf[T](fallback(ev)),
+                            Pending = pending,
+                            Drag    = drag,
+                        )
+                    }
+                }
+                return DragResolution[T](
+                    Msgs    = ArrayOf[T](fallback(ev)),
+                    Pending = pending,
+                    Drag    = drag,
+                )
+            }
+            // 3) Fresh press: drag region wins over click region (most
+            //    apps register one or the other per region anyway,
+            //    and a click on a drag-only region should fire DragPress
+            //    rather than a no-op fallback).
+            val isLeft = m.Btn match {
                 case MouseLeft() => true
                 case _           => false
-            })
-            if isLeftPress {
-                return resolveLeftClick[T](m.X, m.Y, now, hits, pending, fallback, ev)
             }
-            return (ArrayOf[T](fallback(ev)), pending)
+            if !isLeft {
+                return DragResolution[T](
+                    Msgs    = ArrayOf[T](fallback(ev)),
+                    Pending = pending,
+                    Drag    = drag,
+                )
+            }
+            val dragHit = hits.HitAtDrag(m.X, m.Y)
+            return dragHit match {
+                case Some(payload) => {
+                    val msg = invokeDragPayload[T](payload, DragPress(), fallback(ev))
+                    return DragResolution[T](
+                        Msgs    = ArrayOf[T](msg),
+                        Pending = pending,
+                        Drag    = Some(DragActive(PressPayload = payload)),
+                    )
+                }
+                case None() => {
+                    val (msgs, newPending) = resolveLeftClick[T](m.X, m.Y, now, hits, pending, fallback, ev)
+                    return DragResolution[T](Msgs = msgs, Pending = newPending, Drag = drag)
+                }
+            }
         }
-        case _ => resolveNonClick[T](ev, pending, fallback)
+        case _ => {
+            val (msgs, newPending) = resolveNonClick[T](ev, pending, fallback)
+            return DragResolution[T](Msgs = msgs, Pending = newPending, Drag = drag)
+        }
+    }
+}
+
+// invokeDragPayload calls a stored OnDrag closure (type-erased to
+// `any` inside DraggableW) with the requested phase, then casts the
+// result back to T. Cast failure falls back to the user adapter's
+// rendering of the event — same degrade-don't-panic strategy
+// `castPayloadOrSkip` uses for clicks.
+func invokeDragPayload[T any](payload any, phase DragPhase, fallback T) T {
+    return payload match {
+        case fn: func(DragPhase) any => castPayloadOrSkip[T](fn(phase), fallback)
+        case _                        => fallback
     }
 }
 
@@ -764,17 +901,27 @@ func ResolveClickOrInput[T any](
             if !m.Pressed { return fallback(ev) }
             // Motion-while-held events (delivered under ?1002 button-
             // event tracking) carry Pressed=true even though they
-            // aren't a fresh click. Routing them through HitAt would
-            // re-dispatch the click hit's payload on every drag
-            // frame, which is what nobody wants. Pass them through
-            // as MouseAt fallback so consumers that care about drag
-            // can read MouseEvent.Motion themselves.
+            // aren't a fresh click. The simpler one-shot resolver
+            // doesn't carry drag state across calls, so we pass
+            // motion events straight to the user adapter and let
+            // them inspect MouseEvent.Motion. Apps that need full
+            // drag dispatch use the persistent runtime
+            // (`ResolveClickEvent`).
             if m.Motion { return fallback(ev) }
             val isLeft = m.Btn match {
                 case MouseLeft() => true
                 case _           => false
             }
             if !isLeft { return fallback(ev) }
+            // Drag region wins over click region (same precedence
+            // as the persistent resolver — DragPress fires on the
+            // press of any drag-only target).
+            val dragHit = hits.HitAtDrag(m.X, m.Y)
+            val dragMsg = dragHit match {
+                case Some(payload) => Some[T](invokeDragPayload[T](payload, DragPress(), fallback(ev)))
+                case None()        => None[T]()
+            }
+            if dragMsg.IsDefined() { return dragMsg.Get() }
             val opt = hits.HitAt(m.X, m.Y)
             return opt match {
                 case Some(payload) => payload match {

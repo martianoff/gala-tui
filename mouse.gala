@@ -53,6 +53,25 @@ struct MouseEvent(
     Motion  bool,                   // true when this is a motion event with a button held (drag)
 )
 
+// DragPhase identifies which step of a click-and-drag gesture a
+// dispatched message belongs to.
+//   - DragPress   : initial mouse press on a draggable region.
+//   - DragOver    : motion-while-held; dispatched repeatedly with the
+//                   region currently under the cursor (which may be a
+//                   sibling region from the originating press, e.g.
+//                   another row in the same list).
+//   - DragRelease : button released. Always dispatched against the
+//                   ORIGINATING press's region's payload, regardless
+//                   of where the cursor sits at release time —
+//                   gives consumers a clean "drag is over" signal
+//                   even when the user releases off the original
+//                   region.
+sealed type DragPhase {
+    case DragPress
+    case DragOver
+    case DragRelease
+}
+
 sealed type InputEvent {
     case KeyInput(Ev KeyEvent)
     case MouseInput(Ev MouseEvent)
