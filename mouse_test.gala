@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/go_interop"
     . "martianoff/gala/test"
 )
@@ -205,40 +206,14 @@ func TestParseInputMouseRightDragMotion(t T) T {
 // alongside ?1000h and ?1006h. Without ?1002h the terminal never
 // emits motion-while-held packets and drag UX in consumers silently
 // dies.
-func TestAnsiMouseOnIncludesButtonEventTracking(t T) T {
-    val on = ansiMouseOn()
-    return IsTrue(t, contains(on, "?1002h"))
-}
+func TestAnsiMouseOnIncludesButtonEventTracking(t T) T =
+    IsTrue(t, strings.Contains(ansiMouseOn(), "?1002h"))
 
 // And ansiMouseOff must disable it on shutdown — orphaned ?1002 mode
 // would leak motion events into whatever shell takes over the
 // terminal after the app exits.
-func TestAnsiMouseOffDisablesButtonEventTracking(t T) T {
-    val off = ansiMouseOff()
-    return IsTrue(t, contains(off, "?1002l"))
-}
-
-// contains is a tiny strings.Contains shim — pulling in the strings
-// import for one call would inflate the test file's imports.
-func contains(haystack string, needle string) bool {
-    val hLen = len(haystack)
-    val nLen = len(needle)
-    if nLen == 0 { return true }
-    if nLen > hLen { return false }
-    var i = 0
-    val limit = hLen - nLen
-    for i <= limit {
-        var j = 0
-        var match = true
-        for j < nLen {
-            if haystack[i+j] != needle[j] { match = false; j = nLen }
-            else { j = j + 1 }
-        }
-        if match { return true }
-        i = i + 1
-    }
-    return false
-}
+func TestAnsiMouseOffDisablesButtonEventTracking(t T) T =
+    IsTrue(t, strings.Contains(ansiMouseOff(), "?1002l"))
 
 // ----------------------------------------------------------------------------
 // MouseButton tag helper — isolates the sealed match so callers don't
