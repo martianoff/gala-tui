@@ -62,6 +62,20 @@ sealed type Widget {
     // DblClickableRowsW is the per-row counterpart — each of `Count`
     // stacked rows fires its `Payloads(rowIdx)` only on a double-click.
     case DblClickableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
+    // DraggableW wraps an inner widget and registers its rendered area
+    // as a drag region. The runtime threads drag state across the
+    // press / motion-while-held / release sequence and dispatches
+    // phase-tagged messages produced by `Payload(phase)` (typed
+    // `func(DragPhase) any` after type erasure). DragRelease is
+    // always dispatched against the originating press's payload —
+    // even if the cursor is off the region at release — so consumers
+    // get a clean "drag is over" signal.
+    case DraggableW(Inner Widget, Payload any)
+    // DraggableRowsW slices its rendered area into `Count` rows of
+    // `RowH` cells each and registers one drag region per row, with
+    // `Payloads(i)` producing row `i`'s `func(DragPhase) any`.
+    // Used by list / log widgets that want every row drag-selectable.
+    case DraggableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
     // CustomW is the escape hatch for user-authored widgets that need
     // pixel-level control. The framework hands the closure the rendered
     // area, the target Buffer, and the live HitRegistry — the user can
@@ -574,6 +588,31 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
+        case DraggableW(inner, payload) => {
+            if hits != nil {
+                hits.RegisterDrag(area, payload)
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
+        case DraggableRowsW(inner, count, rowH, payloads) => {
+            if hits != nil && count > 0 && rowH > 0 {
+                var i = 0
+                for i < count {
+                    val rowY = area.Y + i * rowH
+                    if rowY < area.Y + area.Height {
+                        val rowH2 = if (rowY + rowH <= area.Y + area.Height)
+                                        rowH
+                                    else area.Y + area.Height - rowY
+                        hits.RegisterDrag(Rect(
+                            X = area.X, Y = rowY,
+                            Width = area.Width, Height = rowH2,
+                        ), payloads(i))
+                    }
+                    i = i + 1
+                }
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
         case CustomW(_, _, render) =>
             render(area, buf, hits)
     }
@@ -967,6 +1006,8 @@ func defaultRenderWidth(w Widget) int {
         case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
         case DblClickableW(inner, _)           => defaultRenderWidth(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderWidth(inner)
+        case DraggableW(inner, _)              => defaultRenderWidth(inner)
+        case DraggableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
         case CustomW(minW, _, _)               => minW
     }
 }
@@ -1000,6 +1041,8 @@ func defaultRenderHeight(w Widget) int {
         case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
         case DblClickableW(inner, _)           => defaultRenderHeight(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderHeight(inner)
+        case DraggableW(inner, _)              => defaultRenderHeight(inner)
+        case DraggableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
         case CustomW(_, minH, _)               => minH
     }
 }
@@ -1059,6 +1102,8 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case ClickableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
         case DblClickableW(inner, _)           => IntrinsicHeightAt(inner, width)
         case DblClickableRowsW(inner, _, _, _) => IntrinsicHeightAt(inner, width)
+        case DraggableW(inner, _)              => IntrinsicHeightAt(inner, width)
+        case DraggableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
         case CustomW(_, minH, _)               => minH
     }
 }

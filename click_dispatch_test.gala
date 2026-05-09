@@ -23,16 +23,20 @@ import (
 sealed type CdMsg {
     case CdSingle(N int)
     case CdDouble(N int)
+    case CdDrag(Idx int, Phase DragPhase)
     case CdNone()
 }
 
 func cdFallback() func(InputEvent) CdMsg = (ev) => CdNone()
 
 func cdLeftClick(x int, y int) InputEvent =
-    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true))
+    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true, Motion = false))
 
 func cdLeftRelease(x int, y int) InputEvent =
-    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = false))
+    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = false, Motion = false))
+
+func cdLeftDrag(x int, y int) InputEvent =
+    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true, Motion = true))
 
 // ----------------------------------------------------------------------------
 // Single-click only
@@ -270,4 +274,110 @@ func TestDrainWithoutDeferredJustClears(t T) T {
     )
     val t1 = Eq(t, msgs.Length(), 0)
     return IsFalse(t1, after.IsDefined())
+}
+
+// ----------------------------------------------------------------------------
+// Drag dispatch — DraggableW press / DragOver / DragRelease lifecycle.
+// ----------------------------------------------------------------------------
+
+// cdDragPayload builds the type-erased OnDrag payload for entry idx
+// — `func(DragPhase) any` returning a CdDrag tagged with this idx.
+func cdDragPayload(idx int) any =
+    (phase DragPhase) => any(CdDrag(Idx = idx, Phase = phase))
+
+// HitAtDrag returns the registered payload at the given coordinate,
+// distinct from the click-only HitAt path.
+func TestHitAtDragReturnsRegisteredPayload(t T) T {
+    val hits = NewHitRegistry()
+    hits.RegisterDrag(Rect(X = 0, Y = 0, Width = 10, Height = 1), cdDragPayload(7))
+    val opt = hits.HitAtDrag(5, 0)
+    return IsTrue(t, opt.IsDefined())
+}
+
+// HitAt (click) does NOT return drag entries — separate lookup paths
+// keep click and drag dispatch from cross-firing.
+func TestHitAtSkipsDragEntries(t T) T {
+    val hits = NewHitRegistry()
+    hits.RegisterDrag(Rect(X = 0, Y = 0, Width = 10, Height = 1), cdDragPayload(0))
+    return IsFalse(t, hits.HitAt(5, 0).IsDefined())
+}
+
+// Press on a drag region produces DragPress with the right idx and
+// engages the drag-active slot.
+func TestResolveDragPressEngagesDragActive(t T) T {
+    val hits = NewHitRegistry()
+    hits.RegisterDrag(Rect(X = 0, Y = 0, Width = 10, Height = 1), cdDragPayload(3))
+    val res = ResolveClickEventWithDrag[CdMsg](
+        cdLeftClick(5, 0), Now(), hits,
+        None[ClickPending](), None[DragActive](), cdFallback(),
+    )
+    val gotPress = res.Msgs.Length() == 1 && (res.Msgs.Get(0) match {
+        case CdDrag(idx, DragPress()) => idx == 3
+        case _                        => false
+    })
+    val t1 = IsTrue(t, gotPress)
+    return IsTrue(t1, res.Drag.IsDefined())
+}
+
+// Motion-while-held over a different drag region produces DragOver
+// against the CURRENT region's idx (not the press's).
+func TestResolveDragMotionFiresOverWithCurrentEntry(t T) T {
+    val hits = NewHitRegistry()
+    hits.RegisterDrag(Rect(X = 0, Y = 0, Width = 10, Height = 1), cdDragPayload(0))
+    hits.RegisterDrag(Rect(X = 0, Y = 1, Width = 10, Height = 1), cdDragPayload(1))
+    // Press on entry 0...
+    val r1 = ResolveClickEventWithDrag[CdMsg](
+        cdLeftClick(5, 0), Now(), hits,
+        None[ClickPending](), None[DragActive](), cdFallback(),
+    )
+    // ...then drag motion to entry 1.
+    val r2 = ResolveClickEventWithDrag[CdMsg](
+        cdLeftDrag(5, 1), Now(), hits,
+        r1.Pending, r1.Drag, cdFallback(),
+    )
+    val gotOverOnEntry1 = r2.Msgs.Length() == 1 && (r2.Msgs.Get(0) match {
+        case CdDrag(idx, DragOver()) => idx == 1
+        case _                       => false
+    })
+    return IsTrue(t, gotOverOnEntry1)
+}
+
+// Release dispatches DragRelease against the ORIGINATING press's
+// payload — not the cursor's current position. The user often
+// releases off the original region; the consumer still needs a
+// definitive "drag is over" signal tied to the press.
+func TestResolveDragReleaseUsesOriginatingPressPayload(t T) T {
+    val hits = NewHitRegistry()
+    hits.RegisterDrag(Rect(X = 0, Y = 0, Width = 10, Height = 1), cdDragPayload(7))
+    // Press entry 7.
+    val r1 = ResolveClickEventWithDrag[CdMsg](
+        cdLeftClick(5, 0), Now(), hits,
+        None[ClickPending](), None[DragActive](), cdFallback(),
+    )
+    // Release at coords with no registered drag region — the runtime
+    // must still fire DragRelease against entry 7's payload.
+    val r2 = ResolveClickEventWithDrag[CdMsg](
+        cdLeftRelease(50, 50), Now(), hits,
+        r1.Pending, r1.Drag, cdFallback(),
+    )
+    val gotReleaseOn7 = r2.Msgs.Length() == 1 && (r2.Msgs.Get(0) match {
+        case CdDrag(idx, DragRelease()) => idx == 7
+        case _                          => false
+    })
+    val t1 = IsTrue(t, gotReleaseOn7)
+    return IsFalse(t1, r2.Drag.IsDefined())
+}
+
+// Backward-compat: ResolveClickEvent (no drag param) still works the
+// same as before for click-only consumers.
+func TestResolveClickEventClickOnlyAPIIsUnchanged(t T) T {
+    val hits = NewHitRegistry()
+    hits.Register(Rect(X = 0, Y = 0, Width = 10, Height = 1), CdSingle(N = 9))
+    val (msgs, _) = ResolveClickEvent[CdMsg](
+        cdLeftClick(5, 0), Now(), hits, None[ClickPending](), cdFallback(),
+    )
+    return IsTrue(t, msgs.Length() == 1 && (msgs.Get(0) match {
+        case CdSingle(n) => n == 9
+        case _           => false
+    }))
 }

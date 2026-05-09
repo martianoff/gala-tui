@@ -93,6 +93,44 @@ func (w Widget) OnDoublePickRowH[T any](count int, rowH int, msgFor func(int) T)
     )
 }
 
+// OnDrag attaches a drag contract to the widget: the runtime
+// dispatches `msgFor(DragPress)` on the press that lands inside the
+// widget's rectangle, then `msgFor(DragOver)` for every motion-while-
+// held event whose cursor sits over a draggable region, and finally
+// `msgFor(DragRelease)` on release — always against the originating
+// press's payload, even when release happens off the region.
+//
+//     val row = TextStyled(label, style).OnDrag[Msg]((phase) =>
+//         OnDragRow(Idx = i, Phase = phase))
+//
+// `T` is inferred from the `msgFor` return type. The closure is
+// stored type-erased inside the underlying `DraggableW`; the runtime
+// re-erases when calling it (returning `any`) and the dispatcher
+// casts back to `T`.
+func (w Widget) OnDrag[T any](msgFor func(DragPhase) T) Widget {
+    val erased = (phase DragPhase) => any(msgFor(phase))
+    return DraggableW(Inner = w, Payload = erased)
+}
+
+// OnDragPickRow is the per-row counterpart of OnDrag — slices the
+// widget's area into `count` rows of height 1 and registers a drag
+// region per row, with `msgFor(rowIdx, phase)` producing each
+// (row, phase) pair's dispatched message. Row-aware drag UX
+// (drag-to-select, drag-to-reorder) builds on this.
+func (w Widget) OnDragPickRow[T any](count int, msgFor func(int, DragPhase) T) Widget =
+    w.OnDragPickRowH[T](count, 1, msgFor)
+
+// OnDragPickRowH is `OnDragPickRow` with an explicit per-row height.
+func (w Widget) OnDragPickRowH[T any](count int, rowH int, msgFor func(int, DragPhase) T) Widget {
+    val erased = (i int) => any((phase DragPhase) => any(msgFor(i, phase)))
+    return DraggableRowsW(
+        Inner    = w,
+        Count    = count,
+        RowH     = rowH,
+        Payloads = erased,
+    )
+}
+
 // Padded wraps the widget in equal-margin Padding.
 func (w Widget) Padded(n int) Widget = Padding(n, w)
 
@@ -227,6 +265,11 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case DblClickableRowsW(inner, n, h, p) =>
             DblClickableRowsW(Inner = restyleLeaves(inner, f),
                               Count = n, RowH = h, Payloads = p)
+        case DraggableW(inner, payload)        =>
+            DraggableW(Inner = restyleLeaves(inner, f), Payload = payload)
+        case DraggableRowsW(inner, n, h, p)    =>
+            DraggableRowsW(Inner = restyleLeaves(inner, f),
+                           Count = n, RowH = h, Payloads = p)
         // CustomW renders by user-supplied closure — restyleLeaves has
         // no way to inspect or rewrite styles inside it. Pass through.
         case CustomW(_, _, _)                  => w

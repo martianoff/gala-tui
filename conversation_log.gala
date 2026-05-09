@@ -150,6 +150,68 @@ func ConversationLogViewClick[T any](
 ) Widget =
     cvBuildLayout(c, height, (body, i) => body.OnClick[T](onPickEntry(i)))
 
+// ConversationLogViewDrag is the drag-aware sibling: each rendered
+// entry registers a drag region. The runtime threads drag state
+// (see `runtime.gala::ResolveClickEvent`) and dispatches
+// `msgFor(idx, DragPress)` on the press, `msgFor(idx, DragOver)` on
+// every motion-while-held event whose cursor sits over a drag
+// region (the idx is the CURRENT region under the cursor — which
+// can be a sibling entry of the press as the user drags up or
+// down), and `msgFor(idx, DragRelease)` on release with the idx
+// of the ORIGINATING press. Apps use this for drag-to-select
+// ranges: track an anchor on DragPress, slide the focus on each
+// DragOver, freeze the range on DragRelease.
+func ConversationLogViewDrag[T any](
+    c ConversationLog, height int, msgFor func(int, DragPhase) T,
+) Widget =
+    cvBuildLayout(c, height, (body, i) =>
+        body.OnDrag[T]((phase) => msgFor(i, phase)),
+    )
+
+// ConversationLogEntryAt maps a row offset within the rendered
+// viewport to the entry index showing at that row, mirroring the
+// sticky-bottom + offset math `cvBuildLayout` uses internally.
+//
+// Returns None when:
+//   - rowInViewport is outside [0, height)
+//   - the log is empty
+//   - the row falls into negative space above the first visible
+//     entry (only possible when scrolled past the top)
+//
+// `viewportH` should be the SAME height the matching
+// `ConversationLogView*` call was rendered with — passing a
+// different value produces wrong indices because the sticky-bottom
+// calculation depends on it.
+func ConversationLogEntryAt(
+    c ConversationLog, viewportH int, rowInViewport int,
+) Option[int] {
+    if c.Entries.IsEmpty() { return None[int]() }
+    if rowInViewport < 0 || rowInViewport >= viewportH { return None[int]() }
+    val total = cvTotalLines(c.Entries)
+    val viewportTop = if (c.StickToBottom) MaxInt(0, total - viewportH)
+                      else c.Offset
+    var lineCursor = 0
+    var i = 0
+    val n = c.Entries.Length()
+    for i < n {
+        val entry = c.Entries.Get(i)
+        val entryStart = lineCursor
+        val entryEnd = lineCursor + entry.Height
+        val visTop = MaxInt(viewportTop, entryStart)
+        val visBot = MinInt(viewportTop + viewportH, entryEnd)
+        if visBot > visTop {
+            val rowsBefore = visTop - viewportTop
+            val rowsAfter  = visBot - viewportTop
+            if rowInViewport >= rowsBefore && rowInViewport < rowsAfter {
+                return Some(i)
+            }
+        }
+        lineCursor = entryEnd
+        i = i + 1
+    }
+    return None[int]()
+}
+
 // cvBuildLayout walks `c.Entries`, computes which slice of each entry
 // is visible in the viewport, and lays them out in a Column. Each
 // (already-viewported) entry body is passed through `wrapEntry` along
