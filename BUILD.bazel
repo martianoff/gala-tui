@@ -1,4 +1,4 @@
-load("@gala//:gala.bzl", "gala_library")
+load("@rules_gala//gala:defs.bzl", "gala_library")
 
 exports_files(
     ["go.mod"],
