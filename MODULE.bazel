@@ -1,6 +1,11 @@
 module(
     name = "gala_tui",
-    version = "0.1.0",
+    # Tracks the latest tagged gala_tui release. Bump in lockstep with
+    # the release tag so registry consumers see a MODULE.bazel whose
+    # `module(version = X)` matches the version they requested via
+    # `bazel_dep(name = "gala_tui", version = X)` — Bazel's bzlmod
+    # resolver rejects the dep otherwise.
+    version = "0.9.1",
 )
 
 bazel_dep(name = "platforms", version = "1.0.0")
