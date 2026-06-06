@@ -1,38 +1,224 @@
-load("@rules_gala//gala:defs.bzl", "gala_library")
+load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
+load("@rules_gala//gala:defs.bzl", "gala_imports_helper", "gala_library", "gala_test")
 
 exports_files(
     ["go.mod"],
     visibility = ["//visibility:public"],
 )
 
-_GALA_SRCS = glob(
-    ["*.gala"],
-    exclude = [
-        "*_test.gala",
-        # Excluded due to a cross-module transpiler bug: 3-tuple return
-        # type emits `std.Tuple[int, int, int]` (2-arg type) for the
-        # signature but `std.Tuple3[…]` for the value. File for upstream.
-        "diff_view.gala",
-    ],
+# A single composite gazelle binary (one `@gala_gazelle//gala` language that
+# embeds Gazelle's Go language) manages GALA, mixed GALA/Go, and pure-Go BUILD
+# files. The import helper is driven from the registered GALA toolchain
+# (reproducible).
+#
+# Wired by hand rather than via @gala_gazelle's gala_gazelle() macro: this root
+# BUILD is loaded by *consumers* of gala_tui (they depend on //:gala_tui), and
+# the macro's `load("@gala_gazelle//...")` would fail for them since
+# gala_gazelle is a dev_dependency. Referencing @gala_gazelle only as a string
+# label in gazelle_binary (resolved when the gazelle binary is built) avoids it.
+# gazelle:prefix github.com/martianoff/gala-tui
+# gazelle:gala_prefix github.com/martianoff/gala-tui
+# demo/, examples/, and harness/ are auxiliary trees that have never been part of
+# the bazel build (no BUILD files); they carry their own pre-existing breakage
+# (e.g. example test code that doesn't type-check). Keep gazelle out of them so
+# the published library + state stay the buildable surface.
+# gazelle:exclude demo
+# gazelle:exclude examples
+# gazelle:exclude harness
+gazelle_binary(
+    name = "gazelle_bin",
+    languages = ["@gala_gazelle//gala"],
+)
+
+gala_imports_helper(name = "gala_imports")
+
+gazelle(
+    name = "gazelle",
+    data = [":gala_imports"],
+    extra_args = ["-gala_helper=$(execpath :gala_imports)"],
+    gazelle = ":gazelle_bin",
 )
 
 gala_library(
     name = "gala_tui",
-    srcs = _GALA_SRCS,
+    srcs = [
+        "advanced.gala",
+        "buffer.gala",
+        "calendar.gala",
+        "cancellable.gala",
+        "cmd_helpers.gala",
+        "color.gala",
+        "compact_widgets.gala",
+        "conversation_log.gala",
+        "core.gala",
+        "datatable.gala",
+        "dev_ux.gala",
+        "diff_view.gala",
+        "disclosure.gala",
+        "filebrowser.gala",
+        "fluent.gala",
+        "focus_builder.gala",
+        "form.gala",
+        "help.gala",
+        "hit_registry.gala",
+        "input.gala",
+        "interactive.gala",
+        "keyspec.gala",
+        "layout.gala",
+        "linechart.gala",
+        "link.gala",
+        "logpanel.gala",
+        "markdown.gala",
+        "menu.gala",
+        "modal.gala",
+        "mouse.gala",
+        "palette.gala",
+        "popup.gala",
+        "runewidth.gala",
+        "runtime.gala",
+        "scroll_pane.gala",
+        "search_input.gala",
+        "snapshot.gala",
+        "status_widgets.gala",
+        "streaming_text.gala",
+        "style.gala",
+        "subs.gala",
+        "syntax.gala",
+        "terminal_ext.gala",
+        "textarea.gala",
+        "theme.gala",
+        "toast.gala",
+        "widget.gala",
+    ],
     go_srcs = [
         "cleanup_guard.go",
         "console_setup_other.go",
         "console_setup_windows.go",
     ],
     importpath = "github.com/martianoff/gala-tui",
+    visibility = ["//visibility:public"],
     deps = [
         "//state",
         "@gala//collection_immutable",
         "@gala//concurrent",
         "@gala//go_interop",
         "@gala//time_utils",
-        "@org_golang_x_sys//windows:windows",
+        "@org_golang_x_sys//windows",
         "@org_golang_x_term//:term",
     ],
-    visibility = ["//visibility:public"],
+)
+
+gala_test(
+    name = "gala_tui_test",
+    srcs = [
+        "advanced_test.gala",
+        "async_test.gala",
+        "calendar_test.gala",
+        "cancellable_test.gala",
+        "click_dispatch_test.gala",
+        "cmd_helpers_test.gala",
+        "compact_widgets_test.gala",
+        "conversation_log_test.gala",
+        "datatable_test.gala",
+        "dev_ux_test.gala",
+        "diff_test.gala",
+        "diff_view_test.gala",
+        "filebrowser_test.gala",
+        "fluent_test.gala",
+        "form_test.gala",
+        "help_test.gala",
+        "input_test.gala",
+        "interactive_test.gala",
+        "intrinsic_height_test.gala",
+        "keyspec_test.gala",
+        "layout_test.gala",
+        "linechart_test.gala",
+        "logpanel_test.gala",
+        "markdown_test.gala",
+        "menu_test.gala",
+        "modal_test.gala",
+        "mouse_test.gala",
+        "palette_test.gala",
+        "popup_link_test.gala",
+        "render_test.gala",
+        "runewidth_test.gala",
+        "search_input_test.gala",
+        "snapshot_test.gala",
+        "status_widgets_test.gala",
+        "subs_test.gala",
+        "syntax_test.gala",
+        "terminal_ext_test.gala",
+        "textarea_test.gala",
+        "theme_test.gala",
+        "toast_test.gala",
+        "tui_test.gala",
+        "widechar_render_test.gala",
+        "widget_test.gala",
+        "widgets_phase_i_test.gala",
+    ],
+    importpath = "github.com/martianoff/gala-tui",
+    lib_go_srcs = [
+        "cleanup_guard.go",
+        "console_setup_other.go",
+        "console_setup_windows.go",
+    ],
+    lib_srcs = [
+        "advanced.gala",
+        "buffer.gala",
+        "calendar.gala",
+        "cancellable.gala",
+        "cmd_helpers.gala",
+        "color.gala",
+        "compact_widgets.gala",
+        "conversation_log.gala",
+        "core.gala",
+        "datatable.gala",
+        "dev_ux.gala",
+        "diff_view.gala",
+        "disclosure.gala",
+        "filebrowser.gala",
+        "fluent.gala",
+        "focus_builder.gala",
+        "form.gala",
+        "help.gala",
+        "hit_registry.gala",
+        "input.gala",
+        "interactive.gala",
+        "keyspec.gala",
+        "layout.gala",
+        "linechart.gala",
+        "link.gala",
+        "logpanel.gala",
+        "markdown.gala",
+        "menu.gala",
+        "modal.gala",
+        "mouse.gala",
+        "palette.gala",
+        "popup.gala",
+        "runewidth.gala",
+        "runtime.gala",
+        "scroll_pane.gala",
+        "search_input.gala",
+        "snapshot.gala",
+        "status_widgets.gala",
+        "streaming_text.gala",
+        "style.gala",
+        "subs.gala",
+        "syntax.gala",
+        "terminal_ext.gala",
+        "textarea.gala",
+        "theme.gala",
+        "toast.gala",
+        "widget.gala",
+    ],
+    pkg = "gala_tui",
+    deps = [
+        "//state",
+        "@gala//collection_immutable",
+        "@gala//concurrent",
+        "@gala//go_interop",
+        "@gala//time_utils",
+        "@org_golang_x_sys//windows",
+        "@org_golang_x_term//:term",
+    ],
 )

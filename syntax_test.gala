@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/test"
+    . "martianoff/gala/collection_immutable"
 )
 
 // ============================================================================
