@@ -1,4 +1,4 @@
-load("@rules_gala//gala:defs.bzl", "gala_library")
+load("@rules_gala//gala:defs.bzl", "gala_library", "gala_test")
 
 _GALA_SRCS = glob(
     ["*.gala"],
@@ -7,11 +7,41 @@ _GALA_SRCS = glob(
 
 gala_library(
     name = "state",
-    srcs = _GALA_SRCS,
+    srcs = [
+        "animation.gala",
+        "click_region.gala",
+        "focus.gala",
+        "focus_router.gala",
+        "router.gala",
+    ],
     importpath = "github.com/martianoff/gala-tui/state",
+    visibility = ["//visibility:public"],
     deps = [
         "@gala//collection_immutable",
         "@gala//time_utils",
     ],
-    visibility = ["//visibility:public"],
+)
+
+gala_test(
+    name = "state_test",
+    srcs = [
+        "animation_test.gala",
+        "click_region_test.gala",
+        "focus_router_test.gala",
+        "focus_test.gala",
+        "router_test.gala",
+    ],
+    importpath = "github.com/martianoff/gala-tui/state",
+    lib_srcs = [
+        "animation.gala",
+        "click_region.gala",
+        "focus.gala",
+        "focus_router.gala",
+        "router.gala",
+    ],
+    pkg = "state",
+    deps = [
+        "@gala//collection_immutable",
+        "@gala//time_utils",
+    ],
 )
