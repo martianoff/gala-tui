@@ -226,7 +226,7 @@ struct ReadResult(
 // partial bytes (the next read overwrites the buffer), and clicks were
 // silently dropped on every Windows terminal.
 func stdinReadFuture() concurrent.Future[ReadResult] {
-    return concurrent.FutureApply[ReadResult](() => {
+    return concurrent.Future[ReadResult](() => {
         var buf = SliceWithSize[byte](64)
         var n, err = os.Stdin.Read(buf)
         if err != nil {

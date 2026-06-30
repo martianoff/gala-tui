@@ -23,7 +23,7 @@ import (
 // AfterDelay produces a Cmd that fires `msg` after `d` has elapsed.
 // Canonical use: `case StartTimer() => (m, AfterDelay[Msg](Seconds(3), () => TimeoutFired()))`.
 func AfterDelay[T any](d Duration, make func() T) Cmd[T] {
-    val fut = concurrent.FutureApply[T](() => {
+    val fut = concurrent.Future[T](() => {
         time.Sleep(d.ToGoDuration())
         return make()
     })
@@ -36,7 +36,7 @@ func AfterDelay[T any](d Duration, make func() T) Cmd[T] {
 // For explicit failure handling, build a Future directly and wrap both
 // success/failure values in a Msg variant before wrapping in FutureCmd.
 func Async[R any, T any](compute func() R, onResult func(R) T) Cmd[T] {
-    val fut = concurrent.FutureApply[T](() => onResult(compute()))
+    val fut = concurrent.Future[T](() => onResult(compute()))
     return FutureCmd[T](Fut = fut)
 }
 
@@ -54,7 +54,7 @@ func AsyncTry[R any, T any](
     onOk func(R) T,
     onErr func(error) T,
 ) Cmd[T] {
-    val fut = concurrent.FutureApply[T](() => onOk(compute()))
+    val fut = concurrent.Future[T](() => onOk(compute()))
     val recovered = fut.Recover((e error) => onErr(e))
     return FutureCmd[T](Fut = recovered)
 }
@@ -91,7 +91,7 @@ func WriteFileCmd[T any](
 
 // ----------------------------------------------------------------------------
 // Internals — thin wrappers around os.ReadFile / os.WriteFile that turn
-// Go's (T, error) returns into panic-or-value so they slot into FutureApply.
+// Go's (T, error) returns into panic-or-value so they slot into Future(...).
 // Future's Recover translates the panic into a Failure(error), which
 // AsyncTry then routes to onErr.
 // ----------------------------------------------------------------------------

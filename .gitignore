@@ -32,3 +32,4 @@ NUL
 v.txt
 *.gen.go
 TRANSPILER_BUGS.md
+bazel-*
