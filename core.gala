@@ -13,7 +13,7 @@ import (
 // the runtime interprets — the Elm Architecture pattern. This keeps update()
 // testable without mocking any IO.
 //
-// FutureCmd wraps a Future[T] produced by FutureApply / NewPromise; the runtime
+// FutureCmd wraps a Future[T] produced by Future(...) / NewPromise; the runtime
 // polls it each frame via `future.Value()` and dispatches the contained Msg
 // (or an error-wrapper Msg on failure) through update() once it completes.
 // This is how every non-trivial TUI moves blocking IO off the event loop —
