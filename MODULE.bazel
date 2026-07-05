@@ -5,7 +5,7 @@ module(
     # `module(version = X)` matches the version they requested via
     # `bazel_dep(name = "gala_tui", version = X)` — Bazel's bzlmod
     # resolver rejects the dep otherwise.
-    version = "0.9.3",
+    version = "0.9.4",
 )
 
 bazel_dep(name = "platforms", version = "1.0.0")
