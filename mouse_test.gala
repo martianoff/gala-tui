@@ -16,16 +16,16 @@ import (
 // Build an SGR mouse packet: ESC [ < btn ; x ; y M|m
 func mousePacket(btn int, x int, y int, press bool) []byte {
     var bs = SliceEmpty[byte]()
-    bs = append(bs, byte(0x1B), byte('['), byte('<'))
-    for _, c := range intToDecimalRunes(btn) { bs = append(bs, byte(c)) }
-    bs = append(bs, byte(';'))
-    for _, c := range intToDecimalRunes(x) { bs = append(bs, byte(c)) }
-    bs = append(bs, byte(';'))
-    for _, c := range intToDecimalRunes(y) { bs = append(bs, byte(c)) }
+    bs = SliceAppendAll(bs, SliceOf(byte(0x1B), byte('['), byte('<')))
+    for _, c := range intToDecimalRunes(btn) { bs = SliceAppend(bs, byte(c)) }
+    bs = SliceAppend(bs, byte(';'))
+    for _, c := range intToDecimalRunes(x) { bs = SliceAppend(bs, byte(c)) }
+    bs = SliceAppend(bs, byte(';'))
+    for _, c := range intToDecimalRunes(y) { bs = SliceAppend(bs, byte(c)) }
     if press {
-        bs = append(bs, byte('M'))
+        bs = SliceAppend(bs, byte('M'))
     } else {
-        bs = append(bs, byte('m'))
+        bs = SliceAppend(bs, byte('m'))
     }
     return bs
 }
@@ -33,7 +33,7 @@ func mousePacket(btn int, x int, y int, press bool) []byte {
 func intToDecimalRunes(n int) []rune {
     if n == 0 {
         var zero = SliceEmpty[rune]()
-        return append(zero, rune('0'))
+        return SliceAppend(zero, rune('0'))
     }
     var neg = false
     var v = n
@@ -44,16 +44,16 @@ func intToDecimalRunes(n int) []rune {
     var rev = SliceEmpty[rune]()
     for v > 0 {
         val d = v % 10
-        rev = append(rev, rune('0' + d))
+        rev = SliceAppend(rev, rune('0' + d))
         v = v / 10
     }
     var out = SliceEmpty[rune]()
     if neg {
-        out = append(out, rune('-'))
+        out = SliceAppend(out, rune('-'))
     }
-    var i = len(rev) - 1
+    var i = rev.Size() - 1
     for i >= 0 {
-        out = append(out, rev[i])
+        out = SliceAppend(out, rev[i])
         i = i - 1
     }
     return out
@@ -71,7 +71,7 @@ func TestParseInputMouseLeftPress(t T) T {
         case _             => false
     }
     val t1 = IsTrue(t, isMouse)
-    return IsTrue(t1, n == len(buf))
+    return IsTrue(t1, n == buf.Size())
 }
 
 func TestParseInputMouseCoordsAreZeroIndexed(t T) T {
@@ -139,7 +139,7 @@ func TestParseInputMouseScrollDown(t T) T {
 func TestParseInputKeyFallthrough(t T) T {
     // Plain ASCII 'a' should flow through as KeyInput.
     var bs = SliceEmpty[byte]()
-    bs = append(bs, byte('a'))
+    bs = SliceAppend(bs, byte('a'))
     val (ev, n) = ParseInput(bs)
     val isKey = ev match {
         case KeyInput(_) => true
@@ -152,7 +152,7 @@ func TestParseInputKeyFallthrough(t T) T {
 func TestParseInputIncompleteMouseReturnsZeroConsumed(t T) T {
     // Only the prefix ESC [ < with no terminator — parser should request more.
     var bs = SliceEmpty[byte]()
-    bs = append(bs, byte(0x1B), byte('['), byte('<'), byte('0'))
+    bs = SliceAppendAll(bs, SliceOf(byte(0x1B), byte('['), byte('<'), byte('0')))
     val (_, n) = ParseInput(bs)
     return Eq(t, n, 0)
 }

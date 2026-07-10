@@ -57,7 +57,7 @@ func ShiftK(k Key) KeyEvent   = KeyEvent(Key = k, Ctrl = false, Alt = false, Shi
 // ParseKey decodes the longest recognizable key from `buf` and returns
 // (event, consumed count). If `buf` is empty, returns (PlainKey(Unknown), 0).
 func ParseKey(buf []byte) Tuple[KeyEvent, int] {
-    if len(buf) == 0 {
+    if buf.Size() == 0 {
         return (PlainKey(Unknown()), 0)
     }
     val b0 = int(buf[0])
@@ -90,7 +90,7 @@ func ParseKey(buf []byte) Tuple[KeyEvent, int] {
 
 // parseEscapeSequence handles multi-byte cases starting with 0x1B (ESC).
 func parseEscapeSequence(buf []byte) Tuple[KeyEvent, int] {
-    if len(buf) == 1 {
+    if buf.Size() == 1 {
         return (PlainKey(Esc()), 1)
     }
     val b1 = int(buf[1])
@@ -109,7 +109,7 @@ func parseEscapeSequence(buf []byte) Tuple[KeyEvent, int] {
 
 // parseCsi handles ESC [ <seq> — the common family of escape codes.
 func parseCsi(buf []byte) Tuple[KeyEvent, int] {
-    if len(buf) < 3 {
+    if buf.Size() < 3 {
         return (PlainKey(Esc()), 1)
     }
     val b2 = int(buf[2])
@@ -134,7 +134,7 @@ func parseCsi(buf []byte) Tuple[KeyEvent, int] {
         return (PlainKey(End()), 3)
     }
     // ESC [ digit ~  — numbered keys (tilde = 0x7E, single digit)
-    if len(buf) >= 4 && int(buf[3]) == 0x7E {
+    if buf.Size() >= 4 && int(buf[3]) == 0x7E {
         if b2 == 0x31 {                 // "1~" = Home
             return (PlainKey(Home()), 4)
         }
@@ -165,7 +165,7 @@ func parseCsi(buf []byte) Tuple[KeyEvent, int] {
     // Without this, the parser falls through to PlainKey(Unknown())
     // after consuming only 3 bytes, and the trailing "5~" gets
     // re-fed as garbage. F5/F6/etc. silently drop in any host app.
-    if len(buf) >= 5 && int(buf[4]) == 0x7E {
+    if buf.Size() >= 5 && int(buf[4]) == 0x7E {
         if b2 == 0x31 {
             val b3 = int(buf[3])
             if b3 == 0x35 { return (PlainKey(FKey(5)),  5) }   // "15~"
@@ -186,7 +186,7 @@ func parseCsi(buf []byte) Tuple[KeyEvent, int] {
 
 // parseSs3 handles ESC O X — F1..F4 in VT100 terminals.
 func parseSs3(buf []byte) Tuple[KeyEvent, int] {
-    if len(buf) < 3 {
+    if buf.Size() < 3 {
         return (PlainKey(Esc()), 1)
     }
     val b2 = int(buf[2])

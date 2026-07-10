@@ -4,6 +4,7 @@ import (
     "os"
     "time"
     "martianoff/gala/concurrent"
+    "martianoff/gala/go_builtins"
     . "martianoff/gala/go_interop"
     . "martianoff/gala/time_utils"
 )
@@ -99,7 +100,7 @@ func WriteFileCmd[T any](
 func readFileOrPanic(path string) string {
     var data, err = os.ReadFile(path)
     if err != nil {
-        panic(err.Error())
+        go_builtins.Panic(err.Error())
     }
     return string(data)
 }
@@ -107,7 +108,7 @@ func readFileOrPanic(path string) string {
 func writeFileOrPanic(path string, content string) bool {
     var err = os.WriteFile(path, ToBytes(content), os.FileMode(0644))
     if err != nil {
-        panic(err.Error())
+        go_builtins.Panic(err.Error())
     }
     return true
 }

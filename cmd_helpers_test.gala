@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     "os"
+    "martianoff/gala/go_builtins"
     . "martianoff/gala/test"
     . "martianoff/gala/time_utils"
 )
@@ -155,7 +156,7 @@ func isHValEqual(m HMsg, v int) bool {
 }
 
 func panickingComputation() int {
-    panic("boom")
+    go_builtins.Panic("boom")
     return 0
 }
 

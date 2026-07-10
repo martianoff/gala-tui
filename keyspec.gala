@@ -140,7 +140,7 @@ func KeyMatches(ev KeyEvent, spec string) bool =
 //     if KeyMatchesAny(ev, "ctrl+c", "q", "esc") { return Quit() }
 func KeyMatchesAny(ev KeyEvent, specs ...string) bool {
     var i = 0
-    val n = len(specs)
+    val n = specs.Size()
     for i < n {
         if KeyMatches(ev, specs[i]) {
             return true
@@ -210,7 +210,7 @@ func parseKeyName(name string) Key {
     if name == "delete" || name == "del" { return Delete() }
     if name == "insert" || name == "ins" { return Insert() }
     // F1..F12
-    if len(name) >= 2 {
+    if name.Size() >= 2 {
         val rs = stringRunes(name)
         if rs.Get(0) == 'f' {
             val n = parseFNumber(name)
