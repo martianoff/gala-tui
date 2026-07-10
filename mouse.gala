@@ -100,7 +100,7 @@ func ansiMouseOff() string = "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
 // buffer more bytes before calling again" — the runtime treats this as a
 // request to defer until the next read.
 func ParseInput(buf []byte) Tuple[InputEvent, int] {
-    if len(buf) >= 4 && isMouseSgrPrefix(buf) {
+    if buf.Size() >= 4 && isMouseSgrPrefix(buf) {
         return parseSgrMouse(buf)
     }
     val (kev, n) = ParseKey(buf)
@@ -117,7 +117,7 @@ func isMouseSgrPrefix(buf []byte) bool =
 // one byte and report UnknownInput so the runtime can keep making progress.
 func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
     var i = 3                       // past ESC [ <
-    val n = len(buf)
+    val n = buf.Size()
     var btnNum = 0
     var x = 0
     var y = 0

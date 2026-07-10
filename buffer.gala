@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     "strings"
+    "martianoff/gala/go_builtins"
     . "martianoff/gala/go_interop"
 )
 
@@ -54,12 +55,12 @@ type Buffer struct {
 // input.
 func NewBuffer(w int, h int) *Buffer {
     if w < 0 || h < 0 {
-        panic("NewBuffer: negative dimensions")
+        go_builtins.Panic("NewBuffer: negative dimensions")
     }
     var cs = SliceWithCapacity[Cell](w * h)
     var i = 0
     for i < w * h {
-        cs = append(cs, EmptyCell())
+        cs = SliceAppend(cs, EmptyCell())
         i = i + 1
     }
     return &Buffer{Width: w, Height: h, cells: cs}
@@ -180,7 +181,7 @@ func (b *Buffer) DrawText(x int, y int, s string, style Style) int {
 func (b *Buffer) Clone() *Buffer {
     var cs = SliceWithCapacity[Cell](b.Width * b.Height)
     for _, c := range b.cells {
-        cs = append(cs, c)
+        cs = SliceAppend(cs, c)
     }
     return &Buffer{Width: b.Width, Height: b.Height, cells: cs}
 }

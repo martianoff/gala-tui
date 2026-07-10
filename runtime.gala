@@ -8,6 +8,7 @@ import (
     . "martianoff/gala/collection_immutable"
     "martianoff/gala/concurrent"
     . "martianoff/gala/go_interop"
+    . "martianoff/gala/resource"
     . "martianoff/gala/std"
     . "martianoff/gala/time_utils"
 )
@@ -90,17 +91,22 @@ func Run[M any, T any](
         fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
         return program.Initial
     }
-    // Guarantee restoration on every exit path.
-    defer term.Restore(fd, state)
-    // Signal handler covers paths defer can't (Ctrl+C, SIGTERM, kill).
+    // Signal handler covers paths the cleanup combinator can't (Ctrl+C,
+    // SIGTERM, kill).
     installCleanupGuard(fd, state, false)
 
     // Enter the alt screen so our UI doesn't trash the user's shell history.
     fmt.Fprint(os.Stdout, ansiAltScreenOn())
     fmt.Fprint(os.Stdout, ansiCursorHide())
-    defer fmt.Fprint(os.Stdout, ansiCursorShow())
-    defer fmt.Fprint(os.Stdout, ansiAltScreenOff())
 
+    // Bracket guarantees terminal restoration on every exit path — normal
+    // return or panic — the way `defer` used to, expressed as a combinator.
+    // Release order mirrors the original LIFO defer unwinding.
+    return Bracket(fd, (f) => {
+        fmt.Fprint(os.Stdout, ansiAltScreenOff())
+        fmt.Fprint(os.Stdout, ansiCursorShow())
+        term.Restore(f, state)
+    }, (_) => {
     var model = program.Initial
 
     // First paint — the initial model before any input.
@@ -168,6 +174,7 @@ func Run[M any, T any](
         }
     }
     return model
+    })
 }
 
 // keyIsCharC tests whether the key is the literal 'c' rune — used for the
@@ -249,14 +256,19 @@ func RunWithSub[M any, T any](
         fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
         return program.Initial
     }
-    defer term.Restore(fd, state)
     installCleanupGuard(fd, state, false)
 
     fmt.Fprint(os.Stdout, ansiAltScreenOn())
     fmt.Fprint(os.Stdout, ansiCursorHide())
-    defer fmt.Fprint(os.Stdout, ansiCursorShow())
-    defer fmt.Fprint(os.Stdout, ansiAltScreenOff())
 
+    // Bracket guarantees terminal restoration on every exit path — normal
+    // return or panic — the way `defer` used to. Release order mirrors the
+    // original LIFO defer unwinding.
+    return Bracket(fd, (f) => {
+        fmt.Fprint(os.Stdout, ansiAltScreenOff())
+        fmt.Fprint(os.Stdout, ansiCursorShow())
+        term.Restore(f, state)
+    }, (_) => {
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
     var tickers = CollectTickers(initialSub, Now())
@@ -333,6 +345,7 @@ func RunWithSub[M any, T any](
         paintFrame(program.View(model))
     }
     return model
+    })
 }
 
 // ----------------------------------------------------------------------------
@@ -358,7 +371,6 @@ func RunWithMouse[M any, T any](
         fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
         return program.Initial
     }
-    defer term.Restore(fd, state)
     installCleanupGuard(fd, state, true)
 
     // Windows: enable ENABLE_VIRTUAL_TERMINAL_INPUT so the ANSI mouse
@@ -369,10 +381,16 @@ func RunWithMouse[M any, T any](
     fmt.Fprint(os.Stdout, ansiAltScreenOn())
     fmt.Fprint(os.Stdout, ansiCursorHide())
     fmt.Fprint(os.Stdout, ansiMouseOn())
-    defer fmt.Fprint(os.Stdout, ansiMouseOff())
-    defer fmt.Fprint(os.Stdout, ansiCursorShow())
-    defer fmt.Fprint(os.Stdout, ansiAltScreenOff())
 
+    // Bracket guarantees terminal + mouse-mode restoration on every exit path —
+    // normal return or panic. Release order mirrors the original LIFO defer
+    // unwinding.
+    return Bracket(fd, (f) => {
+        fmt.Fprint(os.Stdout, ansiAltScreenOff())
+        fmt.Fprint(os.Stdout, ansiCursorShow())
+        fmt.Fprint(os.Stdout, ansiMouseOff())
+        term.Restore(f, state)
+    }, (_) => {
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
     var tickers = CollectTickers(initialSub, Now())
@@ -490,6 +508,7 @@ func RunWithMouse[M any, T any](
         prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
     }
     return model
+    })
 }
 
 // processInputBytesWithHits is `processInputBytes` plus widget-owned

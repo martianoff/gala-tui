@@ -156,7 +156,7 @@ func TextEllipsisStyled(content string, maxCols int, style Style) Widget =
 func ellipsisCap(s string, maxCols int) string {
     if maxCols <= 0 { return s }
     val rs = ToRunes(s)
-    if len(rs) <= maxCols { return s }
+    if rs.Size() <= maxCols { return s }
     if maxCols == 1 { return "…" }
     return string(SliceTo(rs, maxCols - 1)) + "…"
 }
