@@ -105,7 +105,7 @@ func Run[M any, T any](
     return Bracket(fd, (f) => {
         fmt.Fprint(os.Stdout, ansiAltScreenOff())
         fmt.Fprint(os.Stdout, ansiCursorShow())
-        term.Restore(f, state)
+        FromError(term.Restore(f, state))
     }, (_) => {
     var model = program.Initial
 
@@ -267,7 +267,7 @@ func RunWithSub[M any, T any](
     return Bracket(fd, (f) => {
         fmt.Fprint(os.Stdout, ansiAltScreenOff())
         fmt.Fprint(os.Stdout, ansiCursorShow())
-        term.Restore(f, state)
+        FromError(term.Restore(f, state))
     }, (_) => {
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
@@ -389,7 +389,7 @@ func RunWithMouse[M any, T any](
         fmt.Fprint(os.Stdout, ansiAltScreenOff())
         fmt.Fprint(os.Stdout, ansiCursorShow())
         fmt.Fprint(os.Stdout, ansiMouseOff())
-        term.Restore(f, state)
+        FromError(term.Restore(f, state))
     }, (_) => {
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
