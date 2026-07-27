@@ -78,7 +78,7 @@ func (c Cancellable) IsCancelled() bool = c.state.cancelled
 // so the cooperative pattern is the only one we can guarantee.
 func CancellableAsync[R any, T any](
     tok Cancellable,
-    compute func() R,
+    compute Sendable[func() R],
     onResult func(R) T,
 ) Cmd[T] {
     val fut = concurrent.Future[R](compute)
