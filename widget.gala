@@ -21,15 +21,35 @@ import (
 sealed type Widget {
     case EmptyWidget()
     case TextWidget(Content string, Style Style)
+    // RichTextW renders a RichText block — per-Span styling within a line,
+    // per-Line alignment. This is what TextWidget cannot express: a bold
+    // word inside a sentence that still participates in normal layout.
+    case RichTextW(Text RichText)
     case FillWidget(Ch rune, Style Style)
-    case BorderWidget(Inner Widget, Kind BorderKind)
+    case BorderWidget(
+        Inner  Widget,
+        Kind   BorderKind,
+        Sides  BorderSides,
+        Style  Style,
+        Titles Array[BlockTitle],
+    )
     case PaddingWidget(Top int, Right int, Bottom int, Left int, Inner Widget)
-    case AlignWidget(Inner Widget, Horiz Align, ChildW int, ChildH int)
+    case AlignWidget(Inner Widget, Horiz Align, Vert VAlign, ChildW int, ChildH int)
     case OverlayWidget(Bottom Widget, Top Widget)
-    case RowWidget(Children Array[LayoutChild])
-    case ColumnWidget(Children Array[LayoutChild])
+    case RowWidget(Children Array[LayoutChild], Flex FlexMode, Spacing int)
+    case ColumnWidget(Children Array[LayoutChild], Flex FlexMode, Spacing int)
     case StackWidget(Layers Array[Widget])
-    case ListW(Items Array[ListItem], Selected int, SelStyle Style)
+    // Offset is the index of the first visible item, or -1 for "track the
+    // selection" — the historical auto-scroll behaviour. An explicit value
+    // lets an app scroll independently of the cursor (a mouse wheel over an
+    // unfocused list), which the auto-only model could not express.
+    case ListW(
+        Items     Array[ListItem],
+        Selected  int,
+        SelStyle  Style,
+        Offset    int,
+        Direction ListDirection,
+    )
     case InputW(Value string, Cursor int, Placeholder string, Style Style, PlaceholderStyle Style)
     case ProgressW(Percent int, Style Style)
     case GaugeW(Percent int, Style Style)
@@ -37,7 +57,13 @@ sealed type Widget {
     case ButtonW(Label string, Style Style, Focused bool)
     case ParagraphW(Content string, Style Style)
     case ViewportW(Inner Widget, Offset int, ContentHeight int)
-    case ScrollbarW(Total int, Visible int, Offset int, Style Style)
+    case ScrollbarW(
+        Total       int,
+        Visible     int,
+        Offset      int,
+        Style       Style,
+        Orientation ScrollbarOrientation,
+    )
     // ClickableW wraps an inner widget and registers its rendered area
     // as a single hit region carrying `Payload`. The runtime's
     // HitRegistry receives the rect during rendering — invisible
@@ -110,9 +136,87 @@ sealed type BorderKind {
     case AsciiBorder()
 }
 
+// BorderSides selects which edges a BorderWidget actually draws. All four
+// is the usual case (`AllSides()`); partial borders are how panes are
+// separated with a single rule instead of a full box — a right-hand pane
+// that only draws its left edge shares one column with its neighbour
+// rather than butting two box walls together.
+struct BorderSides(
+    Top    bool,
+    Right  bool,
+    Bottom bool,
+    Left   bool,
+)
+
+// AllSides is the full box — the historical BorderWidget behavior.
+func AllSides() BorderSides =
+    BorderSides(Top = true, Right = true, Bottom = true, Left = true)
+
+// NoSides draws no edges. Useful when a Block is wanted only for its
+// titles, or when sides are toggled from app state.
+func NoSides() BorderSides =
+    BorderSides(Top = false, Right = false, Bottom = false, Left = false)
+
+// SidesOf builds an arbitrary edge set, in CSS order (top, right, bottom,
+// left) so it reads the way the shorthand does everywhere else.
+func SidesOf(top bool, right bool, bottom bool, left bool) BorderSides =
+    BorderSides(Top = top, Right = right, Bottom = bottom, Left = left)
+
+// ListDirection selects which end of the area a list's first item sits at.
+// Bottom-to-top is how a chat log or a REPL transcript reads: newest row
+// pinned to the bottom edge, older rows scrolling up off the top.
+sealed type ListDirection {
+    case ListTopToBottom()
+    case ListBottomToTop()
+}
+
+// ScrollbarOrientation places the bar on one edge of its area and fixes the
+// axis it scrolls along. Vertical bars are the common case; horizontal ones
+// pair with a wide table or a code view that scrolls sideways.
+sealed type ScrollbarOrientation {
+    case ScrollbarVerticalRight()
+    case ScrollbarVerticalLeft()
+    case ScrollbarHorizontalBottom()
+    case ScrollbarHorizontalTop()
+}
+
+// TitlePosition selects which horizontal edge a BlockTitle sits on.
+sealed type TitlePosition {
+    case TitleTop()
+    case TitleBottom()
+}
+
+// BlockTitle is a caption drawn into a border's edge. The content is a
+// `Line`, not a string, so a title can mix styles — a bold name next to a
+// dim shortcut hint — and so it aligns the same way body text does.
+//
+// A border may carry several titles; they are drawn in order, and titles
+// sharing an edge and alignment are separated by a space.
+struct BlockTitle(
+    Content  Line,
+    Position TitlePosition,
+    Align    Align,
+)
+
+// TitleOf builds a plain top-left title from a string — the common case.
+func TitleOf(content string) BlockTitle =
+    BlockTitle(
+        Content  = LineFromString(content, DefaultStyle()),
+        Position = TitleTop(),
+        Align    = AlignLeft(),
+    )
+
+// TitleStyled builds a top-left title in a given style.
+func TitleStyled(content string, style Style) BlockTitle =
+    BlockTitle(
+        Content  = LineFromString(content, style),
+        Position = TitleTop(),
+        Align    = AlignLeft(),
+    )
+
 // Align picks the horizontal position of an Align'd child inside its parent
-// area. Vertical alignment follows the same principle — for simplicity this
-// iteration ships horizontal-only; vertical arrives with the Stack layout.
+// area. Vertical placement is the separate `VAlign` type (layout.gala) so
+// the two axes cannot be mixed up at a call site.
 sealed type Align {
     case AlignLeft()
     case AlignCenter()
@@ -173,12 +277,76 @@ func FillChStyled(ch rune, style Style) Widget =
 
 // Border draws a single-line box around `inner`. Most common border; the
 // default. For other glyph sets use BorderOf.
-func Border(inner Widget) Widget =
-    BorderWidget(Inner = inner, Kind = SingleBorder())
+func Border(inner Widget) Widget = BorderOf(inner, SingleBorder())
 
 // BorderOf draws a border of a chosen kind around `inner`.
 func BorderOf(inner Widget, kind BorderKind) Widget =
-    BorderWidget(Inner = inner, Kind = kind)
+    BorderWidget(
+        Inner  = inner,
+        Kind   = kind,
+        Sides  = AllSides(),
+        Style  = DefaultStyle(),
+        Titles = EmptyArray[BlockTitle](),
+    )
+
+// BorderStyled draws a border in a given style — the colour the glyphs
+// themselves are painted in, independent of whatever `inner` renders.
+func BorderStyled(inner Widget, kind BorderKind, style Style) Widget =
+    BorderWidget(
+        Inner  = inner,
+        Kind   = kind,
+        Sides  = AllSides(),
+        Style  = style,
+        Titles = EmptyArray[BlockTitle](),
+    )
+
+// Block is the full form: choose the glyph set, which edges to draw, the
+// border style, and any titles. `Border` / `BorderOf` / `BorderStyled` are
+// the shorthands for the common shapes.
+func Block(
+    inner Widget,
+    kind BorderKind,
+    sides BorderSides,
+    style Style,
+    titles Array[BlockTitle],
+) Widget =
+    BorderWidget(
+        Inner  = inner,
+        Kind   = kind,
+        Sides  = sides,
+        Style  = style,
+        Titles = titles,
+    )
+
+// Titled draws a single-line box with one plain top-left title — by far the
+// most common titled-panel shape.
+func Titled(inner Widget, title string) Widget =
+    BorderWidget(
+        Inner  = inner,
+        Kind   = SingleBorder(),
+        Sides  = AllSides(),
+        Style  = DefaultStyle(),
+        Titles = ArrayOf(TitleOf(title)),
+    )
+
+// borderWidthOverhead is how many columns a border steals from its inner
+// area — one per drawn vertical edge, so a left-rule-only border costs 1
+// rather than the 2 a full box costs.
+func borderWidthOverhead(sides BorderSides) int =
+    (if (sides.Left) 1 else 0) + (if (sides.Right) 1 else 0)
+
+// borderHeightOverhead is the same count for horizontal edges.
+func borderHeightOverhead(sides BorderSides) int =
+    (if (sides.Top) 1 else 0) + (if (sides.Bottom) 1 else 0)
+
+// RichTextView renders a RichText block — the multi-style counterpart to
+// `Text`. Use it wherever a single row needs more than one style.
+func RichTextView(text RichText) Widget = RichTextW(Text = text)
+
+// SpansLine renders one row of differently-styled runs — the shorthand for
+// the overwhelmingly common single-line case.
+func SpansLine(spans ...Span) Widget =
+    RichTextW(Text = RichTextOf(ArrayOf(LineOf(ArrayOf(spans...)))))
 
 // Padding adds `n` cells of padding on every side of `inner`.
 func Padding(n int, inner Widget) Widget =
@@ -195,10 +363,30 @@ func Overlay(bottom Widget, top Widget) Widget =
 
 // Row lays children left-to-right, sub-allocating its area with the
 // constraints on each child.
-func Row(children Array[LayoutChild]) Widget = RowWidget(Children = children)
+func Row(children Array[LayoutChild]) Widget =
+    RowWidget(Children = children, Flex = FlexLegacy(), Spacing = 0)
+
+// RowFlex lays children left-to-right and distributes any unclaimed space
+// according to `flex`, with `spacing` cells between adjacent children.
+// Centering a fixed-width child no longer needs throwaway spacers.
+func RowFlex(children Array[LayoutChild], flex FlexMode, spacing int) Widget =
+    RowWidget(Children = children, Flex = flex, Spacing = spacing)
+
+// RowSpaced is RowFlex with the historical distribution — just gaps.
+func RowSpaced(children Array[LayoutChild], spacing int) Widget =
+    RowWidget(Children = children, Flex = FlexLegacy(), Spacing = spacing)
 
 // Column lays children top-to-bottom with the same constraint model.
-func Column(children Array[LayoutChild]) Widget = ColumnWidget(Children = children)
+func Column(children Array[LayoutChild]) Widget =
+    ColumnWidget(Children = children, Flex = FlexLegacy(), Spacing = 0)
+
+// ColumnFlex is the vertical twin of RowFlex.
+func ColumnFlex(children Array[LayoutChild], flex FlexMode, spacing int) Widget =
+    ColumnWidget(Children = children, Flex = flex, Spacing = spacing)
+
+// ColumnSpaced is the vertical twin of RowSpaced.
+func ColumnSpaced(children Array[LayoutChild], spacing int) Widget =
+    ColumnWidget(Children = children, Flex = FlexLegacy(), Spacing = spacing)
 
 // Stack overlays every widget on the same area — useful for modal-over-page,
 // tooltip-over-widget, or a backdrop-tint effect.
@@ -234,7 +422,55 @@ func SelectList(items Array[ListItem], selected int, focused bool = false) Widge
         DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
     else
         DefaultStyle().WithReverse()
-    return ListW(Items = items, Selected = selected, SelStyle = sel)
+    return ListW(
+        Items     = items,
+        Selected  = selected,
+        SelStyle  = sel,
+        Offset    = -1,
+        Direction = ListTopToBottom(),
+    )
+}
+
+// SelectListAt is SelectList with an explicit scroll offset, for a list that
+// scrolls independently of its cursor (a wheel over an unfocused pane).
+// Pass -1 to restore the "keep the selection visible" behaviour.
+func SelectListAt(
+    items Array[ListItem],
+    selected int,
+    offset int,
+    focused bool = false,
+) Widget {
+    val sel = if (focused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else
+        DefaultStyle().WithReverse()
+    return ListW(
+        Items     = items,
+        Selected  = selected,
+        SelStyle  = sel,
+        Offset    = offset,
+        Direction = ListTopToBottom(),
+    )
+}
+
+// SelectListReversed pins the first item to the bottom edge and grows
+// upward — how a chat transcript or REPL log reads.
+func SelectListReversed(
+    items Array[ListItem],
+    selected int,
+    focused bool = false,
+) Widget {
+    val sel = if (focused)
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    else
+        DefaultStyle().WithReverse()
+    return ListW(
+        Items     = items,
+        Selected  = selected,
+        SelStyle  = sel,
+        Offset    = -1,
+        Direction = ListBottomToTop(),
+    )
 }
 
 // SelectListOf is a convenience wrapper when your items are plain strings.
@@ -332,15 +568,50 @@ func ScrollableViewport(inner Widget, offset int, contentHeight int) Widget =
 
 // Scrollbar renders a vertical indicator showing position in a larger
 // document. `total` is the document's total row count, `visible` is how many
-// rows fit in the viewport, `offset` is the topmost visible row. If
-// `total <= visible` the bar renders fully filled (no scroll needed).
+// rows fit in the viewport, `offset` is the topmost visible row.
+//
+// Pass `visible = 0` to mean "the viewport is however tall the bar is" — the
+// renderer then derives it from the area, which is what a caller that does
+// not separately track its viewport height wants.
+//
+// When the document fits, the bar draws track only: a full-height solid
+// thumb would give maximum visual weight to "there is nothing to scroll".
 func Scrollbar(total int, visible int, offset int) Widget =
-    ScrollbarW(Total = total, Visible = visible, Offset = offset, Style = DefaultStyle())
+    ScrollbarW(
+        Total       = total,
+        Visible     = visible,
+        Offset      = offset,
+        Style       = DefaultStyle(),
+        Orientation = ScrollbarVerticalRight(),
+    )
 
 // ScrollbarStyled is Scrollbar with explicit colors (e.g., dim when the
 // viewport isn't focused).
 func ScrollbarStyled(total int, visible int, offset int, style Style) Widget =
-    ScrollbarW(Total = total, Visible = visible, Offset = offset, Style = style)
+    ScrollbarW(
+        Total       = total,
+        Visible     = visible,
+        Offset      = offset,
+        Style       = style,
+        Orientation = ScrollbarVerticalRight(),
+    )
+
+// ScrollbarAt places the bar on a chosen edge — the horizontal orientations
+// pair with a wide table or a sideways-scrolling code view.
+func ScrollbarAt(
+    total int,
+    visible int,
+    offset int,
+    style Style,
+    orientation ScrollbarOrientation,
+) Widget =
+    ScrollbarW(
+        Total       = total,
+        Visible     = visible,
+        Offset      = offset,
+        Style       = style,
+        Orientation = orientation,
+    )
 
 // ----------------------------------------------------------------------------
 // Clickable / ClickableRows — widgets register their own click hits.
@@ -492,26 +763,28 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         case EmptyWidget() => {}
         case TextWidget(content, style) =>
             renderText(content, style, area, buf)
+        case RichTextW(text) =>
+            renderRichText(text, area, buf)
         case FillWidget(ch, style) =>
             renderFill(ch, style, area, buf)
-        case BorderWidget(inner, kind) =>
-            renderBorder(inner, kind, area, buf, hits)
+        case BorderWidget(inner, kind, sides, style, titles) =>
+            renderBorder(inner, kind, sides, style, titles, area, buf, hits)
         case PaddingWidget(top, right, bottom, left, inner) =>
             renderPadding(top, right, bottom, left, inner, area, buf, hits)
-        case AlignWidget(inner, horiz, cw, ch) =>
-            renderAlign(inner, horiz, cw, ch, area, buf, hits)
+        case AlignWidget(inner, horiz, vert, cw, ch) =>
+            renderAlign(inner, horiz, vert, cw, ch, area, buf, hits)
         case OverlayWidget(bottom, top) => {
             renderToInternal(bottom, area, buf, hits)
             renderToInternal(top, area, buf, hits)
         }
-        case RowWidget(children) =>
-            renderRow(children, area, buf, hits)
-        case ColumnWidget(children) =>
-            renderColumn(children, area, buf, hits)
+        case RowWidget(children, flex, spacing) =>
+            renderRow(children, flex, spacing, area, buf, hits)
+        case ColumnWidget(children, flex, spacing) =>
+            renderColumn(children, flex, spacing, area, buf, hits)
         case StackWidget(layers) =>
             layers.ForEach((layer) => renderToInternal(layer, area, buf, hits))
-        case ListW(items, sel, selStyle) =>
-            renderList(items, sel, selStyle, area, buf)
+        case ListW(items, sel, selStyle, offset, direction) =>
+            renderList(items, sel, selStyle, offset, direction, area, buf)
         case InputW(value, cursor, placeholder, style, phStyle) =>
             renderInput(value, cursor, placeholder, style, phStyle, area, buf)
         case ProgressW(pct, style) => {
@@ -536,8 +809,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             // the wrong place. We deliberately drop `hits` here — clicks
             // on scrolled viewport content are unsupported for now.
             renderViewport(inner, offset, ch, area, buf)
-        case ScrollbarW(total, visible, offset, style) =>
-            renderScrollbar(total, visible, offset, style, area, buf)
+        case ScrollbarW(total, visible, offset, style, orientation) =>
+            renderScrollbar(total, visible, offset, style, orientation, area, buf)
         case ClickableW(inner, payload) => {
             if hits != nil {
                 hits.Register(area, payload)
@@ -721,33 +994,66 @@ func renderViewport(inner Widget, offset int, contentHeight int, area Rect, buf 
 // renderScrollbar paints a vertical track of the given area.Height with a
 // highlighted "thumb" whose size is proportional to visible/total and whose
 // position is proportional to offset/total.
-func renderScrollbar(total int, visible int, offset int, style Style, area Rect, buf *Buffer) {
+func renderScrollbar(
+    total int,
+    visible int,
+    offset int,
+    style Style,
+    orientation ScrollbarOrientation,
+    area Rect,
+    buf *Buffer,
+) {
     if area.Width <= 0 || area.Height <= 0 {
         return
     }
-    // Fill the whole track with dim vertical bar.
-    val track = DefaultStyle().WithDim()
-    var y = 0
-    for y < area.Height {
-        buf.Set(area.X, area.Y + y, Cell(Ch = '│', St = track))
-        y = y + 1
+    val horizontal = orientation match {
+        case ScrollbarHorizontalBottom() => true
+        case ScrollbarHorizontalTop()    => true
+        case ScrollbarVerticalRight()    => false
+        case ScrollbarVerticalLeft()     => false
     }
-    if total <= visible || total <= 0 {
-        // Entire doc fits — draw a solid full-height thumb.
-        y = 0
-        for y < area.Height {
-            buf.Set(area.X, area.Y + y, Cell(Ch = '█', St = style))
-            y = y + 1
-        }
+    // Length along the scrolling axis; the other axis picks the edge.
+    val span = if (horizontal) area.Width else area.Height
+    val edge = orientation match {
+        case ScrollbarVerticalRight()    => area.X + area.Width - 1
+        case ScrollbarVerticalLeft()     => area.X
+        case ScrollbarHorizontalBottom() => area.Y + area.Height - 1
+        case ScrollbarHorizontalTop()    => area.Y
+    }
+    val trackCh = if (horizontal) '─' else '│'
+    val track = DefaultStyle().WithDim()
+
+    // `visible = 0` means "the viewport is this bar" — the caller does not
+    // separately track a viewport height. Deriving it here is what stops a
+    // caller from having to pass a value it does not have; passing
+    // `visible = total` (which ScrollPaneView used to do) made every bar
+    // look like a full thumb regardless of position.
+    val vis = if (visible <= 0) span else visible
+
+    var i = 0
+    for i < span {
+        if horizontal { buf.Set(area.X + i, edge, Cell(Ch = trackCh, St = track)) }
+        else          { buf.Set(edge, area.Y + i, Cell(Ch = trackCh, St = track)) }
+        i = i + 1
+    }
+
+    if total <= vis || total <= 0 {
+        // Nothing to scroll. Track only — a solid full-length thumb would
+        // give maximum visual weight to the absence of content.
         return
     }
-    val thumbSize = MaxInt(1, area.Height * visible / total)
-    val maxOffset = total - visible
+
+    val thumbSize = MaxInt(1, span * vis / total)
+    val maxOffset = total - vis
     val clamped = clampInt(offset, 0, maxOffset)
-    val thumbStart = clamped * (area.Height - thumbSize) / maxOffset
+    val thumbStart = clamped * (span - thumbSize) / maxOffset
     var yy = 0
     for yy < thumbSize {
-        buf.Set(area.X, area.Y + thumbStart + yy, Cell(Ch = '█', St = style))
+        if horizontal {
+            buf.Set(area.X + thumbStart + yy, edge, Cell(Ch = '█', St = style))
+        } else {
+            buf.Set(edge, area.Y + thumbStart + yy, Cell(Ch = '█', St = style))
+        }
         yy = yy + 1
     }
 }
@@ -759,18 +1065,40 @@ func clampInt(v int, lo int, hi int) int =
 
 // renderList paints each visible item into `area`. The viewport scrolls so
 // that `sel` is always in view.
-func renderList(items Array[ListItem], sel int, selStyle Style, area Rect, buf *Buffer) {
+func renderList(
+    items Array[ListItem],
+    sel int,
+    selStyle Style,
+    explicitOffset int,
+    direction ListDirection,
+    area Rect,
+    buf *Buffer,
+) {
     val n = items.Length()
     if n == 0 {
         return
     }
-    val offset = listViewportOffset(n, sel, area.Height)
+    // A negative offset means "track the selection" — the historical
+    // behaviour. Anything else is the caller scrolling on its own terms,
+    // clamped so it can never point past the end.
+    val offset = if (explicitOffset < 0)
+        listViewportOffset(n, sel, area.Height)
+    else
+        clampInt(explicitOffset, 0, MaxInt(0, n - MaxInt(1, area.Height)))
+    val visibleRows = MinInt(area.Height, MaxInt(0, n - offset))
     var row = 0
     for row < area.Height {
         val idx = offset + row
         if idx >= n {
             row = row + 1
             continue
+        }
+        // Bottom-to-top pins the first visible item to the bottom edge, so
+        // a transcript grows upward and short content sits at the foot of
+        // the pane instead of floating at the top.
+        val y = direction match {
+            case ListTopToBottom() => area.Y + row
+            case ListBottomToTop() => area.Y + area.Height - visibleRows + row
         }
         val item = items.Get(idx)
         var style = item.Style
@@ -782,12 +1110,12 @@ func renderList(items Array[ListItem], sel int, selStyle Style, area Rect, buf *
         var x = area.X
         val xEnd = area.X + area.Width
         for x < xEnd {
-            buf.Set(x, area.Y + row, Cell(Ch = ' ', St = style))
+            buf.Set(x, y, Cell(Ch = ' ', St = style))
             x = x + 1
         }
         // Then draw the label, clipped to width.
         renderText(item.Label, style, Rect(
-            X = area.X, Y = area.Y + row,
+            X = area.X, Y = y,
             Width = area.Width, Height = 1,
         ), buf)
         row = row + 1
@@ -817,35 +1145,109 @@ func renderInput(value string, cursor int, placeholder string, style Style, phSt
 
 // renderRow walks children left-to-right, handing each a Rect whose width
 // comes from the Constraint solver.
-func renderRow(children Array[LayoutChild], area Rect, buf *Buffer, hits *HitRegistry) {
-    val widths = Solve(area.Width, children.Map((c) => c.Constraint))
-    var x = area.X
-    var i = 0
+func renderRow(
+    children Array[LayoutChild],
+    flex FlexMode,
+    spacing int,
+    area Rect,
+    buf *Buffer,
+    hits *HitRegistry,
+) {
     val n = children.Length()
+    val gaps = totalGaps(n, spacing)
+    val widths = Solve(MaxInt(0, area.Width - gaps), children.Map((c) => c.Constraint))
+    val offsets = flexOffsets(flex, area.Width, widths, spacing)
+    var i = 0
     for i < n {
-        val child = children.Get(i)
-        val w = widths.Get(i)
-        renderToInternal(child.Widget,
-            Rect(X = x, Y = area.Y, Width = w, Height = area.Height), buf, hits)
-        x = x + w
+        renderToInternal(children.Get(i).Widget, Rect(
+            X      = area.X + offsets.Get(i),
+            Y      = area.Y,
+            Width  = widths.Get(i),
+            Height = area.Height,
+        ), buf, hits)
         i = i + 1
     }
 }
 
 // renderColumn is the vertical twin of renderRow.
-func renderColumn(children Array[LayoutChild], area Rect, buf *Buffer, hits *HitRegistry) {
-    val heights = Solve(area.Height, children.Map((c) => c.Constraint))
-    var y = area.Y
-    var i = 0
+func renderColumn(
+    children Array[LayoutChild],
+    flex FlexMode,
+    spacing int,
+    area Rect,
+    buf *Buffer,
+    hits *HitRegistry,
+) {
     val n = children.Length()
+    val gaps = totalGaps(n, spacing)
+    val heights = Solve(MaxInt(0, area.Height - gaps), children.Map((c) => c.Constraint))
+    val offsets = flexOffsets(flex, area.Height, heights, spacing)
+    var i = 0
     for i < n {
-        val child = children.Get(i)
-        val h = heights.Get(i)
-        renderToInternal(child.Widget,
-            Rect(X = area.X, Y = y, Width = area.Width, Height = h), buf, hits)
-        y = y + h
+        renderToInternal(children.Get(i).Widget, Rect(
+            X      = area.X,
+            Y      = area.Y + offsets.Get(i),
+            Width  = area.Width,
+            Height = heights.Get(i),
+        ), buf, hits)
         i = i + 1
     }
+}
+
+// totalGaps is the space consumed by inter-child spacing: one gap between
+// each adjacent pair, none at the edges.
+func totalGaps(n int, spacing int) int =
+    if (n <= 1) 0 else MaxInt(0, spacing) * (n - 1)
+
+// flexOffsets turns solved child sizes into start positions along the axis,
+// distributing whatever space the children did not claim according to
+// `flex`. Returns one offset per child, relative to the area's origin.
+//
+// `Solve` answers "how big is each child"; this answers the question that
+// only appears once they are sized and cells are still left over. Under
+// FlexLegacy the answer is the historical one — children are packed from
+// the start and the slack is simply left at the end, which is where a
+// trailing Fill would already have absorbed it.
+func flexOffsets(
+    flex FlexMode,
+    total int,
+    sizes Array[int],
+    spacing int,
+) Array[int] {
+    val n = sizes.Length()
+    if n == 0 {
+        return EmptyArray[int]()
+    }
+    val used = sizes.FoldLeft(0, (acc, s) => acc + s) + totalGaps(n, spacing)
+    val slack = MaxInt(0, total - used)
+    val gap = MaxInt(0, spacing)
+
+    // `lead` is the offset of the first child; `extra` is added between each
+    // adjacent pair on top of `spacing`.
+    val (lead, extra) = flex match {
+        case FlexLegacy()       => (0, 0)
+        case FlexStart()        => (0, 0)
+        case FlexEnd()          => (slack, 0)
+        case FlexCenter()       => (slack / 2, 0)
+        // Slack goes strictly between children; with one child there is no
+        // between, so it stays at the start.
+        case FlexSpaceBetween() => (0, if (n > 1) slack / (n - 1) else 0)
+        // Each child gets an equal share on both sides, so edge gaps are
+        // half of the gaps between children.
+        case FlexSpaceAround()  => (slack / (2 * n), slack / n)
+        // Every gap equal, edges included: n children make n+1 gaps.
+        case FlexSpaceEvenly()  => (slack / (n + 1), slack / (n + 1))
+    }
+
+    var offsets = EmptyArray[int]()
+    var pos = lead
+    var i = 0
+    for i < n {
+        offsets = offsets.Append(pos)
+        pos = pos + sizes.Get(i) + gap + extra
+        i = i + 1
+    }
+    return offsets
 }
 
 // renderText lays out `content` on a single line, clipped to the area width.
@@ -881,39 +1283,195 @@ func renderFill(ch rune, style Style, area Rect, buf *Buffer) {
 
 // renderBorder paints a 4-corner + 4-edge frame using the glyph set chosen
 // by `kind`, then recurses into the inner widget on the 1-cell-inset area.
-func renderBorder(inner Widget, kind BorderKind, area Rect, buf *Buffer, hits *HitRegistry) {
+func renderBorder(
+    inner Widget,
+    kind BorderKind,
+    sides BorderSides,
+    style Style,
+    titles Array[BlockTitle],
+    area Rect,
+    buf *Buffer,
+    hits *HitRegistry,
+) {
     val g = borderGlyphs(kind)
-    val st = DefaultStyle()
-    // Corners
-    buf.Set(area.X,               area.Y,                Cell(Ch = g.TL, St = st))
-    buf.Set(area.X+area.Width-1,  area.Y,                Cell(Ch = g.TR, St = st))
-    buf.Set(area.X,               area.Y+area.Height-1,  Cell(Ch = g.BL, St = st))
-    buf.Set(area.X+area.Width-1,  area.Y+area.Height-1,  Cell(Ch = g.BR, St = st))
-    // Top / bottom edges
-    var x = area.X + 1
-    val xEnd = area.X + area.Width - 1
-    for x < xEnd {
-        buf.Set(x, area.Y,                Cell(Ch = g.H, St = st))
-        buf.Set(x, area.Y+area.Height-1,  Cell(Ch = g.H, St = st))
-        x = x + 1
+    val right  = area.X + area.Width - 1
+    val bottom = area.Y + area.Height - 1
+
+    // Edges. Each runs the full span and lets the corner pass below
+    // overwrite the ends, so a partial border (a lone left rule, say) is a
+    // clean line rather than a box missing three walls.
+    if sides.Top {
+        var x = area.X
+        for x <= right {
+            buf.Set(x, area.Y, Cell(Ch = g.H, St = style))
+            x = x + 1
+        }
     }
-    // Left / right edges
-    var y = area.Y + 1
-    val yEnd = area.Y + area.Height - 1
-    for y < yEnd {
-        buf.Set(area.X,               y, Cell(Ch = g.V, St = st))
-        buf.Set(area.X+area.Width-1,  y, Cell(Ch = g.V, St = st))
-        y = y + 1
+    if sides.Bottom {
+        var x = area.X
+        for x <= right {
+            buf.Set(x, bottom, Cell(Ch = g.H, St = style))
+            x = x + 1
+        }
     }
-    // Inner area — 1-cell inset.
-    if area.Width >= 2 && area.Height >= 2 {
-        val inside = Rect(
-            X      = area.X + 1,
-            Y      = area.Y + 1,
-            Width  = area.Width - 2,
-            Height = area.Height - 2,
-        )
-        renderToInternal(inner, inside, buf, hits)
+    if sides.Left {
+        var y = area.Y
+        for y <= bottom {
+            buf.Set(area.X, y, Cell(Ch = g.V, St = style))
+            y = y + 1
+        }
+    }
+    if sides.Right {
+        var y = area.Y
+        for y <= bottom {
+            buf.Set(right, y, Cell(Ch = g.V, St = style))
+            y = y + 1
+        }
+    }
+
+    // Corners only exist where two edges actually meet.
+    if sides.Top && sides.Left     { buf.Set(area.X, area.Y, Cell(Ch = g.TL, St = style)) }
+    if sides.Top && sides.Right    { buf.Set(right,  area.Y, Cell(Ch = g.TR, St = style)) }
+    if sides.Bottom && sides.Left  { buf.Set(area.X, bottom, Cell(Ch = g.BL, St = style)) }
+    if sides.Bottom && sides.Right { buf.Set(right,  bottom, Cell(Ch = g.BR, St = style)) }
+
+    renderBlockTitles(titles, sides, area, buf)
+
+    // Inner area — inset by whichever edges were actually drawn.
+    val dx = if (sides.Left) 1 else 0
+    val dy = if (sides.Top) 1 else 0
+    val iw = MaxInt(0, area.Width - borderWidthOverhead(sides))
+    val ih = MaxInt(0, area.Height - borderHeightOverhead(sides))
+    if iw > 0 && ih > 0 {
+        renderToInternal(inner, Rect(
+            X      = area.X + dx,
+            Y      = area.Y + dy,
+            Width  = iw,
+            Height = ih,
+        ), buf, hits)
+    }
+}
+
+// renderBlockTitles paints titles into the horizontal edges. Titles are
+// drawn *over* the already-painted edge glyphs, and only onto an edge that
+// is actually being drawn — a title asking for the bottom edge of a
+// top-only border is dropped rather than floating in the body.
+//
+// Titles sharing an edge and an alignment are laid out left to right with a
+// single space between them, matching how a tab strip or a "name ── hint"
+// caption reads.
+func renderBlockTitles(
+    titles Array[BlockTitle],
+    sides BorderSides,
+    area Rect,
+    buf *Buffer,
+) {
+    // The guard is on the caption slot, not the area: a top-rule-only
+    // border has no corners to reserve, so a 2-cell area still has room.
+    if titles.IsEmpty() || area.Width <= borderWidthOverhead(sides) {
+        return
+    }
+    // The span available to captions: inside whichever corners exist. A
+    // top-rule-only header has none, so hardcoding a 1-cell inset there
+    // would indent the caption into the rule for no reason and leave a
+    // stray glyph at each end — and a titled section rule is the main
+    // reason BorderSides exists.
+    val slotX = area.X + (if (sides.Left) 1 else 0)
+    val slotW = MaxInt(0, area.Width - borderWidthOverhead(sides))
+    ArrayOf(TitleTop(), TitleBottom()).ForEach((pos) => {
+        val edgeDrawn = pos match {
+            case TitleTop()    => sides.Top
+            case TitleBottom() => sides.Bottom
+        }
+        if edgeDrawn {
+            val y = pos match {
+                case TitleTop()    => area.Y
+                case TitleBottom() => area.Y + area.Height - 1
+            }
+            ArrayOf(AlignLeft(), AlignCenter(), AlignRight()).ForEach((al) => {
+                val group = titles.Filter((t) =>
+                    titlePositionEqual(t.Position, pos) && alignEqual(t.Align, al))
+                if group.NonEmpty() {
+                    renderTitleGroup(group, al, slotX, y, slotW, buf)
+                }
+            })
+        }
+    })
+}
+
+// renderTitleGroup draws one alignment bucket's titles as a single run.
+func renderTitleGroup(
+    group Array[BlockTitle],
+    al Align,
+    slotX int,
+    y int,
+    slotW int,
+    buf *Buffer,
+) {
+    val spans = joinTitleSpans(group)
+    val width = MinInt(slotW, spans.FoldLeft(0, (acc, s) => acc + s.CellWidth()))
+    val startX = al match {
+        case AlignLeft()   => slotX
+        case AlignCenter() => slotX + MaxInt(0, (slotW - width) / 2)
+        case AlignRight()  => slotX + MaxInt(0, slotW - width)
+    }
+    drawSpans(spans, startX, y, slotX + slotW, buf)
+}
+
+// joinTitleSpans flattens a title group's Lines into one span run, with a
+// single default-styled space between adjacent titles.
+func joinTitleSpans(group Array[BlockTitle]) Array[Span] =
+    group.FoldLeft(EmptyArray[Span](), (acc, t) =>
+        if (acc.IsEmpty()) t.Content.Spans
+        else acc.Append(SpanOf(" ")).AppendAll(t.Content.Spans))
+
+// drawSpans paints a span run left to right starting at `x`, clipping at
+// `maxX`. Shared by title rendering and RichTextW.
+func drawSpans(spans Array[Span], x int, y int, maxX int, buf *Buffer) {
+    var cx = x
+    spans.ForEach((s) => {
+        for _, r := range s.Content {
+            val w = RuneCellWidth(r)
+            if w > 0 && cx + w <= maxX {
+                buf.Set(cx, y, Cell(Ch = r, St = s.Style))
+                if w == 2 { buf.Set(cx + 1, y, Cell(Ch = ' ', St = s.Style)) }
+                cx = cx + w
+            }
+        }
+    })
+}
+
+// titlePositionEqual / alignEqual — value comparison on zero-field sealed
+// variants, used to bucket titles by edge and alignment.
+func titlePositionEqual(a TitlePosition, b TitlePosition) bool = a match {
+    case TitleTop()    => b match { case TitleTop() => true    case _ => false }
+    case TitleBottom() => b match { case TitleBottom() => true case _ => false }
+}
+
+func alignEqual(a Align, b Align) bool = a match {
+    case AlignLeft()   => b match { case AlignLeft() => true   case _ => false }
+    case AlignCenter() => b match { case AlignCenter() => true case _ => false }
+    case AlignRight()  => b match { case AlignRight() => true  case _ => false }
+}
+
+// renderRichText paints one Line per row, honouring each Line's own
+// alignment. Lines past the bottom of the area are dropped; a Line wider
+// than the area is clipped at the right edge (wrapping is the caller's
+// decision, since only the caller knows whether the overflow should wrap,
+// ellipsise or scroll).
+func renderRichText(text RichText, area Rect, buf *Buffer) {
+    val maxX = area.X + area.Width
+    var row = 0
+    for row < area.Height && row < text.Lines.Length() {
+        val line = text.Lines.Get(row)
+        val w = MinInt(area.Width, line.CellWidth())
+        val startX = line.Align match {
+            case AlignLeft()   => area.X
+            case AlignCenter() => area.X + MaxInt(0, (area.Width - w) / 2)
+            case AlignRight()  => area.X + MaxInt(0, area.Width - w)
+        }
+        drawSpans(line.Spans, startX, area.Y + row, maxX, buf)
+        row = row + 1
     }
 }
 
@@ -931,18 +1489,23 @@ func renderPadding(top int, right int, bottom int, left int, inner Widget,
 }
 
 // renderAlign picks the horizontal position of an inner widget.
-func renderAlign(inner Widget, horiz Align, cw int, ch int,
+func renderAlign(inner Widget, horiz Align, vert VAlign, cw int, ch int,
                  area Rect, buf *Buffer, hits *HitRegistry) {
     val dx = horiz match {
         case AlignLeft()   => 0
         case AlignCenter() => MaxInt(0, (area.Width - cw) / 2)
         case AlignRight()  => MaxInt(0, area.Width - cw)
     }
+    val dy = vert match {
+        case VAlignTop()    => 0
+        case VAlignMiddle() => MaxInt(0, (area.Height - ch) / 2)
+        case VAlignBottom() => MaxInt(0, area.Height - ch)
+    }
     renderToInternal(inner, Rect(
         X      = area.X + dx,
-        Y      = area.Y,
+        Y      = area.Y + dy,
         Width  = MinInt(cw, area.Width - dx),
-        Height = MinInt(ch, area.Height),
+        Height = MinInt(ch, area.Height - dy),
     ), buf, hits)
 }
 
@@ -980,19 +1543,21 @@ func defaultRenderWidth(w Widget) int {
     return w match {
         case EmptyWidget()                     => 0
         case TextWidget(content, _)            => RuneCount(content)
+        case RichTextW(text)                   => text.CellWidth()
         case FillWidget(_, _)                  => 1
-        case BorderWidget(inner, _)            => defaultRenderWidth(inner) + 2
+        case BorderWidget(inner, _, sides, _, _) =>
+            defaultRenderWidth(inner) + borderWidthOverhead(sides)
         case PaddingWidget(_, r, _, l, inner)  => defaultRenderWidth(inner) + l + r
-        case AlignWidget(_, _, cw, _)          => cw
+        case AlignWidget(_, _, _, cw, _)       => cw
         case OverlayWidget(bottom, top)        =>
             MaxInt(defaultRenderWidth(bottom), defaultRenderWidth(top))
-        case RowWidget(children)               =>
+        case RowWidget(children, _, _)         =>
             children.FoldLeft(0, (acc, c) => acc + defaultRenderWidth(c.Widget))
-        case ColumnWidget(children)            =>
+        case ColumnWidget(children, _, _)      =>
             children.FoldLeft(0, (acc, c) => MaxInt(acc, defaultRenderWidth(c.Widget)))
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderWidth(w)))
-        case ListW(items, _, _)                =>
+        case ListW(items, _, _, _, _)          =>
             items.FoldLeft(0, (acc, it) => MaxInt(acc, RuneCount(it.Label)))
         case InputW(value, _, ph, _, _)        => MaxInt(RuneCount(value), RuneCount(ph))
         case ProgressW(_, _)                   => 20
@@ -1001,7 +1566,7 @@ func defaultRenderWidth(w Widget) int {
         case ButtonW(label, _, _)              => RuneCount(label) + 4
         case ParagraphW(content, _)            => paragraphIntrinsicWidth(content)
         case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
-        case ScrollbarW(_, _, _, _)            => 1
+        case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderWidth(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
         case DblClickableW(inner, _)           => defaultRenderWidth(inner)
@@ -1016,19 +1581,21 @@ func defaultRenderHeight(w Widget) int {
     return w match {
         case EmptyWidget()                     => 0
         case TextWidget(_, _)                  => 1
+        case RichTextW(text)                   => text.LineCount()
         case FillWidget(_, _)                  => 1
-        case BorderWidget(inner, _)            => defaultRenderHeight(inner) + 2
+        case BorderWidget(inner, _, sides, _, _) =>
+            defaultRenderHeight(inner) + borderHeightOverhead(sides)
         case PaddingWidget(t, _, b, _, inner)  => defaultRenderHeight(inner) + t + b
-        case AlignWidget(_, _, _, ch)          => ch
+        case AlignWidget(_, _, _, _, ch)       => ch
         case OverlayWidget(bottom, top)        =>
             MaxInt(defaultRenderHeight(bottom), defaultRenderHeight(top))
-        case RowWidget(children)               =>
+        case RowWidget(children, _, _)         =>
             children.FoldLeft(0, (acc, c) => MaxInt(acc, defaultRenderHeight(c.Widget)))
-        case ColumnWidget(children)            =>
+        case ColumnWidget(children, _, _)      =>
             children.FoldLeft(0, (acc, c) => acc + defaultRenderHeight(c.Widget))
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderHeight(w)))
-        case ListW(items, _, _)                => MaxInt(1, items.Length())
+        case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
         case InputW(_, _, _, _, _)             => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
@@ -1036,7 +1603,7 @@ func defaultRenderHeight(w Widget) int {
         case ButtonW(_, _, _)                  => 1
         case ParagraphW(content, _)            => paragraphIntrinsicHeight(content)
         case ViewportW(_, _, _)                => 1
-        case ScrollbarW(_, _, _, _)            => 1
+        case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderHeight(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
         case DblClickableW(inner, _)           => defaultRenderHeight(inner)
@@ -1075,20 +1642,22 @@ func IntrinsicHeightAt(w Widget, width int) int {
     return w match {
         case EmptyWidget()                     => 0
         case TextWidget(_, _)                  => 1
+        case RichTextW(text)                   => text.LineCount()
         case FillWidget(_, _)                  => 1
-        case BorderWidget(inner, _)            =>
-            IntrinsicHeightAt(inner, MaxInt(0, width - 2)) + 2
+        case BorderWidget(inner, _, sides, _, _) =>
+            IntrinsicHeightAt(inner, MaxInt(0, width - borderWidthOverhead(sides)))
+                + borderHeightOverhead(sides)
         case PaddingWidget(t, r, b, l, inner)  =>
             IntrinsicHeightAt(inner, MaxInt(0, width - r - l)) + t + b
-        case AlignWidget(_, _, _, ch)          => ch
+        case AlignWidget(_, _, _, _, ch)       => ch
         case OverlayWidget(bottom, top)        =>
             MaxInt(IntrinsicHeightAt(bottom, width), IntrinsicHeightAt(top, width))
-        case RowWidget(_)                      => defaultRenderHeight(w)
-        case ColumnWidget(children)            =>
+        case RowWidget(_, _, _)                => defaultRenderHeight(w)
+        case ColumnWidget(children, _, _)      =>
             children.FoldLeft(0, (acc, c) => acc + intrinsicChildHeight(c, width))
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, l) => MaxInt(acc, IntrinsicHeightAt(l, width)))
-        case ListW(items, _, _)                => MaxInt(1, items.Length())
+        case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
         case InputW(_, _, _, _, _)             => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
@@ -1097,7 +1666,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case ParagraphW(content, _)            =>
             MaxInt(1, WrapParagraph(content, MaxInt(1, width)).Length())
         case ViewportW(_, _, contentHeight)    => contentHeight
-        case ScrollbarW(_, _, _, _)            => 1
+        case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => IntrinsicHeightAt(inner, width)
         case ClickableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
         case DblClickableW(inner, _)           => IntrinsicHeightAt(inner, width)
@@ -1114,10 +1683,15 @@ func IntrinsicHeightAt(w Widget, width int) int {
 // widget's intrinsic height (they have no intrinsic row count of their
 // own).
 func intrinsicChildHeight(c LayoutChild, width int) int = c.Constraint match {
-    case Length(n)  => n
-    case Fill(_)    => IntrinsicHeightAt(c.Widget, width)
-    case Percent(_) => IntrinsicHeightAt(c.Widget, width)
-    case MinLen(n)  => MaxInt(n, IntrinsicHeightAt(c.Widget, width))
+    case Length(n)    => n
+    case Fill(_)      => IntrinsicHeightAt(c.Widget, width)
+    case Percent(_)   => IntrinsicHeightAt(c.Widget, width)
+    case MinLen(n)    => MaxInt(n, IntrinsicHeightAt(c.Widget, width))
+    // A cap only bites when the inner widget wants more than it allows.
+    case MaxLen(n)    => MinInt(n, IntrinsicHeightAt(c.Widget, width))
+    // Like Percent, a ratio is a share of a parent this function cannot
+    // see, so it has no intrinsic row count of its own.
+    case Ratio(_, _)  => IntrinsicHeightAt(c.Widget, width)
 }
 
 // paragraphIntrinsicWidth returns the widest line in `content` (split on

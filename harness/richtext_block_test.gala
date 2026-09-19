@@ -1,0 +1,126 @@
+package harness
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Harness coverage for the Wave-A primitives.
+//
+// Every other test for RichTextW / Block renders a widget directly. These
+// drive a real Program through the harness instead, so the assertions run
+// against output produced by the full key-translation and Cmd-redispatch
+// pipeline rather than a hand-built widget tree. Until now the Harness was
+// exercised only by demo apps, so no library widget had a test on this path.
+// ============================================================================
+
+sealed type RtMsg {
+    case RtBold()
+    case RtPlain()
+    case RtNoOp()
+}
+
+struct RtModel(Bold bool)
+
+func rtUpdate(m RtModel, msg RtMsg) Tuple[RtModel, Cmd[RtMsg]] = msg match {
+    case RtBold()  => (RtModel(Bold = true), NoCmd[RtMsg]())
+    case RtPlain() => (RtModel(Bold = false), NoCmd[RtMsg]())
+    case RtNoOp()  => (m, NoCmd[RtMsg]())
+}
+
+// rtView puts a styled run beside a plain one inside a titled block — the
+// two Wave-A features composed the way an app would actually use them.
+func rtView(m RtModel) Widget {
+    val nameStyle = if (m.Bold) DefaultStyle().WithBold() else DefaultStyle()
+    val body = SpansLine(
+        SpanStyled("name", nameStyle),
+        SpanOf(" ok"),
+    )
+    return Block(
+        body,
+        SingleBorder(),
+        AllSides(),
+        DefaultStyle(),
+        ArrayOf(TitleOf("St")),
+    )
+}
+
+func rtKey(ev KeyEvent) RtMsg = ev.Key match {
+    case Char(c) => if (c == 'b') RtBold() else if (c == 'p') RtPlain() else RtNoOp()
+    case _       => RtNoOp()
+}
+
+func rtHarness() Harness[RtModel, RtMsg] =
+    NewHarness[RtModel, RtMsg](
+        Program[RtModel, RtMsg](
+            Initial = RtModel(Bold = false),
+            Update  = (m, msg) => rtUpdate(m, msg),
+            View    = (m) => rtView(m),
+        ),
+        (ev) => rtKey(ev),
+        12,
+        3,
+    )
+
+func TestHarnessRendersBlockTitleAndSpans(t T) T {
+    val s = rtHarness().Start()
+    val want = "┌St────────┐" + "\n" +
+               "│name ok   │" + "\n" +
+               "└──────────┘"
+    return Eq(t, s.Text(), want)
+}
+
+func TestHarnessKeypressRestylesOnlyTheFirstSpan(t T) T {
+    // 'b' bolds the name run. The glyphs must not move, and the sibling
+    // run must stay unstyled — the property that a single-style TextWidget
+    // could not express at all.
+    val s = rtHarness().Start().Type("b")
+    val buf = s.Buffer()
+    val t1 = Eq(t, s.Row(1), "│name ok   │")
+    val t2 = IsTrue(t1, buf.StyleAt(1, 1).Bold && buf.StyleAt(4, 1).Bold)
+    return IsTrue(t2, !buf.StyleAt(6, 1).Bold && !buf.StyleAt(7, 1).Bold)
+}
+
+func TestHarnessRestyleIsReversible(t T) T {
+    // Sweep the whole run, not one cell — a single sample would pass if
+    // only the first character had been un-bolded.
+    val buf = rtHarness().Start().Type("b").Type("p").Buffer()
+    var acc = t
+    var x = 1
+    for x <= 4 {
+        acc = IsTrue(acc, !buf.StyleAt(x, 1).Bold)
+        x = x + 1
+    }
+    return acc
+}
+
+func TestBlockTitleFillsWiderViewport(t T) T {
+    // Same view, wider harness: the title stays anchored in the top edge and
+    // the fill extends, rather than the title drifting or the edge truncating.
+    val wide = NewHarness[RtModel, RtMsg](
+        Program[RtModel, RtMsg](
+            Initial = RtModel(Bold = false),
+            Update  = (m, msg) => rtUpdate(m, msg),
+            View    = (m) => rtView(m),
+        ),
+        (ev) => rtKey(ev),
+        16,
+        3,
+    )
+    return Eq(t, wide.Start().Row(0), "┌St────────────┐")
+}
+
+// Session.Resize dispatches a ResizeInput *message* to the program; it does
+// not change the harness viewport, because Session.Buffer() always renders at
+// the Width/Height fixed when the Harness was built (harness.gala:455-459).
+//
+// Pinned deliberately: the name reads like it resizes the render target, and
+// a test that calls .Resize(w, h) and then asserts the new layout will keep
+// rendering at the old size and silently assert the wrong thing.
+func TestSessionResizeDoesNotChangeRenderViewport(t T) T {
+    val s = rtHarness().Start().Resize(40, 10)
+    val t1 = Eq(t, s.Row(0), "┌St────────┐")
+    return Eq(t1, s.Buffer().Width, 12)
+}

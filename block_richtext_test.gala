@@ -1,0 +1,320 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Renderer-level tests for the Wave-A primitives: Block (titles / sides /
+// border style) and RichText (per-Span styling, per-Line alignment).
+//
+// These assert *rendered output*, not constructor field values — every case
+// goes through `Snapshot` / `SnapshotStyled`, so a regression in the render
+// walker fails here even when the widget tree is still built correctly.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Block — titles
+// ----------------------------------------------------------------------------
+
+func TestBorderWithoutTitleIsUnchanged(t T) T {
+    // The pre-existing shape must render exactly as it always did — this is
+    // the guard that widening BorderWidget changed no behavior.
+    val out = Snapshot(Border(Text("hi")), 6, 3)
+    return Eq(t, out, "┌────┐\n│hi  │\n└────┘")
+}
+
+func TestTitledDrawsTitleIntoTopEdge(t T) T {
+    val out = Snapshot(Titled(Text("body"), "Logs"), 10, 3)
+    return Eq(t, out, "┌Logs────┐\n│body    │\n└────────┘")
+}
+
+func TestTitleCenterAligned(t T) T {
+    val title = BlockTitle(
+        Content  = LineFromString("Mid", DefaultStyle()),
+        Position = TitleTop(),
+        Align    = AlignCenter(),
+    )
+    val w = Block(Text(""), SingleBorder(), AllSides(), DefaultStyle(), ArrayOf(title))
+    val out = Snapshot(w, 11, 3)
+    return Eq(t, out, "┌───Mid───┐\n│         │\n└─────────┘")
+}
+
+func TestTitleRightAlignedAndBottomPosition(t T) T {
+    val title = BlockTitle(
+        Content  = LineFromString("q:quit", DefaultStyle()),
+        Position = TitleBottom(),
+        Align    = AlignRight(),
+    )
+    val w = Block(Text(""), SingleBorder(), AllSides(), DefaultStyle(), ArrayOf(title))
+    val out = Snapshot(w, 10, 3)
+    return Eq(t, out, "┌────────┐\n│        │\n└──q:quit┘")
+}
+
+func TestTwoTitlesOnSameEdgeAreSpaceSeparated(t T) T {
+    val w = Block(
+        Text(""), SingleBorder(), AllSides(), DefaultStyle(),
+        ArrayOf(TitleOf("one"), TitleOf("two")),
+    )
+    val out = Snapshot(w, 12, 3)
+    return Eq(t, out, "┌one two───┐\n│          │\n└──────────┘")
+}
+
+func TestTitleForUndrawnEdgeIsDropped(t T) T {
+    // A bottom title on a border with no bottom edge must not leak into the
+    // body — it has nowhere legitimate to go.
+    val title = BlockTitle(
+        Content  = LineFromString("gone", DefaultStyle()),
+        Position = TitleBottom(),
+        Align    = AlignLeft(),
+    )
+    // Asserted as a golden rather than !Contains("gone"): a containment
+    // check also passes if the border vanished or the body never drew.
+    val sides = SidesOf(true, true, false, true)
+    val w = Block(Text("body"), SingleBorder(), sides, DefaultStyle(), ArrayOf(title))
+    val out = Snapshot(w, 8, 3)
+    return Eq(t, out, "┌──────┐\n│body  │\n│      │")
+}
+
+// ----------------------------------------------------------------------------
+// Block — partial sides
+// ----------------------------------------------------------------------------
+
+func TestLeftOnlyBorderDrawsSingleRule(t T) T {
+    // A pane separator: one vertical rule, no corners, and the body keeps
+    // every column except the rule's.
+    val sides = SidesOf(false, false, false, true)
+    val w = Block(Text("body"), SingleBorder(), sides, DefaultStyle(), EmptyArray[BlockTitle]())
+    val out = Snapshot(w, 6, 2)
+    return Eq(t, out, "│body \n│     ")
+}
+
+func TestTopOnlyBorderConsumesOneRow(t T) T {
+    val sides = SidesOf(true, false, false, false)
+    val w = Block(Text("body"), SingleBorder(), sides, DefaultStyle(), EmptyArray[BlockTitle]())
+    val out = Snapshot(w, 5, 2)
+    return Eq(t, out, "─────\nbody ")
+}
+
+func TestTitleSlotUsesOnlyTheCornersThatExist(t T) T {
+    // A top-rule-only section header has no corners, so the caption must
+    // start at column 0 and a right-aligned one must reach the last column.
+    // Reserving a corner inset unconditionally indented the left title into
+    // the rule and left a stray glyph at each end.
+    val left = BlockTitle(
+        Content  = LineFromString("L", DefaultStyle()),
+        Position = TitleTop(),
+        Align    = AlignLeft(),
+    )
+    val right = BlockTitle(
+        Content  = LineFromString("R", DefaultStyle()),
+        Position = TitleTop(),
+        Align    = AlignRight(),
+    )
+    val w = Block(Text(""), SingleBorder(), SidesOf(true, false, false, false),
+                  DefaultStyle(), ArrayOf(left, right))
+    return Eq(t, SnapshotLines(w, 10, 1).Get(0), "L────────R")
+}
+
+func TestTitleSlotStillClearsCornersOnAFullBox(t T) T {
+    val w = Block(Text(""), SingleBorder(), AllSides(), DefaultStyle(),
+                  ArrayOf(TitleOf("L")))
+    return Eq(t, SnapshotLines(w, 6, 3).Get(0), "┌L───┐")
+}
+
+func TestRestyleReachesTitleSpans(t T) T {
+    // Passing Titles through untouched made the title the brightest thing
+    // on a dimmed panel — the frame and body dimmed, the caption did not.
+    val w = Titled(Text("b"), "Tt").WithDim()
+    val buf = NewBuffer(8, 3)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 3), buf)
+    // Columns 1-2 are the caption; column 3 is the rule beside it.
+    val t1 = IsTrue(t, buf.StyleAt(1, 0).Dim && buf.StyleAt(2, 0).Dim)
+    return IsTrue(t1, buf.StyleAt(3, 0).Dim)
+}
+
+func TestPartialBorderIntrinsicSizeCountsOnlyDrawnEdges(t T) T {
+    // A full box costs 2 columns and 2 rows; a left-only rule costs 1 and 0.
+    val inner = Text("abcd")
+    val full = Block(inner, SingleBorder(), AllSides(), DefaultStyle(), EmptyArray[BlockTitle]())
+    val left = Block(inner, SingleBorder(), SidesOf(false, false, false, true),
+                     DefaultStyle(), EmptyArray[BlockTitle]())
+    val t1 = Eq(t, IntrinsicHeightAt(full, 10), 3)
+    return Eq(t1, IntrinsicHeightAt(left, 10), 1)
+}
+
+// ----------------------------------------------------------------------------
+// Block — border style
+// ----------------------------------------------------------------------------
+
+func TestBorderStyleReachesTheGlyphs(t T) T {
+    // Before Wave A the border style was hardcoded to DefaultStyle(), so a
+    // coloured frame was inexpressible. Assert the SGR actually lands on the
+    // border run, not just somewhere in the output.
+    val w = BorderStyled(Text(""), SingleBorder(), DefaultStyle().WithBold())
+    val out = SnapshotStyled(w, 4, 3)
+    return IsTrue(t, strings.Contains(out, "\x1b[1m┌"))
+}
+
+func TestBorderStyleSweptAcrossTheWholeFrame(t T) T {
+    // Sampling one border cell would pass even if only a corner were styled.
+    // Sweep the whole top edge and both verticals instead.
+    val w = BorderStyled(Text(""), SingleBorder(), DefaultStyle().WithBold())
+    val buf = NewBuffer(6, 3)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
+    var acc = t
+    var x = 0
+    for x < 6 {
+        acc = IsTrue(acc, buf.StyleAt(x, 0).Bold && buf.StyleAt(x, 2).Bold)
+        x = x + 1
+    }
+    return IsTrue(acc, buf.StyleAt(0, 1).Bold && buf.StyleAt(5, 1).Bold)
+}
+
+func TestTitledPartialBorderGolden(t T) T {
+    // A titled partial border is pure layout arithmetic — the case a golden
+    // is for. Top and left only: the title sits in the top edge, there is a
+    // top-left corner but no top-right, and the body keeps every row below.
+    val w = Block(
+        Text("body"),
+        SingleBorder(),
+        SidesOf(true, false, false, true),
+        DefaultStyle(),
+        ArrayOf(TitleOf("Tt")),
+    )
+    val out = Snapshot(w, 8, 3)
+    return Eq(t, out, "┌Tt─────\n│body   \n│       ")
+}
+
+func TestBorderStyleIsIndependentOfInnerStyle(t T) T {
+    val w = BorderStyled(TextStyled("x", DefaultStyle()), SingleBorder(),
+                         DefaultStyle().WithBold())
+    val out = SnapshotStyled(w, 5, 3)
+    // The frame is bold; the body text is not.
+    val t1 = IsTrue(t, strings.Contains(out, "\x1b[1m┌"))
+    return IsTrue(t1, !strings.Contains(out, "\x1b[1mx"))
+}
+
+// ----------------------------------------------------------------------------
+// RichText — per-span styling within one row
+// ----------------------------------------------------------------------------
+
+func TestRichTextRendersSpansLeftToRight(t T) T {
+    val w = SpansLine(SpanOf("ab"), SpanOf("cd"))
+    return Eq(t, Snapshot(w, 6, 1), "abcd  ")
+}
+
+func TestRichTextKeepsPerSpanStyles(t T) T {
+    // This is the capability TextWidget cannot express: one styled run
+    // beside an unstyled one, on the same row, in normal layout flow.
+    val w = SpansLine(
+        SpanOf("plain "),
+        SpanStyled("bold", DefaultStyle().WithBold()),
+    )
+    val out = SnapshotStyled(w, 10, 1)
+    val t1 = IsTrue(t, strings.Contains(out, "\x1b[1mb"))
+    return IsTrue(t1, !strings.Contains(out, "\x1b[1mp"))
+}
+
+func TestRichTextStyleSweptAcrossEachRun(t T) T {
+    // Per-span styling is the whole point of the primitive, so assert the
+    // style across every cell of each run rather than sampling one.
+    val w = SpansLine(
+        SpanStyled("aa", DefaultStyle().WithBold()),
+        SpanStyled("bb", DefaultStyle()),
+    )
+    val buf = NewBuffer(6, 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
+    val t1 = IsTrue(t, buf.StyleAt(0, 0).Bold && buf.StyleAt(1, 0).Bold)
+    return IsTrue(t1, !buf.StyleAt(2, 0).Bold && !buf.StyleAt(3, 0).Bold)
+}
+
+func TestRichTextLineAlignment(t T) T {
+    val centered = RichTextOf(ArrayOf(
+        LineFromString("ab", DefaultStyle()).Aligned(AlignCenter())))
+    val right = RichTextOf(ArrayOf(
+        LineFromString("ab", DefaultStyle()).Aligned(AlignRight())))
+    val t1 = Eq(t, Snapshot(RichTextView(centered), 6, 1), "  ab  ")
+    return Eq(t1, Snapshot(RichTextView(right), 6, 1), "    ab")
+}
+
+func TestRichTextRendersOneLinePerRow(t T) T {
+    val text = RichTextOfLines(
+        LineFromString("one", DefaultStyle()),
+        LineFromString("two", DefaultStyle()),
+    )
+    return Eq(t, Snapshot(RichTextView(text), 4, 2), "one \ntwo ")
+}
+
+func TestRichTextClipsAtRightEdge(t T) T {
+    val w = SpansLine(SpanOf("abcdefgh"))
+    return Eq(t, Snapshot(w, 4, 1), "abcd")
+}
+
+func TestRichTextIntrinsicSizeIsWidestLineAndLineCount(t T) T {
+    val text = RichTextOfLines(
+        LineFromString("short", DefaultStyle()),
+        LineFromString("much longer", DefaultStyle()),
+    )
+    val t1 = Eq(t, text.CellWidth(), 11)
+    return Eq(t1, text.LineCount(), 2)
+}
+
+func TestRichTextCellWidthIsGraphemeAware(t T) T {
+    // A CJK span occupies two cells per character, so intrinsic width must
+    // not be a rune count.
+    val line = LineFromString("日本", DefaultStyle())
+    return Eq(t, line.CellWidth(), 4)
+}
+
+func TestRichTextWideCharsRenderWithoutOverlap(t T) T {
+    // A wide glyph claims two cells: the second is a reserved blank, so the
+    // next span must start at column 2, not column 1.
+    val buf = NewBuffer(4, 1)
+    val w = SpansLine(SpanStyled("日", DefaultStyle()), SpanOf("x"))
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    val t1 = Eq(t, buf.CharAt(0, 0), rune(0x65E5))
+    val t2 = Eq(t1, buf.CharAt(1, 0), ' ')
+    return Eq(t2, buf.CharAt(2, 0), 'x')
+}
+
+// ----------------------------------------------------------------------------
+// RichText — fluent restyle reaches every span
+// ----------------------------------------------------------------------------
+
+func TestWithBoldAppliesToEverySpan(t T) T {
+    // Both spans end up bold, so the styled writer coalesces them into one
+    // SGR run — "\x1b[1mab", not a code per span. Asserting the merged run
+    // is what proves `f` reached the second span as well as the first.
+    val w = SpansLine(SpanOf("a"), SpanOf("b")).WithBold()
+    return IsTrue(t, strings.Contains(SnapshotStyled(w, 4, 1), "\x1b[1mab"))
+}
+
+func TestWithBoldLeavesUnstyledSiblingRunsDistinct(t T) T {
+    // Only the second span is bold, so the run must break between them.
+    val w = SpansLine(SpanOf("a"), SpanStyled("b", DefaultStyle().WithBold()))
+    val out = SnapshotStyled(w, 4, 1)
+    return IsTrue(t, strings.Contains(out, "\x1b[1mb") && !strings.Contains(out, "\x1b[1ma"))
+}
+
+// ----------------------------------------------------------------------------
+// Plain-text projection — the substrate wrapping will be built on
+// ----------------------------------------------------------------------------
+
+func TestPlainTextDropsStyling(t T) T {
+    val line = LineOf(ArrayOf(
+        SpanOf("hello "),
+        SpanStyled("world", DefaultStyle().WithBold()),
+    ))
+    return Eq(t, line.PlainText(), "hello world")
+}
+
+func TestRichTextPlainTextJoinsWithNewlines(t T) T {
+    val text = RichTextOfLines(
+        LineFromString("a", DefaultStyle()),
+        LineFromString("b", DefaultStyle()),
+    )
+    return Eq(t, text.PlainText(), "a\nb")
+}

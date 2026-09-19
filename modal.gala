@@ -45,6 +45,7 @@ func centerPanel(width int, height int, body Widget) Widget {
     val horizCentered = AlignWidget(
         Inner  = body,
         Horiz  = AlignCenter(),
+        Vert   = VAlignTop(),
         ChildW = width,
         ChildH = height,
     )

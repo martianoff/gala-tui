@@ -73,11 +73,18 @@ func ScrollPaneViewStyled(body Widget, state ScrollPaneState, contentH int, show
     if !showScrollbar {
         return viewport
     }
+    // Visible = 0 tells the renderer to take the viewport height from the
+    // bar's own area. The previous `Visible = contentH` made total == visible
+    // on every call, which sent renderScrollbar down its "nothing to scroll"
+    // branch: the thumb was a solid full-height block that never moved,
+    // regardless of Offset. The comment claiming the renderer overrode it
+    // was wrong — nothing did.
     val bar = ScrollbarW(
-        Total   = contentH,
-        Visible = contentH,            // overridden by the renderer when smaller
-        Offset  = state.Offset,
-        Style   = DefaultStyle().WithFg(BrightWhite()),
+        Total       = contentH,
+        Visible     = 0,
+        Offset      = state.Offset,
+        Style       = DefaultStyle().WithFg(BrightWhite()),
+        Orientation = ScrollbarVerticalRight(),
     )
     return Row(ArrayOf[LayoutChild](
         Flex(1, viewport),

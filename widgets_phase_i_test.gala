@@ -132,19 +132,24 @@ func TestTabsSelectedHasReverseStyle(t T) T {
 // Scrollbar
 // ----------------------------------------------------------------------------
 
-func TestScrollbarFullWhenContentFitsViewport(t T) T {
-    // total=5, visible=5 → thumb fills entire track.
+func TestScrollbarTrackOnlyWhenContentFitsViewport(t T) T {
+    // total=5, visible=5 → nothing to scroll, so the bar draws track only.
+    //
+    // This used to assert a solid full-height thumb. That gave maximum
+    // visual weight to "there is nothing here": a pane with no overflow
+    // rendered as a black column, indistinguishable at a glance from a
+    // full-length thumb meaning "you are seeing all of a scrollable doc".
     val buf = NewBuffer(1, 5)
     RenderTo(Scrollbar(5, 5, 0), Rect(X = 0, Y = 0, Width = 1, Height = 5), buf)
     var y = 0
-    var allFull = true
+    var allTrack = true
     for y < 5 {
-        if buf.CharAt(0, y) != '█' {
-            allFull = false
+        if buf.CharAt(0, y) != '│' {
+            allTrack = false
         }
         y = y + 1
     }
-    return IsTrue(t, allFull)
+    return IsTrue(t, allTrack)
 }
 
 func TestScrollbarThumbAtTopForZeroOffset(t T) T {

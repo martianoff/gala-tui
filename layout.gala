@@ -17,11 +17,19 @@ import (
 //                  two Fills split 2:1 by writing Fill(2) and Fill(1).
 //   - MinLen(n):   *at least* n cells of the leftover space. Used to stop
 //                  a Fill from collapsing a panel below a useful minimum.
+//   - MaxLen(n):   *at most* n cells. The mirror of MinLen: lets a child
+//                  grow with the terminal but stop at a readable width
+//                  (a text column that shouldn't stretch to 300 chars).
+//   - Ratio(a, b): the fraction a/b of the parent area. Percent's precise
+//                  sibling — `Ratio(1, 3)` is exactly a third, where
+//                  `Percent(33)` drifts by a cell on most widths.
 sealed type Constraint {
     case Length(N int)
     case Percent(N int)
     case Fill(Weight int)
     case MinLen(N int)
+    case MaxLen(N int)
+    case Ratio(Num int, Den int)
 }
 
 // Solve returns the allocated size (in cells) for each constraint given a
@@ -67,6 +75,22 @@ func Solve(total int, cs Array[Constraint]) Array[int] {
             }
             case MinLen(v) => {
                 val s = MaxInt(0, v)
+                sizes[i] = s
+                fixedTotal = fixedTotal + s
+                true
+            }
+            case MaxLen(v) => {
+                // A cap, not a request: take what is asked for unless the
+                // parent is narrower, in which case the parent wins.
+                val s = MinInt(MaxInt(0, v), total)
+                sizes[i] = s
+                fixedTotal = fixedTotal + s
+                true
+            }
+            case Ratio(num, den) => {
+                // Guard a zero denominator rather than trapping — a bad
+                // ratio collapses the child instead of killing the render.
+                val s = if (den <= 0) 0 else total * MaxInt(0, num) / den
                 sizes[i] = s
                 fixedTotal = fixedTotal + s
                 true
@@ -126,4 +150,50 @@ func clampPct(p int) int {
     if p < 0   { return 0 }
     if p > 100 { return 100 }
     return p
+}
+
+// ----------------------------------------------------------------------------
+// Flex — what a Row / Column does with space its children did not claim.
+//
+// `Solve` answers "how big is each child"; FlexMode answers the question that
+// only shows up once every child is sized and cells are still left over:
+// where does the slack go? Without it the only expressible answer is "give it
+// to the last Fill", which is why centering a fixed-width dialog needs two
+// throwaway spacer children today.
+//
+// Named FlexMode rather than Flex because `Flex(weight, widget)` is already
+// the Fill-constrained LayoutChild constructor.
+// ----------------------------------------------------------------------------
+sealed type FlexMode {
+    // FlexLegacy is the historical behavior and stays the default: slack
+    // goes to the last Fill child, or is simply left unused when there is
+    // no Fill. Existing layouts must keep rendering identically.
+    case FlexLegacy()
+    // FlexStart packs children at the start; slack collects at the end.
+    case FlexStart()
+    // FlexEnd packs children at the end; slack collects at the start.
+    case FlexEnd()
+    // FlexCenter splits the slack evenly before and after the children.
+    case FlexCenter()
+    // FlexSpaceBetween puts all slack *between* children, none at the edges.
+    case FlexSpaceBetween()
+    // FlexSpaceAround gives each child equal slack on both sides, so edge
+    // gaps are half the size of the gaps between children.
+    case FlexSpaceAround()
+    // FlexSpaceEvenly makes every gap equal, edges included.
+    case FlexSpaceEvenly()
+}
+
+// ----------------------------------------------------------------------------
+// VAlign — vertical placement, the counterpart to Align.
+//
+// `Align` has always been horizontal-only; a widget shorter than its area
+// could not be pushed to the middle or bottom without a hand-computed
+// spacer. Kept as its own type rather than adding cases to `Align` so the
+// two axes cannot be confused at a call site.
+// ----------------------------------------------------------------------------
+sealed type VAlign {
+    case VAlignTop()
+    case VAlignMiddle()
+    case VAlignBottom()
 }
