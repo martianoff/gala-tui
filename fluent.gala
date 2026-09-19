@@ -251,13 +251,22 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case FillWidget(ch, s)                 => FillWidget(Ch = ch, Style = f(s))
         case BorderWidget(inner, kind, sides, style, titles) =>
             // The border's own style is a leaf too — restyling a subtree
-            // should recolour its frame, not just its text.
+            // should recolour its frame, not just its text. That applies
+            // verbatim to a title's Spans: passing them through untouched
+            // made the title the *brightest* thing on a dimmed panel.
             BorderWidget(
                 Inner  = restyleLeaves(inner, f),
                 Kind   = kind,
                 Sides  = sides,
                 Style  = f(style),
-                Titles = titles,
+                Titles = titles.Map((bt) => BlockTitle(
+                    Content  = Line(
+                        Spans = bt.Content.Spans.Map((s) => s.Styled(f(s.Style))),
+                        Align = bt.Content.Align,
+                    ),
+                    Position = bt.Position,
+                    Align    = bt.Align,
+                )),
             )
         case PaddingWidget(t, r, b, l, inner)  =>
             PaddingWidget(Top = t, Right = r, Bottom = b, Left = l,

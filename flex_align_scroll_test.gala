@@ -216,15 +216,26 @@ func TestScrollbarDerivesViewportWhenVisibleIsZero(t T) T {
 }
 
 func TestScrollPaneScrollbarThumbMovesWithOffset(t T) T {
-    // The audit's S1-3: ScrollPaneView passed Visible = contentH, making
-    // total == visible on every call, so the thumb was always solid and
-    // never moved. These two frames used to be byte-identical.
+    // The audit's S1-3: ScrollPaneView passed Visible = contentH alongside
+    // Total = contentH, so total == visible on every call and the thumb
+    // never moved.
+    //
+    // Assert the bar COLUMN, not whole rows. An earlier version of this test
+    // compared `SnapshotLines(...).Get(y)` between the two offsets, which
+    // always differ because the body text scrolls ("row0" vs "row6") — so it
+    // passed with the bug fully reintroduced. The bar is the only thing this
+    // test is about, so it is the only thing it may look at.
     val body = Column(ArrayTabulate(10, (i) => Fixed(1, Text(s"row$i"))))
-    val top = ScrollPaneView(body, ScrollPaneState(Offset = 0), 10)
-    val bot = ScrollPaneView(body, ScrollPaneState(Offset = 6), 10)
-    val topBar = SnapshotLines(top, 10, 4)
-    val botBar = SnapshotLines(bot, 10, 4)
-    // Thumb at the top in the first frame, away from the top in the second.
-    val t1 = IsTrue(t, topBar.Get(0) != botBar.Get(0))
-    return IsTrue(t1, topBar.Get(3) != botBar.Get(3))
+    val barX = 9
+    val topBuf = NewBuffer(10, 4)
+    val botBuf = NewBuffer(10, 4)
+    RenderTo(ScrollPaneView(body, ScrollPaneState(Offset = 0), 10),
+        Rect(X = 0, Y = 0, Width = 10, Height = 4), topBuf)
+    RenderTo(ScrollPaneView(body, ScrollPaneState(Offset = 6), 10),
+        Rect(X = 0, Y = 0, Width = 10, Height = 4), botBuf)
+    // Thumb pinned to the top at offset 0, to the bottom at max offset.
+    val t1 = Eq(t, topBuf.CharAt(barX, 0), '█')
+    val t2 = Eq(t1, topBuf.CharAt(barX, 3), '│')
+    val t3 = Eq(t2, botBuf.CharAt(barX, 0), '│')
+    return Eq(t3, botBuf.CharAt(barX, 3), '█')
 }

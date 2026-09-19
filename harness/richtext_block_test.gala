@@ -84,8 +84,16 @@ func TestHarnessKeypressRestylesOnlyTheFirstSpan(t T) T {
 }
 
 func TestHarnessRestyleIsReversible(t T) T {
-    val s = rtHarness().Start().Type("b").Type("p")
-    return IsTrue(t, !s.Buffer().StyleAt(1, 1).Bold)
+    // Sweep the whole run, not one cell — a single sample would pass if
+    // only the first character had been un-bolded.
+    val buf = rtHarness().Start().Type("b").Type("p").Buffer()
+    var acc = t
+    var x = 1
+    for x <= 4 {
+        acc = IsTrue(acc, !buf.StyleAt(x, 1).Bold)
+        x = x + 1
+    }
+    return acc
 }
 
 func TestBlockTitleFillsWiderViewport(t T) T {

@@ -1366,12 +1366,18 @@ func renderBlockTitles(
     area Rect,
     buf *Buffer,
 ) {
-    if titles.IsEmpty() || area.Width <= 2 {
+    // The guard is on the caption slot, not the area: a top-rule-only
+    // border has no corners to reserve, so a 2-cell area still has room.
+    if titles.IsEmpty() || area.Width <= borderWidthOverhead(sides) {
         return
     }
-    // The span available to captions: inside the corners.
-    val slotX = area.X + 1
-    val slotW = MaxInt(0, area.Width - 2)
+    // The span available to captions: inside whichever corners exist. A
+    // top-rule-only header has none, so hardcoding a 1-cell inset there
+    // would indent the caption into the rule for no reason and leave a
+    // stray glyph at each end — and a titled section rule is the main
+    // reason BorderSides exists.
+    val slotX = area.X + (if (sides.Left) 1 else 0)
+    val slotW = MaxInt(0, area.Width - borderWidthOverhead(sides))
     ArrayOf(TitleTop(), TitleBottom()).ForEach((pos) => {
         val edgeDrawn = pos match {
             case TitleTop()    => sides.Top

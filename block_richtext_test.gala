@@ -70,10 +70,12 @@ func TestTitleForUndrawnEdgeIsDropped(t T) T {
         Position = TitleBottom(),
         Align    = AlignLeft(),
     )
+    // Asserted as a golden rather than !Contains("gone"): a containment
+    // check also passes if the border vanished or the body never drew.
     val sides = SidesOf(true, true, false, true)
     val w = Block(Text("body"), SingleBorder(), sides, DefaultStyle(), ArrayOf(title))
     val out = Snapshot(w, 8, 3)
-    return IsTrue(t, !strings.Contains(out, "gone"))
+    return Eq(t, out, "┌──────┐\n│body  │\n│      │")
 }
 
 // ----------------------------------------------------------------------------
@@ -94,6 +96,43 @@ func TestTopOnlyBorderConsumesOneRow(t T) T {
     val w = Block(Text("body"), SingleBorder(), sides, DefaultStyle(), EmptyArray[BlockTitle]())
     val out = Snapshot(w, 5, 2)
     return Eq(t, out, "─────\nbody ")
+}
+
+func TestTitleSlotUsesOnlyTheCornersThatExist(t T) T {
+    // A top-rule-only section header has no corners, so the caption must
+    // start at column 0 and a right-aligned one must reach the last column.
+    // Reserving a corner inset unconditionally indented the left title into
+    // the rule and left a stray glyph at each end.
+    val left = BlockTitle(
+        Content  = LineFromString("L", DefaultStyle()),
+        Position = TitleTop(),
+        Align    = AlignLeft(),
+    )
+    val right = BlockTitle(
+        Content  = LineFromString("R", DefaultStyle()),
+        Position = TitleTop(),
+        Align    = AlignRight(),
+    )
+    val w = Block(Text(""), SingleBorder(), SidesOf(true, false, false, false),
+                  DefaultStyle(), ArrayOf(left, right))
+    return Eq(t, SnapshotLines(w, 10, 1).Get(0), "L────────R")
+}
+
+func TestTitleSlotStillClearsCornersOnAFullBox(t T) T {
+    val w = Block(Text(""), SingleBorder(), AllSides(), DefaultStyle(),
+                  ArrayOf(TitleOf("L")))
+    return Eq(t, SnapshotLines(w, 6, 3).Get(0), "┌L───┐")
+}
+
+func TestRestyleReachesTitleSpans(t T) T {
+    // Passing Titles through untouched made the title the brightest thing
+    // on a dimmed panel — the frame and body dimmed, the caption did not.
+    val w = Titled(Text("b"), "Tt").WithDim()
+    val buf = NewBuffer(8, 3)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 3), buf)
+    // Columns 1-2 are the caption; column 3 is the rule beside it.
+    val t1 = IsTrue(t, buf.StyleAt(1, 0).Dim && buf.StyleAt(2, 0).Dim)
+    return IsTrue(t1, buf.StyleAt(3, 0).Dim)
 }
 
 func TestPartialBorderIntrinsicSizeCountsOnlyDrawnEdges(t T) T {
