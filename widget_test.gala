@@ -133,14 +133,14 @@ func TestPaddingLargerThanAreaNoOp(t T) T {
 
 func TestAlignLeft(t T) T {
     val buf = NewBuffer(10, 1)
-    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignLeft(), ChildW = 3, ChildH = 1)
+    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignLeft(), Vert = VAlignTop(), ChildW = 3, ChildH = 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "abc       ")
 }
 
 func TestAlignCenter(t T) T {
     val buf = NewBuffer(10, 1)
-    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignCenter(), ChildW = 3, ChildH = 1)
+    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignCenter(), Vert = VAlignTop(), ChildW = 3, ChildH = 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // (10-3)/2 = 3 cells of left padding → "   abc    "
     return Eq(t, BufferText(buf, 0), "   abc    ")
@@ -148,7 +148,7 @@ func TestAlignCenter(t T) T {
 
 func TestAlignRight(t T) T {
     val buf = NewBuffer(10, 1)
-    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignRight(), ChildW = 3, ChildH = 1)
+    val w = AlignWidget(Inner = Text("abc"), Horiz = AlignRight(), Vert = VAlignTop(), ChildW = 3, ChildH = 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     return Eq(t, BufferText(buf, 0), "       abc")
 }

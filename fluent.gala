@@ -147,20 +147,42 @@ func (w Widget) Bordered() Widget = Border(w)
 // BorderedOf picks a specific border glyph kind (rounded, thick, double, ascii).
 func (w Widget) BorderedOf(kind BorderKind) Widget = BorderOf(w, kind)
 
-// Centered horizontally + vertically centers `w` in a (width × height) box.
-// (The AlignWidget variant already handles both axes — the `Horiz` field
-// controls horizontal alignment; vertical centering happens via the child
-// dimensions being smaller than the parent area.)
+// Centered centers `w` on both axes within a (width × height) box.
+//
+// Vertical centering is real as of the VAlign field: previously this only
+// centered horizontally — `renderAlign` pinned Y to the area's top — and the
+// doc comment claiming otherwise was wrong. Callers that wanted both axes
+// built a Column[Flex(1), Fixed(h), Flex(1)] sandwich by hand (see
+// modal.gala's centerPanel).
 func (w Widget) Centered(width int, height int) Widget =
-    AlignWidget(Inner = w, Horiz = AlignCenter(), ChildW = width, ChildH = height)
+    AlignWidget(Inner = w, Horiz = AlignCenter(), Vert = VAlignMiddle(),
+                ChildW = width, ChildH = height)
 
 // AlignedLeft aligns `w` to the left of its (width × height) slot.
 func (w Widget) AlignedLeft(width int, height int) Widget =
-    AlignWidget(Inner = w, Horiz = AlignLeft(), ChildW = width, ChildH = height)
+    AlignWidget(Inner = w, Horiz = AlignLeft(), Vert = VAlignTop(),
+                ChildW = width, ChildH = height)
 
 // AlignedRight pins `w` to the right of its (width × height) slot.
 func (w Widget) AlignedRight(width int, height int) Widget =
-    AlignWidget(Inner = w, Horiz = AlignRight(), ChildW = width, ChildH = height)
+    AlignWidget(Inner = w, Horiz = AlignRight(), Vert = VAlignTop(),
+                ChildW = width, ChildH = height)
+
+// AlignedAt is the explicit form — pick both axes.
+func (w Widget) AlignedAt(
+    horiz Align,
+    vert VAlign,
+    width int,
+    height int,
+) Widget =
+    AlignWidget(Inner = w, Horiz = horiz, Vert = vert,
+                ChildW = width, ChildH = height)
+
+// AlignedBottom pins `w` to the bottom edge of its slot — a status line at
+// the foot of a pane that is taller than its content.
+func (w Widget) AlignedBottom(width int, height int) Widget =
+    AlignWidget(Inner = w, Horiz = AlignLeft(), Vert = VAlignBottom(),
+                ChildW = width, ChildH = height)
 
 // Over draws `top` on top of `w` (so `w` is the background, `top` masks it
 // where it paints). Mirrors Overlay(bottom = w, top = top).
@@ -240,26 +262,27 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case PaddingWidget(t, r, b, l, inner)  =>
             PaddingWidget(Top = t, Right = r, Bottom = b, Left = l,
                           Inner = restyleLeaves(inner, f))
-        case AlignWidget(inner, h, cw, ch)     =>
+        case AlignWidget(inner, h, v, cw, ch)  =>
             AlignWidget(Inner = restyleLeaves(inner, f),
-                        Horiz = h, ChildW = cw, ChildH = ch)
+                        Horiz = h, Vert = v, ChildW = cw, ChildH = ch)
         case OverlayWidget(bot, top)           =>
             OverlayWidget(Bottom = restyleLeaves(bot, f),
                           Top    = restyleLeaves(top, f))
-        case RowWidget(children)               =>
+        case RowWidget(children, flex, sp)     =>
             RowWidget(Children = children.Map((c) => LayoutChild(
                 Constraint = c.Constraint,
                 Widget     = restyleLeaves(c.Widget, f),
-            )))
-        case ColumnWidget(children)            =>
+            )), Flex = flex, Spacing = sp)
+        case ColumnWidget(children, flex, sp)  =>
             ColumnWidget(Children = children.Map((c) => LayoutChild(
                 Constraint = c.Constraint,
                 Widget     = restyleLeaves(c.Widget, f),
-            )))
+            )), Flex = flex, Spacing = sp)
         case StackWidget(layers)               =>
             StackWidget(Layers = layers.Map((l) => restyleLeaves(l, f)))
-        case ListW(items, sel, ss)             =>
-            ListW(Items = items, Selected = sel, SelStyle = f(ss))
+        case ListW(items, sel, ss, off, dir)   =>
+            ListW(Items = items, Selected = sel, SelStyle = f(ss),
+                  Offset = off, Direction = dir)
         case InputW(v, cu, p, s, ps)           =>
             InputW(Value = v, Cursor = cu, Placeholder = p,
                    Style = f(s), PlaceholderStyle = f(ps))
@@ -270,8 +293,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ParagraphW(c, s)                  => ParagraphW(Content = c, Style = f(s))
         case ViewportW(inner, off, ch)         =>
             ViewportW(Inner = restyleLeaves(inner, f), Offset = off, ContentHeight = ch)
-        case ScrollbarW(tot, vis, off, s)      =>
-            ScrollbarW(Total = tot, Visible = vis, Offset = off, Style = f(s))
+        case ScrollbarW(tot, vis, off, s, or)  =>
+            ScrollbarW(Total = tot, Visible = vis, Offset = off, Style = f(s),
+                       Orientation = or)
         case ClickableW(inner, payload)        =>
             ClickableW(Inner = restyleLeaves(inner, f), Payload = payload)
         case ClickableRowsW(inner, n, h, p)    =>

@@ -103,7 +103,7 @@ func TestIntrinsicHeightOverlayTakesMax(t T) T {
 
 // Align: reports its declared ChildH directly.
 func TestIntrinsicHeightAlignUsesChildH(t T) T {
-    val w = AlignWidget(Inner = Text("hi"), Horiz = AlignCenter(), ChildW = 10, ChildH = 5)
+    val w = AlignWidget(Inner = Text("hi"), Horiz = AlignCenter(), Vert = VAlignTop(), ChildW = 10, ChildH = 5)
     return Eq(t, IntrinsicHeightAt(w, 80), 5)
 }
 

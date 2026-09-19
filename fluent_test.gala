@@ -86,7 +86,13 @@ func TestFluentChainComposesCorrectly(t T) T {
     // Fluent: text, padded 1, bordered, centered in 6x3
     RenderTo(Text("hi").Padded(1).Bordered().Centered(6, 3),
         Rect(X = 0, Y = 0, Width = 10, Height = 5), buf)
-    // Border top-left lands at col 2 (center offset for 6-wide in 10) on row 0
-    // (AlignWidget only affects horizontal here)
-    return Eq(t, buf.CharAt(2, 0), '┌')
+    // Border top-left lands at col 2 (center offset for 6-wide in 10) and
+    // row 1 (center offset for 3-high in 5).
+    //
+    // This assertion used to be (2, 0) with the note "AlignWidget only
+    // affects horizontal here" — it pinned the fact that `Centered` did not
+    // centre vertically despite its name and its doc comment. VAlign makes
+    // the name true, so the row moves down by one.
+    val t1 = Eq(t, buf.CharAt(2, 1), '┌')
+    return Eq(t1, buf.CharAt(2, 0), ' ')
 }
