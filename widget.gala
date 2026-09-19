@@ -21,8 +21,18 @@ import (
 sealed type Widget {
     case EmptyWidget()
     case TextWidget(Content string, Style Style)
+    // RichTextW renders a RichText block — per-Span styling within a line,
+    // per-Line alignment. This is what TextWidget cannot express: a bold
+    // word inside a sentence that still participates in normal layout.
+    case RichTextW(Text RichText)
     case FillWidget(Ch rune, Style Style)
-    case BorderWidget(Inner Widget, Kind BorderKind)
+    case BorderWidget(
+        Inner  Widget,
+        Kind   BorderKind,
+        Sides  BorderSides,
+        Style  Style,
+        Titles Array[BlockTitle],
+    )
     case PaddingWidget(Top int, Right int, Bottom int, Left int, Inner Widget)
     case AlignWidget(Inner Widget, Horiz Align, ChildW int, ChildH int)
     case OverlayWidget(Bottom Widget, Top Widget)
@@ -110,9 +120,69 @@ sealed type BorderKind {
     case AsciiBorder()
 }
 
+// BorderSides selects which edges a BorderWidget actually draws. All four
+// is the usual case (`AllSides()`); partial borders are how panes are
+// separated with a single rule instead of a full box — a right-hand pane
+// that only draws its left edge shares one column with its neighbour
+// rather than butting two box walls together.
+struct BorderSides(
+    Top    bool,
+    Right  bool,
+    Bottom bool,
+    Left   bool,
+)
+
+// AllSides is the full box — the historical BorderWidget behavior.
+func AllSides() BorderSides =
+    BorderSides(Top = true, Right = true, Bottom = true, Left = true)
+
+// NoSides draws no edges. Useful when a Block is wanted only for its
+// titles, or when sides are toggled from app state.
+func NoSides() BorderSides =
+    BorderSides(Top = false, Right = false, Bottom = false, Left = false)
+
+// SidesOf builds an arbitrary edge set, in CSS order (top, right, bottom,
+// left) so it reads the way the shorthand does everywhere else.
+func SidesOf(top bool, right bool, bottom bool, left bool) BorderSides =
+    BorderSides(Top = top, Right = right, Bottom = bottom, Left = left)
+
+// TitlePosition selects which horizontal edge a BlockTitle sits on.
+sealed type TitlePosition {
+    case TitleTop()
+    case TitleBottom()
+}
+
+// BlockTitle is a caption drawn into a border's edge. The content is a
+// `Line`, not a string, so a title can mix styles — a bold name next to a
+// dim shortcut hint — and so it aligns the same way body text does.
+//
+// A border may carry several titles; they are drawn in order, and titles
+// sharing an edge and alignment are separated by a space.
+struct BlockTitle(
+    Content  Line,
+    Position TitlePosition,
+    Align    Align,
+)
+
+// TitleOf builds a plain top-left title from a string — the common case.
+func TitleOf(content string) BlockTitle =
+    BlockTitle(
+        Content  = LineFromString(content, DefaultStyle()),
+        Position = TitleTop(),
+        Align    = AlignLeft(),
+    )
+
+// TitleStyled builds a top-left title in a given style.
+func TitleStyled(content string, style Style) BlockTitle =
+    BlockTitle(
+        Content  = LineFromString(content, style),
+        Position = TitleTop(),
+        Align    = AlignLeft(),
+    )
+
 // Align picks the horizontal position of an Align'd child inside its parent
-// area. Vertical alignment follows the same principle — for simplicity this
-// iteration ships horizontal-only; vertical arrives with the Stack layout.
+// area. Vertical placement is the separate `VAlign` type (layout.gala) so
+// the two axes cannot be mixed up at a call site.
 sealed type Align {
     case AlignLeft()
     case AlignCenter()
@@ -173,12 +243,76 @@ func FillChStyled(ch rune, style Style) Widget =
 
 // Border draws a single-line box around `inner`. Most common border; the
 // default. For other glyph sets use BorderOf.
-func Border(inner Widget) Widget =
-    BorderWidget(Inner = inner, Kind = SingleBorder())
+func Border(inner Widget) Widget = BorderOf(inner, SingleBorder())
 
 // BorderOf draws a border of a chosen kind around `inner`.
 func BorderOf(inner Widget, kind BorderKind) Widget =
-    BorderWidget(Inner = inner, Kind = kind)
+    BorderWidget(
+        Inner  = inner,
+        Kind   = kind,
+        Sides  = AllSides(),
+        Style  = DefaultStyle(),
+        Titles = EmptyArray[BlockTitle](),
+    )
+
+// BorderStyled draws a border in a given style — the colour the glyphs
+// themselves are painted in, independent of whatever `inner` renders.
+func BorderStyled(inner Widget, kind BorderKind, style Style) Widget =
+    BorderWidget(
+        Inner  = inner,
+        Kind   = kind,
+        Sides  = AllSides(),
+        Style  = style,
+        Titles = EmptyArray[BlockTitle](),
+    )
+
+// Block is the full form: choose the glyph set, which edges to draw, the
+// border style, and any titles. `Border` / `BorderOf` / `BorderStyled` are
+// the shorthands for the common shapes.
+func Block(
+    inner Widget,
+    kind BorderKind,
+    sides BorderSides,
+    style Style,
+    titles Array[BlockTitle],
+) Widget =
+    BorderWidget(
+        Inner  = inner,
+        Kind   = kind,
+        Sides  = sides,
+        Style  = style,
+        Titles = titles,
+    )
+
+// Titled draws a single-line box with one plain top-left title — by far the
+// most common titled-panel shape.
+func Titled(inner Widget, title string) Widget =
+    BorderWidget(
+        Inner  = inner,
+        Kind   = SingleBorder(),
+        Sides  = AllSides(),
+        Style  = DefaultStyle(),
+        Titles = ArrayOf(TitleOf(title)),
+    )
+
+// borderWidthOverhead is how many columns a border steals from its inner
+// area — one per drawn vertical edge, so a left-rule-only border costs 1
+// rather than the 2 a full box costs.
+func borderWidthOverhead(sides BorderSides) int =
+    (if (sides.Left) 1 else 0) + (if (sides.Right) 1 else 0)
+
+// borderHeightOverhead is the same count for horizontal edges.
+func borderHeightOverhead(sides BorderSides) int =
+    (if (sides.Top) 1 else 0) + (if (sides.Bottom) 1 else 0)
+
+// RichTextView renders a RichText block — the multi-style counterpart to
+// `Text`. Use it wherever a single row needs more than one style.
+func RichTextView(text RichText) Widget = RichTextW(Text = text)
+
+// SpansLine renders one row of differently-styled runs — the shorthand for
+// the overwhelmingly common single-line case.
+func SpansLine(spans ...Span) Widget =
+    RichTextW(Text = RichTextOf(ArrayOf(LineOf(ArrayOf(spans...)))))
 
 // Padding adds `n` cells of padding on every side of `inner`.
 func Padding(n int, inner Widget) Widget =
@@ -492,10 +626,12 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         case EmptyWidget() => {}
         case TextWidget(content, style) =>
             renderText(content, style, area, buf)
+        case RichTextW(text) =>
+            renderRichText(text, area, buf)
         case FillWidget(ch, style) =>
             renderFill(ch, style, area, buf)
-        case BorderWidget(inner, kind) =>
-            renderBorder(inner, kind, area, buf, hits)
+        case BorderWidget(inner, kind, sides, style, titles) =>
+            renderBorder(inner, kind, sides, style, titles, area, buf, hits)
         case PaddingWidget(top, right, bottom, left, inner) =>
             renderPadding(top, right, bottom, left, inner, area, buf, hits)
         case AlignWidget(inner, horiz, cw, ch) =>
@@ -881,39 +1017,189 @@ func renderFill(ch rune, style Style, area Rect, buf *Buffer) {
 
 // renderBorder paints a 4-corner + 4-edge frame using the glyph set chosen
 // by `kind`, then recurses into the inner widget on the 1-cell-inset area.
-func renderBorder(inner Widget, kind BorderKind, area Rect, buf *Buffer, hits *HitRegistry) {
+func renderBorder(
+    inner Widget,
+    kind BorderKind,
+    sides BorderSides,
+    style Style,
+    titles Array[BlockTitle],
+    area Rect,
+    buf *Buffer,
+    hits *HitRegistry,
+) {
     val g = borderGlyphs(kind)
-    val st = DefaultStyle()
-    // Corners
-    buf.Set(area.X,               area.Y,                Cell(Ch = g.TL, St = st))
-    buf.Set(area.X+area.Width-1,  area.Y,                Cell(Ch = g.TR, St = st))
-    buf.Set(area.X,               area.Y+area.Height-1,  Cell(Ch = g.BL, St = st))
-    buf.Set(area.X+area.Width-1,  area.Y+area.Height-1,  Cell(Ch = g.BR, St = st))
-    // Top / bottom edges
-    var x = area.X + 1
-    val xEnd = area.X + area.Width - 1
-    for x < xEnd {
-        buf.Set(x, area.Y,                Cell(Ch = g.H, St = st))
-        buf.Set(x, area.Y+area.Height-1,  Cell(Ch = g.H, St = st))
-        x = x + 1
+    val right  = area.X + area.Width - 1
+    val bottom = area.Y + area.Height - 1
+
+    // Edges. Each runs the full span and lets the corner pass below
+    // overwrite the ends, so a partial border (a lone left rule, say) is a
+    // clean line rather than a box missing three walls.
+    if sides.Top {
+        var x = area.X
+        for x <= right {
+            buf.Set(x, area.Y, Cell(Ch = g.H, St = style))
+            x = x + 1
+        }
     }
-    // Left / right edges
-    var y = area.Y + 1
-    val yEnd = area.Y + area.Height - 1
-    for y < yEnd {
-        buf.Set(area.X,               y, Cell(Ch = g.V, St = st))
-        buf.Set(area.X+area.Width-1,  y, Cell(Ch = g.V, St = st))
-        y = y + 1
+    if sides.Bottom {
+        var x = area.X
+        for x <= right {
+            buf.Set(x, bottom, Cell(Ch = g.H, St = style))
+            x = x + 1
+        }
     }
-    // Inner area — 1-cell inset.
-    if area.Width >= 2 && area.Height >= 2 {
-        val inside = Rect(
-            X      = area.X + 1,
-            Y      = area.Y + 1,
-            Width  = area.Width - 2,
-            Height = area.Height - 2,
-        )
-        renderToInternal(inner, inside, buf, hits)
+    if sides.Left {
+        var y = area.Y
+        for y <= bottom {
+            buf.Set(area.X, y, Cell(Ch = g.V, St = style))
+            y = y + 1
+        }
+    }
+    if sides.Right {
+        var y = area.Y
+        for y <= bottom {
+            buf.Set(right, y, Cell(Ch = g.V, St = style))
+            y = y + 1
+        }
+    }
+
+    // Corners only exist where two edges actually meet.
+    if sides.Top && sides.Left     { buf.Set(area.X, area.Y, Cell(Ch = g.TL, St = style)) }
+    if sides.Top && sides.Right    { buf.Set(right,  area.Y, Cell(Ch = g.TR, St = style)) }
+    if sides.Bottom && sides.Left  { buf.Set(area.X, bottom, Cell(Ch = g.BL, St = style)) }
+    if sides.Bottom && sides.Right { buf.Set(right,  bottom, Cell(Ch = g.BR, St = style)) }
+
+    renderBlockTitles(titles, sides, area, buf)
+
+    // Inner area — inset by whichever edges were actually drawn.
+    val dx = if (sides.Left) 1 else 0
+    val dy = if (sides.Top) 1 else 0
+    val iw = MaxInt(0, area.Width - borderWidthOverhead(sides))
+    val ih = MaxInt(0, area.Height - borderHeightOverhead(sides))
+    if iw > 0 && ih > 0 {
+        renderToInternal(inner, Rect(
+            X      = area.X + dx,
+            Y      = area.Y + dy,
+            Width  = iw,
+            Height = ih,
+        ), buf, hits)
+    }
+}
+
+// renderBlockTitles paints titles into the horizontal edges. Titles are
+// drawn *over* the already-painted edge glyphs, and only onto an edge that
+// is actually being drawn — a title asking for the bottom edge of a
+// top-only border is dropped rather than floating in the body.
+//
+// Titles sharing an edge and an alignment are laid out left to right with a
+// single space between them, matching how a tab strip or a "name ── hint"
+// caption reads.
+func renderBlockTitles(
+    titles Array[BlockTitle],
+    sides BorderSides,
+    area Rect,
+    buf *Buffer,
+) {
+    if titles.IsEmpty() || area.Width <= 2 {
+        return
+    }
+    // The span available to captions: inside the corners.
+    val slotX = area.X + 1
+    val slotW = MaxInt(0, area.Width - 2)
+    ArrayOf(TitleTop(), TitleBottom()).ForEach((pos) => {
+        val edgeDrawn = pos match {
+            case TitleTop()    => sides.Top
+            case TitleBottom() => sides.Bottom
+        }
+        if edgeDrawn {
+            val y = pos match {
+                case TitleTop()    => area.Y
+                case TitleBottom() => area.Y + area.Height - 1
+            }
+            ArrayOf(AlignLeft(), AlignCenter(), AlignRight()).ForEach((al) => {
+                val group = titles.Filter((t) =>
+                    titlePositionEqual(t.Position, pos) && alignEqual(t.Align, al))
+                if group.NonEmpty() {
+                    renderTitleGroup(group, al, slotX, y, slotW, buf)
+                }
+            })
+        }
+    })
+}
+
+// renderTitleGroup draws one alignment bucket's titles as a single run.
+func renderTitleGroup(
+    group Array[BlockTitle],
+    al Align,
+    slotX int,
+    y int,
+    slotW int,
+    buf *Buffer,
+) {
+    val spans = joinTitleSpans(group)
+    val width = MinInt(slotW, spans.FoldLeft(0, (acc, s) => acc + s.CellWidth()))
+    val startX = al match {
+        case AlignLeft()   => slotX
+        case AlignCenter() => slotX + MaxInt(0, (slotW - width) / 2)
+        case AlignRight()  => slotX + MaxInt(0, slotW - width)
+    }
+    drawSpans(spans, startX, y, slotX + slotW, buf)
+}
+
+// joinTitleSpans flattens a title group's Lines into one span run, with a
+// single default-styled space between adjacent titles.
+func joinTitleSpans(group Array[BlockTitle]) Array[Span] =
+    group.FoldLeft(EmptyArray[Span](), (acc, t) =>
+        if (acc.IsEmpty()) t.Content.Spans
+        else acc.Append(SpanOf(" ")).AppendAll(t.Content.Spans))
+
+// drawSpans paints a span run left to right starting at `x`, clipping at
+// `maxX`. Shared by title rendering and RichTextW.
+func drawSpans(spans Array[Span], x int, y int, maxX int, buf *Buffer) {
+    var cx = x
+    spans.ForEach((s) => {
+        for _, r := range s.Content {
+            val w = RuneCellWidth(r)
+            if w > 0 && cx + w <= maxX {
+                buf.Set(cx, y, Cell(Ch = r, St = s.Style))
+                if w == 2 { buf.Set(cx + 1, y, Cell(Ch = ' ', St = s.Style)) }
+                cx = cx + w
+            }
+        }
+    })
+}
+
+// titlePositionEqual / alignEqual — value comparison on zero-field sealed
+// variants, used to bucket titles by edge and alignment.
+func titlePositionEqual(a TitlePosition, b TitlePosition) bool = a match {
+    case TitleTop()    => b match { case TitleTop() => true    case _ => false }
+    case TitleBottom() => b match { case TitleBottom() => true case _ => false }
+}
+
+func alignEqual(a Align, b Align) bool = a match {
+    case AlignLeft()   => b match { case AlignLeft() => true   case _ => false }
+    case AlignCenter() => b match { case AlignCenter() => true case _ => false }
+    case AlignRight()  => b match { case AlignRight() => true  case _ => false }
+}
+
+// renderRichText paints one Line per row, honouring each Line's own
+// alignment. Lines past the bottom of the area are dropped; a Line wider
+// than the area is clipped at the right edge (wrapping is the caller's
+// decision, since only the caller knows whether the overflow should wrap,
+// ellipsise or scroll).
+func renderRichText(text RichText, area Rect, buf *Buffer) {
+    val maxX = area.X + area.Width
+    var row = 0
+    for row < area.Height && row < text.Lines.Length() {
+        val line = text.Lines.Get(row)
+        val w = MinInt(area.Width, line.CellWidth())
+        val startX = line.Align match {
+            case AlignLeft()   => area.X
+            case AlignCenter() => area.X + MaxInt(0, (area.Width - w) / 2)
+            case AlignRight()  => area.X + MaxInt(0, area.Width - w)
+        }
+        drawSpans(line.Spans, startX, area.Y + row, maxX, buf)
+        row = row + 1
     }
 }
 
@@ -980,8 +1266,10 @@ func defaultRenderWidth(w Widget) int {
     return w match {
         case EmptyWidget()                     => 0
         case TextWidget(content, _)            => RuneCount(content)
+        case RichTextW(text)                   => text.CellWidth()
         case FillWidget(_, _)                  => 1
-        case BorderWidget(inner, _)            => defaultRenderWidth(inner) + 2
+        case BorderWidget(inner, _, sides, _, _) =>
+            defaultRenderWidth(inner) + borderWidthOverhead(sides)
         case PaddingWidget(_, r, _, l, inner)  => defaultRenderWidth(inner) + l + r
         case AlignWidget(_, _, cw, _)          => cw
         case OverlayWidget(bottom, top)        =>
@@ -1016,8 +1304,10 @@ func defaultRenderHeight(w Widget) int {
     return w match {
         case EmptyWidget()                     => 0
         case TextWidget(_, _)                  => 1
+        case RichTextW(text)                   => text.LineCount()
         case FillWidget(_, _)                  => 1
-        case BorderWidget(inner, _)            => defaultRenderHeight(inner) + 2
+        case BorderWidget(inner, _, sides, _, _) =>
+            defaultRenderHeight(inner) + borderHeightOverhead(sides)
         case PaddingWidget(t, _, b, _, inner)  => defaultRenderHeight(inner) + t + b
         case AlignWidget(_, _, _, ch)          => ch
         case OverlayWidget(bottom, top)        =>
@@ -1075,9 +1365,11 @@ func IntrinsicHeightAt(w Widget, width int) int {
     return w match {
         case EmptyWidget()                     => 0
         case TextWidget(_, _)                  => 1
+        case RichTextW(text)                   => text.LineCount()
         case FillWidget(_, _)                  => 1
-        case BorderWidget(inner, _)            =>
-            IntrinsicHeightAt(inner, MaxInt(0, width - 2)) + 2
+        case BorderWidget(inner, _, sides, _, _) =>
+            IntrinsicHeightAt(inner, MaxInt(0, width - borderWidthOverhead(sides)))
+                + borderHeightOverhead(sides)
         case PaddingWidget(t, r, b, l, inner)  =>
             IntrinsicHeightAt(inner, MaxInt(0, width - r - l)) + t + b
         case AlignWidget(_, _, _, ch)          => ch
@@ -1114,10 +1406,15 @@ func IntrinsicHeightAt(w Widget, width int) int {
 // widget's intrinsic height (they have no intrinsic row count of their
 // own).
 func intrinsicChildHeight(c LayoutChild, width int) int = c.Constraint match {
-    case Length(n)  => n
-    case Fill(_)    => IntrinsicHeightAt(c.Widget, width)
-    case Percent(_) => IntrinsicHeightAt(c.Widget, width)
-    case MinLen(n)  => MaxInt(n, IntrinsicHeightAt(c.Widget, width))
+    case Length(n)    => n
+    case Fill(_)      => IntrinsicHeightAt(c.Widget, width)
+    case Percent(_)   => IntrinsicHeightAt(c.Widget, width)
+    case MinLen(n)    => MaxInt(n, IntrinsicHeightAt(c.Widget, width))
+    // A cap only bites when the inner widget wants more than it allows.
+    case MaxLen(n)    => MinInt(n, IntrinsicHeightAt(c.Widget, width))
+    // Like Percent, a ratio is a share of a parent this function cannot
+    // see, so it has no intrinsic row count of its own.
+    case Ratio(_, _)  => IntrinsicHeightAt(c.Widget, width)
 }
 
 // paragraphIntrinsicWidth returns the widest line in `content` (split on

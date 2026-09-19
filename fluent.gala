@@ -213,13 +213,30 @@ func (w Widget) WithDim() Widget = restyleLeaves(w, (s) => s.WithDim())
 //
 // Kept as its own helper because the match would otherwise repeat in every
 // With-* method.
+//
+// restyleRichText applies `f` to every Span in a RichText block. A Span is
+// a styled leaf like TextWidget is, so `.WithBold()` over a rich-text
+// subtree bolds each run rather than flattening them to one style.
+func restyleRichText(t RichText, f func(Style) Style) RichText =
+    RichTextOf(t.Lines.Map((l) =>
+        Line(Spans = l.Spans.Map((s) => s.Styled(f(s.Style))), Align = l.Align)))
+
 func restyleLeaves(w Widget, f func(Style) Style) Widget {
     return w match {
         case EmptyWidget()                     => w
         case TextWidget(c, s)                  => TextWidget(Content = c, Style = f(s))
+        case RichTextW(t)                      => RichTextW(Text = restyleRichText(t, f))
         case FillWidget(ch, s)                 => FillWidget(Ch = ch, Style = f(s))
-        case BorderWidget(inner, kind)         =>
-            BorderWidget(Inner = restyleLeaves(inner, f), Kind = kind)
+        case BorderWidget(inner, kind, sides, style, titles) =>
+            // The border's own style is a leaf too — restyling a subtree
+            // should recolour its frame, not just its text.
+            BorderWidget(
+                Inner  = restyleLeaves(inner, f),
+                Kind   = kind,
+                Sides  = sides,
+                Style  = f(style),
+                Titles = titles,
+            )
         case PaddingWidget(t, r, b, l, inner)  =>
             PaddingWidget(Top = t, Right = r, Bottom = b, Left = l,
                           Inner = restyleLeaves(inner, f))

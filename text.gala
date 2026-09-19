@@ -1,0 +1,113 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Rich text — Span / Line / RichText.
+//
+// `TextWidget` carries exactly one Style for its whole string, which makes
+// "bold this word inside this sentence" inexpressible. Callers worked around
+// it by composing a Row of one TextWidget per styled run, but a Row cannot
+// wrap: the runs are laid out as independent columns, so a paragraph that
+// needs to flow onto a second line has nowhere to flow to. That is why
+// `markdown.gala` drops inline styling whenever a paragraph wraps.
+//
+// The fix is the three-level model every mature TUI toolkit converges on:
+//
+//   Span     — a run of text where every character shares one Style.
+//   Line     — one visual row: an ordered list of Spans, plus an alignment.
+//   RichText — a block of Lines.
+//
+// Named `RichText` rather than `Text` because `Text(...)` is already the
+// plain-string widget constructor.
+//
+// These are pure data with no Buffer dependency, so they are cheap to build,
+// compare and test. `RichTextW` renders them.
+// ============================================================================
+
+// Span is a run of characters sharing one Style. The atom of rich text.
+struct Span(
+    Content string,
+    Style   Style,
+)
+
+// Line is a single visual row: its Spans in left-to-right order, plus the
+// horizontal alignment used when the rendered width is narrower than the
+// area it is drawn into.
+struct Line(
+    Spans Array[Span],
+    Align Align,
+)
+
+// RichText is a block of Lines. Line count is the intrinsic height; the
+// widest Line is the intrinsic width.
+struct RichText(
+    Lines Array[Line],
+)
+
+// ----------------------------------------------------------------------------
+// Constructors
+// ----------------------------------------------------------------------------
+
+// SpanOf builds a Span in the default style — the common case when the
+// styling is applied later with `.Styled`.
+func SpanOf(content string) Span = Span(Content = content, Style = DefaultStyle())
+
+// SpanStyled builds a styled Span.
+func SpanStyled(content string, style Style) Span =
+    Span(Content = content, Style = style)
+
+// Styled returns a copy of this Span with a different Style. Lets a caller
+// build the runs first and paint them afterwards.
+func (s Span) Styled(style Style) Span = Span(Content = s.Content, Style = style)
+
+// CellWidth is how many terminal cells this Span occupies — grapheme-aware,
+// so CJK and emoji count as the 2 cells they actually take.
+func (s Span) CellWidth() int = StringCellWidth(s.Content)
+
+// LineOf builds a left-aligned Line from Spans.
+func LineOf(spans Array[Span]) Line = Line(Spans = spans, Align = AlignLeft())
+
+// LineOfSpans is the variadic form of LineOf, for literal construction.
+func LineOfSpans(spans ...Span) Line = LineOf(ArrayOf(spans...))
+
+// LineFromString builds a single-Span Line in the given style — the bridge
+// from the plain-string world into rich text.
+func LineFromString(content string, style Style) Line =
+    LineOf(ArrayOf(SpanStyled(content, style)))
+
+// Aligned returns a copy of this Line with a different alignment.
+func (l Line) Aligned(align Align) Line = Line(Spans = l.Spans, Align = align)
+
+// CellWidth is the total rendered width of every Span on this Line.
+func (l Line) CellWidth() int =
+    l.Spans.FoldLeft(0, (acc, s) => acc + s.CellWidth())
+
+// PlainText is the Line's characters with all styling discarded — the
+// substrate for wrapping decisions and for plain-text assertions in tests.
+func (l Line) PlainText() string =
+    l.Spans.FoldLeft("", (acc, s) => acc + s.Content)
+
+// RichTextOf builds a RichText from Lines.
+func RichTextOf(lines Array[Line]) RichText = RichText(Lines = lines)
+
+// RichTextOfLines is the variadic form, for literal construction.
+func RichTextOfLines(lines ...Line) RichText = RichTextOf(ArrayOf(lines...))
+
+// RichTextFromString builds a single-Line RichText in the given style.
+func RichTextFromString(content string, style Style) RichText =
+    RichTextOf(ArrayOf(LineFromString(content, style)))
+
+// CellWidth is the widest Line's rendered width — the intrinsic width of
+// the block.
+func (t RichText) CellWidth() int =
+    t.Lines.FoldLeft(0, (acc, l) => MaxInt(acc, l.CellWidth()))
+
+// LineCount is the intrinsic height of the block.
+func (t RichText) LineCount() int = t.Lines.Length()
+
+// PlainText joins every Line's plain text with newlines.
+func (t RichText) PlainText() string =
+    t.Lines.Map((l) => l.PlainText()).MkString("\n")
