@@ -20,7 +20,7 @@ func TestShowcaseRendersWithoutCrashing(t T) T {
     val buf = NewBuffer(120, 30)
     RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     // Header's thick top border uses ┏ at the top-left.
-    val row0 = BufferText(buf, 0)
+    val row0 = RowText(buf, 0)
     return IsTrue(t, showcaseContainsRune(row0, '┏'))
 }
 
@@ -173,7 +173,7 @@ func showcaseIsQuit(m ShowcaseMsg) bool {
 func showcaseContains(buf *Buffer, needle string) bool {
     var y = 0
     for y < buf.Height {
-        if showcaseRowContains(BufferText(buf, y), needle) {
+        if showcaseRowContains(RowText(buf, y), needle) {
             return true
         }
         y = y + 1

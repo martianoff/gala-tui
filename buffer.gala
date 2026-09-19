@@ -178,13 +178,8 @@ func (b *Buffer) DrawText(x int, y int, s string, style Style) int {
 // Clone returns a deep copy — same dimensions, same cell contents, independent
 // underlying slice. Required by the differential renderer so the previous
 // frame isn't clobbered when the new one is rendered.
-func (b *Buffer) Clone() *Buffer {
-    var cs = SliceWithCapacity[Cell](b.Width * b.Height)
-    for _, c := range b.cells {
-        cs = SliceAppend(cs, c)
-    }
-    return &Buffer{Width: b.Width, Height: b.Height, cells: cs}
-}
+func (b *Buffer) Clone() *Buffer =
+    &Buffer{Width: b.Width, Height: b.Height, cells: SliceCopy(b.cells)}
 
 // ContentsEqual is a true cell-by-cell comparison — used mainly in tests and
 // by the differential renderer. Not named `Equal` because GALA auto-generates

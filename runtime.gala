@@ -8,7 +8,6 @@ import (
     . "martianoff/gala/collection_immutable"
     "martianoff/gala/concurrent"
     . "martianoff/gala/go_interop"
-    . "martianoff/gala/resource"
     . "martianoff/gala/std"
     . "martianoff/gala/time_utils"
 )
@@ -41,6 +40,53 @@ func ansiHome() string         = "\x1b[H"
 // installCleanupGuard is provided by `cleanup_guard.go` — Go-side
 // because signal handling, channels, and goroutines aren't expressible
 // in gala source. See the .go file for the rationale.
+
+// TermSession owns every piece of terminal-global state a run mutates:
+// raw mode, the alternate screen, cursor visibility, and — for the mouse
+// entry point — SGR tracking. Acquisition and release live in one type,
+// so a `use` binding pairs them: cleanup runs on every exit path (normal
+// return, an early return from deep inside the read loop, or a panic).
+//
+// Teardown order mirrors installCleanupGuard, so the signal path and the
+// ordinary path leave the terminal in exactly the same state.
+struct TermSession(
+    Fd int,
+    State *term.State,
+    Mouse bool,
+)
+
+// Close restores the terminal. The `Close() error` shape is what a `use`
+// binding requires; the error is term.Restore's.
+func (s TermSession) Close() error {
+    if s.Mouse {
+        fmt.Fprint(os.Stdout, ansiMouseOff())
+    }
+    fmt.Fprint(os.Stdout, ansiCursorShow())
+    fmt.Fprint(os.Stdout, ansiAltScreenOff())
+    return term.Restore(s.Fd, s.State)
+}
+
+// enterTermSession is the acquire half: it installs the signal guard,
+// switches to the alternate screen, hides the cursor, and — when `mouse`
+// is set — enables VT input (Windows) plus SGR mouse reporting.
+func enterTermSession(fd int, state *term.State, mouse bool) TermSession {
+    // Signal handler covers the paths cleanup can't reach (Ctrl+C,
+    // SIGTERM, kill).
+    installCleanupGuard(fd, state, mouse)
+    if mouse {
+        // Windows: enable ENABLE_VIRTUAL_TERMINAL_INPUT so the ANSI mouse
+        // sequences below actually take effect on conhost / PowerShell.
+        // No-op on Linux / macOS.
+        val _ = EnableVTInput()
+    }
+    // Enter the alt screen so our UI doesn't trash the user's shell history.
+    fmt.Fprint(os.Stdout, ansiAltScreenOn())
+    fmt.Fprint(os.Stdout, ansiCursorHide())
+    if mouse {
+        fmt.Fprint(os.Stdout, ansiMouseOn())
+    }
+    return TermSession(Fd = fd, State = state, Mouse = mouse)
+}
 
 // TermSize returns the current terminal width and height in cells.
 // Probes stdout, stdin, and stderr in turn — at least one of those
@@ -91,22 +137,10 @@ func Run[M any, T any](
         fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
         return program.Initial
     }
-    // Signal handler covers paths the cleanup combinator can't (Ctrl+C,
-    // SIGTERM, kill).
-    installCleanupGuard(fd, state, false)
+    // The session owns raw mode, the alt screen and the cursor; releasing
+    // it restores all three on every exit path, normal return or panic.
+    use _session = enterTermSession(fd, state, false)
 
-    // Enter the alt screen so our UI doesn't trash the user's shell history.
-    fmt.Fprint(os.Stdout, ansiAltScreenOn())
-    fmt.Fprint(os.Stdout, ansiCursorHide())
-
-    // Bracket guarantees terminal restoration on every exit path — normal
-    // return or panic — the way `defer` used to, expressed as a combinator.
-    // Release order mirrors the original LIFO defer unwinding.
-    return Bracket(fd, (f) => {
-        fmt.Fprint(os.Stdout, ansiAltScreenOff())
-        fmt.Fprint(os.Stdout, ansiCursorShow())
-        FromError(term.Restore(f, state))
-    }, (_) => {
     var model = program.Initial
 
     // First paint — the initial model before any input.
@@ -174,7 +208,6 @@ func Run[M any, T any](
         }
     }
     return model
-    })
 }
 
 // keyIsCharC tests whether the key is the literal 'c' rune — used for the
@@ -256,19 +289,8 @@ func RunWithSub[M any, T any](
         fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
         return program.Initial
     }
-    installCleanupGuard(fd, state, false)
+    use _session = enterTermSession(fd, state, false)
 
-    fmt.Fprint(os.Stdout, ansiAltScreenOn())
-    fmt.Fprint(os.Stdout, ansiCursorHide())
-
-    // Bracket guarantees terminal restoration on every exit path — normal
-    // return or panic — the way `defer` used to. Release order mirrors the
-    // original LIFO defer unwinding.
-    return Bracket(fd, (f) => {
-        fmt.Fprint(os.Stdout, ansiAltScreenOff())
-        fmt.Fprint(os.Stdout, ansiCursorShow())
-        FromError(term.Restore(f, state))
-    }, (_) => {
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
     var tickers = CollectTickers(initialSub, Now())
@@ -345,7 +367,6 @@ func RunWithSub[M any, T any](
         paintFrame(program.View(model))
     }
     return model
-    })
 }
 
 // ----------------------------------------------------------------------------
@@ -371,26 +392,10 @@ func RunWithMouse[M any, T any](
         fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
         return program.Initial
     }
-    installCleanupGuard(fd, state, true)
+    // Mouse mode is part of the session, so it is turned off by the same
+    // release that restores raw mode and the alt screen.
+    use _session = enterTermSession(fd, state, true)
 
-    // Windows: enable ENABLE_VIRTUAL_TERMINAL_INPUT so the ANSI mouse
-    // sequences below actually take effect on conhost / PowerShell. No-op
-    // on Linux / macOS.
-    val _ = EnableVTInput()
-
-    fmt.Fprint(os.Stdout, ansiAltScreenOn())
-    fmt.Fprint(os.Stdout, ansiCursorHide())
-    fmt.Fprint(os.Stdout, ansiMouseOn())
-
-    // Bracket guarantees terminal + mouse-mode restoration on every exit path —
-    // normal return or panic. Release order mirrors the original LIFO defer
-    // unwinding.
-    return Bracket(fd, (f) => {
-        fmt.Fprint(os.Stdout, ansiAltScreenOff())
-        fmt.Fprint(os.Stdout, ansiCursorShow())
-        fmt.Fprint(os.Stdout, ansiMouseOff())
-        FromError(term.Restore(f, state))
-    }, (_) => {
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
     var tickers = CollectTickers(initialSub, Now())
@@ -508,7 +513,6 @@ func RunWithMouse[M any, T any](
         prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
     }
     return model
-    })
 }
 
 // processInputBytesWithHits is `processInputBytes` plus widget-owned
