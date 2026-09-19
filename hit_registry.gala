@@ -101,13 +101,27 @@ func (h *HitRegistry) RegisterDrag(r Rect, payload any) {
 // a widget rendered later (a modal stacked on top, a row drawn after its
 // container) appears at later indices. Walking entries back-to-front
 // surfaces the topmost hit naturally.
-func (h *HitRegistry) HitAt(x int, y int) Option[any] {
+func (h *HitRegistry) HitAt(x int, y int) Option[any] =
+    h.lastPayloadAt(x, y, (e) => !e.IsDouble && !e.IsDrag)
+
+// lastPayloadAt is the one scan the three HitAt* lookups share: walk
+// entries back-to-front and return the payload of the first one whose
+// rectangle contains `(x, y)` and that `kindMatches` accepts.
+//
+// The reverse index walk is deliberate rather than `Reverse().Find(...)`:
+// this runs on every mouse event against a registry rebuilt each frame,
+// and the functional form would copy the entry slice per lookup. The
+// predicate parameter is what removes the duplication; the loop shape is
+// the part that has to stay allocation-free.
+func (h *HitRegistry) lastPayloadAt(
+    x int,
+    y int,
+    kindMatches func(HitEntry) bool,
+) Option[any] {
     var i = h.entries.Size() - 1
     for i >= 0 {
         val e = h.entries[i]
-        if !e.IsDouble && !e.IsDrag &&
-           x >= e.R.X && x < e.R.X + e.R.Width &&
-           y >= e.R.Y && y < e.R.Y + e.R.Height {
+        if kindMatches(e) && e.R.Contains(x, y) {
             return Some[any](e.Payload)
         }
         i = i - 1
@@ -118,38 +132,16 @@ func (h *HitRegistry) HitAt(x int, y int) Option[any] {
 // HitAtDouble is the double-click counterpart of HitAt. Returns the
 // payload of the LAST-registered double-click entry containing
 // `(x, y)`, or None if no double-click region matches.
-func (h *HitRegistry) HitAtDouble(x int, y int) Option[any] {
-    var i = h.entries.Size() - 1
-    for i >= 0 {
-        val e = h.entries[i]
-        if e.IsDouble &&
-           x >= e.R.X && x < e.R.X + e.R.Width &&
-           y >= e.R.Y && y < e.R.Y + e.R.Height {
-            return Some[any](e.Payload)
-        }
-        i = i - 1
-    }
-    return None[any]()
-}
+func (h *HitRegistry) HitAtDouble(x int, y int) Option[any] =
+    h.lastPayloadAt(x, y, (e) => e.IsDouble)
 
 // HitAtDrag is the drag-region counterpart of HitAt. Returns the
 // payload of the LAST-registered drag entry containing `(x, y)`,
 // or None if no drag region matches. The runtime calls this on
 // press to start a drag, and on each motion-while-held event to
 // resolve which region the cursor is currently over.
-func (h *HitRegistry) HitAtDrag(x int, y int) Option[any] {
-    var i = h.entries.Size() - 1
-    for i >= 0 {
-        val e = h.entries[i]
-        if e.IsDrag &&
-           x >= e.R.X && x < e.R.X + e.R.Width &&
-           y >= e.R.Y && y < e.R.Y + e.R.Height {
-            return Some[any](e.Payload)
-        }
-        i = i - 1
-    }
-    return None[any]()
-}
+func (h *HitRegistry) HitAtDrag(x int, y int) Option[any] =
+    h.lastPayloadAt(x, y, (e) => e.IsDrag)
 
 // Length reports how many entries are registered. Used by tests; the
 // runtime does not need it.

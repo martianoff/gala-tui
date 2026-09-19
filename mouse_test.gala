@@ -14,50 +14,11 @@ import (
 // ============================================================================
 
 // Build an SGR mouse packet: ESC [ < btn ; x ; y M|m
-func mousePacket(btn int, x int, y int, press bool) []byte {
-    var bs = SliceEmpty[byte]()
-    bs = SliceAppendAll(bs, SliceOf(byte(0x1B), byte('['), byte('<')))
-    for _, c := range intToDecimalRunes(btn) { bs = SliceAppend(bs, byte(c)) }
-    bs = SliceAppend(bs, byte(';'))
-    for _, c := range intToDecimalRunes(x) { bs = SliceAppend(bs, byte(c)) }
-    bs = SliceAppend(bs, byte(';'))
-    for _, c := range intToDecimalRunes(y) { bs = SliceAppend(bs, byte(c)) }
-    if press {
-        bs = SliceAppend(bs, byte('M'))
-    } else {
-        bs = SliceAppend(bs, byte('m'))
-    }
-    return bs
-}
-
-func intToDecimalRunes(n int) []rune {
-    if n == 0 {
-        var zero = SliceEmpty[rune]()
-        return SliceAppend(zero, rune('0'))
-    }
-    var neg = false
-    var v = n
-    if v < 0 {
-        neg = true
-        v = -v
-    }
-    var rev = SliceEmpty[rune]()
-    for v > 0 {
-        val d = v % 10
-        rev = SliceAppend(rev, rune('0' + d))
-        v = v / 10
-    }
-    var out = SliceEmpty[rune]()
-    if neg {
-        out = SliceAppend(out, rune('-'))
-    }
-    var i = rev.Size() - 1
-    for i >= 0 {
-        out = SliceAppend(out, rev[i])
-        i = i - 1
-    }
-    return out
-}
+//
+// The packet is just its wire text, so interpolation renders the decimal
+// fields — no hand-rolled itoa, no byte-at-a-time assembly.
+func mousePacket(btn int, x int, y int, press bool) []byte =
+    ToBytes(s"\x1b[<$btn;$x;$y${if (press) "M" else "m"}")
 
 // ----------------------------------------------------------------------------
 // Mouse packet parsing
@@ -138,9 +99,7 @@ func TestParseInputMouseScrollDown(t T) T {
 
 func TestParseInputKeyFallthrough(t T) T {
     // Plain ASCII 'a' should flow through as KeyInput.
-    var bs = SliceEmpty[byte]()
-    bs = SliceAppend(bs, byte('a'))
-    val (ev, n) = ParseInput(bs)
+    val (ev, n) = ParseInput(ToBytes("a"))
     val isKey = ev match {
         case KeyInput(_) => true
         case _           => false
@@ -151,9 +110,7 @@ func TestParseInputKeyFallthrough(t T) T {
 
 func TestParseInputIncompleteMouseReturnsZeroConsumed(t T) T {
     // Only the prefix ESC [ < with no terminator — parser should request more.
-    var bs = SliceEmpty[byte]()
-    bs = SliceAppendAll(bs, SliceOf(byte(0x1B), byte('['), byte('<'), byte('0')))
-    val (_, n) = ParseInput(bs)
+    val (_, n) = ParseInput(ToBytes("\x1b[<0"))
     return Eq(t, n, 0)
 }
 

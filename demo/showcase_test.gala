@@ -214,9 +214,9 @@ func TestShowcaseEndToEnd(t T) T {
     return IsTrue(t9, containsAnyRow(buf, "hi"))
 }
 
-// containsRow checks whether BufferText(buf, y) contains the given substring.
+// containsRow checks whether RowText(buf, y) contains the given substring.
 func containsRow(buf *Buffer, y int, needle string) bool {
-    val s = BufferText(buf, y)
+    val s = RowText(buf, y)
     return stringContains(s, needle)
 }
 
@@ -224,7 +224,7 @@ func containsRow(buf *Buffer, y int, needle string) bool {
 func containsAnyRow(buf *Buffer, needle string) bool {
     var y = 0
     for y < buf.Height {
-        if stringContains(BufferText(buf, y), needle) {
+        if stringContains(RowText(buf, y), needle) {
             return true
         }
         y = y + 1
