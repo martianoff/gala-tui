@@ -119,6 +119,36 @@ func TestBorderStyleReachesTheGlyphs(t T) T {
     return IsTrue(t, strings.Contains(out, "\x1b[1m┌"))
 }
 
+func TestBorderStyleSweptAcrossTheWholeFrame(t T) T {
+    // Sampling one border cell would pass even if only a corner were styled.
+    // Sweep the whole top edge and both verticals instead.
+    val w = BorderStyled(Text(""), SingleBorder(), DefaultStyle().WithBold())
+    val buf = NewBuffer(6, 3)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
+    var acc = t
+    var x = 0
+    for x < 6 {
+        acc = IsTrue(acc, buf.StyleAt(x, 0).Bold && buf.StyleAt(x, 2).Bold)
+        x = x + 1
+    }
+    return IsTrue(acc, buf.StyleAt(0, 1).Bold && buf.StyleAt(5, 1).Bold)
+}
+
+func TestTitledPartialBorderGolden(t T) T {
+    // A titled partial border is pure layout arithmetic — the case a golden
+    // is for. Top and left only: the title sits in the top edge, there is a
+    // top-left corner but no top-right, and the body keeps every row below.
+    val w = Block(
+        Text("body"),
+        SingleBorder(),
+        SidesOf(true, false, false, true),
+        DefaultStyle(),
+        ArrayOf(TitleOf("Tt")),
+    )
+    val out = Snapshot(w, 8, 3)
+    return Eq(t, out, "┌Tt─────\n│body   \n│       ")
+}
+
 func TestBorderStyleIsIndependentOfInnerStyle(t T) T {
     val w = BorderStyled(TextStyled("x", DefaultStyle()), SingleBorder(),
                          DefaultStyle().WithBold())
@@ -147,6 +177,19 @@ func TestRichTextKeepsPerSpanStyles(t T) T {
     val out = SnapshotStyled(w, 10, 1)
     val t1 = IsTrue(t, strings.Contains(out, "\x1b[1mb"))
     return IsTrue(t1, !strings.Contains(out, "\x1b[1mp"))
+}
+
+func TestRichTextStyleSweptAcrossEachRun(t T) T {
+    // Per-span styling is the whole point of the primitive, so assert the
+    // style across every cell of each run rather than sampling one.
+    val w = SpansLine(
+        SpanStyled("aa", DefaultStyle().WithBold()),
+        SpanStyled("bb", DefaultStyle()),
+    )
+    val buf = NewBuffer(6, 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
+    val t1 = IsTrue(t, buf.StyleAt(0, 0).Bold && buf.StyleAt(1, 0).Bold)
+    return IsTrue(t1, !buf.StyleAt(2, 0).Bold && !buf.StyleAt(3, 0).Bold)
 }
 
 func TestRichTextLineAlignment(t T) T {
