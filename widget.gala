@@ -1081,8 +1081,20 @@ func renderList(
     // A negative offset means "track the selection" — the historical
     // behaviour. Anything else is the caller scrolling on its own terms,
     // clamped so it can never point past the end.
+    //
+    // Bottom-to-top anchors to the TAIL when the offset is automatic. The
+    // direction flag only changes where rows are placed, so reusing the
+    // top-anchored default here meant a 5-message transcript opened in a
+    // 3-row pane showed messages 1-3 — the oldest — instead of the newest
+    // three, which is the opposite of what the mode is for.
+    val autoOffset = direction match {
+        case ListTopToBottom() => listViewportOffset(n, sel, area.Height)
+        case ListBottomToTop() =>
+            if (sel > 0) listViewportOffset(n, sel, area.Height)
+            else MaxInt(0, n - MaxInt(1, area.Height))
+    }
     val offset = if (explicitOffset < 0)
-        listViewportOffset(n, sel, area.Height)
+        autoOffset
     else
         clampInt(explicitOffset, 0, MaxInt(0, n - MaxInt(1, area.Height)))
     val visibleRows = MinInt(area.Height, MaxInt(0, n - offset))
@@ -1222,32 +1234,97 @@ func flexOffsets(
     val slack = MaxInt(0, total - used)
     val gap = MaxInt(0, spacing)
 
-    // `lead` is the offset of the first child; `extra` is added between each
-    // adjacent pair on top of `spacing`.
-    val (lead, extra) = flex match {
-        case FlexLegacy()       => (0, 0)
-        case FlexStart()        => (0, 0)
-        case FlexEnd()          => (slack, 0)
-        case FlexCenter()       => (slack / 2, 0)
-        // Slack goes strictly between children; with one child there is no
-        // between, so it stays at the start.
-        case FlexSpaceBetween() => (0, if (n > 1) slack / (n - 1) else 0)
-        // Each child gets an equal share on both sides, so edge gaps are
-        // half of the gaps between children.
-        case FlexSpaceAround()  => (slack / (2 * n), slack / n)
-        // Every gap equal, edges included: n children make n+1 gaps.
-        case FlexSpaceEvenly()  => (slack / (n + 1), slack / (n + 1))
-    }
+    // Every mode is the same computation over a different weighting of the
+    // n+1 slots slack can land in: before the first child, between each
+    // adjacent pair, and after the last. Expressing them uniformly is what
+    // lets one exact-rounding pass handle the remainder for all of them.
+    //
+    // Integer division per gap silently dropped `slack mod divisor` onto the
+    // trailing edge, which broke SpaceBetween's defining property (first
+    // child at the start, last at the end) on odd slack, and left
+    // SpaceAround lopsided at essentially every width.
+    val gaps = flexGaps(flex, n, slack)
 
     var offsets = EmptyArray[int]()
-    var pos = lead
+    var pos = gaps.Get(0)
     var i = 0
     for i < n {
         offsets = offsets.Append(pos)
-        pos = pos + sizes.Get(i) + gap + extra
+        pos = pos + sizes.Get(i) + gap + gaps.Get(i + 1)
         i = i + 1
     }
     return offsets
+}
+
+// flexGaps sizes the n+1 slots slack can land in: index 0 is the leading
+// edge, index n the trailing edge, and the rest the gaps between adjacent
+// children.
+//
+// The four edge modes place slack at one edge or split it once, so there is
+// no distribution to get wrong; `lead` is stated directly. Only the three
+// space-* modes divide slack across several gaps, and those are the ones
+// that need exact remainder handling.
+func flexGaps(flex FlexMode, n int, slack int) Array[int] =
+    flex match {
+        // Slack sits at the end — where a trailing Fill would already have
+        // absorbed it. The historical behaviour, and the default.
+        case FlexLegacy() => edgeGaps(n, 0, slack)
+        case FlexStart()  => edgeGaps(n, 0, slack)
+        case FlexEnd()    => edgeGaps(n, slack, 0)
+        // Odd slack cannot split evenly; the extra cell goes to the trailing
+        // edge, so a centred child sits one column left of true centre
+        // rather than one right. Matches what Wave A shipped.
+        case FlexCenter() => edgeGaps(n, slack / 2, slack - slack / 2)
+        // Strictly between children: both edges get nothing. With one child
+        // there is no "between", so it degenerates to trailing slack.
+        case FlexSpaceBetween() =>
+            if (n <= 1) edgeGaps(n, 0, slack)
+            else distributeSlack(slack,
+                ArrayTabulate(n + 1, (i) => if (i == 0 || i == n) 0 else 1))
+        // Each child carries an equal share on both sides, so the two edge
+        // gaps are half the size of the gaps between children.
+        case FlexSpaceAround() =>
+            distributeSlack(slack,
+                ArrayTabulate(n + 1, (i) => if (i == 0 || i == n) 1 else 2))
+        // Every gap equal, edges included.
+        case FlexSpaceEvenly() =>
+            distributeSlack(slack, ArrayTabulate(n + 1, (i) => 1))
+    }
+
+// edgeGaps builds an n+1 slot sizing that only feeds the two edges.
+func edgeGaps(n int, lead int, trail int) Array[int] =
+    ArrayTabulate(n + 1, (i) =>
+        if (i == 0) lead else if (i == n) trail else 0)
+
+// distributeSlack splits `total` across weighted slots so that the parts sum
+// to exactly `total` and any two equally-weighted slots differ by at most one
+// cell. Uses exact cumulative rounding rather than per-slot division, which
+// is what keeps the remainder from piling up on the last slot.
+//
+// The cumulative target is rounded to nearest (`+ sumW/2`) rather than
+// floored. Flooring also sums correctly, but it biases every fractional slot
+// downward and then repays the debt at the end, which made SpaceAround
+// asymmetric — weights 1:2:2:1 over 8 cells came out 1,3,2,2, so the left
+// edge got one cell and the right edge two. Rounding gives 1,3,3,1.
+func distributeSlack(total int, weights Array[int]) Array[int] {
+    val sumW = weights.FoldLeft(0, (acc, w) => acc + MaxInt(0, w))
+    if sumW <= 0 || total <= 0 {
+        return weights.Map((w) => 0)
+    }
+    val half = sumW / 2
+    var out = EmptyArray[int]()
+    var acc = 0
+    var given = 0
+    var i = 0
+    val n = weights.Length()
+    for i < n {
+        acc = acc + total * MaxInt(0, weights.Get(i))
+        val upto = (acc + half) / sumW
+        out = out.Append(upto - given)
+        given = upto
+        i = i + 1
+    }
+    return out
 }
 
 // renderText lays out `content` on a single line, clipped to the area width.
@@ -1427,18 +1504,33 @@ func joinTitleSpans(group Array[BlockTitle]) Array[Span] =
 
 // drawSpans paints a span run left to right starting at `x`, clipping at
 // `maxX`. Shared by title rendering and RichTextW.
+// Stops at the first glyph that does not fit, exactly as `renderText` does.
+// Skipping it and continuing would let a narrower glyph later in the run
+// slide into the space, so the user would read a *different string* than
+// the model holds: "a中b" clipped to 2 cells rendered as "ab" rather than
+// "a". drawSpans backs both RichTextW and block titles, so that applied to
+// every rich-text row and every caption.
 func drawSpans(spans Array[Span], x int, y int, maxX int, buf *Buffer) {
     var cx = x
-    spans.ForEach((s) => {
+    var i = 0
+    val n = spans.Length()
+    for i < n {
+        val s = spans.Get(i)
         for _, r := range s.Content {
             val w = RuneCellWidth(r)
-            if w > 0 && cx + w <= maxX {
-                buf.Set(cx, y, Cell(Ch = r, St = s.Style))
-                if w == 2 { buf.Set(cx + 1, y, Cell(Ch = ' ', St = s.Style)) }
-                cx = cx + w
+            if w == 0 {
+                // Combining mark — consumes no columns, same as renderText.
+                continue
             }
+            if cx + w > maxX {
+                return
+            }
+            buf.Set(cx, y, Cell(Ch = r, St = s.Style))
+            if w == 2 { buf.Set(cx + 1, y, Cell(Ch = ' ', St = s.Style)) }
+            cx = cx + w
         }
-    })
+        i = i + 1
+    }
 }
 
 // titlePositionEqual / alignEqual — value comparison on zero-field sealed
