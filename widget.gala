@@ -621,9 +621,61 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
                   Focused = focused)
 }
 
-// Progress renders a horizontal progress bar `[████░░░░]  pct%`.
+// Progress renders a horizontal progress bar `[████░░░░]` — bar only.
+//
+// The percentage is `ProgressLabeled`, not this. Two doc comments used to
+// promise `[████░░░░]  pct%` here while the renderer emitted no number, and
+// the honest resolution is to split them rather than to start appending a
+// label: a bar's width is load-bearing in a layout, and silently spending
+// five columns of it on text would resize every Progress already in a
+// Row — including ones too narrow to have a bar left over afterwards.
 func Progress(percent int) Widget =
     ProgressW(Percent = percent, Style = DefaultStyle())
+
+// ProgressLabeled is a bar with the percentage to its right:
+// `[█████░░░░]  63%`. The label is fixed-width so the bar does not twitch
+// as the number goes from one digit to three.
+//
+// Degrades to a bare bar when the slot is too narrow to hold both — below
+// that threshold the number would leave a bar so short it conveys nothing,
+// and a caller who asked for a progress bar should still get one.
+func ProgressLabeled(percent int) Widget = ProgressLabeledStyled(percent, DefaultStyle())
+
+// ProgressLabeledStyled is ProgressLabeled with an explicit bar style.
+func ProgressLabeledStyled(percent int, style Style) Widget =
+    CustomW(MinW = progressLabelWidth() + 8, MinH = 1, Render = (area, buf, hits) => {
+        if area.Width <= 0 || area.Height <= 0 {
+            return
+        }
+        val label = progressLabelText(percent)
+        // Keep at least 8 columns of bar, or drop the label entirely.
+        if area.Width < progressLabelWidth() + 8 {
+            renderToInternal(ProgressW(Percent = percent, Style = style), area, buf, hits)
+        } else {
+            val barW = area.Width - progressLabelWidth()
+            renderToInternal(ProgressW(Percent = percent, Style = style),
+                Rect(X = area.X, Y = area.Y, Width = barW, Height = 1), buf, hits)
+            renderText(label, style,
+                Rect(X = area.X + barW, Y = area.Y,
+                     Width = progressLabelWidth(), Height = 1), buf)
+        }
+    })
+
+// progressLabelWidth is the fixed slot the label occupies: two spaces plus
+// a right-aligned "100%".
+func progressLabelWidth() int = 6
+
+func progressLabelText(percent int) string {
+    val p = clampPct(percent)
+    val digits = s"$p%"
+    var pad = ""
+    var i = digits.Size()
+    for i < progressLabelWidth() {
+        pad = pad + " "
+        i = i + 1
+    }
+    return pad + digits
+}
 
 // Gauge renders a smooth-edged bar using Unicode partial blocks.
 func Gauge(percent int) Widget =
