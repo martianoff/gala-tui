@@ -501,18 +501,32 @@ func renderMdBlockWidth(b MdBlock, width int) Widget = b match {
     case MdBlank()                   => Empty()
 }
 
-// renderMdParagraphWidth: short paragraphs (fit on one line) keep
-// inline styling via `renderMdInlineRow`; multi-line wrapped content
-// renders as a Column of plain text rows. The styling tradeoff buys
-// exact heights for the parent layout — necessary for variable-height
-// containers like `ConversationLog`.
+// renderMdParagraphWidth wraps a paragraph to `width`, keeping inline
+// styling on every row it produces.
+//
+// Wrapping used to be computed on the joined plain text and re-emitted as
+// rows of `Text`, so a paragraph that flowed onto a second line lost every
+// bold, italic, code span and link in it. The styling did not degrade
+// gracefully — it vanished at a width threshold, which meant the same
+// document rendered correctly in a wide pane and flat in a narrow one.
+//
+// `WrapSpans` is the same engine `WrapParagraph` now delegates to, so the
+// row count here still matches `renderMdBlockHeightWidth` exactly. That
+// agreement is what lets variable-height containers like `ConversationLog`
+// pre-compute heights.
 func renderMdParagraphWidth(inlines Array[MdInline], width int) Widget {
-    val text = mdInlinesToText(inlines)
-    val wrapped = WrapParagraph(text, width)
-    if wrapped.Length() <= 1 { return renderMdInlineRow(inlines) }
-    val rows = wrapped.Map((line) => Fixed(1, Text(line)))
-    return Column(rows)
+    val lines = WrapSpans(mdInlinesToSpans(inlines, DefaultStyle()), width)
+    // One row keeps the original Row-of-cells path, whose trailing fill
+    // spans the rest of the line — changing it would alter the background
+    // of every short paragraph already shipped.
+    if lines.Length() <= 1 { return renderMdInlineRow(inlines) }
+    return RichTextW(Text = RichTextOf(lines))
 }
+
+// mdInlinesToSpans is the styled counterpart of `mdInlinesToText`: one Span
+// per inline run, carrying the style that run renders with.
+func mdInlinesToSpans(inlines Array[MdInline], base Style) Array[Span] =
+    inlines.Map((r) => Span(Content = mdInlineText(r), Style = mdInlineStyle(r, base)))
 
 // mdInlinesToText collapses an inline-run sequence to its bare text
 // content (no styling, no link URLs) so callers like
@@ -630,6 +644,10 @@ func mdInlineStyle(r MdInline, base Style) Style {
         case MdBold(_)      => base.WithBold()
         case MdItalic(_)    => base.WithItalic()
         case MdCode(_)      => base.WithFg(BrightYellow()).On(Black())
-        case MdLink(_, _)   => base.WithUnderline().WithFg(BrightBlue())
+        // Carries the URL as an OSC 8 hyperlink, not just link-coloured
+        // text: the parser already has the target, and a terminal that
+        // supports OSC 8 makes it clickable. One that does not ignores the
+        // sequence, so the underline-and-blue still reads as a link.
+        case MdLink(_, url) => base.WithUnderline().WithFg(BrightBlue()).WithLink(url)
     }
 }
