@@ -1,9 +1,5 @@
 package gala_tui
 
-import (
-    . "martianoff/gala/std"
-)
-
 // ============================================================================
 // Link — clickable hyperlink text.
 //
@@ -29,10 +25,17 @@ func Link(label string, url string) Widget =
     LinkStyled(label, url, DefaultStyle().WithUnderline().WithFg(BrightCyan()))
 
 // LinkStyled lets callers override the visible style.
-func LinkStyled(label string, url string, style Style) Widget {
-    val osc8 = oscOpen(url) + label + oscClose()
-    return TextStyled(osc8, style)
-}
+//
+// The url rides on the Style, not in the label. Concatenating the escape
+// sequences into the content string — which this used to do — meant the
+// renderer walked them as text: control characters are zero-width, so the
+// ESC was dropped and the rest was painted as visible cells. A link to
+// https://github.com rendered as `]8;;https://github.com\github.com]8;;\`,
+// the terminal never saw a hyperlink because the ESC bytes never reached
+// it, and the widget reported 42 columns of intrinsic width for a
+// 10-column label, which mis-sized every sibling in its Row.
+func LinkStyled(label string, url string, style Style) Widget =
+    TextStyled(label, style.WithLink(url))
 
 // LinkClick is the click-aware sibling: same OSC 8 rendering AND a
 // `Clickable` wrapper that dispatches `msg` on left-click. Useful when
@@ -46,8 +49,7 @@ func LinkClick[T any](label string, url string, msg T) Widget =
 func LinkClickStyled[T any](label string, url string, style Style, msg T) Widget =
     LinkStyled(label, url, style).OnClick[T](msg)
 
-// oscOpen / oscClose: OSC 8 hyperlink begin / end escape sequences.
-// Most terminals from 2017+ understand these. Plain xterm and TTY
-// renderers ignore them — the label still renders.
-func oscOpen(url string) string  = "\x1b]8;;" + url + "\x1b\\"
-func oscClose() string           = "\x1b]8;;\x1b\\"
+// The OSC 8 escape sequences themselves live in buffer.gala, next to the
+// writers that emit them at run boundaries. Nothing here builds them: a
+// hyperlink is a property of a range of cells, and the only place that
+// knows where a range ends is the code walking the grid.

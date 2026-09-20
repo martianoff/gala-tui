@@ -369,6 +369,13 @@ func Restyled(inner Widget, f func(Style) Style) Widget =
 func Highlighted(inner Widget, style Style) Widget =
     RestyleW(Inner = inner, Restyle = (s) => style)
 
+// Linked makes every cell of `inner`'s area part of one OSC 8 hyperlink,
+// whatever `inner` drew. The composed-widget counterpart to `Link`: a whole
+// bordered card or a table row can be the clickable target, not just a
+// string. Cells keep their own colours and attributes.
+func Linked(inner Widget, url string) Widget =
+    RestyleW(Inner = inner, Restyle = (s) => s.WithLink(url))
+
 // Backdrop fills in a background only where a cell has not claimed one,
 // leaving foreground and attributes alone. The shape a themed pane or a
 // surface wants: the text drawn into it stays legible, and anything that
