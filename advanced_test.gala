@@ -60,9 +60,11 @@ func TestSparklineRendersBlocks(t T) T {
     val buf = NewBuffer(6, 1)
     val w = Sparkline(ArrayOf(0, 1, 2, 4, 6, 8))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
-    // Values 0..8 with max=8 give ratios 0/1/2/4/6/8 eighths → glyphs
-    // ' ' '▁' '▂' '▄' '▆' '█'
-    return Eq(t, BufferText(buf, 0), " ▁▂▄▆█")
+    // Values 0..8 with max=8 give ratios 0/1/2/4/6/8 eighths. The series
+    // MINIMUM now floors to the smallest visible block instead of rendering
+    // as a blank cell — a low value and a missing one were indistinguishable,
+    // so a dip in a series read as a hole in the data.
+    return Eq(t, BufferText(buf, 0), "▁▁▂▄▆█")
 }
 
 func TestSparklineEmptyIsNothing(t T) T {
@@ -72,13 +74,18 @@ func TestSparklineEmptyIsNothing(t T) T {
     return Eq(t, BufferText(buf, 0), "    ")
 }
 
-func TestSparklineAllZerosIsBlank(t T) T {
+func TestSparklineAllZerosIsAFlatLineNotBlank(t T) T {
+    // An all-zero series is DATA, and it must not look like no data. The
+    // distinction that matters is against `TestSparklineEmptyIsNothing`
+    // above, which still renders blank: an empty series has nothing to
+    // show, a flat-at-zero series has something to show and it is flat.
+    //
+    // This is the same rule as the LineChart flat-series case — a steady
+    // metric was rendering as an empty panel.
     val buf = NewBuffer(4, 1)
     val w = Sparkline(ArrayOf(0, 0, 0, 0))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    // All zero → sparklineBarString uses max=1 to avoid div-by-zero; values
-    // are 0/1 which rounds to 0 eighths = ' '.
-    return Eq(t, BufferText(buf, 0), "    ")
+    return Eq(t, BufferText(buf, 0), "▁▁▁▁")
 }
 
 // ============================================================================

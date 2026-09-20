@@ -40,12 +40,16 @@ func TestLineChartRowsSingleValueFullTopFilled(t T) T {
     return Eq(t3, rows.Get(2), "█")
 }
 
-func TestLineChartRowsValueAtMinBottomEmpty(t T) T {
+func TestLineChartRowsValueAtMinShowsTheSmallestBlock(t T) T {
     val rows = LineChartRows(ArrayOf(0),
         LineChartBounds(Min = 0, Max = 10), 3)
-    // Value at min → no fill anywhere.
+    // A value sitting on the lower bound now floors to the smallest visible
+    // block on the bottom row, rather than rendering nothing. Previously a
+    // flat series came out as a completely empty panel — a steady metric was
+    // indistinguishable from "no data" — and a dip to the minimum punched a
+    // hole in an otherwise solid line.
     val t1 = Eq(t, rows.Get(0), " ")
-    return Eq(t1, rows.Get(2), " ")
+    return Eq(t1, rows.Get(2), "▁")
 }
 
 func TestLineChartRowsAscendingLine(t T) T {

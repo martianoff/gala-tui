@@ -328,12 +328,18 @@ func TextEllipsisStyled(content string, maxCols int, style Style) Widget =
 // This is the form table / list / menu cells want. `TextEllipsis` caps at
 // build time, which only works when the caller already knows the column
 // width — useless for `Fill` or `Percent` columns, which is most of them.
+// Gutter defaults to 0: the cap uses the full slot. Reserving a column by
+// default would silently narrow every declared width — a `Length(5)` column
+// could only ever show four characters, so "Alice" came out "Ali…" in a
+// column wide enough to hold it. The ellipsis is the signal that content was
+// cut; a caller who also wants blank separation asks for it, either with
+// `CellTextGutter` or by giving the row `Spacing`.
 func CellText(content string) Widget =
-    CellTextW(Content = content, Style = DefaultStyle(), Gutter = 1)
+    CellTextW(Content = content, Style = DefaultStyle(), Gutter = 0)
 
 // CellTextStyled is `CellText` with an explicit style.
 func CellTextStyled(content string, style Style) Widget =
-    CellTextW(Content = content, Style = style, Gutter = 1)
+    CellTextW(Content = content, Style = style, Gutter = 0)
 
 // CellTextGutter is the explicit form. Pass `gutter = 0` for the last
 // column of a row, or for a label that owns the full width (a list row),

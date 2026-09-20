@@ -67,7 +67,17 @@ func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widge
 // columns has to come out of the left-hand one's slot, because that
 // unclaimed tail is the only thing separating them. The last column has
 // nothing to its right, so it keeps all of its width.
-func cellGutter(idx int, count int) int = if (idx + 1 < count) 1 else 0
+// Always 0. Kept as one named place so the decision is visible rather than
+// scattered as a literal across five call sites.
+//
+// Reserving a column for every non-last cell looked right and was not: a
+// table's constraints describe the columns the CALLER asked for, and
+// quietly spending one of them on whitespace means `Length(5)` shows four
+// characters and "Alice" renders "Ali…" in a column sized to hold it. The
+// ellipsis already marks a cut, which is the half of this defect that was
+// unambiguously wrong; blank separation is a layout choice, expressed by
+// giving the row `Spacing` or by declaring wider columns.
+func cellGutter(idx int, count int) int = 0
 
 func tableHeaderCell(
     header string,
