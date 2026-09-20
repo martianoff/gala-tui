@@ -72,8 +72,31 @@ func TestUnfocusedFieldDoesNotEraseTheSurfaceUnderIt(t T) T {
         FillChStyled(' ', DefaultStyle().On(Blue())),
         Input("ab", 0, "", false),
     )
+    // Swept, not sampled: columns 0-1 legitimately lose the surface because
+    // renderText paints the two glyph cells, which is how every text widget
+    // here behaves. Everything the field did not write must survive.
     val buf = inputBuf(surface, 10)
-    return IsTrue(t, ColorEq(buf.StyleAt(6, 0).Bg, Blue()))
+    var acc = t
+    var x = 2
+    for x < 10 {
+        acc = IsTrue(acc, ColorEq(buf.StyleAt(x, 0).Bg, Blue()))
+        x = x + 1
+    }
+    return acc
+}
+
+func TestPaletteQueryCaretFollowsThePalettesFocus(t T) T {
+    // The query field took `Focused = true` unconditionally, so a palette
+    // rendered unfocused — behind a confirm dialog — dimmed its result rows
+    // but kept a live caret in the query box.
+    val p = NewPalette[int](ArrayOf(
+        PaletteAction[int](Label = "Open", Category = "", Msg = 1)))
+    val onBuf = NewBuffer(24, 4)
+    val offBuf = NewBuffer(24, 4)
+    RenderTo(PaletteView[int](p, true), Rect(X = 0, Y = 0, Width = 24, Height = 4), onBuf)
+    RenderTo(PaletteView[int](p, false), Rect(X = 0, Y = 0, Width = 24, Height = 4), offBuf)
+    val t1 = IsTrue(t, caretColumn(onBuf, 24) >= 0)
+    return Eq(t1, caretColumn(offBuf, 24), -1)
 }
 
 func TestFocusedAndUnfocusedEmptyFieldsAreDistinguishable(t T) T {

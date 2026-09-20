@@ -222,7 +222,7 @@ func PaletteView[T any](p Palette[T], focused bool = true) Widget =
 
 // PaletteViewAtHeight lets callers fix the result-list height.
 func PaletteViewAtHeight[T any](p Palette[T], maxRows int, focused bool = true) Widget {
-    val header = paletteHeaderRow[T](p)
+    val header = paletteHeaderRow[T](p, focused)
     val separator = FillCh('─')
     val results = paletteResultsWidget[T](p, maxRows, focused)
     return Column(ArrayOf[LayoutChild](
@@ -252,7 +252,7 @@ func PaletteViewAtHeightClick[T any](
     focused bool,
     onPick func(int) T,
 ) Widget {
-    val header = paletteHeaderRow[T](p)
+    val header = paletteHeaderRow[T](p, focused)
     val separator = FillCh('─')
     val results = paletteResultsWidget[T](p, maxRows, focused)
     val visible = MinInt(p.FilteredActions().Length(), maxRows)
@@ -264,7 +264,12 @@ func PaletteViewAtHeightClick[T any](
     ))
 }
 
-func paletteHeaderRow[T any](p Palette[T]) Widget =
+// The query field takes the palette's own focus state rather than assuming
+// it. A palette rendered unfocused — behind a confirm dialog, say — dimmed
+// its result rows while keeping a live caret in the query box, which is the
+// same hardcode-instead-of-thread mistake this change set exists to remove,
+// at the one site where the caller's answer was already available.
+func paletteHeaderRow[T any](p Palette[T], focused bool) Widget =
     Row(ArrayOf[LayoutChild](
         Fixed(3, TextStyled(" > ", DefaultStyle().WithBold().WithFg(BrightYellow()))),
         Flex(1, InputW(
@@ -273,9 +278,7 @@ func paletteHeaderRow[T any](p Palette[T]) Widget =
             Placeholder      = "Type a command…",
             Style            = DefaultStyle(),
             PlaceholderStyle = DefaultStyle().WithDim(),
-            // The palette query field always has the keyboard while the
-            // palette is open.
-            Focused          = true,
+            Focused          = focused,
         )),
     ))
 
