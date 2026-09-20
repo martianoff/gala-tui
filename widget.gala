@@ -46,6 +46,24 @@ sealed type Widget {
         Marker CanvasMarker,
         Shapes Array[Shape],
     )
+    // CellTextW is a single-row label that fits itself to the slot it is
+    // handed, truncating with a trailing "…" when the content is too wide.
+    //
+    // `TextWidget` cannot do this, and not because nobody wrote the code.
+    // The cap has to be applied at RENDER time, because a `Fill` or
+    // `Percent` column has no width until the solver has run — which is
+    // exactly why `TextEllipsis` (a build-time cap) is unusable for a
+    // table cell. `renderText` clips instead, and the clip is invisible:
+    // a name cut at the column edge is indistinguishable from a name that
+    // happened to fit.
+    //
+    // `Gutter` holds that many trailing columns clear, and defaults to 0.
+    // Reserving one by default looked right and was not: a table's
+    // constraints describe the columns the CALLER asked for, and spending
+    // one on whitespace means `Length(5)` shows four characters. The
+    // ellipsis is the signal that content was cut; blank separation is a
+    // layout choice, expressed with the row's `Spacing`.
+    case CellTextW(Content string, Style Style, Gutter int)
     case FillWidget(Ch rune, Style Style)
     case BorderWidget(
         Inner  Widget,
@@ -310,6 +328,38 @@ func TextEllipsisStyled(content string, maxCols int, style Style) Widget =
 // `maxCols` cells. Counts runes, not bytes — so multi-byte
 // characters (CJK, emoji) don't break the cap. The trailing "…"
 // is one rune wide and is included in the budget.
+// CellText is a label that fits itself to whatever slot the layout gives
+// it: too-wide content is cut and marked with "…", and one trailing
+// column is held back as a gutter so the next column in the Row never
+// touches it.
+//
+// This is the form table / list / menu cells want. `TextEllipsis` caps at
+// build time, which only works when the caller already knows the column
+// width — useless for `Fill` or `Percent` columns, which is most of them.
+// Gutter defaults to 0: the cap uses the full slot. Reserving a column by
+// default would silently narrow every declared width — a `Length(5)` column
+// could only ever show four characters, so "Alice" came out "Ali…" in a
+// column wide enough to hold it. The ellipsis is the signal that content was
+// cut; a caller who also wants blank separation asks for it, either with
+// `CellTextGutter` or by giving the row `Spacing`.
+func CellText(content string) Widget =
+    CellTextW(Content = content, Style = DefaultStyle(), Gutter = 0)
+
+// CellTextStyled is `CellText` with an explicit style.
+func CellTextStyled(content string, style Style) Widget =
+    CellTextW(Content = content, Style = style, Gutter = 0)
+
+// CellTextGutter is the explicit form. Pass `gutter = 0` for the last
+// column of a row, or for a label that owns the full width (a list row),
+// where there is nothing to the right to collide with.
+func CellTextGutter(content string, style Style, gutter int) Widget =
+    CellTextW(Content = content, Style = style, Gutter = gutter)
+
+// cellFit is the render-time half of CellTextW: the content cut to the
+// columns actually available once the gutter is taken out.
+func cellFit(content string, width int, gutter int) string =
+    StringCellEllipsis(content, MaxInt(0, width - MaxInt(0, gutter)))
+
 func ellipsisCap(s string, maxCols int) string {
     if maxCols <= 0 { return s }
     val rs = ToRunes(s)
@@ -631,11 +681,16 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
                   Focused = focused)
 }
 
-// Progress renders a horizontal progress bar `[████░░░░]  pct%`.
+// Progress renders a horizontal progress bar `[████░░░░]` across the full
+// width of its slot. No percentage is drawn — see the note above
+// `renderProgressBar` in interactive.gala for why, and for the two-line
+// Row that adds one where the layout can spare the columns.
 func Progress(percent int) Widget =
     ProgressW(Percent = percent, Style = DefaultStyle())
 
-// Gauge renders a smooth-edged bar using Unicode partial blocks.
+// Gauge renders a smooth-edged bar using Unicode partial blocks, over a
+// `░` track that stays visible at 0% so an empty gauge still looks like a
+// gauge rather than an empty slot.
 func Gauge(percent int) Widget =
     GaugeW(Percent = percent, Style = DefaultStyle())
 
@@ -805,7 +860,7 @@ func TabsClick[T any](
 func tabHeaderRow(titles Array[string], sel int, focused bool) Widget {
     val cells = titles.ZipWithIndex().Map((pair) =>
         tabHeaderCell(pair.V1, pair.V2 == sel, focused))
-    return Row(cells.Append(Flex(1, FillCh(' '))))
+    return OverflowRow(cells)
 }
 
 // tabHeaderRowClick attaches a click contract to every title cell so
@@ -825,7 +880,7 @@ func tabHeaderRowClick[T any](
             Widget     = rawCell.Widget.OnClick(onTabClick(pair.V2)),
         )
     })
-    return Row(cells.Append(Flex(1, FillCh(' '))))
+    return OverflowRow(cells)
 }
 
 func tabHeaderCell(title string, selected bool, focused bool) LayoutChild {
@@ -836,7 +891,100 @@ func tabHeaderCell(title string, selected bool, focused bool) LayoutChild {
     else
         DefaultStyle().WithDim()
     val padded = " " + title + " "
-    return Fixed(RuneCount(padded), TextStyled(padded, style))
+    // Cell width, not rune count: a CJK tab title is two columns per
+    // glyph, and a slot sized by rune count clips half of it away.
+    return Fixed(StringCellWidth(padded), TextStyled(padded, style))
+}
+
+// ----------------------------------------------------------------------------
+// OverflowRow — a row of fixed-width cells that says so when they don't fit.
+// ----------------------------------------------------------------------------
+
+// OverflowMarker is the glyph an `OverflowRow` paints in its last column
+// when it could not draw every cell. It points along the axis the missing
+// cells lie on, which distinguishes it from the `…` that marks a single
+// label cut short.
+func OverflowMarker() rune = '›'
+
+// OverflowRow lays `cells` left-to-right at the widths their constraints
+// declare and, when the row is too narrow to hold them all, paints
+// `OverflowMarker()` in its last column instead of pretending the tail
+// does not exist.
+//
+// A plain `Row` cannot do this. `Solve` clamps the tail, so the first cell
+// that does not fit is handed whatever columns are left — often one — and
+// clips to a single space. A three-tab bar in eighteen columns rendered as
+// `| Running  Passed  |`: the third tab was not truncated, not marked, not
+// anywhere. The user has no way to know it exists, and no key to press
+// because nothing suggests there is anything to reach.
+//
+// Which cells fit is a function of the area, so this has to be decided at
+// render time. Each cell is rendered through the normal walk, hit registry
+// included, so a click contract attached to a cell still works — and a
+// cell that was not drawn registers nothing, which is the honest answer
+// for a region the user cannot see.
+//
+// Non-`Length` constraints have no fixed width to place; they are treated
+// as zero-width and skipped, so `OverflowRow` is for bars of intrinsically
+// sized cells (tabs, a horizontal menu) rather than general layout.
+func OverflowRow(cells Array[LayoutChild]) Widget {
+    val widths = cells.Map((c) => overflowCellWidth(c.Constraint))
+    val total = widths.FoldLeft(0, (acc, w) => acc + w)
+    return CustomW(MinW = total, MinH = 1, Render = (area, buf, hits) => {
+        if area.Width > 0 && area.Height > 0 {
+            renderOverflowRow(cells, widths, total, area, buf, hits)
+        }
+    })
+}
+
+func overflowCellWidth(c Constraint) int = c match {
+    case Length(v) => MaxInt(0, v)
+    case _         => 0
+}
+
+func renderOverflowRow(
+    cells Array[LayoutChild],
+    widths Array[int],
+    total int,
+    area Rect,
+    buf *Buffer,
+    hits *HitRegistry,
+) {
+    // The row owns its whole width — the `Flex(1, FillCh(' '))` tail this
+    // replaced painted the same blanks past the last cell.
+    buf.Fill(area, Cell(Ch = ' ', St = DefaultStyle()))
+    val fitsAll = total <= area.Width
+    // One column is held back for the marker only when there is something
+    // to mark, so a bar that fits is laid out exactly as it always was.
+    val budget = if (fitsAll) area.Width else MaxInt(0, area.Width - 1)
+    val n = cells.Length()
+    var used = 0
+    var drawn = 0
+    var i = 0
+    for i < n {
+        val w = widths.Get(i)
+        if used + w > budget {
+            i = n
+        } else {
+            RenderToWithHits(cells.Get(i).Widget, Rect(
+                X = area.X + used, Y = area.Y, Width = w, Height = 1,
+            ), buf, hits)
+            used = used + w
+            drawn = drawn + 1
+            i = i + 1
+        }
+    }
+    if !fitsAll {
+        // Nothing fit at all: show as much of the first cell as there is
+        // room for rather than a bare marker on an empty row.
+        if drawn == 0 && budget > 0 {
+            RenderToWithHits(cells.Get(0).Widget, Rect(
+                X = area.X, Y = area.Y, Width = budget, Height = 1,
+            ), buf, hits)
+        }
+        buf.Set(area.X + area.Width - 1, area.Y,
+                Cell(Ch = OverflowMarker(), St = DefaultStyle()))
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -889,6 +1037,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         }
         case CanvasW(xmin, xmax, ymin, ymax, marker, shapes) =>
             renderCanvas(xmin, xmax, ymin, ymax, marker, shapes, area, buf)
+        case CellTextW(content, style, gutter) =>
+            renderText(cellFit(content, area.Width, gutter), style, area, buf)
         case FillWidget(ch, style) =>
             renderFill(ch, style, area, buf)
         case BorderWidget(inner, kind, sides, style, titles) =>
@@ -1257,8 +1407,11 @@ func renderList(
             buf.Set(x, y, Cell(Ch = ' ', St = style))
             x = x + 1
         }
-        // Then draw the label, clipped to width.
-        renderText(item.Label, style, Rect(
+        // Then draw the label, cut with a "…" if it is wider than the
+        // pane. A hard clip here made a long entry look like a shorter
+        // entry that fit, which in a list of paths or branch names picks
+        // out the wrong one.
+        renderText(cellFit(item.Label, area.Width, 0), style, Rect(
             X = area.X, Y = y,
             Width = area.Width, Height = 1,
         ), buf)
@@ -1893,6 +2046,8 @@ func defaultRenderWidth(w Widget) int {
         case RichTextW(text)                   => text.CellWidth()
         case RestyleW(inner, _)                => defaultRenderWidth(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
+        case CellTextW(content, _, gutter)     =>
+            StringCellWidth(content) + MaxInt(0, gutter)
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderWidth(inner) + borderWidthOverhead(sides)
@@ -1935,6 +2090,7 @@ func defaultRenderHeight(w Widget) int {
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => defaultRenderHeight(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
+        case CellTextW(_, _, _)                => 1
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderHeight(inner) + borderHeightOverhead(sides)
@@ -2000,6 +2156,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case RestyleW(inner, _)                => IntrinsicHeightAt(inner, width)
         // A canvas has no natural size — it fills whatever it is given.
         case CanvasW(_, _, _, _, _, _)         => MaxInt(1, 0)
+        case CellTextW(_, _, _)                => 1
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             IntrinsicHeightAt(inner, MaxInt(0, width - borderWidthOverhead(sides)))

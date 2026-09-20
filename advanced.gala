@@ -61,12 +61,34 @@ func Table(data TableData) Widget {
 // renderTableHeaderRow builds a Row of bold header cells.
 func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget =
     Row(headers.ZipWithIndex().Map((pair) =>
-        tableHeaderCell(pair.V1, pair.V2, widths)))
+        tableHeaderCell(pair.V1, pair.V2, widths, headers.Length())))
 
-func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChild {
+// cellGutter is 1 for every column but the last: the gap between two
+// columns has to come out of the left-hand one's slot, because that
+// unclaimed tail is the only thing separating them. The last column has
+// nothing to its right, so it keeps all of its width.
+// Always 0. Kept as one named place so the decision is visible rather than
+// scattered as a literal across five call sites.
+//
+// Reserving a column for every non-last cell looked right and was not: a
+// table's constraints describe the columns the CALLER asked for, and
+// quietly spending one of them on whitespace means `Length(5)` shows four
+// characters and "Alice" renders "Ali…" in a column sized to hold it. The
+// ellipsis already marks a cut, which is the half of this defect that was
+// unambiguously wrong; blank separation is a layout choice, expressed by
+// giving the row `Spacing` or by declaring wider columns.
+func cellGutter(idx int, count int) int = 0
+
+func tableHeaderCell(
+    header string,
+    idx int,
+    widths Array[Constraint],
+    count int,
+) LayoutChild {
     val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
     return LayoutChild(Constraint = w,
-        Widget = TextStyled(header, DefaultStyle().WithBold()))
+        Widget = CellTextGutter(header, DefaultStyle().WithBold(),
+                                cellGutter(idx, count)))
 }
 
 // renderTableRow builds a Row of body cells. When `selected` is true the
@@ -80,13 +102,27 @@ func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChi
 func renderTableRow(row Array[string], widths Array[Constraint], selected bool) Widget {
     val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
     val cells = Row(row.ZipWithIndex().Map((pair) =>
-        tableBodyCell(pair.V1, pair.V2, widths, rowStyle)))
+        tableBodyCell(pair.V1, pair.V2, widths, rowStyle, row.Length())))
     return if (selected) Highlighted(cells, rowStyle) else cells
 }
 
-func tableBodyCell(cell string, idx int, widths Array[Constraint], style Style) LayoutChild {
+// tableBodyCell lays one cell through `CellText`, which caps it to its
+// slot with a "…" and reserves the gutter. Drawn as a plain `Text` it
+// filled the slot edge to edge and ran straight into the next column:
+// `build-103-running-forever` in a `Length(10)` column came out as
+// `build-103-running`, a row that reads as a single token and names a
+// build that does not exist. A full-width CJK glyph on the boundary left
+// no gap at all.
+func tableBodyCell(
+    cell string,
+    idx int,
+    widths Array[Constraint],
+    style Style,
+    count int,
+) LayoutChild {
     val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
-    return LayoutChild(Constraint = w, Widget = TextStyled(cell, style))
+    return LayoutChild(Constraint = w,
+        Widget = CellTextGutter(cell, style, cellGutter(idx, count)))
 }
 
 // NewTable is a convenience constructor for tables without headers.
@@ -138,6 +174,15 @@ func SparklineStyled(values Array[int], style Style) Widget {
 
 // sparklineBarString converts a series of values into a single string where
 // each rune is the block glyph whose height represents value/max (in eighths).
+//
+// Every sample floors to `▁`, the smallest visible block, so a column that
+// carries a value always paints one. Letting the arithmetic reach index 0
+// (a space) put a hole in the baseline wherever a sample was small relative
+// to the maximum, and blanked the whole line when every sample was the same
+// low number — "0 errors in each of the last 40 minutes" drew exactly what
+// "no telemetry at all" drew. An empty series is the only thing that
+// renders as nothing, and `SparklineStyled` returns `Empty()` for it before
+// this is reached.
 func sparklineBarString(values Array[int], maxV int) string {
     val glyphs = ArrayOf[rune](' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
     var sb = ""
@@ -146,7 +191,7 @@ func sparklineBarString(values Array[int], maxV int) string {
     for i < n {
         val v = values.Get(i)
         var idx = v * 8 / maxV
-        if idx < 0 { idx = 0 }
+        if idx < 1 { idx = 1 }
         if idx > 8 { idx = 8 }
         sb = sb + string(glyphs.Get(idx))
         i = i + 1
