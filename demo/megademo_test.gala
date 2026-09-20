@@ -535,9 +535,19 @@ func TestHarnessClickOnBuildsTableRowSelects(t T) T {
         StepKey(Ev = PlainKey(Enter())),                 // commit → builds + focus table
     ))
     val before = onBuilds.Model.BuildsTable.Selected
-    val after = onBuilds.Click(40, 12)                   // well into the body
+    // Click the SECOND visible row, located by its content rather than by a
+    // guessed y. This pane filters to "Running", so only two of the nine
+    // builds render; the previous version clicked deep into the body and
+    // relied on hit regions being registered for rows that were filtered
+    // out, which is the bug VisibleRowCount and row-bound payloads fix.
+    val rowY = onBuilds.FindRow("#4208")
+    val after = rowY match {
+        case Some(y) => onBuilds.Click(40, y)
+        case None()  => onBuilds
+    }
     val sel = after.Model.BuildsTable.Selected
-    return IsTrue(t, sel != before)
+    val t1 = IsTrue(t, rowY.IsDefined())
+    return IsTrue(t1, sel != before)
 }
 
 // Double-click on a builds-table row fires MegaOpenRow which pushes a
@@ -549,7 +559,14 @@ func TestHarnessDoubleClickOnBuildsTableRowOpens(t T) T {
         StepKey(Ev = PlainKey(Enter())),
     ))
     val before = onBuilds.Model.Toasts
-    val after = onBuilds.DoubleClick(40, 12)
+    // Locate the row rather than guessing a y — see the single-click test:
+    // the pane filters to "Running", so a click deep in the body lands past
+    // the last rendered row.
+    val rowY = onBuilds.FindRow("#4208")
+    val after = rowY match {
+        case Some(y) => onBuilds.DoubleClick(40, y)
+        case None()  => onBuilds
+    }
     val countBefore = if (before.IsEmpty()) 0 else 1
     val countAfter  = if (after.Model.Toasts.IsEmpty()) 0 else 1
     val t1 = Eq(t, countBefore, 0)

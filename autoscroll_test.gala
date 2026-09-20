@@ -1,0 +1,174 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// AutoScrollW, and S1-2 — DataTable's dead Offset.
+//
+// DataTable emitted every row and let the renderer clip, so `Offset` was
+// never read and a cursor moved past the bottom simply vanished: DTEnd on a
+// table taller than its pane left no highlight anywhere on screen.
+// ============================================================================
+
+func scrollRows(n int) Array[Widget] =
+    ArrayTabulate(n, (i) => Text(s"row$i"))
+
+// ----------------------------------------------------------------------------
+// The widget
+// ----------------------------------------------------------------------------
+
+func TestAutoScrollShowsTheTopWhenEverythingFits(t T) T {
+    val rows = SnapshotLines(AutoScroll(scrollRows(2), 0), 6, 4)
+    val t1 = Eq(t, rows.Get(0), "row0  ")
+    return Eq(t1, rows.Get(1), "row1  ")
+}
+
+func TestAutoScrollFollowsTheSelectionPastTheBottom(t T) T {
+    // 6 rows in a 2-row area with the cursor on the last one: the window
+    // must slide, which is exactly what a Column could not do.
+    val rows = SnapshotLines(AutoScroll(scrollRows(6), 5), 6, 2)
+    val t1 = Eq(t, rows.Get(0), "row4  ")
+    return Eq(t1, rows.Get(1), "row5  ")
+}
+
+func TestAutoScrollExplicitOffsetOverridesTheSelection(t T) T {
+    val rows = SnapshotLines(AutoScrollAt(scrollRows(6), 0, 3), 6, 2)
+    val t1 = Eq(t, rows.Get(0), "row3  ")
+    return Eq(t1, rows.Get(1), "row4  ")
+}
+
+func TestAutoScrollExplicitOffsetIsClamped(t T) T {
+    // An out-of-range offset must not render a blank window.
+    return Eq(t, SnapshotLines(AutoScrollAt(scrollRows(4), 0, 99), 6, 2).Get(0), "row2  ")
+}
+
+func TestAutoScrollHandlesEmptyAndTinyAreas(t T) T {
+    val empty = Snapshot(AutoScroll(EmptyArray[Widget](), 0), 4, 2)
+    val t1 = Eq(t, empty, "    \n    ")
+    // An area shorter than one row renders nothing rather than trapping.
+    return Eq(t1, Snapshot(AutoScrollH(scrollRows(3), 0, -1, 3), 6, 2), "      \n      ")
+}
+
+func TestAutoScrollMultiLineRows(t T) T {
+    val rows = ArrayTabulate(4, (i) =>
+        Column(ArrayOf[LayoutChild](Fixed(1, Text(s"a$i")), Fixed(1, Text(s"b$i")))))
+    // Rows are 2 cells tall, area is 4 → one window of two rows, and the
+    // cursor on row 3 scrolls to show rows 2 and 3.
+    val out = SnapshotLines(AutoScrollH(rows, 3, -1, 2), 4, 4)
+    val t1 = Eq(t, out.Get(0), "a2  ")
+    val t2 = Eq(t1, out.Get(1), "b2  ")
+    val t3 = Eq(t2, out.Get(2), "a3  ")
+    return Eq(t3, out.Get(3), "b3  ")
+}
+
+func TestAutoScrollPayloadsTravelWithTheirRows(t T) T {
+    // The property the click fix depends on: a hit region registered for a
+    // scrolled row carries that ROW's payload, not its screen position.
+    val rows = ArrayTabulate(5, (i) => Text(s"row$i").OnClick[int](i))
+    val hits = NewHitRegistry()
+    val buf = NewBuffer(6, 2)
+    RenderToWithHits(AutoScrollAt(rows, 0, 3), Rect(X = 0, Y = 0, Width = 6, Height = 2),
+                     buf, hits)
+    // Screen row 0 is data row 3.
+    val got = hits.HitAt(0, 0).Map((p) => castInt(p)).GetOrElse(-1)
+    return Eq(t, got, 3)
+}
+
+func castInt(p any) int = p match {
+    case n: int => n
+    case _      => -1
+}
+
+// ----------------------------------------------------------------------------
+// S1-2 — DataTable now scrolls
+// ----------------------------------------------------------------------------
+
+func bigTable(n int) DataTable =
+    NewDataTable(
+        ArrayOf[string]("ID"),
+        ArrayOf[Constraint](Fill(1)),
+        ArrayTabulate(n, (i) => ArrayOf(s"r$i")),
+    )
+
+func TestDataTableCursorStaysVisibleAtTheEnd(t T) T {
+    // DTEnd on a table taller than its pane used to leave the highlight
+    // off-screen with nothing to indicate it.
+    val dt = DataTableUpdate(bigTable(8), DTEnd())
+    val rows = SnapshotLines(DataTableView(dt, true), 6, 4)
+    // Header, rule, then the last two rows.
+    val t1 = Eq(t, rows.Get(0), "ID    ")
+    val t2 = Eq(t1, rows.Get(2), "r6    ")
+    return Eq(t2, rows.Get(3), "r7    ")
+}
+
+func TestDataTableSelectionHighlightIsOnScreenAfterEnd(t T) T {
+    val dt = DataTableUpdate(bigTable(8), DTEnd())
+    val buf = NewBuffer(6, 4)
+    RenderTo(DataTableView(dt, true), Rect(X = 0, Y = 0, Width = 6, Height = 4), buf)
+    var found = false
+    var y = 2
+    for y < 4 {
+        if buf.StyleAt(0, y).Reverse { found = true }
+        y = y + 1
+    }
+    return IsTrue(t, found)
+}
+
+func TestDataTableTopIsUnchangedWhenEverythingFits(t T) T {
+    val dt = bigTable(2)
+    val rows = SnapshotLines(DataTableView(dt, true), 6, 4)
+    val t1 = Eq(t, rows.Get(2), "r0    ")
+    return Eq(t1, rows.Get(3), "r1    ")
+}
+
+func TestVisibleRowCountReflectsTheFilter(t T) T {
+    // The count apps need for their own row-indexed wrappers. Rows.Length()
+    // is the unfiltered total and is the wrong number for that purpose.
+    val dt = DataTableUpdate(bigTable(8), DTFilter(Query = "r1"))
+    val t1 = Eq(t, dt.Rows.Length(), 8)
+    return Eq(t1, VisibleRowCount(dt), 1)
+}
+
+func TestDataTableRowClickDispatchesTheScrolledRow(t T) T {
+    // The click-mapping half of S1-2: with the body scrolled, the topmost
+    // visible row must dispatch its own index, not 0.
+    val dt = DataTableUpdate(bigTable(8), DTEnd())
+    val hits = NewHitRegistry()
+    val buf = NewBuffer(6, 4)
+    RenderToWithHits(
+        DataTableViewClick[int](dt, true, (i) => i),
+        Rect(X = 0, Y = 0, Width = 6, Height = 4), buf, hits)
+    // Screen row 2 is the first body row, which is data row 6.
+    val got = hits.HitAt(0, 2).Map((p) => castInt(p)).GetOrElse(-1)
+    return Eq(t, got, 6)
+}
+
+func TestDataTableClickBelowLastRowHitsNothing(t T) T {
+    // Two rows in a four-row pane: the body has one spare line, and a click
+    // there must not select a record. Sizing hit regions from the unfiltered
+    // row count registered phantom regions over exactly this space.
+    val dt = bigTable(1)
+    val hits = NewHitRegistry()
+    val buf = NewBuffer(6, 4)
+    RenderToWithHits(
+        DataTableViewClick[int](dt, true, (i) => i),
+        Rect(X = 0, Y = 0, Width = 6, Height = 4), buf, hits)
+    return IsTrue(t, hits.HitAt(0, 3).IsEmpty())
+}
+
+func TestDataTableDoubleClickIndexIsNotOffsetByTheHeader(t T) T {
+    // Chaining OnDoublePickRow onto the table sliced its whole area from the
+    // top, so region 0 covered the header and every index came out shifted
+    // by the header and rule. Bound per row, the first body row is row 0.
+    val dt = bigTable(4)
+    val hits = NewHitRegistry()
+    val buf = NewBuffer(6, 6)
+    RenderToWithHits(
+        DataTableViewInteractive[int](dt, true, (i) => i, (i) => 100 + i, (c) => -1),
+        Rect(X = 0, Y = 0, Width = 6, Height = 6), buf, hits)
+    val got = hits.HitAtDouble(0, 2).Map((p) => castInt(p)).GetOrElse(-1)
+    return Eq(t, got, 100)
+}
