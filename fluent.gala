@@ -268,8 +268,7 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case CanvasW(x1, x2, y1, y2, mk, sh)   =>
             CanvasW(XMin = x1, XMax = x2, YMin = y1, YMax = y2, Marker = mk,
                     Shapes = sh.Map((s) => restyleShape(s, f)))
-        case CellTextW(c, s, g)                =>
-            CellTextW(Content = c, Style = f(s), Gutter = g)
+        case CellTextW(c, s)                   => CellTextW(Content = c, Style = f(s))
         case FillWidget(ch, s)                 => FillWidget(Ch = ch, Style = f(s))
         case BorderWidget(inner, kind, sides, style, titles) =>
             // The border's own style is a leaf too — restyling a subtree

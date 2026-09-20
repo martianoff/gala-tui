@@ -116,7 +116,7 @@ func renderLogLine(line LogLine) Widget {
     val prefixStyle = logLevelStyle(line.Level)
     return Row(ArrayOf[LayoutChild](
         Fixed(5, TextStyled(prefix, prefixStyle)),
-        Flex(1, CellTextGutter(line.Text, DefaultStyle(), 0)),
+        Flex(1, CellText(line.Text)),
     ))
 }
 

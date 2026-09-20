@@ -182,7 +182,7 @@ func renderMenuRow(it MenuItem, selected bool, focused bool) Widget {
     // entry cuts with a "…" instead of clipping mid-word into something
     // that reads like a shorter, different command.
     val row = if (it.Hint == "")
-        CellTextGutter(" " + it.Label + " ", base, 0)
+        CellTextStyled(" " + it.Label + " ", base)
     else
         // Right-align the hint. Use a Row with a flex spacer between.
         //
@@ -194,7 +194,7 @@ func renderMenuRow(it MenuItem, selected bool, focused bool) Widget {
         // The hint's own leading space is the gutter between the two, so
         // the label needs none of its own.
         Row(ArrayOf[LayoutChild](
-            Flex(1, CellTextGutter(" " + it.Label, base, 0)),
+            Flex(1, CellTextStyled(" " + it.Label, base)),
             Fixed(StringCellWidth(it.Hint) + 2, TextStyled(" " + it.Hint + " ", base)),
         ))
 

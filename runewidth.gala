@@ -24,6 +24,10 @@ package gala_tui
 // can swap in `github.com/mattn/go-runewidth` via a tiny shim.
 // ============================================================================
 
+import (
+    "strings"
+)
+
 // RuneCellWidth returns how many terminal cells `r` occupies.
 //   0 = zero-width (combining mark, variation selector, ZWJ)
 //   1 = narrow (ASCII, Latin-1, most European scripts)
@@ -151,18 +155,40 @@ func StringCellWidth(s string) int {
 // Never breaks a double-width rune in half — if adding the next rune would
 // overflow, the truncation stops just before it. Useful for fitting a
 // title into a fixed-width slot.
+// Builds into a `strings.Builder` rather than re-concatenating: this runs
+// per overflowing cell on every frame, and `out = out + string(r)` copies
+// the whole accumulated prefix each rune, which is quadratic in the kept
+// width. A 200-column pane of long rows spent about a megabyte a frame on
+// strings it then threw away.
 func StringCellTruncate(s string, maxW int) string {
-    var out = ""
+    var sb strings.Builder
     var w = 0
     for _, r := range s {
         val rw = RuneCellWidth(r)
         if w + rw > maxW {
-            return out
+            return sb.String()
         }
-        out = out + string(r)
+        sb.WriteRune(r)
         w = w + rw
     }
-    return out
+    return sb.String()
+}
+
+// stringFitsInCells reports whether `s` is at most `maxW` cells wide,
+// stopping as soon as it knows. `StringCellWidth(s) <= maxW` measures the
+// whole string first, which is the wrong shape on the render path: the
+// common overflow case is content far wider than its slot — a 4 KB stack
+// trace in an 80-column log pane measured all 4 KB to learn it did not
+// fit. This walks `maxW` cells at most.
+func stringFitsInCells(s string, maxW int) bool {
+    var w = 0
+    for _, r := range s {
+        w = w + RuneCellWidth(r)
+        if w > maxW {
+            return false
+        }
+    }
+    return true
 }
 
 // StringCellEllipsis fits `s` into `maxW` cells, marking a cut with "…".
@@ -182,7 +208,7 @@ func StringCellTruncate(s string, maxW int) string {
 // can land a column short of `maxW`. Short is safe; over is not.
 func StringCellEllipsis(s string, maxW int) string {
     if maxW <= 0 { return "" }
-    if StringCellWidth(s) <= maxW { return s }
+    if stringFitsInCells(s, maxW) { return s }
     if maxW == 1 { return "…" }
     return StringCellTruncate(s, maxW - 1) + "…"
 }
