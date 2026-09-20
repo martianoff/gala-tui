@@ -1,0 +1,365 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Chart — a Canvas with axes, tick labels and a legend.
+//
+// `Canvas` rasterises shapes in the caller's coordinate space, which is the
+// hard half of plotting and the half 0.12.0 shipped. It is not a chart: a
+// plot with no axis line, no tick labels and no series names is a picture of
+// data rather than a reading of it. You cannot tell what range you are
+// looking at, and with two series you cannot tell which is which.
+//
+// This is the layer above. Datasets carry a name and a marker; each axis
+// carries bounds, labels and an optional title; the legend names the series
+// in a corner of the plot.
+//
+//     Chart(
+//         ArrayOf[ChartDataset](
+//             DatasetOf("p50", p50pts, DefaultStyle().WithFg(BrightGreen())),
+//             DatasetOf("p99", p99pts, DefaultStyle().WithFg(BrightRed())),
+//         ),
+//         AxisOf("seconds", XBounds(0.0, 60.0), ArrayOf("0", "30", "60")),
+//         AxisOf("ms",      YBounds(0.0, 250.0), ArrayOf("0", "125", "250")),
+//     )
+//
+// Built entirely by composing Row / Column / Canvas / Text rather than as a
+// `CustomW`. That is deliberate: `restyleLeaves` passes `CustomW` through
+// untouched, so a chart built that way would ignore `.Dim()` and every theme
+// pass — the plot would stay at full brightness on a dimmed pane while
+// everything around it faded. Composition also means the legend and labels
+// are ordinary widgets, so they can carry click payloads later without the
+// chart needing to know.
+// ============================================================================
+
+// ChartAxis is one axis: what it measures, over what range, with which tick
+// labels.
+//
+// `Labels` are positioned by the layout, not by value: they are distributed
+// evenly across the axis, first label at the low end of the range. Two or
+// three labels is the useful number — enough to read the scale, few enough
+// that they do not collide at terminal widths.
+struct ChartAxis(
+    Title  string,
+    Bounds Bounds,
+    Labels Array[string],
+    Style  Style,
+)
+
+// AxisOf is the common form: a titled axis with tick labels in the default
+// dim style.
+func AxisOf(title string, bounds Bounds, labels Array[string]) ChartAxis =
+    ChartAxis(Title = title, Bounds = bounds, Labels = labels,
+              Style = DefaultStyle().WithDim())
+
+// AxisBare is an axis with a range but nothing written about it — a rule and
+// no labels, for a sparkline-like plot where the shape is the whole message.
+func AxisBare(bounds Bounds) ChartAxis =
+    ChartAxis(Title = "", Bounds = bounds, Labels = EmptyArray[string](),
+              Style = DefaultStyle().WithDim())
+
+// ChartGraph is how a dataset's points are joined.
+sealed type ChartGraph {
+    // GraphLine connects consecutive points, which is what a time series
+    // wants: the segments carry the trend between samples.
+    case GraphLine()
+    // GraphScatter plots the points alone, for data with no meaningful
+    // order along X.
+    case GraphScatter()
+}
+
+// ChartDataset is one named series.
+struct ChartDataset(
+    Name   string,
+    Points Array[CanvasPoint],
+    Marker CanvasMarker,
+    Graph  ChartGraph,
+    Style  Style,
+)
+
+// DatasetOf is the common form: a connected line at braille resolution.
+func DatasetOf(name string, points Array[CanvasPoint], style Style) ChartDataset =
+    ChartDataset(Name = name, Points = points, Marker = BrailleMarker(),
+                 Graph = GraphLine(), Style = style)
+
+// DatasetScatter is `DatasetOf` with the points left unconnected.
+func DatasetScatter(name string, points Array[CanvasPoint], style Style) ChartDataset =
+    ChartDataset(Name = name, Points = points, Marker = BrailleMarker(),
+                 Graph = GraphScatter(), Style = style)
+
+// DatasetFromValues builds a series from Y values alone, with X running
+// 0, 1, 2, … — the shape a caller has when plotting samples over time.
+func DatasetFromValues(name string, values Array[float64], style Style) ChartDataset =
+    DatasetOf(name, values.ZipWithIndex().Map((p) =>
+        CanvasPoint(X = float64(p.V2), Y = p.V1)), style)
+
+// LegendPosition picks the corner the legend sits in, or hides it.
+//
+// The legend is drawn INSIDE the plot area, over the series. A corner is
+// almost always empty in a real plot, and spending a column or a row of the
+// pane on a legend costs plot resolution the data needs more.
+sealed type LegendPosition {
+    case LegendTopRight()
+    case LegendTopLeft()
+    case LegendBottomRight()
+    case LegendBottomLeft()
+    case LegendHidden()
+}
+
+// ----------------------------------------------------------------------------
+// Construction
+// ----------------------------------------------------------------------------
+
+// Chart renders `datasets` against the two axes, with a legend in the top
+// right when more than one series is named.
+//
+// One series needs no legend — the axis titles already say what is being
+// measured, and a box naming the only line on the plot is noise. Two or more
+// need one, because colour alone is not a label.
+func Chart(datasets Array[ChartDataset], x ChartAxis, y ChartAxis) Widget =
+    ChartWithLegend(datasets, x, y,
+        if (chartNamedCount(datasets) > 1) LegendTopRight() else LegendHidden())
+
+// ChartWithLegend is `Chart` with the legend corner chosen explicitly.
+func ChartWithLegend(
+    datasets Array[ChartDataset],
+    x ChartAxis,
+    y ChartAxis,
+    legend LegendPosition,
+) Widget {
+    val gutter = chartGutterWidth(y)
+    val plot = chartPlotLayer(datasets, x, y, legend)
+    var rows = EmptyArray[LayoutChild]()
+    if y.Title != "" {
+        rows = rows.Append(Fixed(1, chartYTitleRow(y, gutter)))
+    }
+    rows = rows.Append(Flex(1, Row(ArrayOf[LayoutChild](
+        Fixed(gutter, chartYLabels(y)),
+        Fixed(1, FillChStyled('│', y.Style)),
+        Flex(1, plot),
+    ))))
+    rows = rows.Append(Fixed(1, Row(ArrayOf[LayoutChild](
+        Fixed(gutter, Empty()),
+        Fixed(1, TextStyled("└", y.Style)),
+        Flex(1, FillChStyled('─', x.Style)),
+    ))))
+    if x.Labels.NonEmpty() {
+        rows = rows.Append(Fixed(1, Row(ArrayOf[LayoutChild](
+            Fixed(gutter + 1, Empty()),
+            Flex(1, chartXLabels(x)),
+        ))))
+    }
+    if x.Title != "" {
+        rows = rows.Append(Fixed(1, Row(ArrayOf[LayoutChild](
+            Fixed(gutter + 1, Empty()),
+            Flex(1, AlignWidget(Inner = TextStyled(x.Title, x.Style),
+                                Horiz = AlignCenter(), Vert = VAlignTop(),
+                                ChildW = StringCellWidth(x.Title), ChildH = 1)),
+        ))))
+    }
+    return Column(rows)
+}
+
+// ChartOfValues is the one-call form for the most common plot: a single
+// series of Y values sampled at even intervals, auto-scaled to its own
+// range.
+func ChartOfValues(name string, values Array[float64], style Style) Widget {
+    if values.IsEmpty() {
+        return Empty()
+    }
+    val lo = values.FoldLeft(values.Get(0), (a, v) => if (v < a) v else a)
+    val hi = values.FoldLeft(values.Get(0), (a, v) => if (v > a) v else a)
+    // A flat series has zero span, which would make every point project to
+    // the same row and divide by zero in `canvasProject`. Widen it so the
+    // line sits in the middle of the plot rather than collapsing onto an
+    // edge — the same "data present must look different from data absent"
+    // rule the gauge and sparkline floors follow.
+    val (loB, hiB) = if (hi == lo) (lo - 1.0, hi + 1.0) else (lo, hi)
+    return Chart(
+        ArrayOf[ChartDataset](DatasetFromValues(name, values, style)),
+        AxisBare(XBounds(0.0, float64(MaxInt(1, values.Length() - 1)))),
+        // Ascending, matching the bounds — `chartYLabels` is what flips
+        // them for the screen. Handing it high-first inverted the scale:
+        // a series running 3 to 18 labelled its top row 3.
+        AxisOf("", YBounds(loB, hiB),
+               ArrayOf[string](chartNum(loB), chartNum(hiB))),
+    )
+}
+
+// ----------------------------------------------------------------------------
+// Pieces
+// ----------------------------------------------------------------------------
+
+// chartPlotLayer is the canvas with the legend stacked over it.
+func chartPlotLayer(
+    datasets Array[ChartDataset],
+    x ChartAxis,
+    y ChartAxis,
+    legend LegendPosition,
+) Widget {
+    val canvas = Canvas(x.Bounds, y.Bounds, chartMarker(datasets),
+                        chartShapes(datasets))
+    return legend match {
+        case LegendHidden() => canvas
+        case _ => Stack(ArrayOf[Widget](canvas, chartLegend(datasets, legend)))
+    }
+}
+
+// chartShapes turns each dataset into the canvas shapes that draw it.
+func chartShapes(datasets Array[ChartDataset]) Array[Shape] =
+    datasets.FoldLeft(EmptyArray[Shape](), (acc, d) => acc.AppendAll(datasetShapes(d)))
+
+func datasetShapes(d ChartDataset) Array[Shape] = d.Graph match {
+    case GraphScatter() => ArrayOf[Shape](ShapePoints(Pts = d.Points, Style = d.Style))
+    // A line is the segments BETWEEN points plus the points themselves: a
+    // single-point series would otherwise draw nothing at all, and the dots
+    // keep the samples visible where the line is nearly flat.
+    case GraphLine() => {
+        var out = ArrayOf[Shape](ShapePoints(Pts = d.Points, Style = d.Style))
+        var i = 1
+        val n = d.Points.Length()
+        for i < n {
+            val a = d.Points.Get(i - 1)
+            val b = d.Points.Get(i)
+            out = out.Append(ShapeLine(X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y,
+                                       Style = d.Style))
+            i = i + 1
+        }
+        return out
+    }
+}
+
+// chartMarker takes the first dataset's marker for the whole canvas. One
+// canvas rasterises into one dot grid, so the markers cannot differ per
+// series without stacking a canvas per dataset — which would multiply the
+// per-frame grid allocation by the series count for a rarely-wanted effect.
+func chartMarker(datasets Array[ChartDataset]) CanvasMarker =
+    datasets.HeadOption() match {
+        case Some(d) => d.Marker
+        case None()  => BrailleMarker()
+    }
+
+// chartGutterWidth is the column budget for the Y tick labels, right-aligned
+// against the axis rule.
+func chartGutterWidth(y ChartAxis) int =
+    y.Labels.FoldLeft(0, (acc, l) => MaxInt(acc, StringCellWidth(l)))
+
+// chartYLabels stacks the Y labels top-to-bottom, highest value first.
+//
+// `Labels` are given low-to-high, matching the axis bounds, so they are
+// reversed here: on screen Y grows upward while rows grow downward. Each
+// label occupies an equal band of the plot height and sits at the top of its
+// band, so the first and last line up with the ends of the axis.
+// Labels are anchored, not banded. Giving each label an equal `Flex` share
+// and drawing it at the top of its share looks right and is off by most of
+// a band: with three labels over ten rows the lowest one lands on row 7
+// while the value it names is plotted on row 10, so the scale disagrees
+// with the data by three rows and still reads as plausible.
+//
+// A fixed row per label with flexible gaps BETWEEN them puts the first on
+// the top row and the last on the bottom row, which are the two the axis
+// bounds actually describe.
+func chartYLabels(y ChartAxis) Widget {
+    val n = y.Labels.Length()
+    if n == 0 {
+        return Empty()
+    }
+    val top = y.Labels.Reverse()
+    if n == 1 {
+        return chartYLabelCell(top.Get(0), y)
+    }
+    var kids = EmptyArray[LayoutChild]()
+    var i = 0
+    for i < n {
+        if i > 0 {
+            kids = kids.Append(Flex(1, Empty()))
+        }
+        kids = kids.Append(Fixed(1, chartYLabelCell(top.Get(i), y)))
+        i = i + 1
+    }
+    return Column(kids)
+}
+
+func chartYLabelCell(label string, y ChartAxis) Widget =
+    AlignWidget(Inner = TextStyled(label, y.Style),
+                Horiz = AlignRight(), Vert = VAlignTop(),
+                ChildW = StringCellWidth(label), ChildH = 1)
+
+// chartXLabels spreads the X labels across the plot width: first hard left,
+// last hard right, the rest evenly between. Anchoring the ends is what makes
+// the scale readable — a centred first label would sit right of the axis
+// origin it names.
+func chartXLabels(x ChartAxis) Widget {
+    val n = x.Labels.Length()
+    if n == 0 { return Empty() }
+    if n == 1 { return TextStyled(x.Labels.Get(0), x.Style) }
+    return Row(x.Labels.ZipWithIndex().Map((p) => {
+        val align = if (p.V2 == 0) AlignLeft()
+                    else if (p.V2 == n - 1) AlignRight()
+                    else AlignCenter()
+        return Flex(1, AlignWidget(Inner = TextStyled(p.V1, x.Style),
+                                   Horiz = align, Vert = VAlignTop(),
+                                   ChildW = StringCellWidth(p.V1), ChildH = 1))
+    }))
+}
+
+// chartYTitleRow puts the Y-axis title over the gutter, where it labels the
+// column of numbers beneath it.
+func chartYTitleRow(y ChartAxis, gutter int) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(MaxInt(gutter, StringCellWidth(y.Title)),
+              TextStyled(y.Title, y.Style)),
+        Flex(1, Empty()),
+    ))
+
+// chartLegend is the series key, drawn over the plot in a corner.
+//
+// Each entry is a swatch in the series style followed by its name, so the
+// legend reads the same way in a terminal with no colour: the swatch still
+// carries bold / dim / reverse even when the foreground collapses.
+func chartLegend(datasets Array[ChartDataset], pos LegendPosition) Widget {
+    val named = datasets.Filter((d) => d.Name != "")
+    if named.IsEmpty() {
+        return Empty()
+    }
+    val rows = named.Map((d) => Fixed(1, Row(ArrayOf[LayoutChild](
+        Fixed(2, TextStyled("──", d.Style)),
+        Fixed(1, Empty()),
+        Flex(1, TextStyled(d.Name, DefaultStyle())),
+    ))))
+    val w = named.FoldLeft(0, (acc, d) => MaxInt(acc, StringCellWidth(d.Name))) + 3
+    val (horiz, vert) = chartLegendAnchor(pos)
+    return AlignWidget(Inner = Column(rows), Horiz = horiz, Vert = vert,
+                       ChildW = w, ChildH = named.Length())
+}
+
+func chartLegendAnchor(pos LegendPosition) Tuple[Align, VAlign] = pos match {
+    case LegendTopRight()    => (AlignRight(), VAlignTop())
+    case LegendTopLeft()     => (AlignLeft(),  VAlignTop())
+    case LegendBottomRight() => (AlignRight(), VAlignBottom())
+    case LegendBottomLeft()  => (AlignLeft(),  VAlignBottom())
+    // Never reached — `chartPlotLayer` returns before building a legend —
+    // but the sealed type demands an answer and a corner is a safer one
+    // than a panic.
+    case LegendHidden()      => (AlignRight(), VAlignTop())
+}
+
+func chartNamedCount(datasets Array[ChartDataset]) int =
+    datasets.Filter((d) => d.Name != "").Length()
+
+// chartNum formats an axis label without a decimal point when the value is
+// whole — "250" reads as a measurement, "250.00" reads as machine output and
+// costs three columns of a narrow gutter.
+func chartNum(v float64) string {
+    val r = int(v)
+    if float64(r) == v {
+        return s"$r"
+    }
+    val scaled = int(v * 10.0)
+    val whole = scaled / 10
+    val frac = AbsInt(scaled - whole * 10)
+    return s"$whole.$frac"
+}
