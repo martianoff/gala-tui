@@ -188,12 +188,18 @@ func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc b
 // dtRuleRow is the horizontal rule under the header, carrying the filter
 // state when one is active.
 //
-// A filtered table used to look identical to an unfiltered one — same
-// header, no query shown, no count — so a user who filtered and then
-// scrolled away believed they were looking at the whole dataset. The rule
-// row was pure decoration and is the natural place to say otherwise: it
-// costs no height, and a table that is showing everything still renders an
-// unbroken rule.
+// A filtered table used to be pixel-identical to an unfiltered one: same
+// header, same rule, fewer rows and nothing to say why. Scroll away from
+// the row you were looking at and nothing on screen records that a filter
+// ever happened, so the natural reading of the pane is "this is the
+// dataset" — the one reading that is false. The empty case already said
+// `(no rows)`; the non-empty case said nothing at all, which is the more
+// dangerous of the two because it looks like data.
+//
+// The banner goes on the rule rather than on a row of its own so that
+// turning a filter on never changes the table's height or pushes a row out
+// of view. The rule carries no information otherwise, and a table showing
+// everything still renders it unbroken.
 func dtRuleRow(dt DataTable) Widget {
     if dt.FilterQuery == "" {
         return FillCh('─')
@@ -298,38 +304,6 @@ func dtHeaderRowClick[T any](dt DataTable, onHeaderClick func(int) T) Widget =
                                     cellGutter(p.V2, dt.Headers.Length()))
                          .OnClick[T](onHeaderClick(p.V2)),
     )))
-
-// dtRuleRow is the horizontal rule under the frozen header — and, when a
-// filter is active, the place the filter is declared.
-//
-// A filtered table used to be pixel-identical to an unfiltered one: same
-// header, same rule, fewer rows and nothing to say why. Scroll away from
-// the row you were looking at and there is no longer anything on screen
-// that a filter ever happened, so the natural reading of the pane is
-// "this is the dataset" — the one reading that is false. The empty case
-// already said `(no rows)`; the non-empty case said nothing at all, which
-// is the more dangerous of the two because it looks like data.
-//
-// The banner goes on the rule rather than on a row of its own so that
-// turning a filter on never changes the table's height or pushes a row
-// out of view. The rule carries no information otherwise.
-func dtRuleRow(dt DataTable) Widget {
-    if dt.FilterQuery == "" {
-        return FillCh('─')
-    }
-    val shown = dtVisible(dt).Length()
-    val total = dt.Rows.Length()
-    val label = s" filter: ${dt.FilterQuery} · ${shown}/${total} "
-    val style = DefaultStyle().WithDim()
-    // A `Length` slot plus `CellText`: the solver clamps the label's slot
-    // when the pane is narrow, and the cell then cuts itself with a "…"
-    // rather than clipping the row count off the end silently.
-    return Row(ArrayOf[LayoutChild](
-        Fixed(2, FillCh('─')),
-        Fixed(StringCellWidth(label), CellTextGutter(label, style, 0)),
-        Flex(1, FillCh('─')),
-    ))
-}
 
 func dtHeaderLabel(dt DataTable, col int) string {
     val base = dt.Headers.Get(col)
