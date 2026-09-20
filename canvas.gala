@@ -1,0 +1,395 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+)
+
+// ============================================================================
+// Canvas — draw shapes in your own coordinate space, at sub-cell resolution.
+//
+// Every other widget in this library paints whole cells. A chart, a map, a
+// sparkline, anything geometric therefore renders at the terminal's own
+// resolution, which is coarse enough that a line looks like a staircase.
+//
+// Canvas gives each cell a sub-grid and lets shapes be expressed in the
+// caller's units rather than in columns and rows. You say "a circle at
+// (0, 0) with radius 40" against bounds you chose; the canvas maps that onto
+// whatever area the layout gave it and picks glyphs whose dot patterns
+// approximate the result. Braille gets 2x4 = eight dots per cell, so a
+// 40x10 pane addresses 80x40 points.
+//
+// Shapes are pure data and the canvas is a value, in keeping with the rest
+// of the widget tree: no drawing callback, no mutable painter handed out
+// mid-render. The renderer rasterises the list.
+//
+//     Canvas(
+//         XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), BrailleMarker(),
+//         ArrayOf[Shape](
+//             ShapeCircle(X = 0.0, Y = 0.0, Radius = 0.8, Style = greenish),
+//             ShapeLine(X1 = -1.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, Style = dim),
+//         ),
+//     )
+// ============================================================================
+
+// CanvasMarker picks the glyph family, and with it the sub-cell resolution.
+//
+// Braille is the highest resolution and the usual choice. Its drawback is
+// that the glyphs are small and some terminals render them in a fallback
+// font; HalfBlock trades resolution for weight, and the two 1x1 markers are
+// there for fonts where neither looks right.
+sealed type CanvasMarker {
+    case BrailleMarker()     // 2 x 4 dots per cell — U+2800 block
+    case HalfBlockMarker()   // 1 x 2 per cell — ▀ ▄ █
+    case DotMarker()         // 1 x 1 per cell — •
+    case BlockMarker()       // 1 x 1 per cell — █
+}
+
+// CanvasPoint is one point in the caller's coordinate space.
+struct CanvasPoint(X float64, Y float64)
+
+// Shape is what a canvas draws. Each carries its own Style, so one canvas
+// can hold a dim grid, a bright series and a labelled axis without the
+// caller splitting them across widgets.
+sealed type Shape {
+    case ShapeLine(X1 float64, Y1 float64, X2 float64, Y2 float64, Style Style)
+    // ShapeRect draws the outline. Fill it by passing a filled point set,
+    // or overlay a second rect — an outline is what charts and maps want.
+    case ShapeRect(X float64, Y float64, Width float64, Height float64, Style Style)
+    case ShapeCircle(X float64, Y float64, Radius float64, Style Style)
+    case ShapePoints(Pts Array[CanvasPoint], Style Style)
+    // ShapeLabel is text, which cannot be sub-cell: it is drawn at the cell
+    // containing (X, Y), after every dot shape, so a label is never buried
+    // under the series it annotates.
+    case ShapeLabel(X float64, Y float64, Text string, Style Style)
+}
+
+// Bounds is the caller's coordinate range along one axis.
+struct Bounds(Min float64, Max float64)
+
+func XBounds(min float64, max float64) Bounds = Bounds(Min = min, Max = max)
+func YBounds(min float64, max float64) Bounds = Bounds(Min = min, Max = max)
+
+// Canvas builds a canvas widget.
+func Canvas(x Bounds, y Bounds, marker CanvasMarker, shapes Array[Shape]) Widget =
+    CanvasW(
+        XMin = x.Min, XMax = x.Max,
+        YMin = y.Min, YMax = y.Max,
+        Marker = marker, Shapes = shapes,
+    )
+
+// CanvasOf is the common case: braille markers over the given bounds.
+func CanvasOf(x Bounds, y Bounds, shapes Array[Shape]) Widget =
+    Canvas(x, y, BrailleMarker(), shapes)
+
+// PointsOf builds a ShapePoints from parallel x / y arrays — the shape a
+// caller usually has when plotting a series.
+func PointsOf(xs Array[float64], ys Array[float64], style Style) Shape {
+    val n = MinInt(xs.Length(), ys.Length())
+    return ShapePoints(
+        Pts = ArrayTabulate(n, (i) => CanvasPoint(X = xs.Get(i), Y = ys.Get(i))),
+        Style = style,
+    )
+}
+
+// ----------------------------------------------------------------------------
+// Sub-cell geometry
+// ----------------------------------------------------------------------------
+
+// markerSubCells is the (columns, rows) of dots each marker packs per cell.
+func markerSubCells(m CanvasMarker) Tuple[int, int] = m match {
+    case BrailleMarker()   => (2, 4)
+    case HalfBlockMarker() => (1, 2)
+    case DotMarker()       => (1, 1)
+    case BlockMarker()     => (1, 1)
+}
+
+// brailleBit is the bit for a dot at (col, row) within a braille cell.
+//
+// The layout is historical and not row-major — dots 1-6 were the original
+// 6-dot cell and 7-8 were appended underneath — so the fourth row's bits
+// are 0x40 and 0x80 rather than continuing the pattern.
+func brailleBit(col int, row int) int {
+    if col == 0 {
+        if row == 0 { return 0x01 }
+        if row == 1 { return 0x02 }
+        if row == 2 { return 0x04 }
+        return 0x40
+    }
+    if row == 0 { return 0x08 }
+    if row == 1 { return 0x10 }
+    if row == 2 { return 0x20 }
+    return 0x80
+}
+
+// ----------------------------------------------------------------------------
+// Rasterisation
+// ----------------------------------------------------------------------------
+
+// canvasGrid is the sub-cell bitmap a canvas rasterises into before it picks
+// glyphs. `set` is one entry per dot; `style` is one per CELL, because a
+// glyph carries a single style however many of its dots are lit — last
+// writer wins, which makes a later shape draw over an earlier one.
+type canvasGrid struct {
+    var W     int          // dots across
+    var H     int          // dots down
+    var SubX  int
+    var SubY  int
+    var Set   []bool
+    var Style []Style
+    var Lit   []bool       // per-cell: has any dot been set
+}
+
+func newCanvasGrid(area Rect, marker CanvasMarker) *canvasGrid {
+    val (sx, sy) = markerSubCells(marker)
+    val w = area.Width * sx
+    val h = area.Height * sy
+    val cells = area.Width * area.Height
+    return &canvasGrid{
+        W:     w,
+        H:     h,
+        SubX:  sx,
+        SubY:  sy,
+        Set:   SliceWithSize[bool](MaxInt(0, w*h)),
+        Style: SliceWithSize[Style](MaxInt(0, cells)),
+        Lit:   SliceWithSize[bool](MaxInt(0, cells)),
+    }
+}
+
+// plot lights the dot at grid coordinates, ignoring anything off-canvas so a
+// shape that runs past the bounds clips instead of wrapping or trapping.
+func (g *canvasGrid) plot(gx int, gy int, cellW int, style Style) {
+    if gx < 0 || gy < 0 || gx >= g.W || gy >= g.H {
+        return
+    }
+    g.Set[gy*g.W+gx] = true
+    val cx = gx / g.SubX
+    val cy = gy / g.SubY
+    val ci = cy*cellW + cx
+    if ci >= 0 && ci < g.Style.Size() {
+        g.Style[ci] = style
+        g.Lit[ci] = true
+    }
+}
+
+// canvasProject maps a point in the caller's space to grid coordinates.
+// Y is inverted because screen rows grow downward while a plot's Y grows up.
+func canvasProject(v float64, min float64, max float64, size int) int {
+    val span = max - min
+    if span == 0.0 || size <= 0 {
+        return 0
+    }
+    val raw = int((v - min) / span * float64(size))
+    // A value sitting exactly on the upper bound scales to `size`, which is
+    // one past the last dot — so the right edge and the bottom edge of every
+    // shape silently vanished. Fold it back into the last dot rather than
+    // shrinking the span, which would misplace everything else. Values
+    // genuinely outside the bounds still fall outside and are clipped by
+    // `plot`, so this does not make out-of-range points appear at the edge.
+    if raw == size && v <= max {
+        return size - 1
+    }
+    return raw
+}
+
+func renderCanvas(
+    xMin float64, xMax float64,
+    yMin float64, yMax float64,
+    marker CanvasMarker,
+    shapes Array[Shape],
+    area Rect,
+    buf *Buffer,
+) {
+    if area.Width <= 0 || area.Height <= 0 {
+        return
+    }
+    val g = newCanvasGrid(area, marker)
+    val toGx = (x float64) => canvasProject(x, xMin, xMax, g.W)
+    val toGy = (y float64) => canvasProject(yMax - y, 0.0, yMax - yMin, g.H)
+
+    // Dot shapes first, labels after, so text is never buried under a series.
+    shapes.ForEach((s) => rasterShape(s, g, area.Width, toGx, toGy))
+    emitCanvasGlyphs(g, marker, area, buf)
+    shapes.ForEach((s) => s match {
+        case ShapeLabel(lx, ly, text, style) => {
+            val cx = area.X + toGx(lx)/g.SubX
+            val cy = area.Y + toGy(ly)/g.SubY
+            renderText(text, style, Rect(
+                X = cx, Y = cy,
+                Width = MaxInt(0, area.X + area.Width - cx), Height = 1,
+            ), buf)
+        }
+        case _ => {}
+    })
+}
+
+func rasterShape(
+    s Shape,
+    g *canvasGrid,
+    cellW int,
+    toGx func(float64) int,
+    toGy func(float64) int,
+) {
+    s match {
+        case ShapeLine(x1, y1, x2, y2, style) =>
+            plotLine(g, cellW, toGx(x1), toGy(y1), toGx(x2), toGy(y2), style)
+        case ShapeRect(x, y, w, h, style) => {
+            val gx1 = toGx(x)
+            val gy1 = toGy(y)
+            val gx2 = toGx(x + w)
+            val gy2 = toGy(y + h)
+            plotLine(g, cellW, gx1, gy1, gx2, gy1, style)
+            plotLine(g, cellW, gx2, gy1, gx2, gy2, style)
+            plotLine(g, cellW, gx2, gy2, gx1, gy2, style)
+            plotLine(g, cellW, gx1, gy2, gx1, gy1, style)
+        }
+        case ShapeCircle(cx, cy, r, style) => plotCircle(g, cellW, cx, cy, r, toGx, toGy, style)
+        case ShapePoints(pts, style) =>
+            pts.ForEach((p) => g.plot(toGx(p.X), toGy(p.Y), cellW, style))
+        // Labels are text and are drawn after the glyph pass.
+        case ShapeLabel(_, _, _, _) => {}
+    }
+}
+
+// plotLine is Bresenham in grid space. Integer-only, so it neither
+// accumulates float error along a long line nor needs a sqrt per step.
+func plotLine(g *canvasGrid, cellW int, x1 int, y1 int, x2 int, y2 int, style Style) {
+    var x = x1
+    var y = y1
+    val dx = AbsInt(x2 - x1)
+    val dy = -AbsInt(y2 - y1)
+    val sx = if (x1 < x2) 1 else -1
+    val sy = if (y1 < y2) 1 else -1
+    var err = dx + dy
+    var guard = 0
+    val limit = (dx - dy) + 2
+    for guard <= limit {
+        g.plot(x, y, cellW, style)
+        if x == x2 && y == y2 {
+            return
+        }
+        val e2 = 2 * err
+        if e2 >= dy {
+            err = err + dy
+            x = x + sx
+        }
+        if e2 <= dx {
+            err = err + dx
+            y = y + sy
+        }
+        guard = guard + 1
+    }
+}
+
+// plotCircle walks the circle by angle rather than by the midpoint
+// algorithm, because the canvas's two axes usually have different
+// dots-per-unit — a midpoint circle in grid space would come out an
+// ellipse in the caller's space, and vice versa. Stepping in the caller's
+// space and projecting each point keeps the shape right in the units the
+// caller reasons about.
+func plotCircle(
+    g *canvasGrid,
+    cellW int,
+    cx float64,
+    cy float64,
+    r float64,
+    toGx func(float64) int,
+    toGy func(float64) int,
+    style Style,
+) {
+    // Step count scaled to the grid so a large circle is not dotted and a
+    // small one is not oversampled.
+    val steps = MaxInt(16, (g.W + g.H) * 2)
+    var i = 0
+    for i < steps {
+        val theta = 2.0 * 3.14159265358979 * float64(i) / float64(steps)
+        g.plot(toGx(cx + r*cosApprox(theta)), toGy(cy + r*sinApprox(theta)), cellW, style)
+        i = i + 1
+    }
+}
+
+// sinApprox / cosApprox — Bhaskara-style approximation, accurate to about
+// 0.2% over a full turn. A canvas quantises to dots anyway, so that is far
+// below one dot of error at any practical size, and it keeps this file free
+// of a math dependency for two calls.
+func sinApprox(x float64) float64 {
+    val twoPi = 6.28318530717958
+    var t = x
+    for t < 0.0 { t = t + twoPi }
+    for t >= twoPi { t = t - twoPi }
+    val pi = 3.14159265358979
+    if t <= pi {
+        return 16.0 * t * (pi - t) / (5.0*pi*pi - 4.0*t*(pi-t))
+    }
+    val u = t - pi
+    return -(16.0 * u * (pi - u) / (5.0*pi*pi - 4.0*u*(pi-u)))
+}
+
+func cosApprox(x float64) float64 = sinApprox(x + 1.57079632679489)
+
+// ----------------------------------------------------------------------------
+// Glyph selection
+// ----------------------------------------------------------------------------
+
+// emitCanvasGlyphs turns the dot bitmap into cells. Only lit cells are
+// written, so a canvas composes over whatever is underneath it rather than
+// blanking its whole area.
+func emitCanvasGlyphs(g *canvasGrid, marker CanvasMarker, area Rect, buf *Buffer) {
+    var cy = 0
+    for cy < area.Height {
+        var cx = 0
+        for cx < area.Width {
+            val ci = cy*area.Width + cx
+            if g.Lit[ci] {
+                val ch = canvasGlyph(g, marker, cx, cy)
+                if ch != ' ' {
+                    buf.Set(area.X+cx, area.Y+cy, Cell(Ch = ch, St = g.Style[ci]))
+                }
+            }
+            cx = cx + 1
+        }
+        cy = cy + 1
+    }
+}
+
+func canvasGlyph(g *canvasGrid, marker CanvasMarker, cx int, cy int) rune {
+    return marker match {
+        case BrailleMarker() => {
+            var bits = 0
+            var row = 0
+            for row < 4 {
+                var col = 0
+                for col < 2 {
+                    val gx = cx*2 + col
+                    val gy = cy*4 + row
+                    if gx < g.W && gy < g.H && g.Set[gy*g.W+gx] {
+                        bits = bits + brailleBit(col, row)
+                    }
+                    col = col + 1
+                }
+                row = row + 1
+            }
+            if (bits == 0) ' ' else rune(0x2800 + bits)
+        }
+        case HalfBlockMarker() => {
+            val top = canvasDotAt(g, cx, cy*2)
+            val bot = canvasDotAt(g, cx, cy*2+1)
+            if (top && bot) '█'
+            else if (top) '▀'
+            else if (bot) '▄'
+            else ' '
+        }
+        case DotMarker()   => if (canvasDotAt(g, cx, cy)) '•' else ' '
+        case BlockMarker() => if (canvasDotAt(g, cx, cy)) '█' else ' '
+    }
+}
+
+func canvasDotAt(g *canvasGrid, gx int, gy int) bool {
+    if gx < 0 || gy < 0 || gx >= g.W || gy >= g.H {
+        return false
+    }
+    return g.Set[gy*g.W+gx]
+}
+
+// AbsInt is the integer absolute value Bresenham needs.
+func AbsInt(n int) int = if (n < 0) -n else n

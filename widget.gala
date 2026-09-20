@@ -36,6 +36,16 @@ sealed type Widget {
     // because it modifies rather than replaces cells it also lets an
     // Overlay's content keep the background it was drawn over.
     case RestyleW(Inner Widget, Restyle func(Style) Style)
+    // CanvasW draws Shapes in the caller's coordinate space at sub-cell
+    // resolution. See canvas.gala.
+    case CanvasW(
+        XMin   float64,
+        XMax   float64,
+        YMin   float64,
+        YMax   float64,
+        Marker CanvasMarker,
+        Shapes Array[Shape],
+    )
     case FillWidget(Ch rune, Style Style)
     case BorderWidget(
         Inner  Widget,
@@ -877,6 +887,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderToInternal(inner, area, buf, hits)
             buf.RestyleRegion(area, restyle)
         }
+        case CanvasW(xmin, xmax, ymin, ymax, marker, shapes) =>
+            renderCanvas(xmin, xmax, ymin, ymax, marker, shapes, area, buf)
         case FillWidget(ch, style) =>
             renderFill(ch, style, area, buf)
         case BorderWidget(inner, kind, sides, style, titles) =>
@@ -1880,6 +1892,7 @@ func defaultRenderWidth(w Widget) int {
         case TextWidget(content, _)            => RuneCount(content)
         case RichTextW(text)                   => text.CellWidth()
         case RestyleW(inner, _)                => defaultRenderWidth(inner)
+        case CanvasW(_, _, _, _, _, _)         => 1
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderWidth(inner) + borderWidthOverhead(sides)
@@ -1921,6 +1934,7 @@ func defaultRenderHeight(w Widget) int {
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => defaultRenderHeight(inner)
+        case CanvasW(_, _, _, _, _, _)         => 1
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderHeight(inner) + borderHeightOverhead(sides)
@@ -1984,6 +1998,8 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => IntrinsicHeightAt(inner, width)
+        // A canvas has no natural size — it fills whatever it is given.
+        case CanvasW(_, _, _, _, _, _)         => MaxInt(1, 0)
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             IntrinsicHeightAt(inner, MaxInt(0, width - borderWidthOverhead(sides)))
