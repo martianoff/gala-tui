@@ -992,11 +992,21 @@ func RunMegaDemo() MegaModel {
 //     keyboard-driven and we don't want a stray click to fire a MegaTick.
 //   - Resize is a no-op: the next View() call already re-queries TermSize
 //     and re-flows the layout.
+//   - Paste is a no-op: the demo's only text field is the command palette
+//     query, whose message vocabulary is one rune at a time
+//     (MegaPalChar). Accepting a pasted run would mean a bulk-insert
+//     message and is left out on purpose — the demo is a widget showcase,
+//     not a text editor. An app with a real text field should route
+//     PasteInput into it; see LiftKeysToInputPaste in dev_ux.gala.
+//   - Focus change is a no-op: nothing here animates off a wall clock that
+//     would be worth pausing while the window is in the background.
 func MegaInputToMsg(ev InputEvent) MegaMsg {
     return ev match {
         case KeyInput(k)       => MegaKeyToMsg(k)
         case MouseInput(m)     => megaMouseToMsg(m)
         case ResizeInput(_, _) => MegaNoOp()
+        case PasteInput(_)     => MegaNoOp()
+        case FocusInput(_)     => MegaNoOp()
         case UnknownInput()    => MegaNoOp()
     }
 }
