@@ -28,23 +28,29 @@ import (
 // no way to recover except closing the tab.
 //
 // We register one handler; SIGINT and SIGTERM both route through it.
-// useMouse is true only for RunWithMouse — the other entry points
-// don't enable mouse mode so we skip the disable code (writing it
-// when the mode wasn't enabled is a no-op but spammy).
+//
+// modesOff is the input-mode disable string for this run, built by
+// termModesOff in runtime.gala — mouse tracking, bracketed paste, focus
+// reporting and the kitty keyboard flag, in whatever combination
+// enterTermSession turned on. It is passed in rather than recomputed
+// here so this path and TermSession.Close emit byte-for-byte the same
+// restore sequence: a mode added to one and forgotten in the other
+// means Ctrl+C leaves the user's terminal in a state the ordinary exit
+// would have cleaned up (paste markers in their next command line, raw
+// mouse packets printed on every click, Esc arriving as `CSI 27 u`).
+// Entry points that enable nothing pass an empty string.
 //
 // The handler runs in its own goroutine. After cleanup it exits with
 // 128+SIGINT (the conventional code for SIGINT-terminated programs)
 // rather than re-raising the signal, because Go's signal.Notify
 // already swallowed the default-action so re-raising would just
 // loop right back into our handler.
-func installCleanupGuard(fd int, state *term.State, useMouse bool) {
+func installCleanupGuard(fd int, state *term.State, modesOff string) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		if useMouse {
-			fmt.Fprint(os.Stdout, ansiMouseOff())
-		}
+		fmt.Fprint(os.Stdout, modesOff)
 		fmt.Fprint(os.Stdout, ansiCursorShow())
 		fmt.Fprint(os.Stdout, ansiAltScreenOff())
 		_ = term.Restore(fd, state)

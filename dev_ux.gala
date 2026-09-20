@@ -113,8 +113,15 @@ func RunSimpleWithMouse[M any, T any](
 //     )
 //
 // `mouse` is dispatched on every mouse event (click, scroll, motion);
-// `fallback` covers resize and unknown-input. To handle scroll-wheel
-// specifically, use `LiftKeysToInputScroll`.
+// `fallback` covers resize, focus change and unknown-input. To handle
+// scroll-wheel specifically, use `LiftKeysToInputScroll`.
+//
+// Paste: this lift has nowhere to put pasted text — it only has a
+// `func(KeyEvent) T` — so PasteInput lands on `fallback` and the paste is
+// dropped. The runtime enables bracketed paste by default, so an app that
+// accepts text input wants either `LiftKeysToInputPaste` below or its own
+// translator. `SetBracketedPaste(false)` is the other way out: it turns the
+// mode off so pastes arrive as ordinary keystrokes again.
 func LiftKeysToInput[T any](
     keyToMsg func(KeyEvent) T,
     mouse T,
@@ -123,12 +130,41 @@ func LiftKeysToInput[T any](
     case KeyInput(k)       => keyToMsg(k)
     case MouseInput(_)     => mouse
     case ResizeInput(_, _) => fallback
+    case PasteInput(_)     => fallback
+    case FocusInput(_)     => fallback
+    case UnknownInput()    => fallback
+}
+
+// LiftKeysToInputPaste is `LiftKeysToInput` plus an explicit paste handler:
+// the one addition an app needs once bracketed paste is on.
+//
+//     val _ = RunSimpleWithMouse[Model, Msg](
+//         initial, update, view,
+//         LiftKeysToInputPaste[Msg](keyToMsg, (s) => Paste(s), NoOp(), NoOp()),
+//         sub,
+//     )
+//
+// `pasteToMsg` receives the whole pasted run as one string, which is the
+// point of the mode: inserting it in one update is both correct and O(1)
+// reducer passes, where replaying it as keystrokes is neither.
+func LiftKeysToInputPaste[T any](
+    keyToMsg func(KeyEvent) T,
+    pasteToMsg func(string) T,
+    mouse T,
+    fallback T,
+) func(InputEvent) T = (ev) => ev match {
+    case KeyInput(k)       => keyToMsg(k)
+    case MouseInput(_)     => mouse
+    case PasteInput(s)     => pasteToMsg(s)
+    case ResizeInput(_, _) => fallback
+    case FocusInput(_)     => fallback
     case UnknownInput()    => fallback
 }
 
 // LiftKeysToInputScroll is the most-common-mouse-shape lift: scroll-wheel
 // up/down get routed to scroll-up/down messages; clicks and other mouse
-// events get the `clickFallback`; resize/unknown get `fallback`.
+// events get the `clickFallback`; resize, focus change, paste and unknown
+// get `fallback` (see LiftKeysToInput on why paste needs its own handler).
 //
 //     val _ = RunSimpleWithMouse[Model, Msg](
 //         initial, update, view,
@@ -145,6 +181,8 @@ func LiftKeysToInputScroll[T any](
     case KeyInput(k)       => keyToMsg(k)
     case MouseInput(m)     => liftScroll[T](m, scrollUp, scrollDown, clickFallback)
     case ResizeInput(_, _) => fallback
+    case PasteInput(_)     => fallback
+    case FocusInput(_)     => fallback
     case UnknownInput()    => fallback
 }
 
