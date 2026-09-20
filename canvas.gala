@@ -210,6 +210,9 @@ func renderCanvas(
     // Dot shapes first, labels after, so text is never buried under a series.
     shapes.ForEach((s) => rasterShape(s, g, area.Width, toGx, toGy))
     emitCanvasGlyphs(g, marker, area, buf)
+    // Every non-label case is spelled out rather than swept up by a
+    // wildcard, so that adding a Shape forces a decision about this pass
+    // too — the same reason `rasterShape` names ShapeLabel explicitly.
     shapes.ForEach((s) => s match {
         case ShapeLabel(lx, ly, text, style) => {
             val cx = area.X + toGx(lx)/g.SubX
@@ -219,7 +222,10 @@ func renderCanvas(
                 Width = MaxInt(0, area.X + area.Width - cx), Height = 1,
             ), buf)
         }
-        case _ => {}
+        case ShapeLine(_, _, _, _, _)   => {}
+        case ShapeRect(_, _, _, _, _)   => {}
+        case ShapeCircle(_, _, _, _)    => {}
+        case ShapePoints(_, _)          => {}
     })
 }
 
@@ -372,6 +378,7 @@ func canvasGlyph(g *canvasGrid, marker CanvasMarker, cx int, cy int) rune {
             if (bits == 0) ' ' else rune(0x2800 + bits)
         }
         case HalfBlockMarker() => {
+            // One cell is two vertical dots: both, upper, lower, neither.
             val top = canvasDotAt(g, cx, cy*2)
             val bot = canvasDotAt(g, cx, cy*2+1)
             if (top && bot) '█'
