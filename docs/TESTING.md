@@ -329,3 +329,130 @@ Three rules of thumb:
    flag?" is a Harness test. "Did this widget render in the right
    spot?" is a Snapshot test. Don't write hundreds of trivial tests
    when one expressive Harness chain catches the same regression.
+
+---
+
+# Renderer tests — the house standard
+
+A reducer test proves the model is right. A **renderer test** proves the user
+can see it. Every change to a widget's appearance ships at least one.
+
+This section exists because an audit of the library's own suite found the
+opposite of what the numbers suggested: 71% of tests never touched a Buffer,
+and two widgets with green tests were visibly broken — the tests sampled a
+single cell for a whole-row claim, and the sampled cell happened to be one of
+the few the bug did not touch.
+
+## Pick the right instrument
+
+| You are asserting | Use | Why |
+|---|---|---|
+| A **whole frame's** layout — a composition, a modal, a full app view | `Snapshot(w, width, height)` against a literal golden | Catches a column shift anywhere, including cells you weren't thinking about |
+| **One row's** content, where the rest of the frame is noise | `SnapshotLines(...).Get(y)` + `Eq` | Stays stable when unrelated rows change |
+| **Presence** of a label whose exact column genuinely isn't part of the contract | `RowContains` | The weakest form — see "what makes a bad renderer test" |
+| **Colour / attributes** | `SnapshotStyled` for a fixture, or `StyleAt(x, y)` **swept across the region** | Glyph assertions are blind to style, and style is half the UI |
+| **Behaviour over time** — keys, clicks, resize, async msgs | `NewHarness(...).Start()` then `.Press` / `.Type` / `.Click` / `.Wait`, then `.Row` / `.Text` / `.Buffer().StyleAt` | The only path that runs `KeyToMsg` and `Cmd` redispatch |
+
+## Sweep the region you make a claim about
+
+This is the rule that matters most, and it is not stylistic.
+
+```gala
+// BAD — the comment claims the row, the assertion checks one cell.
+// This shape passed for months while the widget was visibly broken.
+func TestStatusBarIsCyan(t T) T {
+    // Whole row has the cyan background
+    return IsTrue(t, ColorEq(buf.StyleAt(10, 0).Bg, BrightCyan()))
+}
+
+// GOOD — the claim is "the whole row", so assert the whole row.
+func TestStatusBarPaintsEveryCell(t T) T {
+    var acc = t
+    var x = 0
+    for x < 28 {
+        acc = IsTrue(acc, ColorEq(buf.StyleAt(x, 0).Bg, BrightCyan()))
+        x = x + 1
+    }
+    return acc
+}
+```
+
+A single sample is how a fragmented highlight, a background that only reached
+the gaps, and a scrollbar thumb that never moved all shipped green.
+
+## Verify the test fails for the right reason
+
+Before calling a behavioural fix done, **reintroduce the bug and watch the
+test fail.** A test written against already-fixed code can pass for reasons
+that have nothing to do with the fix.
+
+A real example from this repo: a test guarding a scrollbar fix compared whole
+rows between two scroll offsets. Those rows always differ — the body text
+scrolls — so the assertion passed with the bug fully reintroduced. It had to
+assert the bar *column* specifically.
+
+## Keeping golden strings readable
+
+- One `+`-joined literal per row, one row per source line, aligned so the
+  literal is a picture of the frame:
+  ```gala
+  val want = "┌──────────┐" + "\n" +
+             "│ Build 12 │" + "\n" +
+             "└──────────┘"
+  ```
+- **Choose the smallest size that exercises the case.** `4x3` and `25x2` are
+  right; nobody re-reads an 80x24 golden.
+- Trailing padding is real and belongs in the literal. If that makes the
+  fixture unreadable, use `SnapshotLines` + a trim helper and say in a comment
+  that trailing space is deliberately not asserted.
+- Put the `Snapshot` call and the `want` literal adjacent, `got` first, so a
+  diff of the test file reads as a diff of the UI.
+- Don't write another `rowContains` helper. Use `Session.RowContains` or
+  `RowText` from `snapshot.gala`.
+
+## Wide glyphs: `RowText` is not what the terminal shows
+
+`renderText` reserves the trailing cell of a double-width glyph with a space,
+and `RowText` reads that cell back literally:
+
+```
+│日 本 語 の テ キ ス ト   │      ← what RowText returns
+│日本語のテキスト        │      ← what the terminal draws
+```
+
+So `RowContains(y, "日本語")` **fails on correctly-rendered output**. For wide
+text, assert cells:
+
+```gala
+val t2 = Eq(t1, buf.CharAt(1, 0), rune(0x4E2D))
+val t3 = Eq(t2, buf.CharAt(2, 0), ' ')          // reserved trail
+return Eq(t3, buf.CharAt(3, 0), 'b')
+```
+
+## What makes a bad renderer test here
+
+A test is rejected in review if it:
+
+1. **Asserts only that output is non-empty**, or that a length is `> 0`. That
+   proves the render didn't crash, nothing more.
+2. **Samples one cell for a claim about a span.** See above.
+3. **Inspects the Widget AST instead of the Buffer.** A test that
+   pattern-matched a `TextWidget`'s content and asserted it contained an OSC-8
+   escape passed — while the rendered output showed the escape bytes as
+   visible text, because `renderText` drops control characters. Assertions
+   must run on a Buffer.
+4. **Asserts a tautology.** `Eq(Snapshot(w, width, 1).Size(), width)` cannot
+   fail: `Snapshot` walks `0..buf.Width` by construction.
+5. **Is one-sided.** `HasSuffix(out, "cccc")` for a "fills the width" claim
+   also passes for a layout that dumps everything on the leading edge. Assert
+   both ends.
+6. **Uses a degenerate fixture** — one-character segments, one-row lists, a
+   1x1 buffer — such that the interesting arithmetic is never exercised.
+7. **Pins the one input where the arithmetic happens to be exact.** If a
+   remainder can be distributed, sweep a range of widths; a single
+   hand-picked width lies.
+8. **Renders a view that reads the wall clock.** Inject the clock, or assert
+   only the cells that don't depend on it, and say so.
+9. **Collapses a diff into a boolean.** Prefer `Eq(t, got, want)` over
+   `IsTrue(t, SnapshotsEqual(got, want))` — the latter throws away the report
+   the helper exists to produce.
