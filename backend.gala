@@ -59,6 +59,13 @@ struct BackendSession(
 // with nothing captured, while the test backend reads synchronously and
 // returns an already-completed Future, which is both correct and exactly
 // what a deterministic test wants.
+// `Paint` puts a rendered frame on screen. It belongs to the backend
+// rather than the runtime because "where does this buffer go" is the
+// question that separates a full-screen app from an inline one: the
+// full-screen backend homes the cursor absolutely and diffs against the
+// previous frame, while the inline backend positions relative to wherever
+// the shell prompt left the cursor. `prev` is the last frame painted, or
+// nil to force a full repaint.
 struct Backend(
     Name      string,
     Size      func() Tuple[int, int],
@@ -68,6 +75,7 @@ struct Backend(
     // Open acquires the terminal for a run. `mouse` selects the input
     // protocols — see `currentTermModes`.
     Open      func(bool) BackendSession,
+    Paint     func(*Buffer, *Buffer),
 )
 
 // ----------------------------------------------------------------------------
@@ -91,6 +99,14 @@ func TerminalBackend() Backend = Backend(
     },
     ReadAsync = () => terminalReadFuture(),
     Open  = (mouse) => terminalOpen(mouse),
+    Paint = (frame, prev) => {
+        if prev == nil {
+            fmt.Fprint(os.Stdout, ansiHome())
+            fmt.Fprint(os.Stdout, frame.String())
+        } else {
+            fmt.Fprint(os.Stdout, frame.DiffString(prev))
+        }
+    },
 )
 
 // terminalOpen puts the terminal into raw mode and enters the alternate
@@ -165,6 +181,9 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
             return BackendSession(Close = () => {
                 st.Closed = st.Closed + 1
             })
+        },
+        Paint = (frame, prev) => {
+            st.Written = st.Written + frame.String()
         },
     )
     return (b, st)
@@ -279,6 +298,9 @@ func NewTestBackendChunks(
                 st.Closed = st.Closed + 1
             })
         },
+        Paint = (frame, prev) => {
+            st.Written = st.Written + frame.String()
+        },
     )
     return (b, st)
 }
@@ -286,4 +308,156 @@ func NewTestBackendChunks(
 type chunkQueue struct {
     var Chunks Array[string]
     var Idx    int
+}
+
+// ----------------------------------------------------------------------------
+// Inline viewport
+// ----------------------------------------------------------------------------
+
+// ansiCursorUp / ansiCursorDown move the cursor by whole rows. Inline
+// rendering is entirely relative — it never knows, and must never assume,
+// where on the screen the shell left the prompt.
+func ansiCursorUp(n int) string   = if (n <= 0) "" else s"\x1b[${n}A"
+func ansiCursorDown(n int) string = if (n <= 0) "" else s"\x1b[${n}B"
+
+// ansiClearLine erases the current row from the cursor to the end. Inline
+// frames are repainted in place over whatever was there, and without this a
+// row that shrinks leaves the tail of the previous frame behind.
+func ansiClearLine() string = "\x1b[K"
+
+// InlineBackend renders into `height` rows in the normal screen, directly
+// below wherever the shell prompt sits, instead of taking over the terminal.
+//
+// This is the shape a CLI wants when the TUI is part of a command rather
+// than the whole session: a progress view, a picker, a confirmation. The app
+// draws, the user answers, the program exits and its output stays in the
+// scrollback above — which is exactly what the alternate screen destroys,
+// since leaving it wipes everything the app displayed.
+//
+// The viewport is relative throughout. `Open` scrolls `height` rows into
+// existence and parks the cursor at the top of them; every paint returns
+// there when it finishes; `Close` steps below the block so the shell's next
+// prompt lands after the app's output rather than on top of it. Nothing
+// here uses absolute positioning, so the app coexists with whatever is
+// already on screen.
+//
+// Repaints are full rather than diffed. An inline viewport is a handful of
+// rows, so the bandwidth argument that motivates diffing full-screen apps
+// does not apply, and a diff expressed in relative moves is far easier to
+// get wrong than it is to make fast.
+func InlineBackend(height int) Backend {
+    val h = MaxInt(1, height)
+    return Backend(
+        Name  = "inline",
+        Size  = () => {
+            val (w, _) = TermSize()
+            return (w, h)
+        },
+        Write = (s) => {
+            fmt.Fprint(os.Stdout, s)
+        },
+        Read  = (buf) => {
+            var n, err = os.Stdin.Read(buf)
+            if err != nil {
+                return (0, false)
+            }
+            return (n, true)
+        },
+        ReadAsync = () => terminalReadFuture(),
+        Open  = (mouse) => inlineOpen(h, mouse),
+        Paint = (frame, prev) => {
+            fmt.Fprint(os.Stdout, inlineFrameString(frame, h))
+        },
+    )
+}
+
+// inlineFrameString is one repaint: each row cleared and rewritten from
+// column 0, then the cursor walked back to the top of the block so the next
+// paint starts from the same place.
+func inlineFrameString(frame *Buffer, height int) string {
+    var sb strings.Builder
+    val rows = strings.Split(frame.String(), "\n")
+    var i = 0
+    for i < height {
+        sb.WriteString("\r")
+        sb.WriteString(ansiClearLine())
+        if i < rows.Size() {
+            sb.WriteString(rows[i])
+        }
+        if i < height - 1 {
+            sb.WriteString("\r\n")
+        }
+        i = i + 1
+    }
+    // Back to the top of the block, column 0.
+    sb.WriteString("\r")
+    sb.WriteString(ansiCursorUp(height - 1))
+    return sb.String()
+}
+
+// inlineOpen takes raw mode and the input protocols but NOT the alternate
+// screen, then reserves the viewport.
+//
+// Reserving is the subtle part: the rows have to be scrolled into existence
+// before anything is drawn into them. Printing `height - 1` newlines makes
+// the terminal scroll if the prompt was near the bottom, and stepping back
+// up leaves the cursor at the top of a block that is now guaranteed to be
+// on screen. Drawing first and scrolling later would push the top of the
+// frame into the scrollback mid-render.
+func inlineOpen(height int, mouse bool) BackendSession {
+    val fd = int(os.Stdin.Fd())
+    var state, err = term.MakeRaw(fd)
+    if err != nil {
+        return BackendSession(Close = () => {})
+    }
+    val modes = currentTermModes(mouse)
+    val modesOff = termModesOff(modes)
+    installCleanupGuard(fd, state, modesOff)
+    if mouse {
+        val _ = EnableVTInput()
+    }
+    fmt.Fprint(os.Stdout, inlineEnterString(height, termModesOn(modes)))
+    return BackendSession(Close = () => {
+        fmt.Fprint(os.Stdout, inlineExitString(height, modesOff))
+        val _ = term.Restore(fd, state)
+    })
+}
+
+// inlineEnterString reserves the viewport: hide the cursor, turn on the
+// input modes, scroll `height` rows into existence, and come back to the
+// first of them.
+//
+// The scroll has to happen BEFORE anything is drawn. If the prompt sits near
+// the bottom of the screen, printing the newlines is what makes the terminal
+// scroll; drawing first and scrolling later would push the top of the frame
+// into the scrollback mid-render.
+func inlineEnterString(height int, modesOn string) string {
+    var sb strings.Builder
+    sb.WriteString(ansiCursorHide())
+    sb.WriteString(modesOn)
+    var i = 0
+    for i < height - 1 {
+        sb.WriteString("\r\n")
+        i = i + 1
+    }
+    sb.WriteString("\r")
+    sb.WriteString(ansiCursorUp(height - 1))
+    return sb.String()
+}
+
+// inlineExitString releases it: step past the block so the shell's next
+// prompt lands BELOW the app's final frame rather than overwriting it, then
+// undo the modes and show the cursor.
+//
+// Leaving the frame on screen is the whole point of an inline viewport —
+// the alternate screen would erase it on exit, which is exactly what a
+// command whose output should survive must not do.
+func inlineExitString(height int, modesOff string) string {
+    var sb strings.Builder
+    sb.WriteString("\r")
+    sb.WriteString(ansiCursorDown(height - 1))
+    sb.WriteString("\r\n")
+    sb.WriteString(modesOff)
+    sb.WriteString(ansiCursorShow())
+    return sb.String()
 }

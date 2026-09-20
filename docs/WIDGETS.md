@@ -369,3 +369,50 @@ compare against a fixture. See [GETTING_STARTED.md](GETTING_STARTED.md)
 | `SnapshotLines(w, w, h)` | `Array[string]` (one line per row) |
 | `SnapshotsEqual(got, want)` | `bool` |
 | `SnapshotDiff(got, want)` | `Option[string]` (human-readable diff) |
+
+## Inline viewport
+
+By default an app owns the whole terminal on the alternate screen. That is
+wrong for a TUI that is part of a command rather than the whole session — a
+progress view, a picker, a confirmation — because leaving the alternate
+screen erases everything the app displayed.
+
+`InlineBackend(height)` renders into `height` rows directly below the shell
+prompt and leaves the final frame on screen when the program exits:
+
+```gala
+val _ = RunWithSub[Model, Msg](program, keyToMsg, sub, InlineBackend(5))
+```
+
+The viewport is positioned relatively throughout, so the app coexists with
+whatever is already on screen and never writes above its own block.
+
+| | `TerminalBackend()` (default) | `InlineBackend(n)` |
+|---|---|---|
+| Screen | alternate | normal, `n` rows below the prompt |
+| Size | whole terminal | terminal width × `n` |
+| Repaint | diffed against the previous frame | full |
+| On exit | screen restored, output gone | final frame stays in scrollback |
+
+Repaints are full rather than diffed: an inline viewport is a handful of
+rows, so the bandwidth argument for diffing does not apply, and a diff in
+relative cursor moves is much easier to get wrong than to make fast.
+
+## Testing a run loop without a terminal
+
+`NewTestBackend(width, height, input)` scripts stdin and records everything
+written, so the whole loop — parsing, carry-over, click resolution, quit
+handling, teardown — can be driven from a test:
+
+```gala
+val (backend, st) = NewTestBackend(40, 3, "abc")
+val final = Run[Model, Msg](program, keyToMsg, backend)
+IsTrue(t, st.Wrote("keys=a,b,c"))
+```
+
+`Read` reports end-of-input once the script runs out, so a scripted run
+terminates on its own instead of needing a Quit in every fixture.
+
+Use `NewTestBackendChunks(width, height, chunks)` when the split between
+reads matters — an escape sequence torn across two reads cannot be expressed
+as a single string, because one string always arrives in one read.

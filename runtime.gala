@@ -1303,8 +1303,7 @@ func paintFrame(w Widget, backend Backend) {
     val (width, height) = backend.Size()
     val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
-    backend.Write(ansiHome())
-    backend.Write(buf.String())
+    backend.Paint(buf, nil)
 }
 
 // paintFrameDiff renders into a fresh buffer, then writes ONLY the cells that
@@ -1337,6 +1336,6 @@ func paintFrameDiffWithHits(
         hits.Reset()
     }
     RenderToWithHits(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf, hits)
-    backend.Write(buf.DiffString(prev))
+    backend.Paint(buf, prev)
     return buf
 }
