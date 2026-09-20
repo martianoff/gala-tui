@@ -146,10 +146,13 @@ func ParseInput(buf []byte) Tuple[InputEvent, int] {
             // Focus in / out. Both are bare three-byte sequences, so we
             // require an empty parameter list — `ESC [ 1 ; 2 I` is not a
             // focus report and must not be decoded as one.
-            if scan.Final == 2 && fb == 0x49 {          // 'I'
+            // 'I' is focus In, 'O' is focus Out. These were swapped, which
+            // inverts every focus event an app receives — a pane would dim
+            // on gaining focus and brighten on losing it.
+            if scan.Final == 2 && fb == 0x49 {          // 'I' — focus gained
                 return (FocusInput(Gained = true), 3)
             }
-            if scan.Final == 2 && fb == 0x4F {          // 'O'
+            if scan.Final == 2 && fb == 0x4F {          // 'O' — focus lost
                 return (FocusInput(Gained = false), 3)
             }
             // Bracketed-paste opener: ESC [ 200 ~

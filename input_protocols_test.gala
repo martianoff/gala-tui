@@ -1,0 +1,792 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Tier 4 — modern terminal input protocols.
+//
+// Bracketed paste (?2004), focus reporting (?1004) and the kitty keyboard
+// protocol (CSI > 1 u) are all progressive enhancement: a terminal that does
+// not implement one keeps sending the legacy encoding. So every test here
+// comes in a pair — the new path decodes, and the legacy path it could have
+// broken still decodes identically.
+//
+// Everything is driven through ParseInput / ParseKey with real wire bytes,
+// the same way stdin feeds them at runtime. Nothing asserts on parser
+// internals.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+// describeInput renders an InputEvent as a short comparable string, so an
+// assertion reads `Eq(t, got, "paste:hello")` and a failure prints what
+// actually decoded instead of a bare `false`. Exhaustive on purpose: a new
+// InputEvent case has to be described here before this suite compiles.
+func describeInput(ev InputEvent) string = ev match {
+    case KeyInput(k)       => "key:" + describeKeyEv(k)
+    case MouseInput(m)     => s"mouse:${m.X},${m.Y}"
+    case ResizeInput(w, h) => s"resize:$w,$h"
+    case PasteInput(c)     => "paste:" + c
+    case FocusInput(g)     => if (g) "focus:gained" else "focus:lost"
+    case UnknownInput()    => "unknown"
+}
+
+// describeKeyEv spells a KeyEvent as `ctrl+alt+shift+name`, modifiers always
+// in that order so the strings are stable to compare.
+func describeKeyEv(ev KeyEvent) string {
+    var s = ""
+    if ev.Ctrl  { s = s + "ctrl+" }
+    if ev.Alt   { s = s + "alt+" }
+    if ev.Shift { s = s + "shift+" }
+    return s + describeKeyName(ev.Key)
+}
+
+func describeKeyName(k Key) string = k match {
+    case Char(c)      => string(c)
+    case FKey(n)      => s"f$n"
+    case Enter()      => "enter"
+    case Esc()        => "esc"
+    case Tab()        => "tab"
+    case Space()      => "space"
+    case Backspace()  => "backspace"
+    case Up()         => "up"
+    case Down()       => "down"
+    case ArrowLeft()  => "left"
+    case ArrowRight() => "right"
+    case Home()       => "home"
+    case End()        => "end"
+    case PageUp()     => "pageup"
+    case PageDown()   => "pagedown"
+    case Delete()     => "delete"
+    case Insert()     => "insert"
+    case Unknown()    => "unknown"
+}
+
+// decodeOne is the single-event shorthand: decode the front of `wire` and
+// render it. The consumed count is asserted separately where it matters.
+func decodeOne(wire string) string {
+    val (ev, _) = ParseInput(ToBytes(wire))
+    return describeInput(ev)
+}
+
+func consumedFor(wire string) int {
+    val (_, n) = ParseInput(ToBytes(wire))
+    return n
+}
+
+// drainInput mirrors the runtime read loop: pull events off the front of
+// `buf` until nothing more is complete, returning the decoded events and the
+// unconsumed tail. Used for the claims that are about the event *stream* —
+// "a paste arrives as one event, not a burst" — rather than a single decode.
+func drainInput(buf []byte) Tuple[Array[InputEvent], []byte] {
+    var out = EmptyArray[InputEvent]()
+    val n = buf.Size()
+    var consumed = 0
+    for consumed < n {
+        val (ev, c) = ParseInput(Slice(buf, consumed, n))
+        if c == 0 {
+            break
+        }
+        out = out.Append(ev)
+        consumed = consumed + c
+    }
+    return (out, Slice(buf, consumed, n))
+}
+
+// feedChunks mirrors the runtime's carry buffer: hand the parser `size` bytes
+// at a time and keep whatever it could not consume in front of the next
+// chunk. This is how a bracketed paste actually arrives — a 64-byte stdin
+// read cannot hold a pasted paragraph — so it is the only way to test that a
+// paste survives being split across reads.
+func feedChunks(buf []byte, size int) Array[InputEvent] {
+    var out = EmptyArray[InputEvent]()
+    var carry = SliceEmpty[byte]()
+    val n = buf.Size()
+    var at = 0
+    for at < n {
+        var end = at + size
+        if end > n {
+            end = n
+        }
+        val avail = SliceAppendAll(carry, Slice(buf, at, end))
+        val (evs, rest) = drainInput(avail)
+        out = out.AppendAll(evs)
+        carry = carryOver(rest)
+        at = end
+    }
+    return out
+}
+
+// pasteWire wraps `body` in the terminal's bracketed-paste markers.
+func pasteWire(body string) string = "\x1b[200~" + body + "\x1b[201~"
+
+// assertAllPrefixesIncomplete is the incomplete-input sweep. Every proper
+// prefix of `wire` from two bytes up — two, because a lone ESC is a real Esc
+// keypress and must still decode as one — has to report consumed = 0. A
+// parser that guesses at a truncated sequence is how half a paste reaches the
+// app and how "15~" arrives as two literal characters.
+func assertAllPrefixesIncomplete(t T, wire string, label string) T {
+    val full = ToBytes(wire)
+    var acc = t
+    var i = 2
+    for i < full.Size() {
+        val (_, n) = ParseInput(Slice(full, 0, i))
+        acc = EqMsg(acc, n, 0, s"$label truncated to $i bytes must consume 0")
+        i = i + 1
+    }
+    return acc
+}
+
+// ----------------------------------------------------------------------------
+// 1. Bracketed paste — ESC [ 200 ~ … ESC [ 201 ~ (mode ?2004)
+// ----------------------------------------------------------------------------
+
+func TestPasteDecodesAsASingleEvent(t T) T {
+    val wire = pasteWire("hello world")
+    val t1 = Eq(t, decodeOne(wire), "paste:hello world")
+    return Eq(t1, consumedFor(wire), ToBytes(wire).Size())
+}
+
+// The body is handed back byte-for-byte. Newlines especially: a pasted
+// multi-line block that arrives as keystrokes fires the app's Enter handler
+// once per line, which is how paste submits half a chat message.
+func TestPasteContentIsVerbatim(t T) T {
+    val body = "line one\nline two\r\n\tindented  trailing "
+    return Eq(t, decodeOne(pasteWire(body)), "paste:" + body)
+}
+
+func TestPasteOfEmptySelection(t T) T {
+    val t1 = Eq(t, decodeOne(pasteWire("")), "paste:")
+    return Eq(t1, consumedFor(pasteWire("")), 12)
+}
+
+// The terminal strips ESC from pasted text, so the closer can only be the
+// real one — but the decoder must not stop at text that merely looks like it.
+func TestPasteDoesNotEndOnBracketLikeText(t T) T {
+    val body = "see [201~ and \x9b201~ below"
+    return Eq(t, decodeOne(pasteWire(body)), "paste:" + body)
+}
+
+// Consumed must cover the markers and nothing more, or the keystroke that
+// followed the paste is eaten.
+func TestPasteConsumesExactlyTheWrappedRun(t T) T {
+    val buf = ToBytes(pasteWire("hi") + "a")
+    val (ev, n) = ParseInput(buf)
+    val t1 = Eq(t, describeInput(ev), "paste:hi")
+    val t2 = Eq(t1, n, 14)                  // 6 opener + 2 body + 6 closer
+    val (next, n2) = ParseInput(Slice(buf, n, buf.Size()))
+    val t3 = Eq(t2, describeInput(next), "key:a")
+    return Eq(t3, n2, 1)
+}
+
+// The headline claim: one event for the whole paste, not one per character.
+// Swept over a range of body lengths because the failure mode this guards
+// against — falling through to ParseKey — produces exactly `len` events, so a
+// single short fixture would be easy to pass by accident.
+func TestPasteIsOneEventNotAKeystrokeBurst(t T) T {
+    var acc = t
+    var chars = 1
+    for chars <= 256 {
+        val (evs, rest) = drainInput(ToBytes(pasteWire(strings.Repeat("x", chars))))
+        acc = EqMsg(acc, evs.Length(), 1, s"$chars-char paste must decode as 1 event")
+        acc = EqMsg(acc, describeInput(evs.Get(0)), "paste:" + strings.Repeat("x", chars),
+                    s"$chars-char paste body")
+        acc = EqMsg(acc, rest.Size(), 0, s"$chars-char paste must be fully consumed")
+        chars = chars * 2
+    }
+    return acc
+}
+
+// A paste with no terminator is the classic truncation: every prefix of the
+// wire form, including one that has the whole opener and half the body, must
+// ask for more bytes rather than emit a partial paste.
+func TestPasteTruncatedAtEveryPrefixReturnsZeroConsumed(t T) T =
+    assertAllPrefixesIncomplete(t, pasteWire("some pasted text"), "paste")
+
+// An opener with no closer at all, which is what an interrupted paste looks
+// like — not merely a prefix of a well-formed sequence.
+func TestPasteWithoutTerminatorReturnsZeroConsumed(t T) T {
+    val t1 = Eq(t, consumedFor("\x1b[200~orphaned text with no closer"), 0)
+    return Eq(t1, consumedFor("\x1b[200~"), 0)
+}
+
+// The real delivery shape: a paste longer than one stdin read, split at every
+// chunk size the loop might see. Exactly one event, body intact, whatever the
+// split points land on — including splits that fall inside the opener, inside
+// the body and inside the closer.
+//
+// The sweep starts at two bytes, not one. A chunk of exactly one byte
+// containing only ESC is genuinely ambiguous and the decoder resolves it as
+// the Esc key — see TestBareEscIsTheEscKeyNotAnIncompleteSequence for why
+// that is the right answer and why terminals do not produce the case.
+func TestPasteReassemblesAcrossReads(t T) T {
+    val body = strings.Repeat("abcdefghij", 30)     // 300 bytes, > one 64-byte read
+    val wire = ToBytes(pasteWire(body))
+    var acc = t
+    var size = 2
+    for size <= 64 {
+        val evs = feedChunks(wire, size)
+        acc = EqMsg(acc, evs.Length(), 1, s"paste split into $size-byte reads must be 1 event")
+        acc = EqMsg(acc, describeInput(evs.Get(0)), "paste:" + body,
+                    s"paste split into $size-byte reads must keep its body")
+        size = size + 1
+    }
+    return acc
+}
+
+// Pasted text is opaque: a 0x03 byte inside it is the letter, not Ctrl-C.
+// Without this the runtime's escape hatch would kill the app mid-paste.
+func TestPasteContainingCtrlCBytesDoesNotForceQuit(t T) T {
+    val (ev, _) = ParseInput(ToBytes(pasteWire("a\x03b")))
+    val t1 = Eq(t, describeInput(ev), "paste:a\x03b")
+    return IsFalse(t1, isForcedQuit(ev))
+}
+
+// ----------------------------------------------------------------------------
+// 2. Focus events — ESC [ I / ESC [ O (mode ?1004)
+// ----------------------------------------------------------------------------
+
+func TestFocusGainedAndLost(t T) T {
+    val t1 = Eq(t,  decodeOne("\x1b[I"), "focus:gained")
+    val t2 = Eq(t1, decodeOne("\x1b[O"), "focus:lost")
+    val t3 = Eq(t2, consumedFor("\x1b[I"), 3)
+    return Eq(t3, consumedFor("\x1b[O"), 3)
+}
+
+// `ESC [ O` is focus-lost; `ESC O P` is SS3 F1. One bracket apart, and
+// getting it wrong would turn every F1 press into a focus event.
+func TestFocusLostNotConfusedWithSs3FunctionKeys(t T) T {
+    val t1 = Eq(t,  decodeOne("\x1bOP"), "key:f1")
+    val t2 = Eq(t1, decodeOne("\x1bOQ"), "key:f2")
+    val t3 = Eq(t2, decodeOne("\x1bOR"), "key:f3")
+    return Eq(t3, decodeOne("\x1bOS"), "key:f4")
+}
+
+// A focus report has no parameters. A parameterised sequence ending in the
+// same final byte is something else and must not be claimed.
+func TestFocusRequiresABareSequence(t T) T {
+    val t1 = NotEq(t,  decodeOne("\x1b[1;2O"), "focus:lost")
+    return NotEq(t1, decodeOne("\x1b[1;2I"), "focus:gained")
+}
+
+func TestFocusTruncatedReturnsZeroConsumed(t T) T {
+    val t1 = assertAllPrefixesIncomplete(t, "\x1b[I", "focus-in")
+    return assertAllPrefixesIncomplete(t1, "\x1b[O", "focus-out")
+}
+
+// Focus changes must not look like a quit, or losing focus would exit the app.
+func TestFocusEventsNeverForceQuit(t T) T {
+    val (gained, _) = ParseInput(ToBytes("\x1b[I"))
+    val (lost, _)   = ParseInput(ToBytes("\x1b[O"))
+    val t1 = IsFalse(t, isForcedQuit(gained))
+    return IsFalse(t1, isForcedQuit(lost))
+}
+
+// ----------------------------------------------------------------------------
+// 3. kitty keyboard protocol — CSI unicode-key-code ; modifiers u
+// ----------------------------------------------------------------------------
+
+// kittyWire builds `CSI <code> ; <mods> u`.
+func kittyWire(code int, mods int) string = s"\x1b[$code;${mods}u"
+
+// The three conflations the protocol exists to resolve. Each is asserted
+// against its legacy counterpart in the same test, because "Ctrl-I decodes as
+// ctrl+i" is only interesting next to "and plain Tab still decodes as tab".
+func TestKittyCtrlIIsDistinctFromTab(t T) T {
+    val t1 = Eq(t,  decodeOne(kittyWire(105, 5)), "key:ctrl+i")
+    val t2 = Eq(t1, decodeOne("\t"), "key:tab")
+    return Eq(t2, decodeOne(kittyWire(9, 1)), "key:tab")
+}
+
+func TestKittyCtrlMIsDistinctFromEnter(t T) T {
+    val t1 = Eq(t,  decodeOne(kittyWire(109, 5)), "key:ctrl+m")
+    val t2 = Eq(t1, decodeOne("\r"), "key:enter")
+    return Eq(t2, decodeOne(kittyWire(13, 1)), "key:enter")
+}
+
+// A real Esc press versus the first byte of an escape sequence — the reason
+// legacy decoders need a timeout and this one does not.
+func TestKittyEscIsDistinctFromEscapeSequenceStart(t T) T {
+    val t1 = Eq(t,  decodeOne(kittyWire(27, 1)), "key:esc")
+    val t2 = Eq(t1, consumedFor(kittyWire(27, 1)), 7)   // ESC [ 2 7 ; 1 u
+    // Ctrl-[ produces the same 0x1B byte in the legacy encoding; kitty gives
+    // it its own code, so the two stop being the same keypress.
+    val t3 = Eq(t2, decodeOne(kittyWire(91, 5)), "key:ctrl+[")
+    return Eq(t3, decodeOne("\x1b"), "key:esc")
+}
+
+// The modifier parameter is 1 + a bitmask (1 shift, 2 alt, 4 ctrl). Swept
+// over the whole three-bit space rather than sampling ctrl, because an
+// off-by-one in the `- 1` is invisible at any single value.
+func TestKittyModifierParameterSweep(t T) T {
+    val want = ArrayOf[string](
+        "key:a",                    // 1 = none
+        "key:shift+a",              // 2 = shift
+        "key:alt+a",                // 3 = alt
+        "key:alt+shift+a",          // 4 = alt|shift
+        "key:ctrl+a",               // 5 = ctrl
+        "key:ctrl+shift+a",         // 6 = ctrl|shift
+        "key:ctrl+alt+a",           // 7 = ctrl|alt
+        "key:ctrl+alt+shift+a",     // 8 = ctrl|alt|shift
+    )
+    var acc = t
+    var p = 1
+    for p <= 8 {
+        acc = EqMsg(acc, decodeOne(kittyWire(97, p)), want.Get(p - 1),
+                    s"kitty modifier parameter $p")
+        p = p + 1
+    }
+    // Locks and the super/hyper/meta bits must not alias onto ctrl or alt:
+    // 65 = 1 + 64 is caps-lock alone, which is no modifier we model.
+    return EqMsg(acc, decodeOne(kittyWire(97, 65)), "key:a", "caps-lock bit")
+}
+
+// An absent modifier parameter means "no modifiers" — `CSI 97 u` and
+// `CSI 97 ; 1 u` must decode identically.
+func TestKittyOmittedModifierParameter(t T) T {
+    val t1 = Eq(t, decodeOne("\x1b[97u"), "key:a")
+    return Eq(t1, decodeOne("\x1b[97;u"), "key:a")
+}
+
+func TestKittyNamedKeysSweep(t T) T {
+    val codes = ArrayOf[int](27, 13, 10, 9, 32, 127, 8)
+    val names = ArrayOf[string]("esc", "enter", "enter", "tab", "space",
+                                "backspace", "backspace")
+    var acc = t
+    var i = 0
+    for i < codes.Length() {
+        acc = EqMsg(acc, decodeOne(kittyWire(codes.Get(i), 1)), "key:" + names.Get(i),
+                    s"kitty key code ${codes.Get(i)}")
+        i = i + 1
+    }
+    return acc
+}
+
+// F13..F35 live at 57376..57398 in the private-use area. Swept end to end:
+// the mapping is arithmetic, so a wrong base shows up at one end only.
+func TestKittyFunctionKeysF13ToF35Sweep(t T) T {
+    var acc = t
+    var cp = 57376
+    for cp <= 57398 {
+        val n = cp - 57376 + 13
+        acc = EqMsg(acc, decodeOne(kittyWire(cp, 1)), s"key:f$n", s"kitty codepoint $cp")
+        cp = cp + 1
+    }
+    return acc
+}
+
+// "Disambiguate escape codes" also gives every keypad key its own codepoint,
+// so without this block enabling the protocol would break the numeric keypad.
+func TestKittyKeypadSweep(t T) T {
+    var acc = t
+    var cp = 57399
+    for cp <= 57408 {
+        val digit = string(rune(cp - 57399 + 0x30))
+        acc = EqMsg(acc, decodeOne(kittyWire(cp, 1)), "key:" + digit,
+                    s"kitty keypad codepoint $cp")
+        cp = cp + 1
+    }
+    val punct = ArrayOf[int](57409, 57410, 57411, 57412, 57413, 57415, 57416)
+    val glyph = ArrayOf[string](".", "/", "*", "-", "+", "=", ",")
+    var i = 0
+    for i < punct.Length() {
+        acc = EqMsg(acc, decodeOne(kittyWire(punct.Get(i), 1)), "key:" + glyph.Get(i),
+                    s"kitty keypad codepoint ${punct.Get(i)}")
+        i = i + 1
+    }
+    val nav = ArrayOf[int](57414, 57417, 57418, 57419, 57420, 57421, 57422,
+                           57423, 57424, 57425, 57426)
+    val navName = ArrayOf[string]("enter", "left", "right", "up", "down",
+                                  "pageup", "pagedown", "home", "end",
+                                  "insert", "delete")
+    var j = 0
+    for j < nav.Length() {
+        acc = EqMsg(acc, decodeOne(kittyWire(nav.Get(j), 1)), "key:" + navName.Get(j),
+                    s"kitty keypad codepoint ${nav.Get(j)}")
+        j = j + 1
+    }
+    return acc
+}
+
+// The key code is a Unicode codepoint, not a byte, so it has to survive
+// above ASCII.
+func TestKittyNonAsciiCodepoint(t T) T {
+    val t1 = Eq(t, decodeOne(kittyWire(233, 1)), "key:é")
+    return Eq(t1, decodeOne(kittyWire(0x4E2D, 1)), "key:中")
+}
+
+// kitty writes alternate key codes and event types as `:`-separated
+// sub-parameters. We push only the disambiguate flag, so event types should
+// never appear — but the decoder uses the leading value of each field either
+// way, rather than decoding `97:65` as some enormous codepoint.
+func TestKittySubParametersAreIgnored(t T) T {
+    val t1 = Eq(t,  decodeOne("\x1b[97:65;5u"), "key:ctrl+a")
+    val t2 = Eq(t1, decodeOne("\x1b[97:65:97;5:3u"), "key:ctrl+a")
+    return Eq(t2, decodeOne("\x1b[97;5:1u"), "key:ctrl+a")
+}
+
+// Ctrl-C has to survive the new path intact, or the runtime's escape hatch
+// stops working on exactly the terminals that support the protocol.
+func TestKittyCtrlCMatchesLegacyAndStillForcesQuit(t T) T {
+    val (kitty, kn) = ParseInput(ToBytes(kittyWire(99, 5)))
+    val (legacy, ln) = ParseInput(ToBytes("\x03"))
+    val t1 = Eq(t,  describeInput(kitty), "key:ctrl+c")
+    val t2 = Eq(t1, describeInput(legacy), "key:ctrl+c")
+    val t3 = Eq(t2, kn, 7)
+    val t4 = Eq(t3, ln, 1)
+    val t5 = IsTrue(t4, isForcedQuit(kitty))
+    return IsTrue(t5, isForcedQuit(legacy))
+}
+
+// A sequence cut mid-number is the other classic truncation: `ESC [ 5 7 3 9`
+// is a prefix of a keypad code and must not decode as `CSI 5739 u`-anything.
+func TestKittyTruncatedMidNumberReturnsZeroConsumed(t T) T {
+    val t1 = assertAllPrefixesIncomplete(t, kittyWire(57399, 5), "kitty keypad")
+    val t2 = assertAllPrefixesIncomplete(t1, kittyWire(27, 1), "kitty esc")
+    return Eq(t2, consumedFor("\x1b[105;"), 0)
+}
+
+// ----------------------------------------------------------------------------
+// 4. Legacy encodings must be untouched
+//
+// Terminals without kitty support ignore the enable string and keep sending
+// these. Every one of them flows through the same rewritten CSI decoder the
+// kitty form uses, so this is the regression surface.
+// ----------------------------------------------------------------------------
+
+func TestLegacyArrowsUnchanged(t T) T {
+    val wires = ArrayOf[string]("\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D")
+    val names = ArrayOf[string]("up", "down", "right", "left")
+    var acc = t
+    var i = 0
+    for i < wires.Length() {
+        acc = EqMsg(acc, decodeOne(wires.Get(i)), "key:" + names.Get(i),
+                    s"legacy arrow ${names.Get(i)}")
+        acc = EqMsg(acc, consumedFor(wires.Get(i)), 3,
+                    s"legacy arrow ${names.Get(i)} consumed")
+        i = i + 1
+    }
+    return acc
+}
+
+// 0x01..0x1A are Ctrl-A..Ctrl-Z, minus the four the terminal reuses for
+// Backspace / Tab / LF / CR — which is precisely the conflation the kitty
+// protocol resolves, and which must keep behaving as before when it is off.
+func TestLegacyCtrlLetterSweep(t T) T {
+    var acc = t
+    var b = 0x01
+    for b <= 0x1A {
+        val wire = string(rune(b))
+        if b == 0x08 {
+            acc = EqMsg(acc, decodeOne(wire), "key:backspace", "0x08 is Backspace")
+        }
+        if b == 0x09 {
+            acc = EqMsg(acc, decodeOne(wire), "key:tab", "0x09 is Tab")
+        }
+        if b == 0x0A || b == 0x0D {
+            acc = EqMsg(acc, decodeOne(wire), "key:enter", s"0x$b is Enter")
+        }
+        if b != 0x08 && b != 0x09 && b != 0x0A && b != 0x0D {
+            val letter = string(rune(b + 0x60))
+            acc = EqMsg(acc, decodeOne(wire), "key:ctrl+" + letter, s"ctrl+$letter")
+        }
+        b = b + 1
+    }
+    return acc
+}
+
+// Every printable ASCII rune, not a sampled few: the CSI rewrite sits in
+// front of this path and a mis-scoped byte range would only show at an edge.
+func TestLegacyPrintableAsciiSweep(t T) T {
+    var acc = t
+    var b = 0x21
+    for b <= 0x7E {
+        val ch = string(rune(b))
+        acc = EqMsg(acc, decodeOne(ch), "key:" + ch, s"printable 0x$b")
+        acc = EqMsg(acc, consumedFor(ch), 1, s"printable 0x$b consumed")
+        b = b + 1
+    }
+    return EqMsg(acc, decodeOne(" "), "key:space", "0x20 is Space")
+}
+
+// F1..F12 across both legacy families — SS3 for F1..F4 and the two-digit
+// CSI ~ form for F5..F12.
+func TestLegacyFunctionKeysUnchanged(t T) T {
+    val wires = ArrayOf[string](
+        "\x1bOP", "\x1bOQ", "\x1bOR", "\x1bOS",
+        "\x1b[15~", "\x1b[17~", "\x1b[18~", "\x1b[19~",
+        "\x1b[20~", "\x1b[21~", "\x1b[23~", "\x1b[24~",
+    )
+    var acc = t
+    var i = 0
+    for i < wires.Length() {
+        val n = i + 1
+        acc = EqMsg(acc, decodeOne(wires.Get(i)), s"key:f$n", s"legacy F$n")
+        i = i + 1
+    }
+    return acc
+}
+
+func TestLegacyEditingKeysUnchanged(t T) T {
+    val wires = ArrayOf[string]("\x1b[H", "\x1b[F", "\x1b[1~", "\x1b[2~",
+                                "\x1b[3~", "\x1b[4~", "\x1b[5~", "\x1b[6~")
+    val names = ArrayOf[string]("home", "end", "home", "insert",
+                                "delete", "end", "pageup", "pagedown")
+    var acc = t
+    var i = 0
+    for i < wires.Length() {
+        acc = EqMsg(acc, decodeOne(wires.Get(i)), "key:" + names.Get(i),
+                    s"legacy editing key ${wires.Get(i)}")
+        i = i + 1
+    }
+    return acc
+}
+
+func TestLegacyAltLetterAndBareEscUnchanged(t T) T {
+    val t1 = Eq(t,  decodeOne("\x1ba"), "key:alt+a")
+    val t2 = Eq(t1, consumedFor("\x1ba"), 2)
+    val t3 = Eq(t2, decodeOne("\x1b"), "key:esc")
+    return Eq(t3, consumedFor("\x1b"), 1)
+}
+
+// The CSI dispatch in ParseInput runs ahead of the mouse branch's old
+// position, so pin that mouse packets still win their prefix.
+func TestLegacyMousePacketStillDecodes(t T) T {
+    val t1 = Eq(t,  decodeOne("\x1b[<0;5;7M"), "mouse:4,6")
+    return Eq(t1, consumedFor("\x1b[<0;5;7M"), 9)
+}
+
+// ----------------------------------------------------------------------------
+// 5. CSI decoding robustness
+//
+// The decoder used to test fixed byte offsets, which meant an unrecognised or
+// truncated sequence advanced three bytes and re-fed its own tail as literal
+// characters. These pin the replacement.
+// ----------------------------------------------------------------------------
+
+// Modified arrows — `ESC [ 1 ; 5 A` is Ctrl-Up and every terminal in common
+// use sends it. The old decoder returned a three-byte Unknown and leaked
+// ";5A" into the app as three keypresses.
+func TestModifiedArrowsDecode(t T) T {
+    val finals = ArrayOf[string]("A", "B", "C", "D")
+    val names  = ArrayOf[string]("up", "down", "right", "left")
+    val params = ArrayOf[int](2, 3, 5, 6, 7, 8)
+    val mods   = ArrayOf[string]("shift+", "alt+", "ctrl+", "ctrl+shift+",
+                                 "ctrl+alt+", "ctrl+alt+shift+")
+    var acc = t
+    var i = 0
+    for i < finals.Length() {
+        var j = 0
+        for j < params.Length() {
+            val wire = s"\x1b[1;${params.Get(j)}${finals.Get(i)}"
+            acc = EqMsg(acc, decodeOne(wire), "key:" + mods.Get(j) + names.Get(i),
+                        s"modified arrow $wire")
+            acc = EqMsg(acc, consumedFor(wire), 6, s"modified arrow $wire consumed")
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return acc
+}
+
+// Whatever a CSI sequence turns out to be, it must be consumed whole. The
+// assertion is on the *next* event: a decoder that under-consumes leaves its
+// own tail in the stream, and the app sees phantom keypresses.
+func TestCsiSequencesNeverLeakTheirTail(t T) T {
+    val wires = ArrayOf[string](
+        "\x1b[A", "\x1b[1;5A", "\x1b[15~", "\x1b[3;2~", "\x1b[97;5u",
+        "\x1b[57399;1u", "\x1b[I", "\x1b[O", "\x1b[Z",
+        "\x1b[200~x\x1b[201~", "\x1b[<0;5;7M",
+        "\x1b[1;2R", "\x1b[?62;1c", "\x1b[999X",     // unrecognised, still whole
+    )
+    var acc = t
+    var i = 0
+    for i < wires.Length() {
+        val wire = wires.Get(i)
+        val buf = ToBytes(wire + "a")
+        val (_, n) = ParseInput(buf)
+        acc = EqMsg(acc, n, ToBytes(wire).Size(), s"$wire must be consumed whole")
+        val (next, n2) = ParseInput(Slice(buf, n, buf.Size()))
+        acc = EqMsg(acc, describeInput(next), "key:a", s"byte after $wire")
+        acc = EqMsg(acc, n2, 1, s"byte after $wire consumed")
+        i = i + 1
+    }
+    return acc
+}
+
+// The smallest incomplete sequence there is, and the one a naive decoder
+// reports as a bare Esc — which then makes the following '[' a literal
+// bracket in the user's text field.
+func TestLoneCsiIntroducerReturnsZeroConsumed(t T) T {
+    val t1 = Eq(t,  consumedFor("\x1b["), 0)
+    val t2 = Eq(t1, consumedFor("\x1bO"), 0)
+    val t3 = Eq(t2, consumedFor("\x1b[1"), 0)
+    val t4 = Eq(t3, consumedFor("\x1b[1;"), 0)
+    return Eq(t4, consumedFor("\x1b[<0;5"), 0)
+}
+
+// The general sweep: for a representative sequence from each family, every
+// proper prefix asks for more bytes.
+func TestEveryTruncatedSequenceReturnsZeroConsumed(t T) T {
+    val wires = ArrayOf[string](
+        "\x1b[A", "\x1b[15~", "\x1b[1;5A", "\x1bOP",
+        "\x1b[97;5u", "\x1b[57399;1u",
+        "\x1b[<0;12;34M", "\x1b[200~text\x1b[201~",
+    )
+    var acc = t
+    var i = 0
+    for i < wires.Length() {
+        acc = assertAllPrefixesIncomplete(acc, wires.Get(i), wires.Get(i))
+        i = i + 1
+    }
+    return acc
+}
+
+// A C0 byte inside a CSI body means the sequence was interrupted. Drop only
+// what was scanned so the stream resyncs on the interrupting byte instead of
+// swallowing it — an arrow key pressed during a stalled sequence still lands.
+func TestInterruptedCsiResyncsOnTheNextSequence(t T) T {
+    val buf = ToBytes("\x1b[1\x1b[A")
+    val (_, n) = ParseInput(buf)
+    val t1 = Eq(t, n, 3)
+    val (next, n2) = ParseInput(Slice(buf, n, buf.Size()))
+    val t2 = Eq(t1, describeInput(next), "key:up")
+    return Eq(t2, n2, 3)
+}
+
+// A bare ESC at the end of the available bytes is reported as the Esc key,
+// consuming one byte — it is NOT treated as an incomplete sequence.
+//
+// It has to work this way. With no timeout there is nothing to tell a real
+// Esc press from the first byte of a sequence whose remainder has not
+// arrived, and reporting 0 would mean Esc never fires until the user presses
+// something else. Terminals write an escape sequence with a single write, so
+// the ambiguous case only arises if a read boundary falls at exactly one
+// byte — and on a terminal that speaks the kitty protocol it does not arise
+// at all, because Esc arrives as `CSI 27 u`. Documented here so the one
+// remaining seam in the incomplete-input contract is explicit rather than
+// discovered.
+func TestBareEscIsTheEscKeyNotAnIncompleteSequence(t T) T {
+    val t1 = Eq(t,  decodeOne("\x1b"), "key:esc")
+    val t2 = Eq(t1, consumedFor("\x1b"), 1)
+    // One more byte and the ambiguity is gone in both directions.
+    val t3 = Eq(t2, consumedFor("\x1b["), 0)
+    return Eq(t3, decodeOne("\x1ba"), "key:alt+a")
+}
+
+// Back-tab. Terminals send it for Shift-Tab; it used to decode as a
+// three-byte Unknown, so reverse focus cycling was not expressible.
+func TestBackTabDecodesAsShiftTab(t T) T {
+    val t1 = Eq(t, decodeOne("\x1b[Z"), "key:shift+tab")
+    return Eq(t1, consumedFor("\x1b[Z"), 3)
+}
+
+// ----------------------------------------------------------------------------
+// 6. Mode strings and teardown
+//
+// Every mode enabled on entry has to be disabled on exit, on both the
+// ordinary path (TermSession.Close) and the signal path (installCleanupGuard),
+// which is why both write the same termModesOff string.
+// ----------------------------------------------------------------------------
+
+func TestTermModesOnAndOffAreExactAndReversed(t T) T {
+    val all = TermModes(Mouse = true, Paste = true, Focus = true, Kitty = true)
+    val t1 = Eq(t, termModesOn(all),
+                "\x1b[?1000h\x1b[?1002h\x1b[?1006h" + "\x1b[?2004h" +
+                "\x1b[?1004h" + "\x1b[>1u")
+    val t2 = Eq(t1, termModesOff(all),
+                "\x1b[<u" + "\x1b[?1004l" + "\x1b[?2004l" +
+                "\x1b[?1006l\x1b[?1002l\x1b[?1000l")
+    val none = TermModes(Mouse = false, Paste = false, Focus = false, Kitty = false)
+    val t3 = Eq(t2, termModesOn(none), "")
+    return Eq(t3, termModesOff(none), "")
+}
+
+// The invariant, swept over all sixteen combinations: a mode appears in the
+// enable string if and only if its disable counterpart appears in the disable
+// string. A mode left on after exit prints raw escape codes into the user's
+// shell — this is the test that a fifth mode cannot be added to one side only.
+func TestEveryEnabledModeIsDisabledSweep(t T) T {
+    val onSeq  = ArrayOf[string]("\x1b[?1006h", "\x1b[?2004h", "\x1b[?1004h", "\x1b[>1u")
+    val offSeq = ArrayOf[string]("\x1b[?1006l", "\x1b[?2004l", "\x1b[?1004l", "\x1b[<u")
+    var acc = t
+    var bits = 0
+    for bits < 16 {
+        val m = TermModes(
+            Mouse = (bits & 1) != 0,
+            Paste = (bits & 2) != 0,
+            Focus = (bits & 4) != 0,
+            Kitty = (bits & 8) != 0,
+        )
+        val on  = termModesOn(m)
+        val off = termModesOff(m)
+        val want = ArrayOf[bool](m.Mouse, m.Paste, m.Focus, m.Kitty)
+        var i = 0
+        for i < 4 {
+            acc = EqMsg(acc, strings.Contains(on, onSeq.Get(i)), want.Get(i),
+                        s"combination $bits: enable of mode $i")
+            acc = EqMsg(acc, strings.Contains(off, offSeq.Get(i)), want.Get(i),
+                        s"combination $bits: disable of mode $i")
+            i = i + 1
+        }
+        bits = bits + 1
+    }
+    return acc
+}
+
+// Paste and focus produce InputEvent cases, and only RunWithMouse has a
+// callback that can carry one. Enabling them on the key-only entry points
+// would make pastes disappear instead of arriving as keystrokes.
+func TestKeyOnlyEntryPointsDoNotEnablePasteOrFocus(t T) T {
+    val keys = currentTermModes(false)
+    val t1 = IsFalse(t,  keys.Mouse)
+    val t2 = IsFalse(t1, keys.Paste)
+    val t3 = IsFalse(t2, keys.Focus)
+    // kitty decodes into the ordinary KeyEvent shape, so it is safe everywhere.
+    val t4 = IsTrue(t3, keys.Kitty)
+    val full = currentTermModes(true)
+    val t5 = IsTrue(t4, full.Mouse)
+    val t6 = IsTrue(t5, full.Paste)
+    return IsTrue(t6, full.Focus)
+}
+
+// The opt-outs actually reach the mode set.
+func TestModeOptOutsTakeEffect(t T) T {
+    SetBracketedPaste(false)
+    SetFocusEvents(false)
+    SetKittyKeyboard(false)
+    val off = currentTermModes(true)
+    val t1 = IsFalse(t,  off.Paste)
+    val t2 = IsFalse(t1, off.Focus)
+    val t3 = IsFalse(t2, off.Kitty)
+    // Mouse tracking is not one of the opt-outs — RunWithMouse always wants it.
+    val t4 = IsTrue(t3, off.Mouse)
+    SetBracketedPaste(true)
+    SetFocusEvents(true)
+    SetKittyKeyboard(true)
+    val back = currentTermModes(true)
+    val t5 = IsTrue(t4, back.Paste)
+    val t6 = IsTrue(t5, back.Focus)
+    return IsTrue(t6, back.Kitty)
+}
+
+// carryOver hands back a copy, not a view of the read buffer — the runtime
+// reuses that buffer on the next read, so a shared sub-slice would be
+// overwritten before it is parsed.
+func TestCarryOverCopiesAndIsBounded(t T) T {
+    var src = ToBytes("\x1b[20")
+    val kept = carryOver(src)
+    src[0] = byte(0x41)
+    val t1 = Eq(t, ToString(kept), "\x1b[20")
+    // Over the ceiling the tail is dropped so a paste that is never closed
+    // cannot grow the buffer without bound.
+    val huge = ToBytes(strings.Repeat("x", maxCarryBytes() + 1))
+    return Eq(t1, carryOver(huge).Size(), 0)
+}
