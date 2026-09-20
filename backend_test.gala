@@ -215,3 +215,118 @@ func TestTestBackendSplitsLongInputAcrossReads(t T) T {
     val (n2, _) = backend.Read(small)
     return Eq(t, s"$n1/$n2", "4/2")
 }
+
+// ============================================================================
+// Inline viewport (G8)
+//
+// An inline app draws into N rows below the shell prompt instead of taking
+// the whole terminal. The properties that matter are all about NOT owning
+// the screen: never position absolutely, never enter the alternate screen,
+// and leave the final frame on screen when the program exits.
+// ============================================================================
+
+func inlineFrame(rows int, width int, w Widget) string {
+    val buf = NewBuffer(width, rows)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = rows), buf)
+    return inlineFrameString(buf, rows)
+}
+
+func TestInlineNeverPositionsAbsolutely(t T) T {
+    // `ESC [ H` homes to the top-left of the SCREEN. An inline app that
+    // emitted it would draw over the user's scrollback instead of into its
+    // own block — the single most damaging thing it could do.
+    val out = inlineFrame(3, 10, FillCh('#'))
+    val t1 = EqMsg(t, strings.Contains(out, ansiHome()), false,
+                   "inline frame used absolute cursor-home")
+    return EqMsg(t1, strings.Contains(out, ansiAltScreenOn()), false,
+                 "inline frame entered the alternate screen")
+}
+
+func TestInlineReturnsToTheTopOfItsBlock(t T) T {
+    // Each paint must leave the cursor where the next paint expects it.
+    // Without the walk-back, every frame would step one block further down
+    // the screen and the viewport would crawl away from the prompt.
+    val out = inlineFrame(4, 8, FillCh('x'))
+    return EqMsg(t, strings.HasSuffix(out, ansiCursorUp(3)), true,
+                 "frame did not walk the cursor back to the top of the block")
+}
+
+func TestInlineClearsEachRowBeforeRewriting(t T) T {
+    // Frames are painted in place over the previous one. A row that gets
+    // shorter would otherwise keep the tail of the old frame after it.
+    val out = inlineFrame(2, 6, Text("hi"))
+    return EqMsg(t, strings.Contains(out, ansiClearLine()), true,
+                 "inline row was rewritten without clearing it first")
+}
+
+func TestInlineEmitsExactlyTheRequestedRows(t T) T {
+    // Three rows means two row separators — one fewer than the row count.
+    val out = inlineFrame(3, 6, FillCh('.'))
+    return Eq(t, strings.Count(out, "\r\n"), 2)
+}
+
+func TestInlineUsesCarriageReturnsNotBareNewlines(t T) T {
+    // In raw mode a bare LF moves down without returning to column 0, so
+    // rows would stair-step diagonally across the screen.
+    val out = inlineFrame(3, 6, FillCh('.'))
+    return EqMsg(t, strings.Contains(out, "\n") == strings.Contains(out, "\r\n"),
+                 true, "inline frame emitted a newline without a carriage return")
+}
+
+func TestInlineEnterReservesRowsBeforeDrawing(t T) T {
+    // The newlines are what make the terminal scroll when the prompt is near
+    // the bottom. Drawing first and scrolling later would push the top of
+    // the frame into the scrollback mid-render.
+    val out = inlineEnterString(4, "")
+    val t1 = Eq(t, strings.Count(out, "\r\n"), 3)
+    val t2 = EqMsg(t1, strings.HasSuffix(out, ansiCursorUp(3)), true,
+                   "enter did not return to the top of the reserved block")
+    return EqMsg(t2, strings.Contains(out, ansiAltScreenOn()), false,
+                 "inline enter switched to the alternate screen")
+}
+
+func TestInlineExitLeavesTheFrameOnScreen(t T) T {
+    // Leaving the output visible is the entire point: the alternate screen
+    // erases it on exit, which is what a command whose output should survive
+    // must not do. Exit steps BELOW the block and stops.
+    val out = inlineExitString(3, "")
+    val t1 = EqMsg(t, strings.Contains(out, ansiAltScreenOff()), false,
+                   "inline exit left the alternate screen it never entered")
+    val t2 = EqMsg(t1, strings.Contains(out, ansiClear()), false,
+                   "inline exit cleared the screen, destroying its own output")
+    return EqMsg(t2, strings.Contains(out, ansiCursorDown(2)), true,
+                 "inline exit did not step past its block")
+}
+
+func TestInlineExitRestoresTheCursorAndModes(t T) T {
+    val out = inlineExitString(2, ansiPasteOff())
+    val t1 = EqMsg(t, strings.Contains(out, ansiCursorShow()), true,
+                   "inline exit left the cursor hidden")
+    return EqMsg(t1, strings.Contains(out, ansiPasteOff()), true,
+                 "inline exit did not emit the mode-disable string")
+}
+
+func TestInlineBackendReportsTheViewportHeightNotTheTerminals(t T) T {
+    // Size is what the runtime allocates its Buffer from, so an inline
+    // backend claiming the terminal's height would render a full-screen
+    // frame into a five-row block.
+    val b = InlineBackend(5)
+    val (_, h) = b.Size()
+    return Eq(t, h, 5)
+}
+
+func TestInlineHeightIsAtLeastOne(t T) T {
+    val b = InlineBackend(0)
+    val (_, h) = b.Size()
+    return Eq(t, h, 1)
+}
+
+func TestSingleRowInlineNeedsNoCursorMovement(t T) T {
+    // A one-row viewport is the degenerate case: no separators, and nothing
+    // to walk back up. `ansiCursorUp(0)` must be empty, not `ESC [ 0 A`,
+    // which some terminals read as "up one".
+    val out = inlineFrame(1, 8, Text("x"))
+    val t1 = Eq(t, strings.Count(out, "\r\n"), 0)
+    return EqMsg(t1, strings.Contains(out, "\x1b[0A"), false,
+                 "emitted a zero-row cursor move")
+}
