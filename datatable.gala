@@ -294,10 +294,13 @@ func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) W
         DefaultStyle().WithReverse()
     else
         DefaultStyle()
-    return Row(row.ZipWithIndex().Map((p) => LayoutChild(
+    val cells = Row(row.ZipWithIndex().Map((p) => LayoutChild(
         Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
         Widget     = TextStyled(p.V1, rowStyle),
     )))
+    // Restyle the whole row so the highlight spans the inter-column padding
+    // as well as the text; styling the cells alone left it in fragments.
+    return if (selected) Highlighted(cells, rowStyle) else cells
 }
 
 // SelectedRow returns the currently-selected row's cells, or an empty array.

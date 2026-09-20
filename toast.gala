@@ -154,11 +154,32 @@ func NewStatusBarStyled(left Widget, center Widget, right Widget, style Style) S
 func StatusBarView(bar StatusBar) Widget {
     val leftW   = defaultRenderWidth(bar.Left)
     val rightW  = defaultRenderWidth(bar.Right)
-    val bg = FillChStyled(' ', bar.Style)
     val content = Row(ArrayOf[LayoutChild](
         Fixed(leftW, bar.Left),
         Flex(1, bar.Center),
         Fixed(rightW, bar.Right),
     ))
-    return Overlay(bg, content)
+    // Painted by restyling the rendered row, not by overlaying a fill
+    // underneath it. The Overlay form drew the fill and then let the
+    // segments overwrite it, so the bar's style survived only in the gaps
+    // *between* segments — the text a user actually reads carried default
+    // colours, and the bar looked like a blank strip with a coloured smudge.
+    //
+    // The bar's background always wins, since spanning the row is the whole
+    // point. A segment that set its own foreground keeps it, so a red ERROR
+    // or a bold mode indicator still reads as itself; a segment that did not
+    // takes the bar's.
+    return Restyled(content, (s) => statusCellStyle(s, bar.Style))
+}
+
+// statusCellStyle merges one rendered cell's style with the bar's.
+func statusCellStyle(cell Style, bar Style) Style {
+    val fg = if (ColorEq(cell.Fg, DefaultColor())) bar.Fg else cell.Fg
+    return cell.Copy(
+        Fg        = fg,
+        Bg        = bar.Bg,
+        Bold      = cell.Bold || bar.Bold,
+        Dim       = cell.Dim || bar.Dim,
+        Reverse   = cell.Reverse || bar.Reverse,
+    )
 }

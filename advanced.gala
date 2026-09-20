@@ -69,12 +69,19 @@ func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChi
         Widget = TextStyled(header, DefaultStyle().WithBold()))
 }
 
-// renderTableRow builds a Row of body cells. When `selected` is true, every
-// cell is drawn with reverse-video so the whole row highlights.
+// renderTableRow builds a Row of body cells. When `selected` is true the
+// whole row highlights — including the inter-column gaps.
+//
+// Drawing each cell with reverse-video was not enough to achieve that: a
+// cell's text styles only the columns it occupies, so the padding between
+// columns and the tail of the row stayed unstyled and the highlight
+// rendered as one chip per column. The row is restyled after it is drawn
+// instead, which covers the gaps.
 func renderTableRow(row Array[string], widths Array[Constraint], selected bool) Widget {
     val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
-    return Row(row.ZipWithIndex().Map((pair) =>
+    val cells = Row(row.ZipWithIndex().Map((pair) =>
         tableBodyCell(pair.V1, pair.V2, widths, rowStyle)))
+    return if (selected) Highlighted(cells, rowStyle) else cells
 }
 
 func tableBodyCell(cell string, idx int, widths Array[Constraint], style Style) LayoutChild {
@@ -229,7 +236,12 @@ func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
             DefaultStyle().WithReverse()
         else
             DefaultStyle()
-        return Fixed(1, TextStyled(line, style))
+        // A tree row's label length varies with its nesting depth, so
+        // styling the text alone made the cursor highlight a ragged shape
+        // that changed width row to row. Restyling the row's area gives a
+        // straight edge.
+        val cell = TextStyled(line, style)
+        return Fixed(1, if (isCursor) Highlighted(cell, style) else cell)
     })
     return Column(rows)
 }

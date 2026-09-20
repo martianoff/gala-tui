@@ -180,13 +180,20 @@ func renderMenuRow(it MenuItem, selected bool, focused bool) Widget {
     val base = baseMenuStyle(it, selected, focused)
     val labelCell = TextStyled(" " + it.Label + " ", base)
     if it.Hint == "" {
-        return labelCell
+        // Still restyled: a short label left the rest of its row unstyled,
+        // so the highlight stopped at the end of the text.
+        return Highlighted(labelCell, base)
     }
     // Right-align the hint. Use a Row with a flex spacer between.
-    return Row(ArrayOf[LayoutChild](
+    //
+    // Styling the two Text leaves is not enough — the flex gap between them
+    // belongs to neither, so a selected row rendered as two disconnected
+    // chips with a hole where the spacer sat. Restyling the whole row after
+    // it is drawn covers the gap too.
+    return Highlighted(Row(ArrayOf[LayoutChild](
         Flex(1, TextStyled(" " + it.Label, base)),
         Fixed(RuneCount(it.Hint) + 2, TextStyled(" " + it.Hint + " ", base)),
-    ))
+    )), base)
 }
 
 func renderHorizontalMenu(m Menu, focused bool) Widget {
