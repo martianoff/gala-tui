@@ -1,0 +1,127 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// The last two audit defects: a documented percentage that was never
+// rendered, and a filtered table that looked exactly like an unfiltered one.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Progress — the label is its own widget
+// ----------------------------------------------------------------------------
+
+func TestProgressStaysBarOnly(t T) T {
+    // Unchanged. A bar's width is load-bearing in a layout, so Progress does
+    // not start spending columns on a label.
+    return Eq(t, Snapshot(Progress(50), 10, 1), "[████░░░░]")
+}
+
+func TestProgressLabeledRendersThePercentage(t T) T {
+    // The behaviour two doc comments promised and no code produced.
+    // 20 wide: 6 for the label, 14 for the bar, whose 12 inner cells are
+    // half filled.
+    val out = Snapshot(ProgressLabeled(50), 20, 1)
+    val t1 = Eq(t, out, "[██████░░░░░░]   50%")
+    return Eq(t1, out.Size(), 20)
+}
+
+func TestProgressLabelIsFixedWidthAcrossMagnitudes(t T) T {
+    // One, two and three digits must all occupy the same slot, or the bar
+    // twitches as the number grows.
+    val a = Snapshot(ProgressLabeled(7), 20, 1)
+    val b = Snapshot(ProgressLabeled(70), 20, 1)
+    val c = Snapshot(ProgressLabeled(100), 20, 1)
+    val t1 = Eq(t, a.Size(), 20)
+    val t2 = Eq(t1, b.Size(), 20)
+    // The bar ends at the same column in every case.
+    val t3 = IsTrue(t2, strings.HasSuffix(a, "   7%"))
+    val t4 = IsTrue(t3, strings.HasSuffix(b, "  70%"))
+    return IsTrue(t4, strings.HasSuffix(c, " 100%"))
+}
+
+func TestProgressLabeledDropsTheLabelWhenTooNarrow(t T) T {
+    // Below the threshold the number would leave a bar too short to convey
+    // anything, so the caller gets the bar they asked for instead.
+    val out = Snapshot(ProgressLabeled(50), 10, 1)
+    val t1 = IsTrue(t, !strings.Contains(out, "%"))
+    return Eq(t1, out, "[████░░░░]")
+}
+
+func TestProgressLabeledClampsOutOfRange(t T) T {
+    return IsTrue(t, strings.HasSuffix(Snapshot(ProgressLabeled(250), 20, 1), " 100%"))
+}
+
+// ----------------------------------------------------------------------------
+// DataTable — a filtered table must say so
+// ----------------------------------------------------------------------------
+
+func filterTable() DataTable =
+    NewDataTable(
+        ArrayOf[string]("ID"),
+        ArrayOf[Constraint](Fill(1)),
+        ArrayOf(ArrayOf("pass-1"), ArrayOf("fail-1"), ArrayOf("pass-2"), ArrayOf("fail-2")),
+    )
+
+func TestUnfilteredTableDrawsAnUnbrokenRule(t T) T {
+    val rows = SnapshotLines(DataTableView(filterTable(), true), 24, 4)
+    return Eq(t, rows.Get(1), "────────────────────────")
+}
+
+func TestFilteredTableNamesTheQueryAndTheCount(t T) T {
+    // A filtered table used to be indistinguishable from an unfiltered one,
+    // so a user who filtered and scrolled away believed they were seeing
+    // everything. The rule row was pure decoration; it now carries the
+    // state, at no cost in height.
+    val dt = DataTableUpdate(filterTable(), DTFilter(Query = "pass"))
+    val rule = SnapshotLines(DataTableView(dt, true), 30, 5).Get(1)
+    val t1 = IsTrue(t, strings.Contains(rule, "pass"))
+    // Both numbers: how many are shown, and out of how many.
+    return IsTrue(t1, strings.Contains(rule, "2 of 4"))
+}
+
+func TestClearingTheFilterRestoresThePlainRule(t T) T {
+    val dt = DataTableUpdate(
+        DataTableUpdate(filterTable(), DTFilter(Query = "pass")), DTClearFilter())
+    return Eq(t, SnapshotLines(DataTableView(dt, true), 24, 4).Get(1),
+              "────────────────────────")
+}
+
+func TestFilterRuleFillsTheWholeWidth(t T) T {
+    // The label is drawn over a rule, not instead of it — a short label must
+    // not leave the rest of the row blank.
+    val dt = DataTableUpdate(filterTable(), DTFilter(Query = "p"))
+    val rule = SnapshotLines(DataTableView(dt, true), 40, 5).Get(1)
+    val t1 = Eq(t, rule.Size(), 40)
+    return IsTrue(t1, strings.HasSuffix(rule, "─"))
+}
+
+func TestFilterRuleTruncatesRatherThanOverflowing(t T) T {
+    val dt = DataTableUpdate(filterTable(),
+        DTFilter(Query = "a-very-long-query-string-indeed"))
+    val rule = SnapshotLines(DataTableView(dt, true), 12, 5).Get(1)
+    return Eq(t, rule.Size(), 12)
+}
+
+func TestFilterIndicatorSurvivesAnEmptyResultSet(t T) T {
+    // Zero matches is exactly when the user most needs to know a filter is
+    // on — the body says "(no rows)", and the rule must say why.
+    val dt = DataTableUpdate(filterTable(), DTFilter(Query = "nothing-matches"))
+    val rows = SnapshotLines(DataTableView(dt, true), 30, 5)
+    val t1 = IsTrue(t, strings.Contains(rows.Get(1), "0 of 4"))
+    return IsTrue(t1, strings.Contains(rows.Get(2), "(no rows)"))
+}
+
+func TestFilterCountSurvivesTruncationOfALongQuery(t T) T {
+    // The count leads the label for exactly this case: with the query first,
+    // a long one pushed the numbers off a narrow table and the indicator
+    // stopped indicating anything.
+    val dt = DataTableUpdate(filterTable(),
+        DTFilter(Query = "a-very-long-query-string-indeed"))
+    val rule = SnapshotLines(DataTableView(dt, true), 14, 5).Get(1)
+    return IsTrue(t, strings.Contains(rule, "0 of 4"))
+}

@@ -185,6 +185,35 @@ func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc b
 // View
 // ----------------------------------------------------------------------------
 
+// dtRuleRow is the horizontal rule under the header, carrying the filter
+// state when one is active.
+//
+// A filtered table used to look identical to an unfiltered one — same
+// header, no query shown, no count — so a user who filtered and then
+// scrolled away believed they were looking at the whole dataset. The rule
+// row was pure decoration and is the natural place to say otherwise: it
+// costs no height, and a table that is showing everything still renders an
+// unbroken rule.
+func dtRuleRow(dt DataTable) Widget {
+    if dt.FilterQuery == "" {
+        return FillCh('─')
+    }
+    val shown = VisibleRowCount(dt)
+    val total = dt.Rows.Length()
+    // Count first, query second. The count is the part that says a filter is
+    // on and how much is hidden, so it must survive truncation — with the
+    // query leading, a long query pushed "0 of 4" off the end of a narrow
+    // table and the indicator stopped indicating anything.
+    val label = s"─ $shown of $total · ${dt.FilterQuery} "
+    return CustomW(MinW = 1, MinH = 1, Render = (area, buf, hits) => {
+        if area.Width > 0 && area.Height > 0 {
+            renderFill('─', DefaultStyle().WithDim(), area, buf)
+            renderText(StringCellTruncate(label, area.Width),
+                       DefaultStyle().WithDim(), area, buf)
+        }
+    })
+}
+
 // DataTableView renders the whole data table: frozen header row, horizontal
 // rule, then the scrollable body with selection highlight. Caller sizes the
 // area; body height = total height - 2 (header + rule).
