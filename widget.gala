@@ -1287,17 +1287,53 @@ func listViewportOffset(n int, sel int, height int) int =
     else MinInt(sel - height + 1, n - height)
 
 // renderInput paints a value or a placeholder, plus a visible cursor.
+// The caret is always drawn and the value window always follows it.
+//
+// Two defects this replaces. An empty field with a placeholder returned
+// early, skipping both the field's style and the caret — which is the state
+// every form starts in, so on a fresh form nothing showed which field the
+// keyboard was driving even though the caller had computed a focus style.
+// And the value was always drawn from its first character, so typing past
+// the right edge froze the text and the caret disappeared off the end.
 func renderInput(value string, cursor int, placeholder string, style Style, phStyle Style, area Rect, buf *Buffer) {
-    if value == "" && placeholder != "" {
-        renderText(placeholder, phStyle, area, buf)
+    if area.Width <= 0 || area.Height <= 0 {
         return
     }
-    renderText(value, style, area, buf)
-    val cx = area.X + cursor
-    if cx >= area.X && cx < area.X + area.Width {
-        val ch = buf.CharAt(cx, area.Y)
-        buf.Set(cx, area.Y, Cell(Ch = ch, St = style.WithReverse()))
+    // Placeholder text keeps its own (usually dim) style, but the field
+    // still renders in `style` underneath so focus chrome survives.
+    if value == "" {
+        buf.Fill(Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
+                 Cell(Ch = ' ', St = style))
+        if placeholder != "" {
+            renderText(placeholder, phStyle, area, buf)
+        }
+        drawInputCaret(area.X, area.Y, style, buf)
+        return
     }
+
+    val rs = ToRunes(value)
+    val n = rs.Size()
+    val cur = clampInt(cursor, 0, n)
+    // Scroll only as far as it takes to bring the caret inside the window.
+    // Reserving a column unconditionally would cost a character of visible
+    // text on every field; the shift is needed only once the caret reaches
+    // the right edge, which includes the end-of-text position where the
+    // caret sits one past the last character.
+    val window = MaxInt(1, area.Width)
+    val start = if (cur < window) 0 else cur - window + 1
+    val visible = string(SliceFrom(SliceTo(rs, MinInt(n, start + window)), start))
+
+    buf.Fill(Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
+             Cell(Ch = ' ', St = style))
+    renderText(visible, style, area, buf)
+    drawInputCaret(area.X + (cur - start), area.Y, style, buf)
+}
+
+// drawInputCaret inverts one cell in place, keeping whatever glyph is there
+// so the caret reads as sitting on the character rather than replacing it.
+func drawInputCaret(x int, y int, style Style, buf *Buffer) {
+    val ch = buf.CharAt(x, y)
+    buf.Set(x, y, Cell(Ch = ch, St = style.WithReverse()))
 }
 
 // renderRow walks children left-to-right, handing each a Rect whose width
