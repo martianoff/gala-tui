@@ -37,42 +37,132 @@ func ansiCursorShow() string   = "\x1b[?25h"
 func ansiClear() string        = "\x1b[2J"
 func ansiHome() string         = "\x1b[H"
 
+// ----------------------------------------------------------------------------
+// Modern input-protocol modes.
+//
+// All three are progressive enhancement: a terminal that doesn't implement a
+// mode ignores the enable string and keeps sending the legacy encoding, so
+// both decode paths in input.gala / mouse.gala have to stay live — and do.
+//
+//   ?2004  bracketed paste. The terminal wraps pasted text in
+//          ESC [ 200 ~ … ESC [ 201 ~ so ParseInput can hand the app one
+//          PasteInput instead of a burst of synthetic keypresses.
+//   ?1004  focus reporting. ESC [ I on focus gain, ESC [ O on focus loss.
+//   > 1 u  kitty keyboard protocol, "disambiguate escape codes" only. Note
+//          the asymmetry: `CSI > flags u` PUSHES a flag set onto the
+//          terminal's stack and `CSI < u` pops it, which is why the disable
+//          string carries no flags. Popping a stack we never pushed to is
+//          harmless on terminals that implement it and ignored elsewhere.
+func ansiPasteOn() string  = "\x1b[?2004h"
+func ansiPasteOff() string = "\x1b[?2004l"
+func ansiFocusOn() string  = "\x1b[?1004h"
+func ansiFocusOff() string = "\x1b[?1004l"
+func ansiKittyOn() string  = "\x1b[>1u"
+func ansiKittyOff() string = "\x1b[<u"
+
 // installCleanupGuard is provided by `cleanup_guard.go` — Go-side
 // because signal handling, channels, and goroutines aren't expressible
 // in gala source. See the .go file for the rationale.
 
+// TermModes is the set of terminal input modes a run turns on. Keeping them
+// in one value is what lets the ordinary teardown and the signal handler emit
+// the *same* disable string — see termModesOff.
+struct TermModes(
+    Mouse bool,
+    Paste bool,
+    Focus bool,
+    Kitty bool,
+)
+
+// termModesOn / termModesOff build the enable and disable strings for exactly
+// the modes a session turned on. Disable order is the reverse of enable,
+// which matters for the kitty flag stack (`CSI < u` pops what `CSI > 1 u`
+// pushed) and costs nothing for the ?-modes.
+//
+// Every mode that appears in termModesOn appears in termModesOff. A mode left
+// enabled after the process exits is not a cosmetic bug: ?1006 mouse tracking
+// prints raw `[<0;12;4M` packets into the user's shell on every click, ?2004
+// leaves paste markers in their next command line, and the kitty flag makes
+// their shell see Esc as `CSI 27 u`.
+func termModesOn(m TermModes) string {
+    var s = ""
+    if m.Mouse { s = s + ansiMouseOn() }
+    if m.Paste { s = s + ansiPasteOn() }
+    if m.Focus { s = s + ansiFocusOn() }
+    if m.Kitty { s = s + ansiKittyOn() }
+    return s
+}
+
+func termModesOff(m TermModes) string {
+    var s = ""
+    if m.Kitty { s = s + ansiKittyOff() }
+    if m.Focus { s = s + ansiFocusOff() }
+    if m.Paste { s = s + ansiPasteOff() }
+    if m.Mouse { s = s + ansiMouseOff() }
+    return s
+}
+
+// currentTermModes resolves the mode set for one run from the package-level
+// opt-outs below. `mouse` is true only for RunWithMouse.
+//
+// Bracketed paste and focus reporting are gated on `mouse` too — not because
+// they have anything to do with the mouse, but because RunWithMouse is the
+// only entry point whose callback takes an InputEvent. Run and RunWithSub
+// hand the app a KeyEvent, which cannot carry a PasteInput or a FocusInput;
+// enabling ?2004 there would make pastes vanish entirely instead of arriving
+// as the keystroke burst those apps already handle.
+//
+// The kitty protocol has no such restriction — it decodes into the ordinary
+// KeyEvent shape — so every entry point gets it.
+func currentTermModes(mouse bool) TermModes = TermModes(
+    Mouse = mouse,
+    Paste = mouse && bracketedPasteEnabled,
+    Focus = mouse && focusEventsEnabled,
+    Kitty = kittyKeyboardEnabled,
+)
+
 // TermSession owns every piece of terminal-global state a run mutates:
-// raw mode, the alternate screen, cursor visibility, and — for the mouse
-// entry point — SGR tracking. Acquisition and release live in one type,
-// so a `use` binding pairs them: cleanup runs on every exit path (normal
-// return, an early return from deep inside the read loop, or a panic).
+// raw mode, the alternate screen, cursor visibility, and the input modes in
+// TermModes. Acquisition and release live in one type, so a `use` binding
+// pairs them: cleanup runs on every exit path (normal return, an early return
+// from deep inside the read loop, or a panic).
 //
 // Teardown order mirrors installCleanupGuard, so the signal path and the
 // ordinary path leave the terminal in exactly the same state.
+//
+// `ModesOff` is the disable string itself, not the mode set it came from.
+// Storing the string is what makes "the guard and Close emit the same
+// bytes" structural rather than conventional: there is one `termModesOff`
+// call per session and both consumers are handed its result, so they
+// cannot diverge even if the mode set is later derived differently on the
+// two paths.
 struct TermSession(
-    Fd int,
-    State *term.State,
-    Mouse bool,
+    Fd       int,
+    State    *term.State,
+    ModesOff string,
 )
 
 // Close restores the terminal. The `Close() error` shape is what a `use`
 // binding requires; the error is term.Restore's.
 func (s TermSession) Close() error {
-    if s.Mouse {
-        fmt.Fprint(os.Stdout, ansiMouseOff())
-    }
+    fmt.Fprint(os.Stdout, s.ModesOff)
     fmt.Fprint(os.Stdout, ansiCursorShow())
     fmt.Fprint(os.Stdout, ansiAltScreenOff())
     return term.Restore(s.Fd, s.State)
 }
 
 // enterTermSession is the acquire half: it installs the signal guard,
-// switches to the alternate screen, hides the cursor, and — when `mouse`
-// is set — enables VT input (Windows) plus SGR mouse reporting.
+// switches to the alternate screen, hides the cursor, and enables the input
+// modes `currentTermModes` selected — SGR mouse reporting plus, for the mouse
+// entry point, bracketed paste and focus reporting, plus the kitty keyboard
+// protocol on every path.
 func enterTermSession(fd int, state *term.State, mouse bool) TermSession {
+    val modes = currentTermModes(mouse)
+    val modesOff = termModesOff(modes)
     // Signal handler covers the paths cleanup can't reach (Ctrl+C,
-    // SIGTERM, kill).
-    installCleanupGuard(fd, state, mouse)
+    // SIGTERM, kill). It gets the exact disable string Close will write —
+    // the same value, not an equal one.
+    installCleanupGuard(fd, state, modesOff)
     if mouse {
         // Windows: enable ENABLE_VIRTUAL_TERMINAL_INPUT so the ANSI mouse
         // sequences below actually take effect on conhost / PowerShell.
@@ -82,10 +172,58 @@ func enterTermSession(fd int, state *term.State, mouse bool) TermSession {
     // Enter the alt screen so our UI doesn't trash the user's shell history.
     fmt.Fprint(os.Stdout, ansiAltScreenOn())
     fmt.Fprint(os.Stdout, ansiCursorHide())
-    if mouse {
-        fmt.Fprint(os.Stdout, ansiMouseOn())
-    }
-    return TermSession(Fd = fd, State = state, Mouse = mouse)
+    fmt.Fprint(os.Stdout, termModesOn(modes))
+    return TermSession(Fd = fd, State = state, ModesOff = modesOff)
+}
+
+// ----------------------------------------------------------------------------
+// Input-protocol opt-outs.
+//
+// Same shape as SetEscapeHatchOnCtrlC below: package-level flags read once per
+// run, set before calling Run / RunWithSub / RunWithMouse.
+//
+// All three default to ON, because in each case the surprising outcome is the
+// one you get with the mode off:
+//
+//   - Bracketed paste off means a paste is indistinguishable from typing, so
+//     the app's update() runs once per pasted byte and every keypress handler
+//     fires mid-paste. Turning it on cannot silently swallow a paste: adding
+//     PasteInput to a sealed type makes GALA's exhaustiveness check enumerate
+//     every match site, so an app is told at compile time that pastes now
+//     arrive whole and has to decide what to do with them. Apps that really
+//     do want paste replayed as keystrokes call SetBracketedPaste(false).
+//
+//   - Focus reporting off means an app can never tell it is in the
+//     background, so animations and polling keep running against a window
+//     nobody is looking at. An app that ignores FocusInput pays one no-op
+//     update per focus change.
+//
+//   - The kitty protocol off means Ctrl-I is indistinguishable from Tab,
+//     Ctrl-M from Enter, and a real Esc from the first byte of an escape
+//     sequence. Terminals without support ignore the enable string, so the
+//     only cost on them is six bytes at startup.
+var bracketedPasteEnabled = true
+var focusEventsEnabled    = true
+var kittyKeyboardEnabled  = true
+
+// SetBracketedPaste toggles terminal mode ?2004. With it off, pasted text
+// arrives as ordinary key events and PasteInput is never produced.
+func SetBracketedPaste(enabled bool) {
+    bracketedPasteEnabled = enabled
+}
+
+// SetFocusEvents toggles terminal mode ?1004. With it off, FocusInput is
+// never produced.
+func SetFocusEvents(enabled bool) {
+    focusEventsEnabled = enabled
+}
+
+// SetKittyKeyboard toggles the kitty keyboard protocol (`CSI > 1 u`). With it
+// off, keys arrive in the legacy encoding only — which ParseKey decodes
+// either way, so this is purely about whether the terminal is asked to
+// disambiguate.
+func SetKittyKeyboard(enabled bool) {
+    kittyKeyboardEnabled = enabled
 }
 
 // TermSize returns the current terminal width and height in cells.
@@ -146,10 +284,10 @@ func Run[M any, T any](
     // First paint — the initial model before any input.
     paintFrame(program.View(model))
 
-    // 64-byte buffer matches the async path. Keys-only mode never sees mouse
-    // packets, but using the same size keeps the runtime uniform and leaves
-    // headroom for queued bursts (multi-key paste, etc.).
-    var readBuf = SliceWithSize[byte](64)
+    var readBuf = SliceWithSize[byte](readBufBytes())
+    // Bytes left over from the previous read because they were the start of
+    // an escape sequence whose tail had not arrived yet. See carryOver.
+    var carry = SliceEmpty[byte]()
     for {
         var n, rerr = os.Stdin.Read(readBuf)
         if rerr != nil {
@@ -163,17 +301,21 @@ func Run[M any, T any](
             continue
         }
 
-        // Parse the bytes we got. If multiple key events are buffered (the
-        // user mashed keys), ParseKey consumes one at a time; loop on the
-        // remaining slice. This is why readBuf can be multi-key.
+        // Parse the bytes we got, with anything held back last time in front
+        // of them. If multiple key events are buffered (the user mashed
+        // keys), ParseKey consumes one at a time; loop on the remaining
+        // slice. This is why readBuf can be multi-key.
+        val avail = SliceAppendAll(carry, Slice(readBuf, 0, n))
+        carry = SliceEmpty[byte]()
+        val total = avail.Size()
         var consumed = 0
-        for consumed < n {
-            val (ev, c) = ParseKey(Slice(readBuf, consumed, n))
+        for consumed < total {
+            val (ev, c) = ParseKey(Slice(avail, consumed, total))
             if c == 0 {
-                // Defensive: ParseKey returned no progress. Drop the byte
-                // to avoid an infinite loop rather than hang the app.
-                consumed = consumed + 1
-                continue
+                // Incomplete escape sequence at the tail — hold the bytes
+                // and re-parse them once the rest arrives.
+                carry = carryOver(Slice(avail, consumed, total))
+                break
             }
             consumed = consumed + c
 
@@ -265,9 +407,84 @@ struct ReadResult(
 // ParseInput would return "incomplete", the runtime would discard the
 // partial bytes (the next read overwrites the buffer), and clicks were
 // silently dropped on every Windows terminal.
+// ----------------------------------------------------------------------------
+// Carry-over.
+//
+// ParseKey / ParseInput report consumed = 0 for a sequence whose tail has not
+// arrived yet. Before bracketed paste that was mostly theoretical — a mouse
+// packet or a key escape fits in one 64-byte read — and the read loops simply
+// dropped the partial bytes. A paste does not fit: pasting a paragraph
+// delivers several full reads before the `ESC [ 201 ~` closer shows up, so the
+// bytes held back have to survive into the next iteration or every paste past
+// ~58 characters is lost.
+//
+// carryOver copies the unconsumed tail (a copy, not a sub-slice: the read
+// buffer is reused on the next read and would overwrite it) and enforces a
+// ceiling.
+// ----------------------------------------------------------------------------
+
+// maxCarryBytes caps how much unparsed input the loop will hold. A legitimate
+// paste is large, so the cap is generous; it exists only so a terminal that
+// opens a paste and never closes it — or emits an endless CSI body — cannot
+// grow the buffer without bound. On overflow the tail is dropped, which
+// resyncs the stream on the next read.
+func maxCarryBytes() int = 1048576      // 1 MiB
+
+// readBufBytes is how much stdin is drained per read.
+//
+// A key or a mouse packet fits in a handful of bytes, so this was 64 — but
+// bracketed paste made read size quadratic rather than merely inefficient.
+// A paste arrives over `P / readBufBytes()` reads, and each read rebuilds
+// the whole accumulated buffer (`carry ++ new`) and re-scans it from the
+// opener looking for the closing marker. Total work is therefore
+// `P² / readBufBytes()`, all of it inside the read loop with no frame
+// painted and no `update` run: at 64 bytes a 100 KB paste copied ~164 MB
+// and a 1 MiB paste — the cap below, meant to be the limit — copied ~17 GB,
+// so the guard was unreachable because the loop became unusable long
+// before it.
+//
+// 8 KiB cuts the constant by 128x, which puts an ordinary paste back in
+// the invisible range and makes the 1 MiB cap the thing that actually
+// bounds the buffer. It does not change the asymptote; making the scan
+// resumable would, and is the real fix if pastes ever need to be larger.
+func readBufBytes() int = 8192
+
+func carryOver(rest []byte) []byte {
+    if rest.Size() > maxCarryBytes() {
+        return resyncOverlongCarry(rest)
+    }
+    return SliceCopy(rest)
+}
+
+// resyncOverlongCarry decides what to keep when the carry has outgrown its
+// ceiling, which means the stream is malformed: a paste that was opened and
+// never closed, or an endless CSI body.
+//
+// Dropping everything — the old behaviour — turns that into a hang with no
+// way out. While an unterminated paste sits at the head of the carry,
+// `ParseInput` consumes 0 on every read, so the loop dispatches nothing at
+// all: no frame is painted, no `update` runs, and because `isForcedQuit` is
+// only reached AFTER a successful parse, a Ctrl-C the user types is merely
+// appended to the buffer. The escape hatch is gone precisely when it is
+// needed, and it stays gone for another megabyte of input.
+//
+// Dropping just the paste OPENER resyncs instead. The body is re-parsed as
+// ordinary input, so its bytes arrive as the keystroke burst they would
+// have been with the mode off — the correct degradation for "the terminal
+// told us a paste started and then never finished one" — and the very next
+// Ctrl-C quits. Anything else overlong is genuinely unparseable and is
+// dropped as before.
+func resyncOverlongCarry(rest []byte) []byte {
+    val openerLen = 6                   // ESC [ 2 0 0 ~
+    if rest.Size() >= openerLen && isPasteOpenerAt(rest, 0) {
+        return SliceCopy(Slice(rest, openerLen, rest.Size()))
+    }
+    return SliceEmpty[byte]()
+}
+
 func stdinReadFuture() concurrent.Future[ReadResult] {
     return concurrent.Future[ReadResult](() => {
-        var buf = SliceWithSize[byte](64)
+        var buf = SliceWithSize[byte](readBufBytes())
         var n, err = os.Stdin.Read(buf)
         if err != nil {
             return ReadResult(Buf = buf, N = 0, Err = true)
@@ -295,6 +512,8 @@ func RunWithSub[M any, T any](
     var pending = EmptyArray[concurrent.Future[T]]()
     var tickers = CollectTickers(initialSub, Now())
     var readFut = None[concurrent.Future[ReadResult]]()
+    // Partial escape sequence held back from the previous read — see carryOver.
+    var carry = SliceEmpty[byte]()
 
     paintFrame(program.View(model))
 
@@ -358,8 +577,13 @@ func RunWithSub[M any, T any](
             continue
         }
 
-        // 5. Process all buffered key bytes.
-        val exitNow = processKeyBytes(program, &model, &pending, rr.Buf, rr.N, makeKeyMsg)
+        // 5. Process all buffered key bytes, with any partial escape
+        //    sequence held back from the previous read in front of them.
+        val avail = SliceAppendAll(carry, Slice(rr.Buf, 0, rr.N))
+        val (exitNow, leftover) = processKeyBytes(
+            program, &model, &pending, avail, makeKeyMsg,
+        )
+        carry = leftover
         if exitNow {
             return model
         }
@@ -400,6 +624,10 @@ func RunWithMouse[M any, T any](
     var pending = EmptyArray[concurrent.Future[T]]()
     var tickers = CollectTickers(initialSub, Now())
     var readFut = None[concurrent.Future[ReadResult]]()
+    // Partial escape sequence held back from the previous read — see carryOver.
+    // On this path it also accumulates a bracketed paste, which routinely
+    // spans several reads before its `ESC [ 201 ~` closer arrives.
+    var carry = SliceEmpty[byte]()
     val (initW, initH) = TermSize()
     var lastW = initW
     var lastH = initH
@@ -502,10 +730,12 @@ func RunWithMouse[M any, T any](
         //    them to a double, or the window elapses (drained at top of
         //    loop). Only clicks that miss every registered widget reach
         //    the user's `makeInputMsg`.
-        val exitNow = processInputBytesWithHits(
+        val avail = SliceAppendAll(carry, Slice(rr.Buf, 0, rr.N))
+        val (exitNow, leftover) = processInputBytesWithHits(
             program, &model, &pending, &pendingClick, &dragActive,
-            rr.Buf, rr.N, makeInputMsg, hits,
+            avail, makeInputMsg, hits,
         )
+        carry = leftover
         if exitNow {
             return model
         }
@@ -528,20 +758,20 @@ func processInputBytesWithHits[M any, T any](
     pendingClick *Option[ClickPending],
     dragActive *Option[DragActive],
     buf []byte,
-    n int,
     makeInputMsg func(InputEvent) T,
     hits *HitRegistry,
-) bool {
+) Tuple[bool, []byte] {
+    val n = buf.Size()
     var consumed = 0
     for consumed < n {
         val (ev, c) = ParseInput(Slice(buf, consumed, n))
         if c == 0 {
-            return false
+            return (false, carryOver(Slice(buf, consumed, n)))
         }
         consumed = consumed + c
 
         if isForcedQuit(ev) {
-            return true
+            return (true, SliceEmpty[byte]())
         }
 
         val resolution = ResolveClickEventWithDrag[T](
@@ -556,7 +786,7 @@ func processInputBytesWithHits[M any, T any](
             val (newModel, cmd) = program.Update(*model, msg)
             *model = newModel
             if IsQuit(cmd) {
-                return true
+                return (true, SliceEmpty[byte]())
             }
             *pending = pending.AppendAll(PendingFutures(cmd))
 
@@ -566,7 +796,7 @@ func processInputBytesWithHits[M any, T any](
                 val (nm, nc) = program.Update(*model, emitted.Get(i))
                 *model = nm
                 if IsQuit(nc) {
-                    return true
+                    return (true, SliceEmpty[byte]())
                 }
                 *pending = pending.AppendAll(PendingFutures(nc))
                 i = i + 1
@@ -574,7 +804,7 @@ func processInputBytesWithHits[M any, T any](
             mi = mi + 1
         }
     }
-    return false
+    return (false, SliceEmpty[byte]())
 }
 
 // ----------------------------------------------------------------------------
@@ -958,56 +1188,6 @@ func ResolveClickOrInput[T any](
     }
 }
 
-// processInputBytes is the InputEvent analogue of processKeyBytes. It walks
-// the read buffer calling ParseInput and dispatches each event as a Msg.
-func processInputBytes[M any, T any](
-    program Program[M, T],
-    model *M,
-    pending *Array[concurrent.Future[T]],
-    buf []byte,
-    n int,
-    makeInputMsg func(InputEvent) T,
-) bool {
-    var consumed = 0
-    for consumed < n {
-        val (ev, c) = ParseInput(Slice(buf, consumed, n))
-        if c == 0 {
-            // Incomplete sequence — drop the partial bytes. The 64-byte
-            // read buffer is sized so a single SGR mouse packet (≤14 bytes)
-            // or any VT key escape (≤6 bytes) always fits in one read, so
-            // a partial packet here means the upstream sent something
-            // malformed; stopping here is the safest move.
-            return false
-        }
-        consumed = consumed + c
-
-        if isForcedQuit(ev) {
-            return true
-        }
-
-        val msg = makeInputMsg(ev)
-        val (newModel, cmd) = program.Update(*model, msg)
-        *model = newModel
-        if IsQuit(cmd) {
-            return true
-        }
-        *pending = pending.AppendAll(PendingFutures(cmd))
-
-        val emitted = PendingMsgs(cmd)
-        var i = 0
-        for i < emitted.Length() {
-            val (nm, nc) = program.Update(*model, emitted.Get(i))
-            *model = nm
-            if IsQuit(nc) {
-                return true
-            }
-            *pending = pending.AppendAll(PendingFutures(nc))
-            i = i + 1
-        }
-    }
-    return false
-}
-
 // EscapeHatchOnCtrlC controls whether the runtime intercepts
 // Ctrl-C as an unconditional quit. The default is `true` for
 // backward compatibility — apps that just want a quick TUI without
@@ -1041,6 +1221,11 @@ func isForcedQuit(ev InputEvent) bool {
         case KeyInput(k)    => k.Ctrl && keyIsCharC(k.Key)
         case MouseInput(_)  => false
         case ResizeInput(_, _) => false
+        // Pasted text never forces a quit, however many 0x03 bytes it
+        // happens to contain — that is the whole point of taking a paste
+        // as one opaque run instead of as keystrokes.
+        case PasteInput(_)  => false
+        case FocusInput(_)  => false
         case UnknownInput() => false
     }
 }
@@ -1089,36 +1274,38 @@ func dispatchAll[M any, T any](
     return DispatchResult[M, T](Model = model, NewFutures = futures, Quit = false)
 }
 
-// processKeyBytes consumes the bytes produced by a stdin read, dispatches
-// each parsed KeyEvent through update(), and returns true if the app should
-// exit (Ctrl-C or Quit cmd). Writes through the `model` / `pending` pointers
-// so the caller sees updated state.
+// processKeyBytes consumes the bytes produced by a stdin read and dispatches
+// each parsed KeyEvent through update(). Writes through the `model` /
+// `pending` pointers so the caller sees updated state.
+//
+// Returns (exit, carry): `exit` is true if the app should quit (Ctrl-C or a
+// Quit cmd), and `carry` is the unconsumed tail of an escape sequence that
+// has not fully arrived — the caller must put it in front of the next read.
 func processKeyBytes[M any, T any](
     program Program[M, T],
     model *M,
     pending *Array[concurrent.Future[T]],
     buf []byte,
-    n int,
     makeKeyMsg func(KeyEvent) T,
-) bool {
+) Tuple[bool, []byte] {
+    val n = buf.Size()
     var consumed = 0
     for consumed < n {
         val (ev, c) = ParseKey(Slice(buf, consumed, n))
         if c == 0 {
-            consumed = consumed + 1
-            continue
+            return (false, carryOver(Slice(buf, consumed, n)))
         }
         consumed = consumed + c
 
         if ev.Ctrl && keyIsCharC(ev.Key) {
-            return true
+            return (true, SliceEmpty[byte]())
         }
 
         val msg = makeKeyMsg(ev)
         val (newModel, cmd) = program.Update(*model, msg)
         *model = newModel
         if IsQuit(cmd) {
-            return true
+            return (true, SliceEmpty[byte]())
         }
         *pending = pending.AppendAll(PendingFutures(cmd))
 
@@ -1128,13 +1315,13 @@ func processKeyBytes[M any, T any](
             val (nm, nc) = program.Update(*model, emitted.Get(i))
             *model = nm
             if IsQuit(nc) {
-                return true
+                return (true, SliceEmpty[byte]())
             }
             *pending = pending.AppendAll(PendingFutures(nc))
             i = i + 1
         }
     }
-    return false
+    return (false, SliceEmpty[byte]())
 }
 
 // paintFrame sizes a Buffer to the current terminal, asks the Widget tree to

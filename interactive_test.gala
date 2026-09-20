@@ -109,8 +109,11 @@ func TestGaugeFullCells(t T) T {
     val buf = NewBuffer(4, 1)
     val w = Gauge(50)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    // 4 cells, 50% → 2 full + 2 empty.
-    return Eq(t, BufferText(buf, 0), "██  ")
+    // 4 cells, 50% → 2 full + 2 track. The empty half now draws a track
+    // glyph rather than spaces: a Gauge at 0% was indistinguishable from an
+    // empty layout slot, while Progress — the other bar widget in this
+    // library — has always drawn `[░░░░░░]`.
+    return Eq(t, BufferText(buf, 0), "██░░")
 }
 
 // ============================================================================

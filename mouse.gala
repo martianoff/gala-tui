@@ -72,10 +72,31 @@ sealed type DragPhase {
     case DragRelease
 }
 
+// InputEvent is the unified input sum every mouse-capable entry point
+// delivers.
+//
+// PasteInput and FocusInput come from the two terminal modes the runtime
+// turns on alongside mouse tracking (see `TermModes` in runtime.gala):
+//
+//   - PasteInput carries a whole bracketed-paste run as ONE event. Without
+//     it a paste is indistinguishable from typing, so the app's per-key
+//     update logic runs once per pasted byte — hundreds of reducer passes,
+//     and any handler that reacts to a key (autocomplete, submit-on-Enter,
+//     a vim-style mode switch) fires mid-paste and mangles the text.
+//
+//   - FocusInput reports the terminal window gaining or losing keyboard
+//     focus, which is what an app needs to dim an inactive pane or stop
+//     animating while the user is somewhere else.
+//
+// Both are separate cases rather than synthetic keys precisely so the
+// sealed-type exhaustiveness check forces every consumer to decide what to
+// do with them instead of silently dropping them into a `_` branch.
 sealed type InputEvent {
     case KeyInput(Ev KeyEvent)
     case MouseInput(Ev MouseEvent)
     case ResizeInput(W int, H int)
+    case PasteInput(Content string)
+    case FocusInput(Gained bool)
     case UnknownInput()
 }
 
@@ -92,26 +113,128 @@ func ansiMouseOff() string = "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
 // Parsing
 // ----------------------------------------------------------------------------
 
-// ParseInput reads one InputEvent from the front of `buf`. It first checks
-// for an SGR mouse packet (ESC [ <) and falls back to ParseKey for everything
-// else, wrapping the resulting KeyEvent in KeyInput.
+// ParseInput reads one InputEvent from the front of `buf`.
+//
+// Dispatch order, all on the CSI family:
+//   ESC [ < …            SGR mouse packet
+//   ESC [ I / ESC [ O    focus gained / lost           (mode ?1004)
+//   ESC [ 200 ~ … 201 ~  bracketed paste               (mode ?2004)
+//   anything else        ParseKey, wrapped in KeyInput
 //
 // Returns (event, bytesConsumed). bytesConsumed = 0 signals "incomplete —
 // buffer more bytes before calling again" — the runtime treats this as a
-// request to defer until the next read.
+// request to defer until the next read. Everything that can be truncated
+// mid-sequence returns 0 rather than a guess: a lone `ESC [`, a kitty
+// sequence cut mid-number, and above all a paste whose closing marker has
+// not arrived, since a paste routinely spans many reads and emitting half
+// of it is the exact failure bracketed paste exists to prevent.
 func ParseInput(buf []byte) Tuple[InputEvent, int] {
-    if buf.Size() >= 4 && isMouseSgrPrefix(buf) {
-        return parseSgrMouse(buf)
-    }
-    val (kev, n) = ParseKey(buf)
+    val n = buf.Size()
     if n == 0 {
         return (UnknownInput(), 0)
     }
-    return (KeyInput(Ev = kev), n)
+    if n >= 4 && isMouseSgrPrefix(buf) {
+        return parseSgrMouse(buf)
+    }
+    if isCsiStart(buf) {
+        val scan = scanCsi(buf)
+        if scan.Final < 0 && scan.Drop == 0 {
+            return (UnknownInput(), 0)
+        }
+        if scan.Final >= 0 {
+            val fb = int(buf[scan.Final])
+            // Focus in / out. Both are bare three-byte sequences, so we
+            // require an empty parameter list — `ESC [ 1 ; 2 I` is not a
+            // focus report and must not be decoded as one.
+            // 'I' is focus In, 'O' is focus Out. These were swapped, which
+            // inverts every focus event an app receives — a pane would dim
+            // on gaining focus and brighten on losing it.
+            if scan.Final == 2 && fb == 0x49 {          // 'I' — focus gained
+                return (FocusInput(Gained = true), 3)
+            }
+            if scan.Final == 2 && fb == 0x4F {          // 'O' — focus lost
+                return (FocusInput(Gained = false), 3)
+            }
+            // Bracketed-paste opener: ESC [ 200 ~
+            if fb == 0x7E && csiParam(buf, scan.Final, 0, 0) == pasteStartParam() {
+                return parseBracketedPaste(buf, scan.Final + 1)
+            }
+        }
+    }
+    val (kev, c) = ParseKey(buf)
+    if c == 0 {
+        return (UnknownInput(), 0)
+    }
+    return (KeyInput(Ev = kev), c)
 }
+
+func isCsiStart(buf []byte) bool =
+    buf.Size() >= 2 && int(buf[0]) == 0x1B && int(buf[1]) == 0x5B
 
 func isMouseSgrPrefix(buf []byte) bool =
     int(buf[0]) == 0x1B && int(buf[1]) == 0x5B && int(buf[2]) == 0x3C
+
+// ----------------------------------------------------------------------------
+// Bracketed paste (mode ?2004).
+//
+// The terminal wraps pasted text in ESC [ 200 ~ … ESC [ 201 ~ and, crucially,
+// strips ESC from the pasted body — that is what makes scanning for the
+// literal six-byte closer safe rather than a heuristic.
+// ----------------------------------------------------------------------------
+
+func pasteStartParam() int = 200
+func pasteEndParam() int   = 201
+
+// pasteCloserLen is the byte length of `ESC [ 201 ~`.
+func pasteCloserLen() int = 6
+
+// parseBracketedPaste consumes `ESC [ 200 ~ <text> ESC [ 201 ~` and returns
+// the text as one PasteInput. `from` is the index just past the opener.
+//
+// Until the closer has arrived this returns 0 consumed, so the runtime holds
+// the bytes and re-offers them with the next read appended. Emitting a
+// partial paste would split one logical event across two — which is the
+// keypress-burst problem again, just at a coarser grain.
+func parseBracketedPaste(buf []byte, from int) Tuple[InputEvent, int] {
+    val end = pasteCloserIndex(buf, from)
+    if end < 0 {
+        return (UnknownInput(), 0)
+    }
+    return (PasteInput(Content = ToString(Slice(buf, from, end))),
+            end + pasteCloserLen())
+}
+
+// pasteCloserIndex returns the index of the ESC that begins `ESC [ 201 ~`,
+// searching from `from`, or -1 when the closer is not in `buf` yet.
+func pasteCloserIndex(buf []byte, from int) int {
+    val n = buf.Size()
+    var i = from
+    for i + pasteCloserLen() <= n {
+        if isPasteCloserAt(buf, i) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// isPasteOpenerAt reports whether `ESC [ 200 ~` starts at `i`. The runtime
+// uses it to resync a paste that was opened and never closed.
+func isPasteOpenerAt(buf []byte, i int) bool =
+    isPasteMarkerAt(buf, i, pasteStartParam())
+
+func isPasteCloserAt(buf []byte, i int) bool =
+    isPasteMarkerAt(buf, i, pasteEndParam())
+
+func isPasteMarkerAt(buf []byte, i int, param int) bool {
+    if int(buf[i]) != 0x1B || int(buf[i + 1]) != 0x5B || int(buf[i + 5]) != 0x7E {
+        return false
+    }
+    val p = (int(buf[i + 2]) - 0x30) * 100 +
+            (int(buf[i + 3]) - 0x30) * 10 +
+            (int(buf[i + 4]) - 0x30)
+    return p == param
+}
 
 // parseSgrMouse consumes an ESC [ < … (M|m) packet. Malformed packets advance
 // one byte and report UnknownInput so the runtime can keep making progress.

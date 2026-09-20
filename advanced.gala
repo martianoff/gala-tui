@@ -58,15 +58,28 @@ func Table(data TableData) Widget {
     return Column(headerChildren.AppendAll(bodyChildren))
 }
 
+// tableColumnSpacing is the blank column between two table columns.
+//
+// It is charged to the ROW, not to a cell. Reserving a gutter inside each
+// non-last cell looked equivalent and was not: a table's constraints
+// describe the columns the CALLER asked for, so spending one of them on
+// whitespace means `Length(5)` shows four characters and "Alice" renders
+// "Ali…" in a column sized to hold it. Charging the row instead takes the
+// space from the slack the solver was going to distribute anyway, so
+// declared widths are honoured and a column that exactly fits its value
+// still gets separated from its neighbour — the case a zero gutter alone
+// leaves running together as `Alicex`.
+func tableColumnSpacing() int = 1
+
 // renderTableHeaderRow builds a Row of bold header cells.
 func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget =
-    Row(headers.ZipWithIndex().Map((pair) =>
-        tableHeaderCell(pair.V1, pair.V2, widths)))
+    RowSpaced(headers.ZipWithIndex().Map((pair) =>
+        tableHeaderCell(pair.V1, pair.V2, widths)), tableColumnSpacing())
 
 func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChild {
     val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
     return LayoutChild(Constraint = w,
-        Widget = TextStyled(header, DefaultStyle().WithBold()))
+        Widget = CellTextStyled(header, DefaultStyle().WithBold()))
 }
 
 // renderTableRow builds a Row of body cells. When `selected` is true the
@@ -79,14 +92,25 @@ func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChi
 // instead, which covers the gaps.
 func renderTableRow(row Array[string], widths Array[Constraint], selected bool) Widget {
     val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
-    val cells = Row(row.ZipWithIndex().Map((pair) =>
-        tableBodyCell(pair.V1, pair.V2, widths, rowStyle)))
+    val cells = RowSpaced(row.ZipWithIndex().Map((pair) =>
+        tableBodyCell(pair.V1, pair.V2, widths, rowStyle)), tableColumnSpacing())
     return if (selected) Highlighted(cells, rowStyle) else cells
 }
 
-func tableBodyCell(cell string, idx int, widths Array[Constraint], style Style) LayoutChild {
+// tableBodyCell lays one cell through `CellText`, which caps it to its
+// slot with a "…". Drawn as a plain `Text` it filled the slot edge to edge
+// and ran straight into the next column: `build-103-running-forever` in a
+// `Length(10)` column came out as `build-103-running`, a row that reads as
+// a single token and names a build that does not exist. A full-width CJK
+// glyph on the boundary left no gap at all.
+func tableBodyCell(
+    cell string,
+    idx int,
+    widths Array[Constraint],
+    style Style,
+) LayoutChild {
     val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
-    return LayoutChild(Constraint = w, Widget = TextStyled(cell, style))
+    return LayoutChild(Constraint = w, Widget = CellTextStyled(cell, style))
 }
 
 // NewTable is a convenience constructor for tables without headers.
@@ -138,6 +162,15 @@ func SparklineStyled(values Array[int], style Style) Widget {
 
 // sparklineBarString converts a series of values into a single string where
 // each rune is the block glyph whose height represents value/max (in eighths).
+//
+// Every sample floors to `▁`, the smallest visible block, so a column that
+// carries a value always paints one. Letting the arithmetic reach index 0
+// (a space) put a hole in the baseline wherever a sample was small relative
+// to the maximum, and blanked the whole line when every sample was the same
+// low number — "0 errors in each of the last 40 minutes" drew exactly what
+// "no telemetry at all" drew. An empty series is the only thing that
+// renders as nothing, and `SparklineStyled` returns `Empty()` for it before
+// this is reached.
 func sparklineBarString(values Array[int], maxV int) string {
     val glyphs = ArrayOf[rune](' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
     var sb = ""
@@ -146,7 +179,7 @@ func sparklineBarString(values Array[int], maxV int) string {
     for i < n {
         val v = values.Get(i)
         var idx = v * 8 / maxV
-        if idx < 0 { idx = 0 }
+        if idx < 1 { idx = 1 }
         if idx > 8 { idx = 8 }
         sb = sb + string(glyphs.Get(idx))
         i = i + 1

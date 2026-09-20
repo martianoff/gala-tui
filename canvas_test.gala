@@ -1,0 +1,326 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Canvas — sub-cell shape rendering.
+//
+// The claims worth testing here are geometric, not textual: does a dot land
+// in the cell it should, does a line actually connect its endpoints, does a
+// shape drawn outside the bounds clip instead of wrapping. Asserting "the
+// output is non-empty" would pass for a canvas that plots everything in the
+// top-left corner.
+// ============================================================================
+
+func unitBounds() Bounds = XBounds(0.0, 1.0)
+
+func canvasBuf(w Widget, width int, height int) *Buffer {
+    val buf = NewBuffer(width, height)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
+    return buf
+}
+
+// litCells counts cells carrying a non-space glyph.
+func litCells(buf *Buffer, width int, height int) int {
+    var n = 0
+    var y = 0
+    for y < height {
+        var x = 0
+        for x < width {
+            if buf.CharAt(x, y) != ' ' { n = n + 1 }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return n
+}
+
+// ----------------------------------------------------------------------------
+// Projection — a point lands in the cell its coordinates name
+// ----------------------------------------------------------------------------
+
+func TestPointProjectsIntoTheExpectedCell(t T) T {
+    // Braille packs 2x4 dots per cell, so on a 4x2 pane the grid is 8x8.
+    // (0.0, 1.0) is the top-left corner and must light cell (0, 0).
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)),
+            Style = DefaultStyle())))
+    val buf = canvasBuf(w, 4, 2)
+    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ')
+    // ...and nothing else is lit.
+    return Eq(t1, litCells(buf, 4, 2), 1)
+}
+
+func TestYAxisIsInvertedForScreenCoordinates(t T) T {
+    // A plot's Y grows up; screen rows grow down. Y=0.0 is the BOTTOM.
+    val low = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 0.0)), Style = DefaultStyle())))
+    val buf = canvasBuf(low, 4, 2)
+    val t1 = IsTrue(t, buf.CharAt(0, 1) != ' ')
+    return IsTrue(t1, buf.CharAt(0, 0) == ' ')
+}
+
+func TestPointsSpreadAcrossTheFullWidth(t T) T {
+    // Two points at opposite X must land in different cells — a projection
+    // that collapsed everything into one column would still "render".
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(
+                CanvasPoint(X = 0.0, Y = 1.0),
+                CanvasPoint(X = 1.0, Y = 1.0),
+            ),
+            Style = DefaultStyle())))
+    val buf = canvasBuf(w, 8, 1)
+    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ')
+    return IsTrue(t1, buf.CharAt(7, 0) != ' ')
+}
+
+// ----------------------------------------------------------------------------
+// Shapes
+// ----------------------------------------------------------------------------
+
+func TestHorizontalLineConnectsItsEndpoints(t T) T {
+    // Every cell between the endpoints is lit — a Bresenham that stepped
+    // wrongly would leave gaps, which "non-empty" would not catch.
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapeLine(
+            X1 = 0.0, Y1 = 0.5, X2 = 1.0, Y2 = 0.5, Style = DefaultStyle())))
+    val buf = canvasBuf(w, 10, 1)
+    var acc = t
+    var x = 0
+    for x < 10 {
+        acc = IsTrue(acc, buf.CharAt(x, 0) != ' ')
+        x = x + 1
+    }
+    return acc
+}
+
+func TestVerticalLineConnectsItsEndpoints(t T) T {
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapeLine(
+            X1 = 0.5, Y1 = 0.0, X2 = 0.5, Y2 = 1.0, Style = DefaultStyle())))
+    val buf = canvasBuf(w, 4, 4)
+    var acc = t
+    var y = 0
+    for y < 4 {
+        acc = IsTrue(acc, buf.CharAt(2, y) != ' ')
+        y = y + 1
+    }
+    return acc
+}
+
+func TestDiagonalLineTouchesBothCorners(t T) T {
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapeLine(
+            X1 = 0.0, Y1 = 1.0, X2 = 1.0, Y2 = 0.0, Style = DefaultStyle())))
+    val buf = canvasBuf(w, 8, 4)
+    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ')
+    return IsTrue(t1, buf.CharAt(7, 3) != ' ')
+}
+
+func TestRectOutlineLightsCornersAndLeavesTheMiddleEmpty(t T) T {
+    // It is an outline, not a fill — the interior must stay clear so a
+    // rect can frame a series.
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapeRect(
+            X = 0.0, Y = 0.0, Width = 1.0, Height = 1.0, Style = DefaultStyle())))
+    val buf = canvasBuf(w, 9, 5)
+    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ' && buf.CharAt(8, 4) != ' ')
+    return IsTrue(t1, buf.CharAt(4, 2) == ' ')
+}
+
+func TestCircleIsHollowAndSpansItsDiameter(t T) T {
+    val w = Canvas(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), BrailleMarker(),
+        ArrayOf[Shape](ShapeCircle(
+            X = 0.0, Y = 0.0, Radius = 1.0, Style = DefaultStyle())))
+    val buf = canvasBuf(w, 12, 6)
+    // Centre is empty...
+    val t1 = IsTrue(t, buf.CharAt(6, 3) == ' ')
+    // ...and the rim reaches both horizontal extremes.
+    return IsTrue(t1, buf.CharAt(0, 3) != ' ' && buf.CharAt(11, 3) != ' ')
+}
+
+// ----------------------------------------------------------------------------
+// Markers
+// ----------------------------------------------------------------------------
+
+func TestBrailleResolvesFourPointsWithinOneCell(t T) T {
+    // The whole reason braille is the default: four distinct Y values must
+    // produce four DIFFERENT glyphs in the same cell, not one blob.
+    var seen = EmptyArray[rune]()
+    var i = 0
+    for i < 4 {
+        val y = float64(i) / 4.0 + 0.05
+        val w = Canvas(unitBounds(), unitBounds(), BrailleMarker(),
+            ArrayOf[Shape](ShapePoints(
+                Pts = ArrayOf(CanvasPoint(X = 0.1, Y = y)), Style = DefaultStyle())))
+        seen = seen.Append(canvasBuf(w, 1, 1).CharAt(0, 0))
+        i = i + 1
+    }
+    return Eq(t, seen.Distinct().Length(), 4)
+}
+
+func TestHalfBlockPicksUpperLowerAndFull(t T) T {
+    val upper = Canvas(unitBounds(), unitBounds(), HalfBlockMarker(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 0.5, Y = 0.9)), Style = DefaultStyle())))
+    val lower = Canvas(unitBounds(), unitBounds(), HalfBlockMarker(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 0.5, Y = 0.1)), Style = DefaultStyle())))
+    val both = Canvas(unitBounds(), unitBounds(), HalfBlockMarker(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(
+                CanvasPoint(X = 0.5, Y = 0.9),
+                CanvasPoint(X = 0.5, Y = 0.1),
+            ), Style = DefaultStyle())))
+    val t1 = Eq(t, canvasBuf(upper, 1, 1).CharAt(0, 0), '▀')
+    val t2 = Eq(t1, canvasBuf(lower, 1, 1).CharAt(0, 0), '▄')
+    return Eq(t2, canvasBuf(both, 1, 1).CharAt(0, 0), '█')
+}
+
+func TestDotAndBlockMarkersAreOneCellResolution(t T) T {
+    val dot = Canvas(unitBounds(), unitBounds(), DotMarker(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 0.5, Y = 0.5)), Style = DefaultStyle())))
+    val blk = Canvas(unitBounds(), unitBounds(), BlockMarker(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 0.5, Y = 0.5)), Style = DefaultStyle())))
+    val t1 = Eq(t, canvasBuf(dot, 1, 1).CharAt(0, 0), '•')
+    return Eq(t1, canvasBuf(blk, 1, 1).CharAt(0, 0), '█')
+}
+
+// ----------------------------------------------------------------------------
+// Robustness — the cases that trap a rasteriser
+// ----------------------------------------------------------------------------
+
+func TestShapesOutsideTheBoundsClipRatherThanWrap(t T) T {
+    // A point far outside must not appear at the opposite edge, which is
+    // what an unclamped modulo projection would produce.
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(
+                CanvasPoint(X = 50.0, Y = 50.0),
+                CanvasPoint(X = -50.0, Y = -50.0),
+            ), Style = DefaultStyle())))
+    return Eq(t, litCells(canvasBuf(w, 6, 3), 6, 3), 0)
+}
+
+func TestDegenerateBoundsDoNotTrap(t T) T {
+    // Min == Max is a zero span; dividing by it must not blow up.
+    val w = Canvas(XBounds(1.0, 1.0), YBounds(1.0, 1.0), BrailleMarker(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 1.0, Y = 1.0)), Style = DefaultStyle())))
+    return IsTrue(t, litCells(canvasBuf(w, 4, 2), 4, 2) >= 0)
+}
+
+func TestEmptyCanvasDrawsNothing(t T) T {
+    val w = CanvasOf(unitBounds(), unitBounds(), EmptyArray[Shape]())
+    return Eq(t, Snapshot(w, 4, 2), "    \n    ")
+}
+
+func TestCanvasComposesOverWhatIsUnderneath(t T) T {
+    // Only lit cells are written, so a canvas can overlay a background
+    // instead of blanking its area.
+    val w = Overlay(
+        FillCh('.'),
+        CanvasOf(unitBounds(), unitBounds(),
+            ArrayOf[Shape](ShapePoints(
+                Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)), Style = DefaultStyle()))),
+    )
+    val buf = canvasBuf(w, 4, 2)
+    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ' && buf.CharAt(0, 0) != '.')
+    return Eq(t1, buf.CharAt(3, 1), '.')
+}
+
+// ----------------------------------------------------------------------------
+// Style and labels
+// ----------------------------------------------------------------------------
+
+func TestEachShapeKeepsItsOwnStyle(t T) T {
+    val w = CanvasOf(unitBounds(), unitBounds(), ArrayOf[Shape](
+        ShapePoints(Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)),
+                    Style = DefaultStyle().WithFg(Red())),
+        ShapePoints(Pts = ArrayOf(CanvasPoint(X = 1.0, Y = 1.0)),
+                    Style = DefaultStyle().WithFg(Green())),
+    ))
+    val buf = canvasBuf(w, 8, 1)
+    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
+    return IsTrue(t1, ColorEq(buf.StyleAt(7, 0).Fg, Green()))
+}
+
+func TestLabelsDrawOverTheSeriesNotUnderIt(t T) T {
+    // Labels are emitted after the glyph pass, so a caption is never buried
+    // beneath the data it annotates.
+    val w = CanvasOf(unitBounds(), unitBounds(), ArrayOf[Shape](
+        ShapeLine(X1 = 0.0, Y1 = 1.0, X2 = 1.0, Y2 = 1.0, Style = DefaultStyle()),
+        ShapeLabel(X = 0.0, Y = 1.0, Text = "hi", Style = DefaultStyle()),
+    ))
+    val buf = canvasBuf(w, 8, 1)
+    val t1 = Eq(t, buf.CharAt(0, 0), 'h')
+    return Eq(t1, buf.CharAt(1, 0), 'i')
+}
+
+func TestRestylingACanvasReachesItsShapes(t T) T {
+    val w = CanvasOf(unitBounds(), unitBounds(),
+        ArrayOf[Shape](ShapePoints(
+            Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)),
+            Style = DefaultStyle()))).WithBold()
+    return IsTrue(t, canvasBuf(w, 4, 2).StyleAt(0, 0).Bold)
+}
+
+// ----------------------------------------------------------------------------
+// Labels are clipped to the canvas, like every other shape
+//
+// Dot shapes clip in `plot`, but the label pass projected freely and called
+// `renderText` with no bounds check. A label anchored outside the bounds
+// projects outside the grid — `canvasProject` folds a value that is ON the
+// upper bound, not one past it — so the text landed on whatever widget was
+// laid out next to the canvas.
+// ----------------------------------------------------------------------------
+
+func TestLabelBelowTheBoundsDoesNotPaintOutsideTheCanvas(t T) T {
+    val buf = NewBuffer(12, 3)
+    // Fill row 2 with a sentinel standing in for a neighbouring widget.
+    RenderTo(FillCh('#'), Rect(X = 0, Y = 2, Width = 12, Height = 1), buf)
+    // Canvas owns rows 0-1 only; the label's Y is below yMin.
+    RenderTo(
+        CanvasW(XMin = 0.0, XMax = 1.0, YMin = 0.0, YMax = 1.0,
+                Marker = BrailleMarker(),
+                Shapes = ArrayOf[Shape](
+                    ShapeLabel(X = 0.0, Y = -0.1, Text = "LEAK",
+                               Style = DefaultStyle()))),
+        Rect(X = 0, Y = 0, Width = 12, Height = 2), buf)
+    return Eq(t, BufferText(buf, 2), "############")
+}
+
+func TestLabelLeftOfTheBoundsDoesNotPaintOutsideTheCanvas(t T) T {
+    val buf = NewBuffer(12, 1)
+    RenderTo(FillCh('#'), Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    // Canvas starts at column 4; the label's X is below xMin.
+    RenderTo(
+        CanvasW(XMin = 0.0, XMax = 1.0, YMin = 0.0, YMax = 1.0,
+                Marker = BrailleMarker(),
+                Shapes = ArrayOf[Shape](
+                    ShapeLabel(X = -0.5, Y = 1.0, Text = "LEAK",
+                               Style = DefaultStyle()))),
+        Rect(X = 4, Y = 0, Width = 8, Height = 1), buf)
+    return Eq(t, strings.HasPrefix(BufferText(buf, 0), "####"), true)
+}
+
+func TestLabelInsideTheBoundsStillRenders(t T) T {
+    val buf = NewBuffer(12, 1)
+    RenderTo(
+        CanvasW(XMin = 0.0, XMax = 1.0, YMin = 0.0, YMax = 1.0,
+                Marker = BrailleMarker(),
+                Shapes = ArrayOf[Shape](
+                    ShapeLabel(X = 0.0, Y = 1.0, Text = "OK",
+                               Style = DefaultStyle()))),
+        Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
+    return IsTrue(t, strings.Contains(BufferText(buf, 0), "OK"))
+}

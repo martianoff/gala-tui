@@ -185,6 +185,44 @@ func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc b
 // View
 // ----------------------------------------------------------------------------
 
+// dtRuleRow is the horizontal rule under the header, carrying the filter
+// state when one is active.
+//
+// A filtered table used to be pixel-identical to an unfiltered one: same
+// header, same rule, fewer rows and nothing to say why. Scroll away from
+// the row you were looking at and nothing on screen records that a filter
+// ever happened, so the natural reading of the pane is "this is the
+// dataset" — the one reading that is false. The empty case already said
+// `(no rows)`; the non-empty case said nothing at all, which is the more
+// dangerous of the two because it looks like data.
+//
+// The banner goes on the rule rather than on a row of its own so that
+// turning a filter on never changes the table's height or pushes a row out
+// of view. The rule carries no information otherwise, and a table showing
+// everything still renders it unbroken.
+func dtRuleRow(dt DataTable, shown int) Widget {
+    if dt.FilterQuery == "" {
+        return FillCh('─')
+    }
+    val total = dt.Rows.Length()
+    // Count first, query second. The count is the part that says a filter is
+    // on and how much is hidden, so it must survive truncation — with the
+    // query leading, a long query pushed "0 of 4" off the end of a narrow
+    // table and the indicator stopped indicating anything.
+    val label = s"─ $shown of $total · ${dt.FilterQuery} "
+    return CustomW(MinW = 1, MinH = 1, Render = (area, buf, hits) => {
+        if area.Width > 0 && area.Height > 0 {
+            renderFill('─', DefaultStyle().WithDim(), area, buf)
+            // Ellipsis, not a hard clip: `─ 2 of 4 · release-candidate `
+            // cut to fifteen columns reads as a filter on `rele` — a
+            // different query, stated with no sign it was truncated. Same
+            // argument as every table cell and list label in this release.
+            renderText(StringCellEllipsis(label, area.Width),
+                       DefaultStyle().WithDim(), area, buf)
+        }
+    })
+}
+
 // DataTableView renders the whole data table: frozen header row, horizontal
 // rule, then the scrollable body with selection highlight. Caller sizes the
 // area; body height = total height - 2 (header + rule).
@@ -194,9 +232,10 @@ func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc b
 // yellow foreground so the user can tell at a glance where keyboard arrows
 // will land. Unfocused tables still highlight the row but use plain reverse.
 func DataTableView(dt DataTable, focused bool = false) Widget {
+    val visible = dtVisible(dt)
     val header = dtHeaderRow(dt)
-    val rule = FillCh('─')
-    val body = dtBodyWidget(dt, focused)
+    val rule = dtRuleRow(dt, visible.Length())
+    val body = dtBodyWidget(dt, visible, focused)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),
@@ -216,12 +255,13 @@ func DataTableViewClick[T any](
     focused bool,
     onRowClick func(int) T,
 ) Widget {
+    val visible = dtVisible(dt)
     val header = dtHeaderRow(dt)
-    val rule = FillCh('─')
+    val rule = dtRuleRow(dt, visible.Length())
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),
-        Flex(1, dtBodyWidgetClick[T](dt, focused, onRowClick)),
+        Flex(1, dtBodyWidgetClick[T](dt, visible, focused, onRowClick)),
     ))
 }
 
@@ -242,29 +282,32 @@ func DataTableViewClickable[T any](
     onRowClick func(int) T,
     onHeaderClick func(int) T,
 ) Widget {
+    val visible = dtVisible(dt)
     val header = dtHeaderRowClick[T](dt, onHeaderClick)
-    val rule = FillCh('─')
+    val rule = dtRuleRow(dt, visible.Length())
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),
-        Flex(1, dtBodyWidgetClick[T](dt, focused, onRowClick)),
+        Flex(1, dtBodyWidgetClick[T](dt, visible, focused, onRowClick)),
     ))
 }
 
+// The cells are `advanced.gala`'s — a DataTable row and a Table row are
+// the same thing rendered from different models, and keeping two copies
+// meant one column-layout decision had to be applied in five places.
 func dtHeaderRow(dt DataTable) Widget =
-    Row(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
-        Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
-        Widget     = TextStyled(dtHeaderLabel(dt, p.V2), DefaultStyle().WithBold()),
-    )))
+    RowSpaced(dt.Headers.ZipWithIndex().Map((p) =>
+        tableHeaderCell(dtHeaderLabel(dt, p.V2), p.V2, dt.Widths)),
+        tableColumnSpacing())
 
 // dtHeaderRowClick wraps each header cell with `.OnClick` so clicking
 // a header dispatches `onHeaderClick(colIdx)`.
 func dtHeaderRowClick[T any](dt DataTable, onHeaderClick func(int) T) Widget =
-    Row(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
-        Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
-        Widget     = TextStyled(dtHeaderLabel(dt, p.V2), DefaultStyle().WithBold())
-                         .OnClick[T](onHeaderClick(p.V2)),
-    )))
+    RowSpaced(dt.Headers.ZipWithIndex().Map((p) => {
+        val cell = tableHeaderCell(dtHeaderLabel(dt, p.V2), p.V2, dt.Widths)
+        return LayoutChild(Constraint = cell.Constraint,
+                           Widget = cell.Widget.OnClick[T](onHeaderClick(p.V2)))
+    }), tableColumnSpacing())
 
 func dtHeaderLabel(dt DataTable, col int) string {
     val base = dt.Headers.Get(col)
@@ -284,8 +327,8 @@ func dtHeaderLabel(dt DataTable, col int) string {
 // it moved past the bottom of the pane — `DTEnd` on a table taller than its
 // slot left no highlight anywhere on screen. `AutoScrollW` computes the
 // window from the area height the way `renderList` always has.
-func dtBodyWidget(dt DataTable, focused bool) Widget =
-    dtBodyOf(dt, focused, (row, absIdx) => row)
+func dtBodyWidget(dt DataTable, visible Array[Array[string]], focused bool) Widget =
+    dtBodyOf(dt, visible, focused, (row, absIdx) => row)
 
 // dtBodyWidgetClick is the click-aware body. `decorate` attaches each row's
 // hit region to the row widget itself, so a payload travels with its row as
@@ -298,28 +341,34 @@ func dtBodyWidget(dt DataTable, focused bool) Widget =
 // a filter was active.
 func dtBodyWidgetClick[T any](
     dt DataTable,
+    visible Array[Array[string]],
     focused bool,
     onRowClick func(int) T,
 ) Widget =
-    dtBodyOf(dt, focused, (row, absIdx) => row.OnClick[T](onRowClick(absIdx)))
+    dtBodyOf(dt, visible, focused, (row, absIdx) => row.OnClick[T](onRowClick(absIdx)))
 
 // dtBodyWidgetClickDouble attaches single AND double click to each row.
 func dtBodyWidgetClickDouble[T any](
     dt DataTable,
+    visible Array[Array[string]],
     focused bool,
     onRowClick func(int) T,
     onRowDoubleClick func(int) T,
 ) Widget =
-    dtBodyOf(dt, focused, (row, absIdx) =>
+    dtBodyOf(dt, visible, focused, (row, absIdx) =>
         row.OnClick[T](onRowClick(absIdx))
            .OnDoubleClick[T](onRowDoubleClick(absIdx)))
 
+// `visible` is passed in rather than derived here: the rule row needs the
+// same count, and deriving it twice ran the whole filter-then-sort
+// pipeline twice per frame — exactly when it is expensive, since the
+// duplicate is only paid on the branch where a filter is active.
 func dtBodyOf(
     dt DataTable,
+    visible Array[Array[string]],
     focused bool,
     decorate func(Widget, int) Widget,
 ) Widget {
-    val visible = dtVisible(dt)
     if visible.IsEmpty() {
         return TextStyled("  (no rows)", DefaultStyle().WithDim())
     }
@@ -335,10 +384,8 @@ func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) W
         DefaultStyle().WithReverse()
     else
         DefaultStyle()
-    val cells = Row(row.ZipWithIndex().Map((p) => LayoutChild(
-        Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
-        Widget     = TextStyled(p.V1, rowStyle),
-    )))
+    val cells = RowSpaced(row.ZipWithIndex().Map((p) =>
+        tableBodyCell(p.V1, p.V2, dt.Widths, rowStyle)), tableColumnSpacing())
     // Restyle the whole row so the highlight spans the inter-column padding
     // as well as the text; styling the cells alone left it in fragments.
     return if (selected) Highlighted(cells, rowStyle) else cells
@@ -361,12 +408,13 @@ func DataTableViewInteractive[T any](
     onRowDoubleClick func(int) T,
     onHeaderClick func(int) T,
 ) Widget {
+    val visible = dtVisible(dt)
     val header = dtHeaderRowClick[T](dt, onHeaderClick)
-    val rule = FillCh('─')
+    val rule = dtRuleRow(dt, visible.Length())
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),
-        Flex(1, dtBodyWidgetClickDouble[T](dt, focused, onRowClick, onRowDoubleClick)),
+        Flex(1, dtBodyWidgetClickDouble[T](dt, visible, focused, onRowClick, onRowDoubleClick)),
     ))
 }
 

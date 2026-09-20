@@ -10,20 +10,26 @@ real subpackages (`core/`, `widget/`, etc.).
 - `subs.gala` — `Sub[T]` (KeySub / BatchSub / MapSub / TickSub), `DispatchKey`, `CollectTickers`, `DispatchDueTicks`
 
 ## Layout & rendering primitives
-- `layout.gala` — `Constraint` sealed (Length / Fill / Percent), `Solve`
-- `buffer.gala` — `Cell`, `Rect`, `Buffer`, `String()`, `DiffString`
-- `style.gala` — `Style` struct + fluent builders, SGR rendering
+- `layout.gala` — `Constraint` sealed (Length / Percent / Fill / MinLen /
+  MaxLen / Ratio), `Solve`, `FlexMode`, `VAlign`
+- `buffer.gala` — `Cell`, `Rect`, `Buffer`, `String()`, `DiffString`,
+  `RestyleRegion`
+- `style.gala` — `Style` struct + fluent builders, SGR rendering, OSC 8 link
 - `color.gala` — `Color` sealed (DefaultColor / NamedColor / Indexed / RGB) + 16 named-color helpers
 - `theme.gala` — `Theme` palette + Default/Dark/Light/HighContrast presets + themed widget helpers
-- `runewidth.gala` — grapheme-aware cell widths (CJK, emoji, combining)
+- `runewidth.gala` — grapheme-aware cell widths (CJK, emoji, combining, and
+  the East-Asian-Ambiguous distinction)
+- `text.gala` — `Span` / `Line` / `RichText`: per-run styling within a line
 
 ## Widget framework
-- `widget.gala` — the `Widget` sealed type (21 variants), `RenderTo` walker, intrinsic-size helpers, `Tabs` helper
+- `widget.gala` — the `Widget` sealed type, `RenderTo` walker, intrinsic-size helpers, `Tabs` helper
 - `fluent.gala` — chainable widget methods (`.Padded`, `.Bordered`, `.Centered`, `.AsFixed`, `.WithFg`, …)
 - `interactive.gala` — `ListItem`, spinner kinds, gauge / progress helpers
 - `advanced.gala` — `Table`, `Tree`, `BarChart`, `Sparkline`
 
 ## High-level widgets
+- `canvas.gala` — `Canvas`: shapes in the caller's coordinate space at
+  sub-cell resolution (braille 2x4, half-block, dot, block)
 - `linechart.gala` — `LineChart`, `MultiLineChart` with sub-cell block resolution
 - `markdown.gala` — `MdBlock` / `MdInline` parser + `MarkdownView`
 - `palette.gala` — fuzzy-search command palette with `FuzzyScore`
@@ -36,13 +42,18 @@ real subpackages (`core/`, `widget/`, etc.).
 - `help.gala` — auto-help screen from `HelpSpec[T]` array
 
 ## State helpers
-- `router.gala` — `ScreenStack` (Push/Pop/Replace/Reset/Breadcrumb)
-- `focus.gala` — `FocusManager` (Tab cycle ring with disabled-skip semantics)
-- `animation.gala` — `Animation`, `Easing` sealed (Linear / cubic / Bounce / Step), tween helpers
+These live in the `state/` subpackage, imported as
+`github.com/martianoff/gala-tui/state`.
+- `state/router.gala` — `ScreenStack` (Push/Pop/Replace/Reset/Breadcrumb)
+- `state/focus.gala` — `FocusManager` (Tab cycle ring with disabled-skip semantics)
+- `state/animation.gala` — `Animation`, `Easing` sealed (Linear / cubic / Bounce / Step), tween helpers
+- `state/click_region.gala`, `state/focus_router.gala` — click and focus routing
 
 ## Input
-- `input.gala` — `Key` / `KeyEvent` / `ParseKey` (ANSI/VT100 decoder)
-- `mouse.gala` — SGR mouse parser, `InputEvent` sum (Key / Mouse / Resize / Unknown)
+- `input.gala` — `Key` / `KeyEvent` / `ParseKey` (ANSI/VT100 decoder), plus the
+  kitty keyboard protocol's `CSI … u` form
+- `mouse.gala` — SGR mouse parser, `InputEvent` sum (Key / Mouse / Resize /
+  Paste / Focus / Unknown)
 - `keyspec.gala` — string key DSL (`"ctrl+c"` → predicate), `KeyBind`, `KeyMatches`
 
 ## Runtime

@@ -37,10 +37,23 @@ func NewListItem(label string) ListItem =
 // ----------------------------------------------------------------------------
 // Progress bar helpers.
 //
-// Shown as `[█████████████░░░░░░░░]  63%` — filled glyph repeats for the
+// Shown as `[█████████████░░░░░░░░]` — filled glyph repeats for the
 // integer percentage of the bar's width, the remainder is the empty glyph.
 // Percent is stored as an int in 0..100 so nobody has to think about
 // floating-point rounding when a download finishes at 99.9999%.
+//
+// The bar renders no number. `ProgressW` fills whatever slot the layout
+// gives it, and slots are frequently narrow — a table cell, a status
+// footer, a 12-column column in a dashboard grid. A widget that silently
+// reserved six columns for `  100%` would leave nothing to be a bar there,
+// and the reservation would have to grow and shrink with the digit count.
+// Callers that want the number compose it, so they choose where the
+// columns come from:
+//
+//     Row(ArrayOf[LayoutChild](
+//         Flex(1, Progress(pct)),
+//         Fixed(6, Text(s"  ${pct}%")),
+//     ))
 // ----------------------------------------------------------------------------
 
 // renderProgressBar produces a string that looks like `[████░░░░]` for the
@@ -71,9 +84,15 @@ func renderProgressBar(percent int, width int, filled rune, empty rune) string {
 // A Spinner is a seam between the runtime (which ticks) and the view (which
 // renders the current frame). Several conventional glyph sets ship:
 //   - Braille (⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)     — smooth, modern
-//   - Dots    (. .. ...)                  — low-fi, works on ASCII terminals
+//   - Dots    (· ‥ …)                     — low-fi ". .. ..." in one cell
 //   - Pipe    (| / - \)                   — classic
 //   - Arrow   (← ↖ ↑ ↗ → ↘ ↓ ↙)           — compass style
+//
+// Every cycle is one cell wide and every frame paints something. A frame
+// that is a blank makes the spinner wink out of existence for that slice
+// of the revolution, which reads as "the app froze", the opposite of what
+// a spinner is for — so the dots cycle uses the dot-leader glyphs rather
+// than growing a run of ASCII periods across cells it does not own.
 //
 // The widget stores a frame number; the user increments it on every Tick.
 // Which spinner style is picked is a SpinnerKind sealed variant.
@@ -91,7 +110,7 @@ sealed type SpinnerKind {
 func spinnerFrames(kind SpinnerKind) Array[rune] {
     return kind match {
         case BrailleSpinner() => ArrayOf[rune]('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-        case DotsSpinner()    => ArrayOf[rune]('.', ':', ' ', '.', ':', ' ', '.', ':')
+        case DotsSpinner()    => ArrayOf[rune]('·', '‥', '…')
         case PipeSpinner()    => ArrayOf[rune]('|', '/', '-', '\\')
         case ArrowSpinner()   => ArrayOf[rune]('←', '↖', '↑', '↗', '→', '↘', '↓', '↙')
     }
@@ -115,9 +134,19 @@ func SpinnerGlyph(kind SpinnerKind, frame int) rune {
 // Bubble Tea's progress.Model when called with `ProgressOption.WithGradient`.
 // ----------------------------------------------------------------------------
 
+// gaugeTrack is the glyph the unfilled part of a Gauge is drawn with.
+//
+// It used to be a space, which made `Gauge(0)` paint nothing at all: an
+// empty gauge and an empty slot were the same picture, so a bar at zero
+// looked like a widget that had failed to render. `Progress` has always
+// drawn its track (`[░░░░░░]`), and two bar widgets in one library should
+// not disagree about whether "nothing done yet" is visible.
+func gaugeTrack() rune = '░'
+
 // renderGauge returns a width-wide bar where the last partial cell uses a
 // sub-cell Unicode block — much smoother than the integer-only progress bar
-// when the terminal is narrow.
+// when the terminal is narrow. Cells past the fill carry the track glyph,
+// so the bar's extent is visible at every percentage including 0.
 func renderGauge(percent int, width int) string {
     val p = clampPct(percent)
     if width <= 0 {
@@ -133,28 +162,33 @@ func renderGauge(percent int, width int) string {
         sb.WriteRune('█')
         i = i + 1
     }
-    if fullCells < width {
+    // A zero remainder has no partial block to draw — emitting one anyway
+    // would spend a cell on a glyph indistinguishable from the track.
+    if remainder > 0 && fullCells < width {
         sb.WriteRune(gaugeEighthRune(remainder))
         i = i + 1
     }
     for i < width {
-        sb.WriteRune(' ')
+        sb.WriteRune(gaugeTrack())
         i = i + 1
     }
     return sb.String()
 }
 
-// gaugeEighthRune maps an eighths-of-cell fill count (0..7) to its Unicode
-// partial-block glyph. Matches U+2588..U+258F in fractional order.
+// gaugeEighthRune maps an eighths-of-cell fill count (1..7) to its Unicode
+// partial-block glyph, U+258F (▏, one eighth) up to U+2589 (▉, seven
+// eighths). Zero has no glyph of its own — `renderGauge` draws the track
+// there instead — so callers pass 1..7 and anything at or above 8 is a
+// full block.
 func gaugeEighthRune(eighths int) rune {
-    if eighths <= 0 { return ' ' }
+    if eighths <= 0 { return gaugeTrack() }
     if eighths == 1 { return '▏' }
     if eighths == 2 { return '▎' }
     if eighths == 3 { return '▍' }
     if eighths == 4 { return '▌' }
     if eighths == 5 { return '▋' }
-    if eighths == 6 { return '▋' }
-    if eighths == 7 { return '▊' }
+    if eighths == 6 { return '▊' }
+    if eighths == 7 { return '▉' }
     return '█'
 }
 

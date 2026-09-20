@@ -55,7 +55,16 @@ func ShiftK(k Key) KeyEvent   = KeyEvent(Key = k, Ctrl = false, Alt = false, Shi
 // ----------------------------------------------------------------------------
 
 // ParseKey decodes the longest recognizable key from `buf` and returns
-// (event, consumed count). If `buf` is empty, returns (PlainKey(Unknown), 0).
+// (event, consumed count).
+//
+// A consumed count of 0 means "incomplete — buffer more bytes and ask
+// again", the same contract ParseInput exposes. That happens for an empty
+// buffer and for an escape sequence with a body but no final byte yet
+// (`ESC [ 1 5`). Callers must ignore the returned event in that case and
+// keep the unconsumed bytes; the runtime's carry buffer does exactly that.
+//
+// A bare `ESC [` or `ESC O` is NOT incomplete — it is Alt+[ and Alt+O. See
+// `parseCsi`.
 func ParseKey(buf []byte) Tuple[KeyEvent, int] {
     if buf.Size() == 0 {
         return (PlainKey(Unknown()), 0)
@@ -107,86 +116,325 @@ func parseEscapeSequence(buf []byte) Tuple[KeyEvent, int] {
     return (PlainKey(Esc()), 1)
 }
 
+// ----------------------------------------------------------------------------
+// CSI scanning.
+//
+// A CSI sequence is  ESC [  <parameters 0x30..0x3F>  <intermediates
+// 0x20..0x2F>  <final byte 0x40..0x7E>. Every sequence the decoder cares
+// about — arrows, the numbered "~" keys, and the kitty
+// `CSI unicode-key-code ; modifiers u` form — is a parameter list plus a
+// final byte, so we scan once for the final byte and then read parameters
+// by index rather than testing fixed byte offsets.
+//
+// The previous fixed-offset decoder had two failure modes this removes:
+//
+//   - A sequence split across two stdin reads (`ESC [ 1 5` with the `~`
+//     still in flight) was reported as a 3-byte Unknown. The trailing
+//     "5~" was then re-fed to the parser and arrived as two literal
+//     keypresses. Now a sequence with no final byte yet consumes 0, which
+//     is the framework's "give me more bytes" signal.
+//
+//   - Any sequence carrying a modifier parameter — `ESC [ 1 ; 5 A` is
+//     Ctrl-Up, and xterm, Windows Terminal and kitty all send it — hit
+//     the same 3-byte-Unknown path and leaked ";5A" into the app as three
+//     characters. Now modifiers decode onto the KeyEvent.
+// ----------------------------------------------------------------------------
+
+// CsiScan is where a CSI sequence ends.
+//   Final >= 0            : index of the final byte.
+//   Final < 0, Drop == 0  : no final byte yet — the caller must buffer more.
+//   Final < 0, Drop > 0   : malformed — discard `Drop` bytes and resync.
+struct CsiScan(
+    Final int,
+    Drop  int,
+)
+
+// scanCsi walks the body of an `ESC [ …` sequence looking for its final byte.
+// `buf` must already start with ESC [ (the caller checks that).
+func scanCsi(buf []byte) CsiScan {
+    val n = buf.Size()
+    var i = 2
+    for i < n {
+        val c = int(buf[i])
+        if c >= 0x40 && c <= 0x7E {
+            return CsiScan(Final = i, Drop = 0)
+        }
+        if c < 0x20 || c == 0x7F {
+            // A C0 control inside a CSI body is not part of the sequence.
+            // Almost always it's a fresh ESC because the first sequence was
+            // interrupted (a slow terminal, or a mouse packet racing a key).
+            // Drop only what we've scanned so the stream resyncs on that byte
+            // instead of swallowing it.
+            return CsiScan(Final = -1, Drop = i)
+        }
+        i = i + 1
+    }
+    return CsiScan(Final = -1, Drop = 0)
+}
+
+// csiParam returns the `idx`-th (0-based) parameter of the CSI sequence whose
+// final byte sits at index `final`, or `def` when that parameter is absent or
+// empty — `ESC [ A` and `ESC [ 1 ; 1 A` must decode identically.
+//
+// Sub-parameters are skipped: kitty writes the shifted and base-layout key
+// codes as `97:65:97` and an event type as `5:3`, and this decoder uses only
+// the leading value of each field. Reporting releases and repeats needs the
+// `CSI > 2 u` flag, which we never push, so the event-type sub-parameter
+// should not appear at all; ignoring it is belt-and-braces.
+func csiParam(buf []byte, final int, idx int, def int) int {
+    var i = 2
+    var cur = 0
+    var acc = 0
+    var seen = false
+    var inSub = false
+    for i < final {
+        val c = int(buf[i])
+        if c == 0x3B {                  // ';' — next parameter
+            if cur == idx {
+                if seen {
+                    return acc
+                }
+                return def
+            }
+            cur = cur + 1
+            acc = 0
+            seen = false
+            inSub = false
+        }
+        if c == 0x3A {                  // ':' — sub-parameter, ignore the rest
+            inSub = true
+        }
+        if !inSub && c >= 0x30 && c <= 0x39 {
+            acc = acc * 10 + (c - 0x30)
+            seen = true
+        }
+        i = i + 1
+    }
+    if cur == idx && seen {
+        return acc
+    }
+    return def
+}
+
 // parseCsi handles ESC [ <seq> — the common family of escape codes.
+//
+// A two-byte buffer — `ESC [` with an empty body — is reported as Esc and
+// consumes one byte, rather than carried as a truncated sequence.
+//
+// The distinction matters because `ESC [` and `ESC O` are also exactly what
+// an xterm-family terminal sends for Alt+[ and Alt+O under
+// `metaSendsEscape`. Carrying them waits for a completion that never comes,
+// and the next keystroke gets absorbed into the pending sequence: Alt+O then
+// `k` decoded as the single SS3 sequence `ESC O k` and the `k` vanished.
+//
+// Carrying only a NON-empty body is the right split because a terminal
+// emits an escape sequence in one write. A sequence can therefore only be
+// torn across two reads when it is longer than the read buffer, and at
+// `readBufBytes()` = 8 KiB the only thing that long is a bracketed paste —
+// which has its own resumable scan. An empty body means the bytes are all
+// the terminal had to say, so they are a key, not a fragment.
 func parseCsi(buf []byte) Tuple[KeyEvent, int] {
-    if buf.Size() < 3 {
-        return (PlainKey(Esc()), 1)
-    }
-    val b2 = int(buf[2])
-    // Arrow keys: ESC [ A/B/C/D → Up/Down/Right/Left
-    if b2 == 0x41 {
-        return (PlainKey(Up()), 3)
-    }
-    if b2 == 0x42 {
-        return (PlainKey(Down()), 3)
-    }
-    if b2 == 0x43 {
-        return (PlainKey(ArrowRight()), 3)
-    }
-    if b2 == 0x44 {
-        return (PlainKey(ArrowLeft()), 3)
-    }
-    // xterm Home (0x48='H') / End (0x46='F')
-    if b2 == 0x48 {
-        return (PlainKey(Home()), 3)
-    }
-    if b2 == 0x46 {
-        return (PlainKey(End()), 3)
-    }
-    // ESC [ digit ~  — numbered keys (tilde = 0x7E, single digit)
-    if buf.Size() >= 4 && int(buf[3]) == 0x7E {
-        if b2 == 0x31 {                 // "1~" = Home
-            return (PlainKey(Home()), 4)
+    val scan = scanCsi(buf)
+    if scan.Final < 0 {
+        if scan.Drop == 0 && buf.Size() <= 2 {
+            return (PlainKey(Esc()), 1)
         }
-        if b2 == 0x32 {                 // "2~" = Insert
-            return (PlainKey(Insert()), 4)
-        }
-        if b2 == 0x33 {                 // "3~" = Delete
-            return (PlainKey(Delete()), 4)
-        }
-        if b2 == 0x34 {                 // "4~" = End
-            return (PlainKey(End()), 4)
-        }
-        if b2 == 0x35 {                 // "5~" = PageUp
-            return (PlainKey(PageUp()), 4)
-        }
-        if b2 == 0x36 {                 // "6~" = PageDown
-            return (PlainKey(PageDown()), 4)
-        }
+        // Drop == 0 means "truncated, ask again with more bytes"; the 0
+        // consumed count is the contract the runtime's carry buffer reads.
+        return (PlainKey(Unknown()), scan.Drop)
     }
-    // ESC [ digit digit ~  — F5..F12 (xterm convention, also used
-    // by Windows Terminal / iTerm2 / kitty / modern xterm). Each
-    // function key has its own two-digit code; mapping per the
-    // VT220 / xterm tables:
-    //   "15~" F5    "17~" F6    "18~" F7    "19~" F8
-    //   "20~" F9    "21~" F10   "23~" F11   "24~" F12
-    // Note "16~" / "22~" are unused.
-    //
-    // Without this, the parser falls through to PlainKey(Unknown())
-    // after consuming only 3 bytes, and the trailing "5~" gets
-    // re-fed as garbage. F5/F6/etc. silently drop in any host app.
-    if buf.Size() >= 5 && int(buf[4]) == 0x7E {
-        if b2 == 0x31 {
-            val b3 = int(buf[3])
-            if b3 == 0x35 { return (PlainKey(FKey(5)),  5) }   // "15~"
-            if b3 == 0x37 { return (PlainKey(FKey(6)),  5) }   // "17~"
-            if b3 == 0x38 { return (PlainKey(FKey(7)),  5) }   // "18~"
-            if b3 == 0x39 { return (PlainKey(FKey(8)),  5) }   // "19~"
-        }
-        if b2 == 0x32 {
-            val b3 = int(buf[3])
-            if b3 == 0x30 { return (PlainKey(FKey(9)),  5) }   // "20~"
-            if b3 == 0x31 { return (PlainKey(FKey(10)), 5) }   // "21~"
-            if b3 == 0x33 { return (PlainKey(FKey(11)), 5) }   // "23~"
-            if b3 == 0x34 { return (PlainKey(FKey(12)), 5) }   // "24~"
-        }
+    val final = scan.Final
+    val consumed = final + 1
+    val fb = int(buf[final])
+
+    // kitty keyboard protocol: CSI unicode-key-code ; modifiers u
+    if fb == 0x75 {                     // 'u'
+        return (kittyKeyEvent(csiParam(buf, final, 0, 0),
+                              csiParam(buf, final, 1, 1)), consumed)
     }
-    return (PlainKey(Unknown()), 3)
+
+    // The modifier parameter is the second one in every other form we decode.
+    val mods = csiParam(buf, final, 1, 1)
+
+    // ESC [ <n> ~ — the numbered keys (VT220 / xterm tables).
+    if fb == 0x7E {
+        return (applyCsiMods(tildeKey(csiParam(buf, final, 0, 0)), mods), consumed)
+    }
+
+    // ESC [ Z — back-tab. Terminals send it for Shift-Tab and there is no
+    // modifier parameter to read; the final byte alone carries the shift.
+    if fb == 0x5A {
+        return (ShiftK(Tab()), consumed)
+    }
+
+    val k = csiLetterKey(fb)
+    return (applyCsiMods(k, mods), consumed)
+}
+
+// csiLetterKey maps a CSI letter final byte to a Key.
+//
+// 'R' is deliberately absent even though kitty lists F3 as `1 R`: plain
+// `ESC [ <row> ; <col> R` is the cursor-position report, which any code that
+// queries the cursor will see come back on stdin. Decoding that as F3 with a
+// nonsense modifier is worse than reporting Unknown. F3 still arrives via SS3
+// (`ESC O R`) and via `ESC [ 13 ~`.
+func csiLetterKey(fb int) Key {
+    if fb == 0x41 { return Up() }           // 'A'
+    if fb == 0x42 { return Down() }         // 'B'
+    if fb == 0x43 { return ArrowRight() }   // 'C'
+    if fb == 0x44 { return ArrowLeft() }    // 'D'
+    if fb == 0x48 { return Home() }         // 'H'
+    if fb == 0x46 { return End() }          // 'F'
+    if fb == 0x50 { return FKey(1) }        // 'P'
+    if fb == 0x51 { return FKey(2) }        // 'Q'
+    if fb == 0x53 { return FKey(4) }        // 'S'
+    return Unknown()
+}
+
+// tildeKey maps the parameter of an `ESC [ <n> ~` sequence to a Key.
+//
+//   1/7 Home   2 Insert   3 Delete   4/8 End   5 PageUp   6 PageDown
+//   11..14 F1..F4        15/17/18/19 F5..F8    20/21/23/24 F9..F12
+//
+// 16 and 22 are gaps in the VT220 table and are never emitted.
+func tildeKey(n int) Key {
+    if n == 1  { return Home() }
+    if n == 2  { return Insert() }
+    if n == 3  { return Delete() }
+    if n == 4  { return End() }
+    if n == 5  { return PageUp() }
+    if n == 6  { return PageDown() }
+    if n == 7  { return Home() }
+    if n == 8  { return End() }
+    if n == 11 { return FKey(1) }
+    if n == 12 { return FKey(2) }
+    if n == 13 { return FKey(3) }
+    if n == 14 { return FKey(4) }
+    if n == 15 { return FKey(5) }
+    if n == 17 { return FKey(6) }
+    if n == 18 { return FKey(7) }
+    if n == 19 { return FKey(8) }
+    if n == 20 { return FKey(9) }
+    if n == 21 { return FKey(10) }
+    if n == 23 { return FKey(11) }
+    if n == 24 { return FKey(12) }
+    return Unknown()
+}
+
+// applyCsiMods turns a CSI modifier parameter into KeyEvent modifier flags.
+//
+// The parameter is 1 + a bitmask, shared by xterm's modifyOtherKeys and the
+// kitty protocol: 1 shift, 2 alt, 4 ctrl, 8 super, 16 hyper, 32 meta,
+// 64 caps-lock, 128 num-lock. KeyEvent models only the first three; the rest
+// are dropped rather than aliased onto Ctrl/Alt, which would make Caps Lock
+// look like a chord.
+func applyCsiMods(k Key, param int) KeyEvent {
+    var m = 0
+    if param > 1 {
+        m = param - 1
+    }
+    return KeyEvent(
+        Key   = k,
+        Ctrl  = (m & 4) != 0,
+        Alt   = (m & 2) != 0,
+        Shift = (m & 1) != 0,
+    )
+}
+
+// ----------------------------------------------------------------------------
+// kitty keyboard protocol — read-only subset.
+//
+// Enabled with `ESC [ > 1 u` ("disambiguate escape codes"), which makes the
+// terminal report keys that the legacy encoding conflates as
+// `CSI unicode-key-code ; modifiers u`:
+//
+//   Esc      byte 0x1B, indistinguishable from the start of any escape
+//            sequence        → CSI 27 u
+//   Ctrl-I   byte 0x09, same as Tab                → CSI 105 ; 5 u
+//   Ctrl-M   byte 0x0D, same as Enter              → CSI 109 ; 5 u
+//   Ctrl-[   byte 0x1B, same as Esc                → CSI 91 ; 5 u
+//
+// Plain Tab, Enter, Backspace and unmodified printable characters keep their
+// legacy single-byte encodings under this flag, and a terminal that does not
+// implement the protocol ignores the enable string entirely — so ParseKey has
+// to keep decoding both, and does.
+//
+// The key code is the key's Unicode codepoint on the *unshifted* layout, so
+// Shift-A arrives as codepoint 97 with the shift bit set rather than as
+// codepoint 65. KeyEvent is surfaced the same way: `Char('a')` with
+// `Shift = true`, matching the convention the struct already uses for Ctrl-C
+// (`Char('c')` + Ctrl, not `Char('C')`).
+// ----------------------------------------------------------------------------
+
+func kittyKeyEvent(cp int, modParam int) KeyEvent =
+    applyCsiMods(kittyKey(cp), modParam)
+
+// kittyKey maps a kitty unicode-key-code to a Key.
+func kittyKey(cp int) Key {
+    // Functional keys live in the Unicode private-use area. Checked first so
+    // the printable-codepoint fallback below can't claim them.
+    if cp >= 57344 && cp <= 57444 {
+        return kittyFunctionalKey(cp)
+    }
+    // Keys kitty reports by their ASCII control value.
+    if cp == 27  { return Esc() }
+    if cp == 13  { return Enter() }
+    if cp == 10  { return Enter() }
+    if cp == 9   { return Tab() }
+    if cp == 32  { return Space() }
+    if cp == 127 { return Backspace() }
+    if cp == 8   { return Backspace() }
+    // Everything else printable is the character itself — including non-ASCII,
+    // which is why this is a codepoint test and not a 0x20..0x7E one.
+    if cp > 32 && cp != 127 {
+        return Char(rune(cp))
+    }
+    return Unknown()
+}
+
+// kittyFunctionalKey covers the private-use-area block. The ranges follow
+// kitty's functional key table:
+//
+//   57376..57398  F13..F35
+//   57399..57408  keypad 0..9
+//   57409..57426  keypad punctuation, Enter, and the keypad navigation cluster
+//
+// The keypad block matters even for apps that never think about F13: the
+// "disambiguate escape codes" flag makes the terminal report every keypad key
+// with its own codepoint, so without this mapping enabling the protocol would
+// break the numeric keypad.
+//
+// Lock and system keys (57358 caps-lock .. 57363 menu) and the modifier keys
+// themselves (57441+) have no Key case and fall through to Unknown.
+func kittyFunctionalKey(cp int) Key {
+    if cp >= 57376 && cp <= 57398 { return FKey(cp - 57376 + 13) }
+    if cp >= 57399 && cp <= 57408 { return Char(rune(cp - 57399 + 0x30)) }
+    if cp == 57409 { return Char('.') }
+    if cp == 57410 { return Char('/') }
+    if cp == 57411 { return Char('*') }
+    if cp == 57412 { return Char('-') }
+    if cp == 57413 { return Char('+') }
+    if cp == 57414 { return Enter() }
+    if cp == 57415 { return Char('=') }
+    if cp == 57416 { return Char(',') }
+    if cp == 57417 { return ArrowLeft() }
+    if cp == 57418 { return ArrowRight() }
+    if cp == 57419 { return Up() }
+    if cp == 57420 { return Down() }
+    if cp == 57421 { return PageUp() }
+    if cp == 57422 { return PageDown() }
+    if cp == 57423 { return Home() }
+    if cp == 57424 { return End() }
+    if cp == 57425 { return Insert() }
+    if cp == 57426 { return Delete() }
+    return Unknown()
 }
 
 // parseSs3 handles ESC O X — F1..F4 in VT100 terminals.
 func parseSs3(buf []byte) Tuple[KeyEvent, int] {
     if buf.Size() < 3 {
+        // A bare `ESC O` is Alt+O, not a truncated F1 — same reasoning as
+        // the empty-body case in `parseCsi`, which documents it.
         return (PlainKey(Esc()), 1)
     }
     val b2 = int(buf[2])

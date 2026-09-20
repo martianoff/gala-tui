@@ -202,6 +202,12 @@ func inputToKeyEv(ev InputEvent) KeyEvent {
         case KeyInput(k)       => k
         case MouseInput(_)     => PlainKey(Unknown())
         case ResizeInput(_, _) => PlainKey(Unknown())
+        // A key-only harness models an app wired to Run / RunWithSub, and
+        // the runtime never enables bracketed paste or focus reporting on
+        // those paths (see currentTermModes) — so these are unreachable
+        // there, and quiet rather than wrong if a test sends one anyway.
+        case PasteInput(_)     => PlainKey(Unknown())
+        case FocusInput(_)     => PlainKey(Unknown())
         case UnknownInput()    => PlainKey(Unknown())
     }
 }
