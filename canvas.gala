@@ -138,6 +138,7 @@ type canvasGrid struct {
     var Set   []bool
     var Style []Style
     var Lit   []bool       // per-cell: has any dot been set
+    var CellW int          // cells across — W / SubX, bound to the grid
 }
 
 func newCanvasGrid(area Rect, marker CanvasMarker) *canvasGrid {
@@ -153,19 +154,20 @@ func newCanvasGrid(area Rect, marker CanvasMarker) *canvasGrid {
         Set:   SliceWithSize[bool](MaxInt(0, w*h)),
         Style: SliceWithSize[Style](MaxInt(0, cells)),
         Lit:   SliceWithSize[bool](MaxInt(0, cells)),
+        CellW: area.Width,
     }
 }
 
 // plot lights the dot at grid coordinates, ignoring anything off-canvas so a
 // shape that runs past the bounds clips instead of wrapping or trapping.
-func (g *canvasGrid) plot(gx int, gy int, cellW int, style Style) {
+func (g *canvasGrid) plot(gx int, gy int, style Style) {
     if gx < 0 || gy < 0 || gx >= g.W || gy >= g.H {
         return
     }
     g.Set[gy*g.W+gx] = true
     val cx = gx / g.SubX
     val cy = gy / g.SubY
-    val ci = cy*cellW + cx
+    val ci = cy*g.CellW + cx
     if ci >= 0 && ci < g.Style.Size() {
         g.Style[ci] = style
         g.Lit[ci] = true
@@ -208,7 +210,7 @@ func renderCanvas(
     val toGy = (y float64) => canvasProject(yMax - y, 0.0, yMax - yMin, g.H)
 
     // Dot shapes first, labels after, so text is never buried under a series.
-    shapes.ForEach((s) => rasterShape(s, g, area.Width, toGx, toGy))
+    shapes.ForEach((s) => rasterShape(s, g, toGx, toGy))
     emitCanvasGlyphs(g, marker, area, buf)
     // Every non-label case is spelled out rather than swept up by a
     // wildcard, so that adding a Shape forces a decision about this pass
@@ -241,26 +243,25 @@ func renderCanvas(
 func rasterShape(
     s Shape,
     g *canvasGrid,
-    cellW int,
     toGx func(float64) int,
     toGy func(float64) int,
 ) {
     s match {
         case ShapeLine(x1, y1, x2, y2, style) =>
-            plotLine(g, cellW, toGx(x1), toGy(y1), toGx(x2), toGy(y2), style)
+            plotLine(g, toGx(x1), toGy(y1), toGx(x2), toGy(y2), style)
         case ShapeRect(x, y, w, h, style) => {
             val gx1 = toGx(x)
             val gy1 = toGy(y)
             val gx2 = toGx(x + w)
             val gy2 = toGy(y + h)
-            plotLine(g, cellW, gx1, gy1, gx2, gy1, style)
-            plotLine(g, cellW, gx2, gy1, gx2, gy2, style)
-            plotLine(g, cellW, gx2, gy2, gx1, gy2, style)
-            plotLine(g, cellW, gx1, gy2, gx1, gy1, style)
+            plotLine(g, gx1, gy1, gx2, gy1, style)
+            plotLine(g, gx2, gy1, gx2, gy2, style)
+            plotLine(g, gx2, gy2, gx1, gy2, style)
+            plotLine(g, gx1, gy2, gx1, gy1, style)
         }
-        case ShapeCircle(cx, cy, r, style) => plotCircle(g, cellW, cx, cy, r, toGx, toGy, style)
+        case ShapeCircle(cx, cy, r, style) => plotCircle(g, cx, cy, r, toGx, toGy, style)
         case ShapePoints(pts, style) =>
-            pts.ForEach((p) => g.plot(toGx(p.X), toGy(p.Y), cellW, style))
+            pts.ForEach((p) => g.plot(toGx(p.X), toGy(p.Y), style))
         // Labels are text and are drawn after the glyph pass.
         case ShapeLabel(_, _, _, _) => {}
     }
@@ -268,7 +269,7 @@ func rasterShape(
 
 // plotLine is Bresenham in grid space. Integer-only, so it neither
 // accumulates float error along a long line nor needs a sqrt per step.
-func plotLine(g *canvasGrid, cellW int, x1 int, y1 int, x2 int, y2 int, style Style) {
+func plotLine(g *canvasGrid, x1 int, y1 int, x2 int, y2 int, style Style) {
     var x = x1
     var y = y1
     val dx = AbsInt(x2 - x1)
@@ -279,7 +280,7 @@ func plotLine(g *canvasGrid, cellW int, x1 int, y1 int, x2 int, y2 int, style St
     var guard = 0
     val limit = (dx - dy) + 2
     for guard <= limit {
-        g.plot(x, y, cellW, style)
+        g.plot(x, y, style)
         if x == x2 && y == y2 {
             return
         }
@@ -304,7 +305,6 @@ func plotLine(g *canvasGrid, cellW int, x1 int, y1 int, x2 int, y2 int, style St
 // caller reasons about.
 func plotCircle(
     g *canvasGrid,
-    cellW int,
     cx float64,
     cy float64,
     r float64,
@@ -318,7 +318,7 @@ func plotCircle(
     var i = 0
     for i < steps {
         val theta = 2.0 * 3.14159265358979 * float64(i) / float64(steps)
-        g.plot(toGx(cx + r*cosApprox(theta)), toGy(cy + r*sinApprox(theta)), cellW, style)
+        g.plot(toGx(cx + r*cosApprox(theta)), toGy(cy + r*sinApprox(theta)), style)
         i = i + 1
     }
 }

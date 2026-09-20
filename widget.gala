@@ -687,23 +687,29 @@ func ProgressLabeled(percent int) Widget = ProgressLabeledStyled(percent, Defaul
 
 // ProgressLabeledStyled is ProgressLabeled with an explicit bar style.
 func ProgressLabeledStyled(percent int, style Style) Widget =
-    CustomW(MinW = progressLabelWidth() + 8, MinH = 1, Render = (area, buf, hits) => {
+    CustomW(MinW = progressLabeledMinWidth(), MinH = 1, Render = (area, buf, hits) => {
         if area.Width <= 0 || area.Height <= 0 {
             return
         }
-        val label = progressLabelText(percent)
-        // Keep at least 8 columns of bar, or drop the label entirely.
-        if area.Width < progressLabelWidth() + 8 {
-            renderToInternal(ProgressW(Percent = percent, Style = style), area, buf, hits)
+        val bar = ProgressW(Percent = percent, Style = style)
+        // Below the threshold the label would leave a bar too short to
+        // convey anything, and a caller who asked for a progress bar
+        // should still get one.
+        if area.Width < progressLabeledMinWidth() {
+            renderToInternal(bar, area, buf, hits)
         } else {
             val barW = area.Width - progressLabelWidth()
-            renderToInternal(ProgressW(Percent = percent, Style = style),
+            renderToInternal(bar,
                 Rect(X = area.X, Y = area.Y, Width = barW, Height = 1), buf, hits)
-            renderText(label, style,
+            renderText(progressLabelText(percent), style,
                 Rect(X = area.X + barW, Y = area.Y,
                      Width = progressLabelWidth(), Height = 1), buf)
         }
     })
+
+// progressLabeledMinWidth is the label slot plus the eight columns of bar
+// below which the label is dropped instead.
+func progressLabeledMinWidth() int = progressLabelWidth() + 8
 
 // progressLabelWidth is the fixed slot the label occupies: two spaces plus
 // a right-aligned "100%".
@@ -2195,7 +2201,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => IntrinsicHeightAt(inner, width)
         // A canvas has no natural size — it fills whatever it is given.
-        case CanvasW(_, _, _, _, _, _)         => MaxInt(1, 0)
+        case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(_, _)                   => 1
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
