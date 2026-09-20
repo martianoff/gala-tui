@@ -173,6 +173,11 @@ func StatusBarView(bar StatusBar) Widget {
 }
 
 // statusCellStyle merges one rendered cell's style with the bar's.
+//
+// Every attribute the bar sets is ORed in, not just some of them: a bar
+// declared with `.WithUnderline()` must underline its text, and ORing only
+// Bold/Dim/Reverse silently dropped Italic, Underline, Blink and Strike
+// from a public constructor.
 func statusCellStyle(cell Style, bar Style) Style {
     val fg = if (ColorEq(cell.Fg, DefaultColor())) bar.Fg else cell.Fg
     return cell.Copy(
@@ -181,5 +186,9 @@ func statusCellStyle(cell Style, bar Style) Style {
         Bold      = cell.Bold || bar.Bold,
         Dim       = cell.Dim || bar.Dim,
         Reverse   = cell.Reverse || bar.Reverse,
+        Italic    = cell.Italic || bar.Italic,
+        Underline = cell.Underline || bar.Underline,
+        Blink     = cell.Blink || bar.Blink,
+        Strike    = cell.Strike || bar.Strike,
     )
 }

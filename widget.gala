@@ -358,16 +358,32 @@ func Restyled(inner Widget, f func(Style) Style) Widget =
     RestyleW(Inner = inner, Restyle = f)
 
 // Highlighted is the selection case: paint the whole area in `style`,
-// whatever the inner widget drew. Use `Restyled` when the inner styles
-// should survive (keeping a bold label bold inside a highlighted row).
+// whatever the inner widget drew.
+//
+// It FLATTENS, so it wins over anything underneath — including an outer
+// `.WithBold()` / `.WithFg()`, which `restyleLeaves` applies to the inner
+// widget before the region runs. `Highlighted(x, s).WithBold()` therefore
+// renders unbolded. Reach for `Restyled` when the inner styles should
+// survive: it merges, so a bold label stays bold inside a highlighted row,
+// and a cell that painted its own background keeps it.
 func Highlighted(inner Widget, style Style) Widget =
     RestyleW(Inner = inner, Restyle = (s) => style)
 
-// Backdrop keeps each cell's foreground and attributes and swaps only the
-// background — the shape a status bar or a themed pane wants, since the
-// text that was drawn into it should stay legible.
+// Backdrop fills in a background only where a cell has not claimed one,
+// leaving foreground and attributes alone. The shape a themed pane or a
+// surface wants: the text drawn into it stays legible, and anything that
+// deliberately painted itself keeps its colour.
+//
+// The condition is the point. Swapping the background unconditionally would
+// be the mirror of the bug this exists to fix — instead of the parent's
+// surface losing to the child, the child's would lose to the parent, so a
+// coloured chip or a success/error toast inside a themed container would
+// come out indistinguishable from plain text.
 func Backdrop(inner Widget, bg Color) Widget =
-    RestyleW(Inner = inner, Restyle = (s) => s.On(bg))
+    RestyleW(
+        Inner   = inner,
+        Restyle = (s) => if (ColorEq(s.Bg, DefaultColor())) s.On(bg) else s,
+    )
 
 // RichTextView renders a RichText block — the multi-style counterpart to
 // `Text`. Use it wherever a single row needs more than one style.
