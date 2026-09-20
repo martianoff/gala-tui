@@ -58,37 +58,28 @@ func Table(data TableData) Widget {
     return Column(headerChildren.AppendAll(bodyChildren))
 }
 
+// tableColumnSpacing is the blank column between two table columns.
+//
+// It is charged to the ROW, not to a cell. Reserving a gutter inside each
+// non-last cell looked equivalent and was not: a table's constraints
+// describe the columns the CALLER asked for, so spending one of them on
+// whitespace means `Length(5)` shows four characters and "Alice" renders
+// "Ali…" in a column sized to hold it. Charging the row instead takes the
+// space from the slack the solver was going to distribute anyway, so
+// declared widths are honoured and a column that exactly fits its value
+// still gets separated from its neighbour — the case a zero gutter alone
+// leaves running together as `Alicex`.
+func tableColumnSpacing() int = 1
+
 // renderTableHeaderRow builds a Row of bold header cells.
 func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget =
-    Row(headers.ZipWithIndex().Map((pair) =>
-        tableHeaderCell(pair.V1, pair.V2, widths, headers.Length())))
+    RowSpaced(headers.ZipWithIndex().Map((pair) =>
+        tableHeaderCell(pair.V1, pair.V2, widths)), tableColumnSpacing())
 
-// cellGutter is 1 for every column but the last: the gap between two
-// columns has to come out of the left-hand one's slot, because that
-// unclaimed tail is the only thing separating them. The last column has
-// nothing to its right, so it keeps all of its width.
-// Always 0. Kept as one named place so the decision is visible rather than
-// scattered as a literal across five call sites.
-//
-// Reserving a column for every non-last cell looked right and was not: a
-// table's constraints describe the columns the CALLER asked for, and
-// quietly spending one of them on whitespace means `Length(5)` shows four
-// characters and "Alice" renders "Ali…" in a column sized to hold it. The
-// ellipsis already marks a cut, which is the half of this defect that was
-// unambiguously wrong; blank separation is a layout choice, expressed by
-// giving the row `Spacing` or by declaring wider columns.
-func cellGutter(idx int, count int) int = 0
-
-func tableHeaderCell(
-    header string,
-    idx int,
-    widths Array[Constraint],
-    count int,
-) LayoutChild {
+func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChild {
     val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
     return LayoutChild(Constraint = w,
-        Widget = CellTextGutter(header, DefaultStyle().WithBold(),
-                                cellGutter(idx, count)))
+        Widget = CellTextStyled(header, DefaultStyle().WithBold()))
 }
 
 // renderTableRow builds a Row of body cells. When `selected` is true the
@@ -101,28 +92,25 @@ func tableHeaderCell(
 // instead, which covers the gaps.
 func renderTableRow(row Array[string], widths Array[Constraint], selected bool) Widget {
     val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
-    val cells = Row(row.ZipWithIndex().Map((pair) =>
-        tableBodyCell(pair.V1, pair.V2, widths, rowStyle, row.Length())))
+    val cells = RowSpaced(row.ZipWithIndex().Map((pair) =>
+        tableBodyCell(pair.V1, pair.V2, widths, rowStyle)), tableColumnSpacing())
     return if (selected) Highlighted(cells, rowStyle) else cells
 }
 
 // tableBodyCell lays one cell through `CellText`, which caps it to its
-// slot with a "…" and reserves the gutter. Drawn as a plain `Text` it
-// filled the slot edge to edge and ran straight into the next column:
-// `build-103-running-forever` in a `Length(10)` column came out as
-// `build-103-running`, a row that reads as a single token and names a
-// build that does not exist. A full-width CJK glyph on the boundary left
-// no gap at all.
+// slot with a "…". Drawn as a plain `Text` it filled the slot edge to edge
+// and ran straight into the next column: `build-103-running-forever` in a
+// `Length(10)` column came out as `build-103-running`, a row that reads as
+// a single token and names a build that does not exist. A full-width CJK
+// glyph on the boundary left no gap at all.
 func tableBodyCell(
     cell string,
     idx int,
     widths Array[Constraint],
     style Style,
-    count int,
 ) LayoutChild {
     val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
-    return LayoutChild(Constraint = w,
-        Widget = CellTextGutter(cell, style, cellGutter(idx, count)))
+    return LayoutChild(Constraint = w, Widget = CellTextStyled(cell, style))
 }
 
 // NewTable is a convenience constructor for tables without headers.

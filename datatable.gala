@@ -287,23 +287,19 @@ func DataTableViewClickable[T any](
 }
 
 func dtHeaderRow(dt DataTable) Widget =
-    Row(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
+    RowSpaced(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
         Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
-        Widget     = CellTextGutter(dtHeaderLabel(dt, p.V2),
-                                    DefaultStyle().WithBold(),
-                                    cellGutter(p.V2, dt.Headers.Length())),
-    )))
+        Widget     = CellTextStyled(dtHeaderLabel(dt, p.V2), DefaultStyle().WithBold()),
+    )), tableColumnSpacing())
 
 // dtHeaderRowClick wraps each header cell with `.OnClick` so clicking
 // a header dispatches `onHeaderClick(colIdx)`.
 func dtHeaderRowClick[T any](dt DataTable, onHeaderClick func(int) T) Widget =
-    Row(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
+    RowSpaced(dt.Headers.ZipWithIndex().Map((p) => LayoutChild(
         Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
-        Widget     = CellTextGutter(dtHeaderLabel(dt, p.V2),
-                                    DefaultStyle().WithBold(),
-                                    cellGutter(p.V2, dt.Headers.Length()))
+        Widget     = CellTextStyled(dtHeaderLabel(dt, p.V2), DefaultStyle().WithBold())
                          .OnClick[T](onHeaderClick(p.V2)),
-    )))
+    )), tableColumnSpacing())
 
 func dtHeaderLabel(dt DataTable, col int) string {
     val base = dt.Headers.Get(col)
@@ -375,13 +371,12 @@ func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) W
     else
         DefaultStyle()
     // `CellText` rather than `Text`: a value wider than its column is cut
-    // with a "…" and keeps a gutter, so it cannot run into the next
-    // column and cannot pass itself off as a shorter value that fits.
-    val cells = Row(row.ZipWithIndex().Map((p) => LayoutChild(
+    // with a "…", so it cannot pass itself off as a shorter value that
+    // fits. The row's spacing keeps it off the next column.
+    val cells = RowSpaced(row.ZipWithIndex().Map((p) => LayoutChild(
         Constraint = if (p.V2 < dt.Widths.Length()) dt.Widths.Get(p.V2) else Fill(1),
-        Widget     = CellTextGutter(p.V1, rowStyle,
-                                    cellGutter(p.V2, row.Length())),
-    )))
+        Widget     = CellTextStyled(p.V1, rowStyle),
+    )), tableColumnSpacing())
     // Restyle the whole row so the highlight spans the inter-column padding
     // as well as the text; styling the cells alone left it in fragments.
     return if (selected) Highlighted(cells, rowStyle) else cells

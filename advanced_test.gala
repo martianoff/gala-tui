@@ -20,16 +20,21 @@ func TestTableWithHeadersRenders(t T) T {
         ),
         -1,
     )
-    val buf = NewBuffer(10, 4)
-    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 10, Height = 4), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "Name Age  ")
-    val t2 = Eq(t1, BufferText(buf, 1), "──────────")
-    val t3 = Eq(t2, BufferText(buf, 2), "Alice30   ")
-    return Eq(t3, BufferText(buf, 3), "Bob  25   ")
+    // Two Length(5) columns with one column of row spacing between them.
+    // "Alice" exactly fills its slot, which is the case a per-cell gutter
+    // could not separate without shortening the column: it used to render
+    // "Alice30", one token naming nobody. The spacing comes off the row,
+    // so the declared width still shows all five characters.
+    val buf = NewBuffer(11, 4)
+    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 11, Height = 4), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "Name  Age  ")
+    val t2 = Eq(t1, BufferText(buf, 1), "───────────")
+    val t3 = Eq(t2, BufferText(buf, 2), "Alice 30   ")
+    return Eq(t3, BufferText(buf, 3), "Bob   25   ")
 }
 
 func TestTableSelectionHighlight(t T) T {
-    // Length(4) + Length(2) → row 0 renders as "one " + "1 " = "one 1 "
+    // Length(4) + spacing + Length(2) → row 0 is "one " + " " + "1 "
     val data = NewTable(
         ArrayOf[Constraint](Length(4), Length(2)),
         ArrayOf[Array[string]](
@@ -38,11 +43,29 @@ func TestTableSelectionHighlight(t T) T {
         ),
         1,
     )
-    val buf = NewBuffer(6, 2)
-    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 6, Height = 2), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "one 1 ")
+    val buf = NewBuffer(7, 2)
+    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 7, Height = 2), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "one  1 ")
     // Second row should be reverse-video (the selected row).
     return IsTrue(t1, buf.StyleAt(0, 1).Reverse)
+}
+
+func TestExactFitColumnsStaySeparated(t T) T {
+    // The regression this guards: with the gutter charged to the cell, a
+    // value that exactly filled its column got no separator AND no
+    // ellipsis, so two columns ran together into one unreadable token.
+    // Charging the row instead keeps the declared width intact and still
+    // puts a blank between them.
+    val data = NewTable(
+        ArrayOf[Constraint](Length(5), Length(5)),
+        ArrayOf[Array[string]](ArrayOf[string]("Alice", "Bobby")),
+        -1,
+    )
+    val buf = NewBuffer(11, 1)
+    RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 11, Height = 1), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "Alice Bobby")
+    // Neither value was shortened to pay for the gap.
+    return Eq(t1, buf.CharAt(4, 0), 'e')
 }
 
 func TestTableEmpty(t T) T {
