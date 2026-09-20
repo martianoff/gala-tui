@@ -26,6 +26,25 @@ struct Style(
     Dim       bool,
     Blink     bool,
     Strike    bool,
+    // Link is the OSC 8 hyperlink target for cells carrying this style, or
+    // None for ordinary text.
+    //
+    // A hyperlink is a property of a RANGE of cells, not of any glyph, and
+    // it has to be emitted as escape bytes BETWEEN cells at flush time.
+    // Putting the escapes in a TextWidget's content string — which is what
+    // `Link` used to do — does not work: the renderer walks content rune by
+    // rune and control characters are zero-width, so the ESC is dropped and
+    // everything after it is painted as ordinary text. The user read
+    // `]8;;https://github.com\github.com]8;;\`, the terminal never received
+    // a hyperlink, and the widget claimed 42 columns for a 10-column label.
+    //
+    // Carrying it per cell means the writers below already know where the
+    // boundaries are: a link change is a style change, so the same run
+    // detection that emits SGR transitions emits the OSC 8 open and close.
+    // It also survives partial redraws, because every cell knows its own
+    // link rather than the renderer having to reconcile a separate range
+    // list against whatever region it happens to be repainting.
+    Link      Option[string],
 )
 
 // DefaultStyle returns a style with both colors defaulted to the terminal's
@@ -36,6 +55,7 @@ func DefaultStyle() Style = Style(
     Bg = DefaultColor(),
     Bold = false, Italic = false, Underline = false,
     Reverse = false, Dim = false, Blink = false, Strike = false,
+    Link = None[string](),
 )
 
 // ----------------------------------------------------------------------------
@@ -59,6 +79,15 @@ func (s Style) WithReverse() Style   = s.Copy(Reverse = true)
 func (s Style) WithDim() Style       = s.Copy(Dim = true)
 func (s Style) WithBlink() Style     = s.Copy(Blink = true)
 func (s Style) WithStrike() Style    = s.Copy(Strike = true)
+
+// WithLink marks cells carrying this style as an OSC 8 hyperlink to `url`.
+// The escape bytes are emitted by the buffer writers at the boundaries of
+// the run, never stored in a cell's glyph.
+func (s Style) WithLink(url string) Style = s.Copy(Link = Some(url))
+
+// WithoutLink clears the hyperlink, for deriving an ordinary style from a
+// linked one.
+func (s Style) WithoutLink() Style = s.Copy(Link = None[string]())
 
 // ----------------------------------------------------------------------------
 // SGR rendering.
@@ -114,6 +143,13 @@ func StyleEqual(a Style, b Style) bool {
         a.Blink == b.Blink &&
         a.Strike == b.Strike &&
         ColorEq(a.Fg, b.Fg) &&
-        ColorEq(a.Bg, b.Bg)
+        ColorEq(a.Bg, b.Bg) &&
+        LinkUrl(a) == LinkUrl(b)
 }
+
+// LinkUrl is the style's hyperlink target, or "" when it has none. The
+// writers compare and emit on this rather than on Option directly, so a
+// link boundary is detected by the same run logic that detects an SGR
+// boundary.
+func LinkUrl(s Style) string = s.Link.GetOrElse("")
 

@@ -35,16 +35,18 @@ func HyperlinkEnd() string {
     return esc + "]8;;" + esc + "\\"
 }
 
-// HyperlinkText returns a Widget whose rendered cells include OSC 8 wrapping
-// so Ctrl-clicking the visible label opens `url`. The label is styled with
-// underline + bright blue — the web-default "this is a link" affordance.
+// HyperlinkText returns a Widget whose rendered cells carry `url` as an
+// OSC 8 hyperlink, so clicking the visible label opens it. The label is
+// styled with underline + bright blue — the web-default "this is a link"
+// affordance.
 //
-// NOTE: OSC 8 sequences live outside the cell grid, so Buffer-level
-// rendering currently won't embed them — this is a placeholder that paints
-// the label with link styling. Real OSC 8 wrapping happens when the app
-// writes hyperlink-containing text directly via HyperlinkRaw on stdout.
+// Until Style carried a Link field this discarded `url` entirely and its
+// own note admitted it was "a placeholder that paints the label with link
+// styling" — it looked exactly right and linked nowhere. It is now the same
+// widget as `Link`, differing only in its default colour; prefer `Link` in
+// new code.
 func HyperlinkText(label string, url string) Widget =
-    TextStyled(label, DefaultStyle().WithUnderline().WithFg(BrightBlue()))
+    LinkStyled(label, url, DefaultStyle().WithUnderline().WithFg(BrightBlue()))
 
 // HyperlinkRaw emits the OSC 8 wrapped string for direct stdout use — e.g.,
 // inside a `Println` call outside the Widget tree, or from a TUI's exit

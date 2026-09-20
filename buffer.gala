@@ -275,8 +275,10 @@ func (b *Buffer) DiffString(prev *Buffer) string {
                 val col = x + 1
                 sb.WriteString(s"\x1b[$row;${col}H")
                 var runStyle = newC.St
+                var openLink = ""
                 sb.WriteString(ResetSgr())
                 sb.WriteString(runStyle.ToSgr())
+                openLink = writeLinkTransition(&sb, openLink, LinkUrl(runStyle))
                 sb.WriteRune(newC.Ch)
                 x = x + 1
                 for x < b.Width {
@@ -289,11 +291,15 @@ func (b *Buffer) DiffString(prev *Buffer) string {
                     if !StyleEqual(runStyle, n2.St) {
                         sb.WriteString(ResetSgr())
                         sb.WriteString(n2.St.ToSgr())
+                        openLink = writeLinkTransition(&sb, openLink, LinkUrl(n2.St))
                         runStyle = n2.St
                     }
                     sb.WriteRune(n2.Ch)
                     x = x + 1
                 }
+                // Close before leaving the run: the cells after it were not
+                // repainted, so an open link would swallow them.
+                openLink = writeLinkTransition(&sb, openLink, "")
                 sb.WriteString(ResetSgr())
                 continue
             }
@@ -318,6 +324,7 @@ func (b *Buffer) String() string {
     for y < b.Height {
         var currentStyle = DefaultStyle()
         var styleActive = false
+        var openLink = ""
         var x = 0
         for x < b.Width {
             val c = b.cells[y*b.Width+x]
@@ -325,12 +332,20 @@ func (b *Buffer) String() string {
                 // New style boundary — reset first, then emit the new style.
                 sb.WriteString(ResetSgr())
                 sb.WriteString(c.St.ToSgr())
+                // A link change IS a style change (StyleEqual compares it),
+                // so this boundary is also where hyperlinks start and stop.
+                // SGR reset does not close an OSC 8 link, so it is closed
+                // explicitly.
+                openLink = writeLinkTransition(&sb, openLink, LinkUrl(c.St))
                 currentStyle = c.St
                 styleActive = true
             }
             sb.WriteRune(c.Ch)
             x = x + 1
         }
+        // A hyperlink never spans rows: leaving one open would make the rest
+        // of the screen clickable.
+        openLink = writeLinkTransition(&sb, openLink, "")
         sb.WriteString(ResetSgr())
         if y < b.Height-1 {
             sb.WriteString("\n")
@@ -339,3 +354,27 @@ func (b *Buffer) String() string {
     }
     return sb.String()
 }
+
+// writeLinkTransition closes `open` and opens `next` as needed, returning
+// the link that is open afterwards. Writing the same url twice in a row is
+// a no-op, so a run keeps one open sequence however many style changes it
+// contains.
+func writeLinkTransition(sb *strings.Builder, open string, next string) string {
+    if open == next {
+        return open
+    }
+    if open != "" {
+        sb.WriteString(oscLinkClose())
+    }
+    if next != "" {
+        sb.WriteString(oscLinkOpen(next))
+    }
+    return next
+}
+
+// oscLinkOpen / oscLinkClose are the OSC 8 hyperlink begin / end sequences.
+// Terminals that do not understand them ignore them — and because they are
+// emitted between cells rather than stored in one, a terminal that ignores
+// them still renders exactly the label and nothing else.
+func oscLinkOpen(url string) string = "\x1b]8;;" + url + "\x1b\\"
+func oscLinkClose() string          = "\x1b]8;;\x1b\\"

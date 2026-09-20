@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
     . "martianoff/gala/test"
@@ -36,16 +37,123 @@ func TestPopupOverStacks(t T) T {
 // Link wraps in OSC 8 escapes — assert the open + close sequences are
 // present in the rendered TextWidget content.
 func TestLinkRendersOSC8(t T) T {
-    val w = Link("github.com", "https://github.com")
-    val text = w match {
-        case TextWidget(c, _) => c
-        case _                => ""
-    }
-    val t1 = IsTrue(t, popupTestContains(text, "https://github.com"))
-    val t2 = IsTrue(t1, popupTestContains(text, "github.com"))
-    // OSC 8 open is "\x1b]8;;<url>\x1b\\" — assert the prefix:
-    return IsTrue(t2, popupTestContains(text, "\x1b]8;;"))
+    // Asserted on the RENDERED output, not on the widget tree.
+    //
+    // This test used to pattern-match the TextWidget's content string and
+    // check it contained "\x1b]8;;". It passed for years while the widget
+    // was broken: the escapes were in the content, and `renderText` walked
+    // them as text, dropping the zero-width ESC and painting the remainder
+    // as visible cells. The rendered row read
+    // `]8;;https://github.com\github.com]8;;\` and no hyperlink ever
+    // reached the terminal. An assertion on the AST cannot see any of that.
+    val buf = NewBuffer(20, 1)
+    RenderTo(Link("github.com", "https://github.com"),
+        Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
+    // The cells hold the label and nothing else.
+    val t1 = Eq(t, RowText(buf, 0), "github.com          ")
+    // The escape reaches the wire, wrapping exactly the label.
+    val wire = buf.String()
+    val t2 = IsTrue(t1, popupTestContains(wire, "\x1b]8;;https://github.com\x1b\\"))
+    return IsTrue(t2, popupTestContains(wire, "\x1b]8;;\x1b\\"))
 }
+
+func TestLinkClaimsOnlyTheLabelsWidth(t T) T {
+    // Escapes in the content made this report 42 for a 10-column label,
+    // so every sibling in a Row was mis-sized.
+    return Eq(t, defaultRenderWidth(Link("github.com", "https://github.com")), 10)
+}
+
+func TestLinkDoesNotLeakPastItsLabel(t T) T {
+    // The close must be emitted before the rest of the row, or everything
+    // after the link becomes part of it.
+    val row = Row(ArrayOf[LayoutChild](
+        Fixed(4, Link("here", "https://example.com")),
+        Fixed(6, Text("plain")),
+    ))
+    val buf = NewBuffer(10, 1)
+    RenderTo(row, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    val wire = buf.String()
+    val openAt = popupTestIndexOf(wire, "\x1b]8;;https://example.com\x1b\\")
+    val closeAt = popupTestIndexOf(wire, "\x1b]8;;\x1b\\")
+    val plainAt = popupTestIndexOf(wire, "plain")
+    val t1 = IsTrue(t, openAt >= 0 && closeAt > openAt)
+    return IsTrue(t1, plainAt > closeAt)
+}
+
+func TestHyperlinkTextNowCarriesItsUrl(t T) T {
+    // It accepted `url` and discarded it — rendering a perfect-looking
+    // label that linked nowhere.
+    val buf = NewBuffer(14, 1)
+    RenderTo(HyperlinkText("docs", "https://gala.fyi"),
+        Rect(X = 0, Y = 0, Width = 14, Height = 1), buf)
+    val t1 = Eq(t, RowText(buf, 0), "docs          ")
+    return IsTrue(t1, popupTestContains(buf.String(), "\x1b]8;;https://gala.fyi\x1b\\"))
+}
+
+func TestLinkedWrapsAComposedWidget(t T) T {
+    // A whole bordered card as one clickable target — what a label-only
+    // link could not express.
+    val card = Linked(Border(Text("hi")), "https://example.com")
+    val buf = NewBuffer(6, 3)
+    RenderTo(card, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
+    val t1 = Eq(t, RowText(buf, 0), "┌────┐")
+    val t2 = IsTrue(t1, popupTestContains(buf.String(), "\x1b]8;;https://example.com\x1b\\"))
+    // Every cell of the area carries the link, border glyphs included.
+    return IsTrue(t2, LinkUrl(buf.StyleAt(0, 0)) == "https://example.com"
+                   && LinkUrl(buf.StyleAt(5, 2)) == "https://example.com")
+}
+
+func TestUnlinkedCellsEmitNoOsc8(t T) T {
+    val buf = NewBuffer(6, 1)
+    RenderTo(Text("plain"), Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
+    return IsTrue(t, !popupTestContains(buf.String(), "]8;;"))
+}
+
+func TestDiffRenderOpensAndClosesLinksWithinItsRun(t T) T {
+    // The reason the url lives on Style rather than in a side table of
+    // ranges: the diff renderer repaints arbitrary cell ranges, and every
+    // cell knowing its own link is what keeps a partial repaint correct.
+    val prev = NewBuffer(12, 1)
+    RenderTo(Text("xxxx"), Rect(X = 0, Y = 0, Width = 12, Height = 1), prev)
+    val next = NewBuffer(12, 1)
+    RenderTo(Row(ArrayOf[LayoutChild](
+        Fixed(4, Link("here", "https://example.com")),
+        Fixed(8, Text("tail")),
+    )), Rect(X = 0, Y = 0, Width = 12, Height = 1), next)
+
+    val diff = next.DiffString(prev)
+    val openAt = popupTestIndexOf(diff, "\x1b]8;;https://example.com\x1b\\")
+    val closeAt = popupTestIndexOf(diff, "\x1b]8;;\x1b\\")
+    val t1 = IsTrue(t, openAt >= 0)
+    // Closed inside the same run, before the untouched cells after it.
+    return IsTrue(t1, closeAt > openAt)
+}
+
+func TestDiffRenderEmitsNoLinkWhenNoneChanged(t T) T {
+    val prev = NewBuffer(6, 1)
+    RenderTo(Text("ab"), Rect(X = 0, Y = 0, Width = 6, Height = 1), prev)
+    val next = NewBuffer(6, 1)
+    RenderTo(Text("cd"), Rect(X = 0, Y = 0, Width = 6, Height = 1), next)
+    return IsTrue(t, !popupTestContains(next.DiffString(prev), "]8;;"))
+}
+
+func TestLinkIsClosedAtEndOfEveryRow(t T) T {
+    // A link left open at a row end would make the rest of the screen
+    // clickable.
+    val col = Column(ArrayOf[LayoutChild](
+        Fixed(1, Link("a", "https://example.com")),
+        Fixed(1, Text("b")),
+    ))
+    val buf = NewBuffer(4, 2)
+    RenderTo(col, Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
+    val wire = buf.String()
+    val closeAt = popupTestIndexOf(wire, "\x1b]8;;\x1b\\")
+    val newlineAt = popupTestIndexOf(wire, "\n")
+    return IsTrue(t, closeAt >= 0 && closeAt < newlineAt)
+}
+
+func popupTestIndexOf(hay string, needle string) int =
+    strings.Index(hay, needle)
 
 // LinkClick wraps the styled link with a Clickable; the outer widget
 // should be a ClickableW so the runtime registers a hit.
