@@ -56,6 +56,33 @@ TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan(
 | `PaddingHV(v, h, inner)` | `(int, int, Widget) Widget` | Asymmetric padding. |
 | `Border(inner)` | `(Widget) Widget` | Default single-line border. |
 | `BorderOf(inner, kind)` | `(Widget, BorderKind) Widget` | Pick: `SingleBorder()`, `DoubleBorder()`, `ThickBorder()`, `RoundedBorder()`, `AsciiBorder()`. |
+| `Titled(inner, title)` | `(Widget, string) Widget` | Single-line box with a top-left caption. |
+| `BorderStyled(inner, kind, style)` | `(Widget, BorderKind, Style) Widget` | Colour the frame itself, independent of its contents. |
+| `Block(inner, kind, sides, style, titles)` | `(Widget, BorderKind, BorderSides, Style, Array[BlockTitle]) Widget` | Full form. `AllSides()` / `NoSides()` / `SidesOf(t, r, b, l)` pick edges — a lone left rule is how two panes share one column instead of butting two walls together. Several titles per edge, bucketed by position and alignment. |
+| `RowFlex(children, flex, spacing)` | `(Array[LayoutChild], FlexMode, int) Widget` | Distribute slack: `FlexStart` / `FlexEnd` / `FlexCenter` / `FlexSpaceBetween` / `FlexSpaceAround` / `FlexSpaceEvenly`. `FlexLegacy` is the default and matches pre-0.12 behaviour. `ColumnFlex` is the vertical twin. |
+| `RowSpaced(children, n)` | `(Array[LayoutChild], int) Widget` | n cells between adjacent children; gaps come out of the axis before the solver runs. |
+| `AutoScroll(rows, selected)` | `(Array[Widget], int) Widget` | Stack composed row widgets and scroll so `selected` stays visible. What `SelectList` does, for rows that are more than a label. |
+
+### Rich text
+
+`TextWidget` carries one style for its whole string. `Span` / `Line` /
+`RichText` is the three-level model for styling runs within a line.
+
+| Widget | Signature | Notes |
+|---|---|---|
+| `SpansLine(spans…)` | `(Span…) Widget` | One row of differently-styled runs. |
+| `RichTextView(text)` | `(RichText) Widget` | A block of `Line`s, each with its own alignment. |
+| `Restyled(inner, f)` | `(Widget, func(Style) Style) Widget` | Render, then rewrite every cell's style in the area — keeps glyphs. This is how a region carries a style. |
+| `Highlighted(inner, style)` | `(Widget, Style) Widget` | Flattens the area to `style`. Wins over an outer `.With*`. |
+| `Backdrop(inner, bg)` | `(Widget, Color) Widget` | Fills a background only where a cell has not claimed one. |
+
+```gala
+SpansLine(
+    SpanOf("build "),
+    SpanStyled("failed", DefaultStyle().WithFg(BrightRed()).WithBold()),
+    SpanOf(" in 2m13s"),
+)
+```
 
 ```gala
 Column(ArrayOf[LayoutChild](
@@ -71,11 +98,39 @@ Column(ArrayOf[LayoutChild](
 `LayoutChild` is built with `Fixed(n, w)`, `Flex(weight, w)`, or
 `Pct(n, w)`.
 
+## Canvas
+
+Shapes in your own coordinate space, at sub-cell resolution. Braille packs
+2×4 dots per cell, so a 40×10 pane addresses 80×40 points.
+
+| Widget | Signature | Notes |
+|---|---|---|
+| `Canvas(x, y, marker, shapes)` | `(Bounds, Bounds, CanvasMarker, Array[Shape]) Widget` | Full form. Markers: `BrailleMarker` (2×4), `HalfBlockMarker` (1×2), `DotMarker`, `BlockMarker`. |
+| `CanvasOf(x, y, shapes)` | `(Bounds, Bounds, Array[Shape]) Widget` | Braille, the usual choice. |
+| `XBounds(min, max)` / `YBounds(min, max)` | `(float64, float64) Bounds` | The caller's coordinate range per axis. |
+| `PointsOf(xs, ys, style)` | `(Array[float64], Array[float64], Style) Shape` | Build a series from parallel arrays. |
+
+Shapes: `ShapeLine`, `ShapeRect` (outline), `ShapeCircle`, `ShapePoints`,
+`ShapeLabel`. Each carries its own `Style`, so one canvas holds a dim grid, a
+bright series and a labelled axis. Only lit cells are written, so a canvas
+composes over whatever is beneath it.
+
+```gala
+CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](
+    ShapeCircle(X = 0.0, Y = 0.0, Radius = 0.8, Style = accent),
+    ShapeLine(X1 = -1.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, Style = dim),
+    ShapeLabel(X = -0.9, Y = 0.9, Text = "orbit", Style = dim),
+))
+```
+
+Y grows **up**, as a plot's does — `Y = 0.0` on `YBounds(0.0, 1.0)` is the
+bottom row. Shapes outside the bounds clip; they do not wrap.
+
 ## Charts
 
 | Widget | Signature | Notes |
 |---|---|---|
-| `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. |
+| `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. A value at the series minimum floors to the smallest visible block; an *empty* series still renders blank. |
 | `SparklineStyled(values, style)` | `(Array[int], Style) Widget` | …with custom fg/bg. |
 | `BarChart(data)` | `(Array[BarChartDatum]) Widget` | Labeled horizontal bars. |
 | `LineChart(values)` | `(Array[int]) Widget` | Auto-bounded, sub-cell resolution. |
@@ -178,8 +233,9 @@ RenderTo(ToastView(toasts1), area, buf)
 | `MenuView(m)` | `(Menu) Widget` | Vertical or horizontal menu — set `Menu.Orientation`. |
 | `DropdownView(d)` | `(Dropdown) Widget` | Closed = trigger; open = menu below. |
 | `Tabs(titles, bodies, selected)` | `(Array[string], Array[Widget], int) Widget` | Tabbed pane — bodies parallel to titles. |
-| `Scrollbar(total, visible, offset)` | `(int, int, int) Widget` | Vertical scroll-thumb track. |
+| `Scrollbar(total, visible, offset)` | `(int, int, int) Widget` | Vertical scroll-thumb track on the right edge. Pass `visible = 0` to derive the viewport from the bar's own area. With nothing to scroll it draws track only, not a full thumb. |
 | `ScrollbarStyled(total, visible, offset, style)` | `(int, int, int, Style) Widget` | …with explicit fg/bg. |
+| `ScrollbarAt(total, visible, offset, style, orientation)` | `(int, int, int, Style, ScrollbarOrientation) Widget` | Pick the edge: `ScrollbarVerticalRight` / `…Left` / `ScrollbarHorizontalBottom` / `…Top`. |
 | `ScrollableViewport(inner, offset, contentHeight)` | `(Widget, int, int) Widget` | Vertically scroll a tall widget; clip to the area. |
 
 ## Markdown & code
@@ -188,7 +244,9 @@ RenderTo(ToastView(toasts1), area, buf)
 |---|---|---|
 | `MarkdownView(source)` | `(string) Widget` | Headings, bold/italic/code, lists, links, fenced blocks. |
 | `HighlightLine(line, lang)` | `(string, string) Widget` | Single-line syntax highlight. Supports gala / go / rust / python / shell. |
-| `HyperlinkText(label, url)` | `(string, string) Widget` | OSC 8 hyperlink — clickable in modern terminals. |
+| `Link(label, url)` | `(string, string) Widget` | OSC 8 hyperlink — clickable in modern terminals. The url rides on the cell's `Style`; the escape is emitted by the buffer writer at the run's boundaries, so the widget's width is the label's width. |
+| `HyperlinkText(label, url)` | `(string, string) Widget` | Same as `Link` with a blue default. Prefer `Link` in new code. |
+| `Linked(inner, url)` | `(Widget, string) Widget` | Makes a whole composed widget one clickable target — a bordered card, a table row — not just a string. |
 
 ```gala
 MarkdownView("# Quick start\n\nRun `gala build .` then **enjoy**.")

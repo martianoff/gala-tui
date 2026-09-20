@@ -16,16 +16,20 @@ Includes everything you'd expect from a serious TUI library — and several thin
 - `RunRich` / `RunFull` — async-aware runtimes (futures + tickers + mouse + resize + diff render)
 
 **Layout & rendering**
-- Constraint solver (Length, Fill, Percent)
-- Row, Column, Stack, Overlay, Padding, Align, Border (5 glyph kinds)
+- Constraint solver (Length, Percent, Fill, MinLen, MaxLen, Ratio)
+- Flex distribution (Start / End / Center / SpaceBetween / SpaceAround / SpaceEvenly) + inter-child spacing
+- Row, Column, Stack, Overlay, Padding, Align (both axes), **Block** (borders with titles, per-side edges, styled frames)
+- **Rich text** — `Span` / `Line` / `RichText` for per-run styling within a line
 - Differential renderer (`Buffer.DiffString`) — only changed cells go on the wire
-- Grapheme-aware cell widths (CJK, emoji, combining marks)
+- `Buffer.RestyleRegion` — apply a style to a region without touching its glyphs
+- Grapheme-aware cell widths (CJK, emoji, combining marks, East-Asian-Ambiguous)
 
 **Widgets**
-- Text · Paragraph (word-wrap) · Input · Button · Spinner
-- List · Table · **DataTable** (sort + filter + frozen header) · Tree
-- Progress · Gauge · Sparkline · BarChart · **LineChart** (sub-cell resolution)
-- **Tabs** · **Menu** · **Dropdown** · **Modal** (ConfirmDialog / AlertDialog) · **Scrollbar** · **Viewport**
+- Text · Paragraph (word-wrap) · Input (focus caret + horizontal scroll) · Button · Spinner
+- List · Table · **DataTable** (sort + filter + frozen header + scrolling) · Tree
+- Progress · ProgressLabeled · Gauge · Sparkline · BarChart · **LineChart** (sub-cell resolution)
+- **Canvas** — shapes in your own coordinate space at 2×4 braille resolution
+- **Tabs** · **Menu** · **Dropdown** · **Modal** (ConfirmDialog / AlertDialog) · **Scrollbar** (4 orientations) · **Viewport**
 - **Toast** · **StatusBar** · **LogPanel** · **Form** (multi-field with validators)
 - **Markdown** rendering (headings, bold, italic, code spans, links, lists, rules)
 - **Command palette** with fuzzy search (à la VS Code Cmd-Shift-P)
@@ -33,6 +37,9 @@ Includes everything you'd expect from a serious TUI library — and several thin
 
 **Modern terminal integration**
 - SGR mouse mode (`\x1b[?1006h`) — clicks, scroll, drag
+- **Bracketed paste** — a paste arrives as one event, not N keypresses
+- **Focus events** — know when the terminal window gains or loses focus
+- **Kitty keyboard protocol** — tells Ctrl+I from Tab, Ctrl+M from Enter, Esc from an escape sequence
 - OSC 8 hyperlinks · OSC 52 clipboard · OSC 2 terminal title
 
 **State helpers**
