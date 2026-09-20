@@ -111,3 +111,164 @@ func (t RichText) LineCount() int = t.Lines.Length()
 // PlainText joins every Line's plain text with newlines.
 func (t RichText) PlainText() string =
     t.Lines.Map((l) => l.PlainText()).MkString("\n")
+
+// ----------------------------------------------------------------------------
+// Wrapping
+//
+// This is THE wrap engine for the library: `wrapParagraph` delegates to it
+// with a single unstyled span, so plain and styled wrapping cannot disagree
+// about where the breaks fall. That agreement is load-bearing —
+// `MarkdownLineCountAt` pre-computes heights with one path and the renderer
+// lays out rows with the other, and a table's row heights are wrong the
+// moment they diverge.
+//
+// The budget is counted in CELLS, not runes. The plain wrapper counted
+// runes, so a CJK paragraph broke at `width` glyphs and rendered twice that
+// many columns — overflowing whatever sat beside it. For ASCII the two
+// metrics are identical, so nothing about existing Latin layouts moves.
+// ----------------------------------------------------------------------------
+
+// styledRune is one character carrying the style it inherited from its Span.
+// Wrapping has to work at this granularity: a break can fall in the middle
+// of a Span, and both halves must keep the Span's style.
+struct styledRune(Ch rune, St Style)
+
+// spanRunes flattens Spans into one styled-character sequence, which is the
+// form the wrap fold consumes.
+func spanRunes(spans Array[Span]) Array[styledRune] =
+    spans.FoldLeft(EmptyArray[styledRune](), (acc, sp) => {
+        var out = acc
+        for _, c := range sp.Content {
+            out = out.Append(styledRune(Ch = c, St = sp.Style))
+        }
+        return out
+    })
+
+func styledRunesWidth(rs Array[styledRune]) int =
+    rs.FoldLeft(0, (acc, r) => acc + RuneCellWidth(r.Ch))
+
+// coalesceSpans rebuilds Spans from a styled-character run, merging
+// neighbours that share a style. Without the merge a wrapped line would
+// carry one Span per character, which is correct but turns every render and
+// every comparison into per-character work.
+func coalesceSpans(rs Array[styledRune]) Array[Span] {
+    var out = EmptyArray[Span]()
+    var cur = ""
+    var curStyle = DefaultStyle()
+    var started = false
+    var i = 0
+    val n = rs.Length()
+    for i < n {
+        val r = rs.Get(i)
+        if !started {
+            cur = string(r.Ch)
+            curStyle = r.St
+            started = true
+        } else {
+            if StyleEqual(curStyle, r.St) {
+                cur = cur + string(r.Ch)
+            } else {
+                out = out.Append(Span(Content = cur, Style = curStyle))
+                cur = string(r.Ch)
+                curStyle = r.St
+            }
+        }
+        i = i + 1
+    }
+    if started {
+        out = out.Append(Span(Content = cur, Style = curStyle))
+    }
+    return out
+}
+
+// spanWrapState mirrors `wrapState`: finished lines, the line being built,
+// and the unflushed word — all as styled characters.
+struct spanWrapState(
+    Out  Array[Line],
+    Line Array[styledRune],
+    Word Array[styledRune],
+)
+
+func emptySpanWrapState() spanWrapState = spanWrapState(
+    Out  = EmptyArray[Line](),
+    Line = EmptyArray[styledRune](),
+    Word = EmptyArray[styledRune](),
+)
+
+func spanWrapFlushLine(s spanWrapState) spanWrapState = spanWrapState(
+    Out  = s.Out.Append(LineOf(coalesceSpans(s.Line))),
+    Line = EmptyArray[styledRune](),
+    Word = s.Word,
+)
+
+// spanWrapCommitWord folds the pending word into the current line, breaking
+// first if it would not fit. The separating space inherits the style of the
+// character it follows, so a highlighted or underlined run stays continuous
+// across the gap instead of showing a hole.
+func spanWrapCommitWord(s spanWrapState, width int) spanWrapState {
+    if s.Word.IsEmpty() { return s }
+    if s.Line.IsEmpty() {
+        return spanWrapState(Out = s.Out, Line = s.Word, Word = EmptyArray[styledRune]())
+    }
+    val joined = styledRunesWidth(s.Line) + 1 + styledRunesWidth(s.Word)
+    if joined <= width {
+        val gap = styledRune(Ch = ' ', St = s.Line.Get(s.Line.Length() - 1).St)
+        return spanWrapState(
+            Out  = s.Out,
+            Line = s.Line.Append(gap).AppendAll(s.Word),
+            Word = EmptyArray[styledRune](),
+        )
+    }
+    return spanWrapState(
+        Out  = s.Out.Append(LineOf(coalesceSpans(s.Line))),
+        Line = s.Word,
+        Word = EmptyArray[styledRune](),
+    )
+}
+
+func spanWrapStepRune(s spanWrapState, r styledRune, width int) spanWrapState {
+    if r.Ch == '\n' {
+        return spanWrapFlushLine(spanWrapCommitWord(s, width))
+    }
+    if r.Ch == ' ' {
+        return spanWrapCommitWord(s, width)
+    }
+    // A single word wider than the whole line is hard-split at the boundary,
+    // the same rule the plain wrapper uses.
+    if styledRunesWidth(s.Word) + RuneCellWidth(r.Ch) > width {
+        val afterLine = if (s.Line.IsEmpty()) s.Out
+                        else s.Out.Append(LineOf(coalesceSpans(s.Line)))
+        return spanWrapState(
+            Out  = afterLine.Append(LineOf(coalesceSpans(s.Word))),
+            Line = EmptyArray[styledRune](),
+            Word = ArrayOf[styledRune](r),
+        )
+    }
+    return spanWrapState(Out = s.Out, Line = s.Line, Word = s.Word.Append(r))
+}
+
+// WrapSpans greedily word-wraps `spans` to `width` cells, preserving each
+// character's style across the breaks.
+//
+// This is what `markdown.gala` needed and did not have: wrapping used to be
+// computed on the joined plain text, so a paragraph that flowed onto a
+// second row lost every bold, italic, code span and link it contained.
+//
+// Rules match `wrapParagraph` exactly: words break at spaces, an explicit
+// newline forces a break, and a word wider than the line is hard-split.
+func WrapSpans(spans Array[Span], width int) Array[Line] {
+    val w = MaxInt(1, width)
+    val flushed = spanWrapCommitWord(
+        spanRunes(spans).FoldLeft(emptySpanWrapState(),
+            (acc, r) => spanWrapStepRune(acc, r, w)), w)
+    if !flushed.Line.IsEmpty() || flushed.Out.IsEmpty() {
+        return flushed.Out.Append(LineOf(coalesceSpans(flushed.Line)))
+    }
+    return flushed.Out
+}
+
+// WrapRichText wraps every line of `t` to `width`, flattening the result.
+// A Line's own alignment is carried onto each row it produces.
+func WrapRichText(t RichText, width int) RichText =
+    RichTextOf(t.Lines.FoldLeft(EmptyArray[Line](), (acc, l) =>
+        acc.AppendAll(WrapSpans(l.Spans, width).Map((w) => w.Aligned(l.Align)))))

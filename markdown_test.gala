@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -301,4 +302,118 @@ func allInlinesText(inlines Array[MdInline]) bool {
         i = i + 1
     }
     return true
+}
+
+// ----------------------------------------------------------------------------
+// Inline styling survives wrapping (T1)
+//
+// Wrapping used to be computed on the joined plain text and re-emitted as
+// rows of unstyled `Text`, so a paragraph that flowed onto a second line
+// lost every bold, italic, code span and link in it. The failure was a
+// width threshold, not a gradual degradation: the same document rendered
+// correctly in a wide pane and completely flat in a narrow one.
+// ----------------------------------------------------------------------------
+
+// A bold word placed late enough in the paragraph that it can only land on
+// the second row once the text wraps.
+func t1WrapSource() string =
+    "alpha bravo charlie delta echo foxtrot **golf** hotel india juliet"
+
+func TestBoldSurvivesAWrapOntoTheSecondRow(t T) T {
+    val buf = NewBuffer(24, 4)
+    RenderTo(MarkdownViewAt(t1WrapSource(), 24),
+             Rect(X = 0, Y = 0, Width = 24, Height = 4), buf)
+    // Find "golf" anywhere in the rendered block and assert it is bold.
+    var found = false
+    var bold = false
+    var y = 0
+    for y < 4 {
+        val row = BufferText(buf, y)
+        val idx = strings.Index(row, "golf")
+        if idx >= 0 && !found {
+            found = true
+            bold = buf.StyleAt(idx, y).Bold
+        }
+        y = y + 1
+    }
+    return IsTrue(IsTrue(t, found), bold)
+}
+
+func TestBoldOnTheFirstRowIsUnaffectedByWrapping(t T) T {
+    // Guard the other direction: the word that stays on row 0 must keep its
+    // styling too, so the fix is not "style row 2 and lose row 1".
+    val src = "**alpha** bravo charlie delta echo foxtrot golf hotel india"
+    val buf = NewBuffer(24, 4)
+    RenderTo(MarkdownViewAt(src, 24), Rect(X = 0, Y = 0, Width = 24, Height = 4), buf)
+    return IsTrue(t, buf.StyleAt(0, 0).Bold)
+}
+
+func TestPlainTextAroundAStyledRunStaysPlain(t T) T {
+    // The coalescing must not smear the bold across its neighbours.
+    val buf = NewBuffer(24, 4)
+    RenderTo(MarkdownViewAt(t1WrapSource(), 24),
+             Rect(X = 0, Y = 0, Width = 24, Height = 4), buf)
+    return IsFalse(t, buf.StyleAt(0, 0).Bold)
+}
+
+func TestWrappedRowCountStillMatchesTheHeightOracle(t T) T {
+    // `MarkdownLineCountAt` pre-computes heights through the same engine the
+    // renderer uses. If they drift, every variable-height container that
+    // asked for an exact height is mis-sized.
+    val src = t1WrapSource()
+    var w = 12
+    var acc = t
+    for w <= 40 {
+        val want = MarkdownLineCountAt(src, w)
+        val buf = NewBuffer(w, want + 3)
+        RenderTo(MarkdownViewAt(src, w), Rect(X = 0, Y = 0, Width = w, Height = want + 3), buf)
+        // Every row the oracle promised has content; the one after it does not.
+        acc = EqMsg(acc, strings.TrimSpace(BufferText(buf, want - 1)) != "", true, s"width $w: last promised row is empty")
+        acc = EqMsg(acc, strings.TrimSpace(BufferText(buf, want)) == "", true, s"width $w: row past the promised height has content")
+        w = w + 4
+    }
+    return acc
+}
+
+func TestWrapSpansKeepsStylePerCharacterAcrossABreak(t T) T {
+    val spans = ArrayOf[Span](
+        SpanOf("aaa "),
+        SpanStyled("bbb", DefaultStyle().WithBold()),
+        SpanOf(" ccc"),
+    )
+    val lines = WrapSpans(spans, 4)
+    // "aaa" / "bbb" / "ccc" — the bold run must land on its own row bold.
+    val t1 = Eq(t, lines.Length(), 3)
+    val boldRow = lines.Get(1)
+    val t2 = Eq(t1, boldRow.PlainText(), "bbb")
+    return IsTrue(t2, boldRow.Spans.Get(0).Style.Bold)
+}
+
+func TestWrapSpansMergesNeighboursSharingAStyle(t T) T {
+    // Without coalescing a wrapped line carries one Span per character,
+    // which is correct but turns rendering into per-character work.
+    val lines = WrapSpans(ArrayOf[Span](SpanOf("hello")), 10)
+    return Eq(t, lines.Get(0).Spans.Length(), 1)
+}
+
+func TestWrapSpansCountsCellsNotRunes(t T) T {
+    // Six CJK glyphs are twelve columns. Counting runes let them overflow a
+    // ten-column budget and run into whatever sat beside them.
+    val lines = WrapSpans(ArrayOf[Span](SpanOf("一二三四五六")), 10)
+    var acc = t
+    var i = 0
+    for i < lines.Length() {
+        acc = EqMsg(acc, lines.Get(i).CellWidth() <= 10, true, s"row $i is ${lines.Get(i).CellWidth()} cells, budget 10")
+        i = i + 1
+    }
+    return acc
+}
+
+func TestMarkdownLinkCarriesItsUrlAsAHyperlink(t T) T {
+    val buf = NewBuffer(40, 2)
+    RenderTo(MarkdownViewAt("see [docs](https://example.com/x) now", 40),
+             Rect(X = 0, Y = 0, Width = 40, Height = 2), buf)
+    val idx = strings.Index(BufferText(buf, 0), "docs")
+    val t1 = IsTrue(t, idx >= 0)
+    return Eq(t1, LinkUrl(buf.StyleAt(idx, 0)), "https://example.com/x")
 }

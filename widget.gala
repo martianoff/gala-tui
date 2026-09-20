@@ -1232,59 +1232,19 @@ func renderParagraph(content string, style Style, area Rect, buf *Buffer) {
     }
 }
 
-// wrapState is the running state of the wrapParagraph word-wrap fold:
-// accumulated output lines, the line being built, and the unflushed word.
-struct wrapState(Out Array[string], Line string, Word string)
-
-// wrapCommitWord folds the pending word into the current line, flushing
-// the current line to Out if appending the word would exceed `width`.
-// Idempotent when Word is empty.
-func wrapCommitWord(s wrapState, width int) wrapState {
-    if s.Word == "" { return s }
-    if RuneCount(s.Line) == 0 {
-        return wrapState(Out = s.Out, Line = s.Word, Word = "")
-    }
-    if RuneCount(s.Line) + 1 + RuneCount(s.Word) <= width {
-        return wrapState(Out = s.Out, Line = s.Line + " " + s.Word, Word = "")
-    }
-    return wrapState(Out = s.Out.Append(s.Line), Line = s.Word, Word = "")
-}
-
-// wrapStepRune processes one input rune of the paragraph.
-func wrapStepRune(s wrapState, c rune, width int) wrapState {
-    if c == '\n' {
-        val flushed = wrapCommitWord(s, width)
-        return wrapState(Out = flushed.Out.Append(flushed.Line), Line = "", Word = "")
-    }
-    if c == ' ' {
-        return wrapCommitWord(s, width)
-    }
-    // Regular rune. Break a pathologically long word if it alone would
-    // overflow the current line.
-    if RuneCount(s.Word) + 1 > width {
-        val outAfterLine = if (RuneCount(s.Line) > 0) s.Out.Append(s.Line) else s.Out
-        return wrapState(Out = outAfterLine.Append(s.Word), Line = "", Word = string(c))
-    }
-    return wrapState(Out = s.Out, Line = s.Line, Word = s.Word + string(c))
-}
 
 // wrapParagraph does greedy word-wrap: accumulate words on the current line
 // until adding the next one would exceed `width`, then start a new line.
 // A word longer than `width` is hard-split at the width boundary.
 // Newlines in the input force a line break.
-func wrapParagraph(content string, width int) Array[string] {
-    // Iterate rune by rune so we handle multibyte UTF-8 and explicit \n.
-    var st = wrapState(Out = EmptyArray[string](), Line = "", Word = "")
-    for _, c := range content {
-        st = wrapStepRune(st, c, width)
-    }
-    // Flush trailing word + line.
-    val flushed = wrapCommitWord(st, width)
-    if flushed.Line != "" || flushed.Out.IsEmpty() {
-        return flushed.Out.Append(flushed.Line)
-    }
-    return flushed.Out
-}
+// Delegates to `WrapSpans` rather than carrying its own fold. The two used
+// to be separate implementations of the same greedy algorithm, which is a
+// correctness problem and not just duplication: `MarkdownLineCountAt`
+// pre-computes block heights through one path while the renderer lays out
+// rows through the other, so any drift between them mis-sizes every layout
+// that asked for an exact height.
+func wrapParagraph(content string, width int) Array[string] =
+    WrapSpans(ArrayOf[Span](SpanOf(content)), width).Map((l) => l.PlainText())
 
 // renderViewport renders `inner` into a pseudo-buffer sized to the content
 // height, then copies the slice `[offset, offset+area.Height)` into the
