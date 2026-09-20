@@ -50,16 +50,21 @@ func TestListViewportOffsetBasic(t T) T {
 
 func TestInputShowsPlaceholderWhenEmpty(t T) T {
     val buf = NewBuffer(12, 1)
-    val w = Input("", 0, "type here")
+    val w = Input("", 0, "type here", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
     val t1 = Eq(t, BufferText(buf, 0), "type here   ")
-    // Placeholder rendered with dim style.
-    return IsTrue(t1, buf.StyleAt(0, 0).Dim)
+    // Placeholder rendered with dim style. Sampled at cell 1, not cell 0:
+    // an empty field now draws its caret at column 0, so that cell carries
+    // the field style inverted rather than the placeholder's dim. Before,
+    // the empty+placeholder case returned early and drew no caret at all,
+    // which is the state every form starts in.
+    val t2 = IsTrue(t1, buf.StyleAt(1, 0).Dim)
+    return IsTrue(t2, buf.StyleAt(0, 0).Reverse)
 }
 
 func TestInputShowsValueAndCursor(t T) T {
     val buf = NewBuffer(10, 1)
-    val w = Input("hello", 3, "")
+    val w = Input("hello", 3, "", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val t1 = Eq(t, BufferText(buf, 0), "hello     ")
     // Cursor at column 3 → that cell should be reversed.

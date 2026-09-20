@@ -300,9 +300,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case AutoScrollW(rows, sel, off, rh)   =>
             AutoScrollW(Rows = rows.Map((r) => restyleLeaves(r, f)),
                         Selected = sel, Offset = off, RowH = rh)
-        case InputW(v, cu, p, s, ps)           =>
+        case InputW(v, cu, p, s, ps, fo)       =>
             InputW(Value = v, Cursor = cu, Placeholder = p,
-                   Style = f(s), PlaceholderStyle = f(ps))
+                   Style = f(s), PlaceholderStyle = f(ps), Focused = fo)
         case ProgressW(p, s)                   => ProgressW(Percent = p, Style = f(s))
         case GaugeW(p, s)                      => GaugeW(Percent = p, Style = f(s))
         case SpinnerW(k, fr, s)                => SpinnerW(Kind = k, Frame = fr, Style = f(s))

@@ -1,0 +1,223 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Input rendering — focus affordance and horizontal scrolling.
+//
+// S1-5: an empty field with a placeholder returned early, skipping both the
+// field's style and the caret. That is the state every form starts in, so a
+// fresh form showed nothing about which field the keyboard was driving even
+// though the caller had already computed a focus style.
+//
+// S1-6: the value was always drawn from its first character, so typing past
+// the right edge froze the text and the caret vanished.
+// ============================================================================
+
+func inputBuf(w Widget, width int) *Buffer {
+    val buf = NewBuffer(width, 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = 1), buf)
+    return buf
+}
+
+// ----------------------------------------------------------------------------
+// S1-5 — a focused empty field must look focused
+// ----------------------------------------------------------------------------
+
+func TestEmptyFieldCarriesItsFieldStyle(t T) T {
+    // The focus chrome a caller computes must reach the field even when
+    // there is nothing typed into it yet.
+    val focus = DefaultStyle().WithReverse().WithBold()
+    val w = InputW(Value = "", Cursor = 0, Placeholder = "",
+                   Focused = true,
+                   Style = focus, PlaceholderStyle = DefaultStyle())
+    val buf = inputBuf(w, 6)
+    var acc = t
+    var x = 0
+    for x < 6 {
+        acc = IsTrue(acc, buf.StyleAt(x, 0).Bold)
+        x = x + 1
+    }
+    return acc
+}
+
+func TestFocusedEmptyFieldWithPlaceholderDrawsACaret(t T) T {
+    // Targets a FOCUSED field. An earlier version of this passed
+    // `Input("", 0, "type here")` — focused defaults to false — and so
+    // asserted that an unfocused field draws a caret, codifying the very
+    // behaviour that put four carets on a four-field form.
+    return IsTrue(t, inputBuf(Input("", 0, "type here", true), 12).StyleAt(0, 0).Reverse)
+}
+
+func TestUnfocusedFieldDrawsNoCaret(t T) T {
+    // The other half, which nothing asserted: a field the keyboard is not
+    // driving must not claim to be.
+    val buf = inputBuf(Input("abc", 1, "", false), 8)
+    var any = false
+    var x = 0
+    for x < 8 {
+        if buf.StyleAt(x, 0).Reverse { any = true }
+        x = x + 1
+    }
+    return IsTrue(t, !any)
+}
+
+func TestUnfocusedFieldDoesNotEraseTheSurfaceUnderIt(t T) T {
+    // The field is painted across its full width only when focused;
+    // otherwise an unfocused input stamps its style over whatever a parent
+    // painted, which is how the palette's query row lost its background.
+    val surface = Overlay(
+        FillChStyled(' ', DefaultStyle().On(Blue())),
+        Input("ab", 0, "", false),
+    )
+    // Swept, not sampled: columns 0-1 legitimately lose the surface because
+    // renderText paints the two glyph cells, which is how every text widget
+    // here behaves. Everything the field did not write must survive.
+    val buf = inputBuf(surface, 10)
+    var acc = t
+    var x = 2
+    for x < 10 {
+        acc = IsTrue(acc, ColorEq(buf.StyleAt(x, 0).Bg, Blue()))
+        x = x + 1
+    }
+    return acc
+}
+
+func TestPaletteQueryCaretFollowsThePalettesFocus(t T) T {
+    // The query field took `Focused = true` unconditionally, so a palette
+    // rendered unfocused — behind a confirm dialog — dimmed its result rows
+    // but kept a live caret in the query box.
+    val p = NewPalette[int](ArrayOf(
+        PaletteAction[int](Label = "Open", Category = "", Msg = 1)))
+    val onBuf = NewBuffer(24, 4)
+    val offBuf = NewBuffer(24, 4)
+    RenderTo(PaletteView[int](p, true), Rect(X = 0, Y = 0, Width = 24, Height = 4), onBuf)
+    RenderTo(PaletteView[int](p, false), Rect(X = 0, Y = 0, Width = 24, Height = 4), offBuf)
+    val t1 = IsTrue(t, caretColumn(onBuf, 24) >= 0)
+    return Eq(t1, caretColumn(offBuf, 24), -1)
+}
+
+func TestFocusedAndUnfocusedEmptyFieldsAreDistinguishable(t T) T {
+    // The defect's user-visible form: two fields in a form, one focused,
+    // rendering identically.
+    val focused = InputW(Value = "", Cursor = 0, Placeholder = "name",
+                         Style = DefaultStyle().WithBold(),
+                         PlaceholderStyle = DefaultStyle().WithDim(), Focused = true)
+    val plain = InputW(Value = "", Cursor = 0, Placeholder = "name",
+                       Style = DefaultStyle(),
+                       PlaceholderStyle = DefaultStyle().WithDim(), Focused = false)
+    // Compare a cell past the placeholder text, where only the field style
+    // is in play.
+    val a = inputBuf(focused, 10).StyleAt(8, 0).Bold
+    val b = inputBuf(plain, 10).StyleAt(8, 0).Bold
+    return IsTrue(t, a && !b)
+}
+
+// ----------------------------------------------------------------------------
+// S1-6 — the window must follow the caret
+// ----------------------------------------------------------------------------
+
+func TestValueScrollsToKeepTheCaretVisible(t T) T {
+    // 36 characters in a 20-wide field with the caret at 30. The old
+    // renderer froze on the first 20 characters and drew no caret at all.
+    val value = "abcdefghijklmnopqrstuvwxyz0123456789"
+    val buf = inputBuf(Input(value, 30, "", true), 20)
+    // Caret is on screen...
+    var caretX = -1
+    var x = 0
+    for x < 20 {
+        if buf.StyleAt(x, 0).Reverse { caretX = x }
+        x = x + 1
+    }
+    val t1 = IsTrue(t, caretX >= 0)
+    // ...and sits on the character the cursor indexes.
+    return Eq(t1, buf.CharAt(caretX, 0), '4')
+}
+
+func TestShortValueIsNotScrolled(t T) T {
+    // A value that fits must render from its first character.
+    val buf = inputBuf(Input("abc", 3, "", true), 10)
+    val t1 = Eq(t, RowText(buf, 0), "abc       ")
+    // Caret sits just past the text, in the column reserved for it.
+    return IsTrue(t1, buf.StyleAt(3, 0).Reverse)
+}
+
+func TestCaretAtEndOfAFullFieldStaysOnScreen(t T) T {
+    // Exactly as many characters as the field is wide: without a reserved
+    // column the caret would be clipped off the right edge.
+    //
+    // Asserts the COLUMN, not that some cell is reversed — the interesting
+    // claim is where the caret lands, and an existence check would pass
+    // with it anywhere on the row.
+    val buf = inputBuf(Input("abcde", 5, "", true), 5)
+    return Eq(t, caretColumn(buf, 5), 4)
+}
+
+// caretColumn is the column carrying the caret, or -1 if none does.
+func caretColumn(buf *Buffer, width int) int {
+    var found = -1
+    var x = 0
+    for x < width {
+        if buf.StyleAt(x, 0).Reverse { found = x }
+        x = x + 1
+    }
+    return found
+}
+
+func TestCaretPositionIsClampedToTheValue(t T) T {
+    // An out-of-range cursor must not read past the end or vanish. The
+    // contract is that it clamps to end-of-text — column 2 for "ab" —
+    // which an existence check would not have pinned.
+    return Eq(t, caretColumn(inputBuf(Input("ab", 99, "", true), 8), 8), 2)
+}
+
+func TestScrollWindowAdvancesWithTheCaret(t T) T {
+    // Stepping the caret right must never move the window left. Asserts
+    // both windows' CONTENT: an inequality cannot tell forward movement
+    // from backward, which is the property the name claims.
+    val value = "0123456789abcdefghij"
+    val early = RowText(inputBuf(Input(value, 2, "", true), 8), 0)
+    val late = RowText(inputBuf(Input(value, 18, "", true), 8), 0)
+    // Cursor 18 with a 7-cell budget puts the window at index 11, which
+    // leaves the caret on the field's last column.
+    val t1 = Eq(t, early, "01234567")
+    val t2 = Eq(t1, late, "bcdefghi")
+    return Eq(t2, caretColumn(inputBuf(Input(value, 18, "", true), 8), 8), 7)
+}
+
+// ----------------------------------------------------------------------------
+// Wide glyphs — the window and the caret are measured in cells
+// ----------------------------------------------------------------------------
+
+func TestCaretLandsOnTheGlyphNotItsPaddingCell(t T) T {
+    // Computing the caret in runes put it on the padding cell of a wide
+    // glyph at every odd cursor — visually the right half of the previous
+    // character. Cursor 1 of "日本語" is the start of 本, which is column 2.
+    val buf = inputBuf(Input("日本語", 1, "", true), 10)
+    val t1 = Eq(t, caretColumn(buf, 10), 2)
+    return Eq(t1, buf.CharAt(2, 0), rune(0x672C))
+}
+
+func TestWideTextScrollsOnCellWidthNotRuneCount(t T) T {
+    // Seven CJK runes need fourteen columns. Comparing a rune index against
+    // a cell width meant the window never advanced and the text simply
+    // clipped, with the caret adrift inside it.
+    val buf = inputBuf(Input("日本語テキスト", 7, "", true), 10)
+    // The caret is on screen...
+    val col = caretColumn(buf, 10)
+    val t1 = IsTrue(t, col >= 0 && col < 10)
+    // ...and the window has scrolled, so the first glyph is no longer 日.
+    return IsTrue(t1, buf.CharAt(0, 0) != rune(0x65E5))
+}
+
+func TestWideGlyphsAreNotSplitAtTheCaret(t T) T {
+    // Whatever the window, a wide glyph is followed by its reserved blank —
+    // never by another glyph sliding into the padding cell.
+    val buf = inputBuf(Input("日本", 2, "", true), 6)
+    val t1 = Eq(t, buf.CharAt(0, 0), rune(0x65E5))
+    val t2 = Eq(t1, buf.CharAt(1, 0), ' ')
+    val t3 = Eq(t2, buf.CharAt(2, 0), rune(0x672C))
+    return Eq(t3, buf.CharAt(3, 0), ' ')
+}
