@@ -1,0 +1,118 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// East Asian Ambiguous vs Wide.
+//
+// The Miscellaneous Symbols and Dingbats blocks were mapped to 2 cells
+// wholesale. Most of their codepoints are East Asian *Ambiguous*, which is
+// one cell in every Western terminal, so the library mis-measured glyphs it
+// ships itself — and every layout that contained one sat a column ahead of
+// where the terminal actually drew.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Ambiguous — one cell
+// ----------------------------------------------------------------------------
+
+func TestCheckAndCrossAreOneCell(t T) T {
+    // The two glyphs toastPrefix ships. These are what made the bug visible.
+    val t1 = Eq(t, RuneCellWidth(rune(0x2713)), 1)   // ✓
+    return Eq(t1, RuneCellWidth(rune(0x2715)), 1)    // ✕
+}
+
+func TestCommonAmbiguousSymbolsAreOneCell(t T) T {
+    val t1 = Eq(t, RuneCellWidth(rune(0x26A0)), 1)   // ⚠ bare, no VS16
+    val t2 = Eq(t1, RuneCellWidth(rune(0x2605)), 1)  // ★
+    val t3 = Eq(t2, RuneCellWidth(rune(0x2611)), 1)  // ☑
+    val t4 = Eq(t3, RuneCellWidth(rune(0x2714)), 1)  // ✔
+    return Eq(t4, RuneCellWidth(rune(0x279C)), 1)    // ➜
+}
+
+func TestBoxDrawingStaysOneCell(t T) T {
+    // Guards the chrome the whole library draws with — a regression here
+    // would shift every border.
+    val t1 = Eq(t, RuneCellWidth('┌'), 1)
+    val t2 = Eq(t1, RuneCellWidth('─'), 1)
+    val t3 = Eq(t2, RuneCellWidth('│'), 1)
+    return Eq(t3, RuneCellWidth('█'), 1)
+}
+
+// ----------------------------------------------------------------------------
+// Genuinely Wide — two cells
+// ----------------------------------------------------------------------------
+
+func TestEmojiPresentationSymbolsStayTwoCells(t T) T {
+    // The narrowing must not overshoot: these have Emoji_Presentation and
+    // really are two cells everywhere.
+    val t1 = Eq(t, RuneCellWidth(rune(0x2705)), 2)   // ✅
+    val t2 = Eq(t1, RuneCellWidth(rune(0x274C)), 2)  // ❌
+    val t3 = Eq(t2, RuneCellWidth(rune(0x2728)), 2)  // ✨
+    val t4 = Eq(t3, RuneCellWidth(rune(0x26A1)), 2)  // ⚡
+    val t5 = Eq(t4, RuneCellWidth(rune(0x2757)), 2)  // ❗
+    return Eq(t5, RuneCellWidth(rune(0x26BD)), 2)    // ⚽
+}
+
+func TestWideSymbolsBelowTheSymbolBlocks(t T) T {
+    // These sit outside 2600..27BF and used to fall through to the narrow
+    // default even though they are Wide.
+    val t1 = Eq(t, RuneCellWidth(rune(0x231A)), 2)   // ⌚
+    val t2 = Eq(t1, RuneCellWidth(rune(0x23F0)), 2)  // ⏰
+    return Eq(t2, RuneCellWidth(rune(0x25FD)), 2)    // ◽
+}
+
+func TestSupplementaryPlaneEmojiUnaffected(t T) T {
+    val t1 = Eq(t, RuneCellWidth(rune(0x1F680)), 2)  // 🚀
+    return Eq(t1, RuneCellWidth(rune(0x1F600)), 2)   // 😀
+}
+
+func TestCjkUnaffected(t T) T {
+    val t1 = Eq(t, RuneCellWidth(rune(0x4E2D)), 2)   // 中
+    return Eq(t1, RuneCellWidth(rune(0x65E5)), 2)    // 日
+}
+
+// ----------------------------------------------------------------------------
+// The consequence: layout arithmetic that was off by one
+// ----------------------------------------------------------------------------
+
+func TestVariationSelectorDoesNotWidenTheBaseGlyph(t T) T {
+    // "⚠️" is ⚠ + U+FE0F. The selector is zero-width and the base is
+    // Ambiguous, so the pair measures 1 — matching terminals that do not
+    // widen for VS16.
+    return Eq(t, StringCellWidth("⚠️"), 1)
+}
+
+func TestToastPrefixesAllAlignTheMessage(t T) T {
+    // toastPrefix returns "i", "✓", "!", "✕". With the symbol blocks mapped
+    // wide, the two Unicode prefixes measured 2 while the ASCII ones
+    // measured 1, so messages in a toast stack started at different columns.
+    val info = StringCellWidth(" " + toastPrefix(ToastInfo()) + " ")
+    val ok   = StringCellWidth(" " + toastPrefix(ToastSuccess()) + " ")
+    val warn = StringCellWidth(" " + toastPrefix(ToastWarn()) + " ")
+    val err  = StringCellWidth(" " + toastPrefix(ToastError()) + " ")
+    val t1 = Eq(t, info, ok)
+    val t2 = Eq(t1, ok, warn)
+    return Eq(t2, warn, err)
+}
+
+func TestToastStackRowsStartMessagesInTheSameColumn(t T) T {
+    // The rendered consequence of the above.
+    val now = FromUnixNanos(int64(0))
+    val ttl = Seconds(10)
+    val q = NewToastQueue(4)
+        .PushInfo("alpha", now, ttl)
+        .PushSuccess("bravo", now, ttl)
+    val rows = SnapshotLines(ToastStackView(q), 12, 2)
+    // Both messages begin at column 3: space, prefix, space.
+    val t1 = Eq(t, rows.Get(0), " i alpha    ")
+    return Eq(t1, rows.Get(1), " ✓ bravo    ")
+}
+
+func TestStringCellWidthOfAMixedRun(t T) T {
+    // ✓ narrow, 中 wide, a narrow.
+    return Eq(t, StringCellWidth("✓中a"), 4)
+}

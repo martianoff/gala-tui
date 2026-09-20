@@ -62,8 +62,17 @@ func RuneCellWidth(r rune) int {
     if r >= 0xFFE0 && r <= 0xFFE6 { return 2 }     // Fullwidth signs
 
     // Emoji and pictographs — 16-bit ranges.
-    if r >= 0x2600 && r <= 0x26FF { return 2 }     // Miscellaneous Symbols
-    if r >= 0x2700 && r <= 0x27BF { return 2 }     // Dingbats
+    //
+    // Miscellaneous Symbols (2600..26FF) and Dingbats (2700..27BF) are NOT
+    // wide as blocks. Most of their codepoints are East Asian *Ambiguous*,
+    // which is one cell in every Western terminal (xterm, iTerm2, Windows
+    // Terminal, Alacritty) and two only under a CJK locale. Treating the
+    // blocks as wide mis-measured glyphs this library ships itself — the
+    // ✓ and ✕ in toastPrefix, ⚠ ★ ☑ — so the layout engine sat one column
+    // ahead of the cursor on every row containing one.
+    //
+    // Only the codepoints with Emoji_Presentation are genuinely Wide.
+    if isWideSymbol(r) { return 2 }
 
     // Emoji — supplementary planes.
     if r >= int32(0x1F300) && r <= int32(0x1F64F) { return 2 }   // Symbols + emoticons
@@ -76,6 +85,55 @@ func RuneCellWidth(r rune) int {
 
     // Default: narrow (one cell).
     return 1
+}
+
+// isWideSymbol reports whether `r` is one of the symbol codepoints that is
+// East Asian Wide (W) rather than Ambiguous (A) — i.e. the ones that render
+// two cells everywhere, not just under a CJK locale.
+//
+// This is the Emoji_Presentation set inside the symbol blocks, taken from
+// Unicode's EastAsianWidth. Everything else in 2600..27BF defaults to one
+// cell, which is what a Western terminal draws. A codepoint that only
+// becomes emoji-presented via U+FE0F is Ambiguous on its own and stays 1
+// here; the variation selector itself is already zero-width above, so
+// "⚠️" measures 1 — matching terminals that do not widen for VS16.
+func isWideSymbol(r rune) bool {
+    // Wide symbols that sit just below the Miscellaneous Symbols block.
+    if r == 0x231A || r == 0x231B { return true }               // ⌚ ⌛
+    if r >= 0x23E9 && r <= 0x23EC { return true }               // ⏩ ⏪ ⏫ ⏬
+    if r == 0x23F0 || r == 0x23F3 { return true }               // ⏰ ⏳
+    if r == 0x25FD || r == 0x25FE { return true }               // ◽ ◾
+
+    // Miscellaneous Symbols (2600..26FF).
+    if r >= 0x2614 && r <= 0x2615 { return true }               // ☔ ☕
+    if r >= 0x2648 && r <= 0x2653 { return true }               // zodiac ♈..♓
+    if r == 0x267F { return true }                              // ♿
+    if r == 0x2693 { return true }                              // ⚓
+    if r == 0x26A1 { return true }                              // ⚡
+    if r >= 0x26AA && r <= 0x26AB { return true }               // ⚪ ⚫
+    if r >= 0x26BD && r <= 0x26BE { return true }               // ⚽ ⚾
+    if r >= 0x26C4 && r <= 0x26C5 { return true }               // ⛄ ⛅
+    if r == 0x26CE { return true }                              // ⛎
+    if r == 0x26D4 { return true }                              // ⛔
+    if r == 0x26EA { return true }                              // ⛪
+    if r >= 0x26F2 && r <= 0x26F3 { return true }               // ⛲ ⛳
+    if r == 0x26F5 { return true }                              // ⛵
+    if r == 0x26FA { return true }                              // ⛺
+    if r == 0x26FD { return true }                              // ⛽
+
+    // Dingbats (2700..27BF).
+    if r == 0x2705 { return true }                              // ✅
+    if r >= 0x270A && r <= 0x270B { return true }               // ✊ ✋
+    if r == 0x2728 { return true }                              // ✨
+    if r == 0x274C { return true }                              // ❌
+    if r == 0x274E { return true }                              // ❎
+    if r >= 0x2753 && r <= 0x2755 { return true }               // ❓ ❔ ❕
+    if r == 0x2757 { return true }                              // ❗
+    if r >= 0x2795 && r <= 0x2797 { return true }               // ➕ ➖ ➗
+    if r == 0x27B0 { return true }                              // ➰
+    if r == 0x27BF { return true }                              // ➿
+
+    return false
 }
 
 // StringCellWidth returns the total cell count the string `s` will occupy
