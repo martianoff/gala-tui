@@ -107,12 +107,16 @@ func LogPanelViewTail(p LogPanel, n int) Widget {
     return Column(rows)
 }
 
+// renderLogLine lays a level prefix beside the message. The message goes
+// through `CellText` so a line longer than the drawer is cut with a "…"
+// — a hard clip at the pane edge is unreadable as truncation, and in a
+// log that is exactly where the rest of the stack trace was.
 func renderLogLine(line LogLine) Widget {
     val prefix = logLevelPrefix(line.Level)
     val prefixStyle = logLevelStyle(line.Level)
     return Row(ArrayOf[LayoutChild](
         Fixed(5, TextStyled(prefix, prefixStyle)),
-        Flex(1, Text(line.Text)),
+        Flex(1, CellTextGutter(line.Text, DefaultStyle(), 0)),
     ))
 }
 

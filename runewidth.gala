@@ -164,3 +164,25 @@ func StringCellTruncate(s string, maxW int) string {
     }
     return out
 }
+
+// StringCellEllipsis fits `s` into `maxW` cells, marking a cut with "…".
+// A string that already fits comes back untouched; one that doesn't is
+// truncated to `maxW - 1` cells and gets the marker, so the result is
+// never wider than `maxW`.
+//
+// This is `StringCellTruncate` plus the affordance. A hard clip and an
+// exact fit look identical on screen — "build-103-running-forever" cut to
+// ten columns reads as a record called "build-103-", not as a name the
+// pane was too narrow to show — and the user has no way to tell which one
+// they are looking at. Anything laid into a slot it may overflow (a table
+// cell, a list label, a tab title) should come through here.
+//
+// The budget is counted in CELLS, not runes: a CJK cell is two columns
+// wide, and `StringCellTruncate` stops before splitting one, so the result
+// can land a column short of `maxW`. Short is safe; over is not.
+func StringCellEllipsis(s string, maxW int) string {
+    if maxW <= 0 { return "" }
+    if StringCellWidth(s) <= maxW { return s }
+    if maxW == 1 { return "…" }
+    return StringCellTruncate(s, maxW - 1) + "…"
+}
