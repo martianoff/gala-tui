@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -271,4 +272,55 @@ func TestRestylingACanvasReachesItsShapes(t T) T {
             Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)),
             Style = DefaultStyle()))).WithBold()
     return IsTrue(t, canvasBuf(w, 4, 2).StyleAt(0, 0).Bold)
+}
+
+// ----------------------------------------------------------------------------
+// Labels are clipped to the canvas, like every other shape
+//
+// Dot shapes clip in `plot`, but the label pass projected freely and called
+// `renderText` with no bounds check. A label anchored outside the bounds
+// projects outside the grid — `canvasProject` folds a value that is ON the
+// upper bound, not one past it — so the text landed on whatever widget was
+// laid out next to the canvas.
+// ----------------------------------------------------------------------------
+
+func TestLabelBelowTheBoundsDoesNotPaintOutsideTheCanvas(t T) T {
+    val buf = NewBuffer(12, 3)
+    // Fill row 2 with a sentinel standing in for a neighbouring widget.
+    RenderTo(FillCh('#'), Rect(X = 0, Y = 2, Width = 12, Height = 1), buf)
+    // Canvas owns rows 0-1 only; the label's Y is below yMin.
+    RenderTo(
+        CanvasW(XMin = 0.0, XMax = 1.0, YMin = 0.0, YMax = 1.0,
+                Marker = BrailleMarker(),
+                Shapes = ArrayOf[Shape](
+                    ShapeLabel(X = 0.0, Y = -0.1, Text = "LEAK",
+                               Style = DefaultStyle()))),
+        Rect(X = 0, Y = 0, Width = 12, Height = 2), buf)
+    return Eq(t, BufferText(buf, 2), "############")
+}
+
+func TestLabelLeftOfTheBoundsDoesNotPaintOutsideTheCanvas(t T) T {
+    val buf = NewBuffer(12, 1)
+    RenderTo(FillCh('#'), Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    // Canvas starts at column 4; the label's X is below xMin.
+    RenderTo(
+        CanvasW(XMin = 0.0, XMax = 1.0, YMin = 0.0, YMax = 1.0,
+                Marker = BrailleMarker(),
+                Shapes = ArrayOf[Shape](
+                    ShapeLabel(X = -0.5, Y = 1.0, Text = "LEAK",
+                               Style = DefaultStyle()))),
+        Rect(X = 4, Y = 0, Width = 8, Height = 1), buf)
+    return Eq(t, strings.HasPrefix(BufferText(buf, 0), "####"), true)
+}
+
+func TestLabelInsideTheBoundsStillRenders(t T) T {
+    val buf = NewBuffer(12, 1)
+    RenderTo(
+        CanvasW(XMin = 0.0, XMax = 1.0, YMin = 0.0, YMax = 1.0,
+                Marker = BrailleMarker(),
+                Shapes = ArrayOf[Shape](
+                    ShapeLabel(X = 0.0, Y = 1.0, Text = "OK",
+                               Style = DefaultStyle()))),
+        Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
+    return IsTrue(t, strings.Contains(BufferText(buf, 0), "OK"))
 }

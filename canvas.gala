@@ -215,12 +215,21 @@ func renderCanvas(
     // too — the same reason `rasterShape` names ShapeLabel explicitly.
     shapes.ForEach((s) => s match {
         case ShapeLabel(lx, ly, text, style) => {
+            // Clipped to the canvas the way every dot shape is clipped in
+            // `plot`. A label anchored outside the bounds projects outside
+            // the grid — `canvasProject` only folds a value that is ON the
+            // upper bound, not past it — so an unclipped label painted over
+            // whatever widget was laid out below or to the left of the
+            // canvas. Its own area is the limit, not the buffer's.
             val cx = area.X + toGx(lx)/g.SubX
             val cy = area.Y + toGy(ly)/g.SubY
-            renderText(text, style, Rect(
-                X = cx, Y = cy,
-                Width = MaxInt(0, area.X + area.Width - cx), Height = 1,
-            ), buf)
+            if cx >= area.X && cx < area.X + area.Width &&
+               cy >= area.Y && cy < area.Y + area.Height {
+                renderText(text, style, Rect(
+                    X = cx, Y = cy,
+                    Width = area.X + area.Width - cx, Height = 1,
+                ), buf)
+            }
         }
         case ShapeLine(_, _, _, _, _)   => {}
         case ShapeRect(_, _, _, _, _)   => {}

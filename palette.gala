@@ -307,7 +307,7 @@ func paletteRowWidget[T any](a PaletteAction[T], selected bool, focused bool) Wi
         TextStyled(" " + a.Label, base)
     else
         Row(ArrayOf[LayoutChild](
-            Flex(1, TextStyled(" " + a.Label, base)),
+            Flex(1, CellTextStyled(" " + a.Label, base)),
             Fixed(RuneCount(a.Category) + 2,
                   TextStyled(" " + a.Category + " ", catStyle)),
         ))

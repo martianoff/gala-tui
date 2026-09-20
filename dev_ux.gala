@@ -108,7 +108,7 @@ func RunSimpleWithMouse[M any, T any](
 //
 //     val _ = RunSimpleWithMouse[Model, Msg](
 //         initial, update, view,
-//         LiftKeysToInput[Msg](keyToMsg, NoOp(), NoOp()),
+//         LiftKeysToInput[Msg](keyToMsg, (s) => Paste(s), NoOp(), NoOp()),
 //         sub,
 //     )
 //
@@ -116,38 +116,21 @@ func RunSimpleWithMouse[M any, T any](
 // `fallback` covers resize, focus change and unknown-input. To handle
 // scroll-wheel specifically, use `LiftKeysToInputScroll`.
 //
-// Paste: this lift has nowhere to put pasted text — it only has a
-// `func(KeyEvent) T` — so PasteInput lands on `fallback` and the paste is
-// dropped. The runtime enables bracketed paste by default, so an app that
-// accepts text input wants either `LiftKeysToInputPaste` below or its own
-// translator. `SetBracketedPaste(false)` is the other way out: it turns the
-// mode off so pastes arrive as ordinary keystrokes again.
-func LiftKeysToInput[T any](
-    keyToMsg func(KeyEvent) T,
-    mouse T,
-    fallback T,
-) func(InputEvent) T = (ev) => ev match {
-    case KeyInput(k)       => keyToMsg(k)
-    case MouseInput(_)     => mouse
-    case ResizeInput(_, _) => fallback
-    case PasteInput(_)     => fallback
-    case FocusInput(_)     => fallback
-    case UnknownInput()    => fallback
-}
-
-// LiftKeysToInputPaste is `LiftKeysToInput` plus an explicit paste handler:
-// the one addition an app needs once bracketed paste is on.
-//
-//     val _ = RunSimpleWithMouse[Model, Msg](
-//         initial, update, view,
-//         LiftKeysToInputPaste[Msg](keyToMsg, (s) => Paste(s), NoOp(), NoOp()),
-//         sub,
-//     )
-//
 // `pasteToMsg` receives the whole pasted run as one string, which is the
-// point of the mode: inserting it in one update is both correct and O(1)
-// reducer passes, where replaying it as keystrokes is neither.
-func LiftKeysToInputPaste[T any](
+// point of bracketed paste: inserting it in one update is both correct and
+// one reducer pass, where replaying it as keystrokes is neither.
+//
+// It is a required parameter, not a defaulted one, and that is deliberate.
+// The runtime turns bracketed paste on by default on the argument that
+// GALA's exhaustiveness check makes it impossible to swallow a paste
+// silently — every match on InputEvent has to name PasteInput. That
+// argument holds for an app that writes its own translator and failed
+// exactly here, because this lift IS a match on InputEvent and it used to
+// answer `fallback` on the app's behalf. An app built on the documented
+// lift stopped receiving pasted text the moment the mode went on, with
+// nothing at compile time to say so. Requiring the handler puts the
+// decision back at the boundary the default's reasoning assumes.
+func LiftKeysToInput[T any](
     keyToMsg func(KeyEvent) T,
     pasteToMsg func(string) T,
     mouse T,
@@ -163,16 +146,19 @@ func LiftKeysToInputPaste[T any](
 
 // LiftKeysToInputScroll is the most-common-mouse-shape lift: scroll-wheel
 // up/down get routed to scroll-up/down messages; clicks and other mouse
-// events get the `clickFallback`; resize, focus change, paste and unknown
-// get `fallback` (see LiftKeysToInput on why paste needs its own handler).
+// events get the `clickFallback`; resize, focus change and unknown get
+// `fallback`. Paste takes its own handler, for the reason on
+// `LiftKeysToInput`.
 //
 //     val _ = RunSimpleWithMouse[Model, Msg](
 //         initial, update, view,
-//         LiftKeysToInputScroll[Msg](keyToMsg, ScrollUp(), ScrollDown(), NoOp(), NoOp()),
+//         LiftKeysToInputScroll[Msg](keyToMsg, (s) => Paste(s),
+//                                    ScrollUp(), ScrollDown(), NoOp(), NoOp()),
 //         sub,
 //     )
 func LiftKeysToInputScroll[T any](
     keyToMsg func(KeyEvent) T,
+    pasteToMsg func(string) T,
     scrollUp T,
     scrollDown T,
     clickFallback T,
@@ -180,8 +166,8 @@ func LiftKeysToInputScroll[T any](
 ) func(InputEvent) T = (ev) => ev match {
     case KeyInput(k)       => keyToMsg(k)
     case MouseInput(m)     => liftScroll[T](m, scrollUp, scrollDown, clickFallback)
+    case PasteInput(s)     => pasteToMsg(s)
     case ResizeInput(_, _) => fallback
-    case PasteInput(_)     => fallback
     case FocusInput(_)     => fallback
     case UnknownInput()    => fallback
 }

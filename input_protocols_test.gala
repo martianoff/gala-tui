@@ -132,10 +132,14 @@ func pasteWire(body string) string = "\x1b[200~" + body + "\x1b[201~"
 // keypress and must still decode as one — has to report consumed = 0. A
 // parser that guesses at a truncated sequence is how half a paste reaches the
 // app and how "15~" arrives as two literal characters.
+// Prefixes are checked from THREE bytes up, not two. A two-byte prefix is
+// `ESC [` or `ESC O` with an empty body, and those are not truncated
+// sequences — they are Alt+[ and Alt+O, which is what an xterm-family
+// terminal sends under `metaSendsEscape`. See `parseCsi`.
 func assertAllPrefixesIncomplete(t T, wire string, label string) T {
     val full = ToBytes(wire)
     var acc = t
-    var i = 2
+    var i = 3
     for i < full.Size() {
         val (_, n) = ParseInput(Slice(full, 0, i))
         acc = EqMsg(acc, n, 0, s"$label truncated to $i bytes must consume 0")
@@ -621,15 +625,22 @@ func TestCsiSequencesNeverLeakTheirTail(t T) T {
     return acc
 }
 
-// The smallest incomplete sequence there is, and the one a naive decoder
-// reports as a bare Esc — which then makes the following '[' a literal
-// bracket in the user's text field.
-func TestLoneCsiIntroducerReturnsZeroConsumed(t T) T {
-    val t1 = Eq(t,  consumedFor("\x1b["), 0)
-    val t2 = Eq(t1, consumedFor("\x1bO"), 0)
-    val t3 = Eq(t2, consumedFor("\x1b[1"), 0)
-    val t4 = Eq(t3, consumedFor("\x1b[1;"), 0)
-    return Eq(t4, consumedFor("\x1b[<0;5"), 0)
+// A CSI whose body has started but whose final byte has not arrived asks
+// for more bytes.
+//
+// This used to include the bodyless `ESC [` and `ESC O`, on the reasoning
+// that reporting Esc would make the following `[` a literal bracket in the
+// user's text field. That reasoning had it backwards: those two byte pairs
+// are what a terminal sends for Alt+[ and Alt+O, so waiting for a
+// completion that never comes swallowed the NEXT keystroke into the
+// pending sequence. Carrying a non-empty body only is the right line,
+// because a terminal writes a sequence in one call — it can be torn across
+// two reads only when it exceeds the read buffer, and at 8 KiB the only
+// thing that long is a paste.
+func TestPartialCsiBodyReturnsZeroConsumed(t T) T {
+    val t1 = Eq(t,  consumedFor("\x1b[1"), 0)
+    val t2 = Eq(t1, consumedFor("\x1b[1;"), 0)
+    return Eq(t2, consumedFor("\x1b[<0;5"), 0)
 }
 
 // The general sweep: for a representative sequence from each family, every
@@ -789,4 +800,65 @@ func TestCarryOverCopiesAndIsBounded(t T) T {
     // cannot grow the buffer without bound.
     val huge = ToBytes(strings.Repeat("x", maxCarryBytes() + 1))
     return Eq(t1, carryOver(huge).Size(), 0)
+}
+
+// ----------------------------------------------------------------------------
+// A bare ESC [ / ESC O is a key, not a truncated sequence
+//
+// Those two byte pairs are exactly what an xterm-family terminal sends for
+// Alt+[ and Alt+O under `metaSendsEscape`. Treating them as "incomplete —
+// buffer more" waits for a completion that never arrives, and the NEXT
+// keystroke gets absorbed into the pending sequence: Alt+O then `k`
+// decoded as the single SS3 sequence `ESC O k`, and the `k` was gone.
+//
+// Only a non-empty body is carried, because a terminal emits an escape
+// sequence in one write — a sequence can only be torn across two reads
+// when it is longer than the read buffer.
+// ----------------------------------------------------------------------------
+
+func TestBareEscBracketConsumesRatherThanStalling(t T) T {
+    val (ev, n) = ParseKey(SliceOf[byte](0x1B, 0x5B))
+    val isEsc = ev.Key match {
+        case Esc() => true
+        case _     => false
+    }
+    return IsTrue(Eq(t, n, 1), isEsc)
+}
+
+func TestBareEscOConsumesRatherThanStalling(t T) T {
+    val (ev, n) = ParseKey(SliceOf[byte](0x1B, 0x4F))
+    val isEsc = ev.Key match {
+        case Esc() => true
+        case _     => false
+    }
+    return IsTrue(Eq(t, n, 1), isEsc)
+}
+
+func TestAltOThenLetterDoesNotSwallowTheLetter(t T) T {
+    // The exact failure: two keystrokes must not collapse into one event.
+    val (_, n1) = ParseKey(SliceOf[byte](0x1B, 0x4F))
+    val t1 = Eq(t, n1, 1)
+    val (ev2, n2) = ParseKey(SliceOf[byte](0x4F, 0x6B))
+    val isO = ev2.Key match {
+        case Char(c) => c == 'O'
+        case _       => false
+    }
+    return IsTrue(Eq(t1, n2, 1), isO)
+}
+
+func TestTruncatedCsiWithABodyStillWaits(t T) T {
+    // `ESC [ 1 5` — a real F5 mid-flight. This one MUST still carry, or the
+    // split-sequence handling the carry buffer exists for is lost.
+    val (_, n) = ParseKey(SliceOf[byte](0x1B, 0x5B, 0x31, 0x35))
+    return Eq(t, n, 0)
+}
+
+func TestFunctionKeysStillDecodeWhenWhole(t T) T {
+    // Guard the other side: shortening the SS3 path must not break F1.
+    val (ev, n) = ParseKey(SliceOf[byte](0x1B, 0x4F, 0x50))
+    val isF1 = ev.Key match {
+        case FKey(k) => k == 1
+        case _       => false
+    }
+    return IsTrue(Eq(t, n, 3), isF1)
 }

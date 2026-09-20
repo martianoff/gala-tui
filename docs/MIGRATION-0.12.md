@@ -123,6 +123,27 @@ used to freeze at the first visible characters with the caret gone.
 
 Both are fixed, and `TextAreaView` inherits the scrolling.
 
+### `LiftKeysToInput` / `LiftKeysToInputScroll` take a paste handler
+
+Both gained a `pasteToMsg func(string) T` parameter, second in the list:
+
+```gala
+LiftKeysToInput[Msg](keyToMsg, (s) => Paste(Text = s), NoOp(), NoOp())
+LiftKeysToInputScroll[Msg](keyToMsg, (s) => Paste(Text = s),
+                           ScrollUp(), ScrollDown(), NoOp(), NoOp())
+```
+
+`LiftKeysToInputPaste` is gone — it is now just `LiftKeysToInput`.
+
+This breaks at compile time, which is the point. Bracketed paste is on by
+default, on the argument that GALA's exhaustiveness check makes a swallowed
+paste impossible: every match on `InputEvent` has to name `PasteInput`.
+These lifts *are* such a match, and they answered `fallback` on the app's
+behalf — so an app built on the documented lift silently stopped receiving
+pasted text the moment the mode went on, with nothing at compile time to
+say so. The handler is required so the decision sits where the default's
+reasoning assumes it does.
+
 ### A filtered `DataTable` says so, on its rule row
 
 A table with an active filter used to be pixel-identical to one without:
@@ -138,6 +159,22 @@ table's height or pushes a row out of view.
 The count leads the query deliberately: on a table too narrow for the
 whole label, the part that survives is the part that says a filter is on
 and how much is hidden.
+
+### `Alt+[` and `Alt+O` no longer swallow the next keystroke
+
+A bare `ESC [` or `ESC O` decodes as `Esc` consuming one byte, not as a
+truncated sequence waiting for more.
+
+Those two byte pairs are exactly what an xterm-family terminal sends for
+Alt+[ and Alt+O under `metaSendsEscape`. Treating them as incomplete waits
+for a completion that never arrives, and the *next* keystroke is absorbed
+into the pending sequence — Alt+O then `k` decoded as the single SS3
+sequence `ESC O k`, and the `k` was gone.
+
+A CSI whose body has started (`ESC [ 1 5`) still waits, so split sequences
+are unaffected. That is the right line because a terminal emits a sequence
+in one write: it can only be torn across two reads when it is longer than
+the read buffer, and at 8 KiB the only thing that long is a paste.
 
 ### Table columns are separated by a blank column, charged to the row
 

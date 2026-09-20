@@ -59,10 +59,12 @@ func ShiftK(k Key) KeyEvent   = KeyEvent(Key = k, Ctrl = false, Alt = false, Shi
 //
 // A consumed count of 0 means "incomplete — buffer more bytes and ask
 // again", the same contract ParseInput exposes. That happens for an empty
-// buffer and for an escape sequence whose final byte has not arrived yet
-// (`ESC [`, `ESC [ 1 5`, `ESC O`). Callers must ignore the returned event
-// in that case and keep the unconsumed bytes; the runtime's carry buffer
-// does exactly that.
+// buffer and for an escape sequence with a body but no final byte yet
+// (`ESC [ 1 5`). Callers must ignore the returned event in that case and
+// keep the unconsumed bytes; the runtime's carry buffer does exactly that.
+//
+// A bare `ESC [` or `ESC O` is NOT incomplete — it is Alt+[ and Alt+O. See
+// `parseCsi`.
 func ParseKey(buf []byte) Tuple[KeyEvent, int] {
     if buf.Size() == 0 {
         return (PlainKey(Unknown()), 0)
@@ -215,9 +217,28 @@ func csiParam(buf []byte, final int, idx int, def int) int {
 }
 
 // parseCsi handles ESC [ <seq> — the common family of escape codes.
+//
+// A two-byte buffer — `ESC [` with an empty body — is reported as Esc and
+// consumes one byte, rather than carried as a truncated sequence.
+//
+// The distinction matters because `ESC [` and `ESC O` are also exactly what
+// an xterm-family terminal sends for Alt+[ and Alt+O under
+// `metaSendsEscape`. Carrying them waits for a completion that never comes,
+// and the next keystroke gets absorbed into the pending sequence: Alt+O then
+// `k` decoded as the single SS3 sequence `ESC O k` and the `k` vanished.
+//
+// Carrying only a NON-empty body is the right split because a terminal
+// emits an escape sequence in one write. A sequence can therefore only be
+// torn across two reads when it is longer than the read buffer, and at
+// `readBufBytes()` = 8 KiB the only thing that long is a bracketed paste —
+// which has its own resumable scan. An empty body means the bytes are all
+// the terminal had to say, so they are a key, not a fragment.
 func parseCsi(buf []byte) Tuple[KeyEvent, int] {
     val scan = scanCsi(buf)
     if scan.Final < 0 {
+        if scan.Drop == 0 && buf.Size() <= 2 {
+            return (PlainKey(Esc()), 1)
+        }
         // Drop == 0 means "truncated, ask again with more bytes"; the 0
         // consumed count is the contract the runtime's carry buffer reads.
         return (PlainKey(Unknown()), scan.Drop)
@@ -412,10 +433,9 @@ func kittyFunctionalKey(cp int) Key {
 // parseSs3 handles ESC O X — F1..F4 in VT100 terminals.
 func parseSs3(buf []byte) Tuple[KeyEvent, int] {
     if buf.Size() < 3 {
-        // `ESC O` with the letter still in flight. Consume nothing so the
-        // caller re-offers these bytes with the rest of the sequence
-        // attached; reporting Esc here would turn F1 into Esc + 'O'.
-        return (PlainKey(Unknown()), 0)
+        // A bare `ESC O` is Alt+O, not a truncated F1 — same reasoning as
+        // the empty-body case in `parseCsi`, which documents it.
+        return (PlainKey(Esc()), 1)
     }
     val b2 = int(buf[2])
     if b2 == 0x50 {       // 'P' = F1

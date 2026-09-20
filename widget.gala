@@ -957,11 +957,12 @@ func OverflowMarker() rune = '›'
 // cell that was not drawn registers nothing, which is the honest answer
 // for a region the user cannot see.
 //
-// Non-`Length` constraints have no fixed width to place; they are treated
-// as zero-width and skipped, so `OverflowRow` is for bars of intrinsically
-// sized cells (tabs, a horizontal menu) rather than general layout.
+// `OverflowRow` places cells at fixed widths, so it is for bars of
+// intrinsically sized cells (tabs, a horizontal menu) rather than general
+// layout. A non-`Length` child has no declared width to place and falls
+// back to its widget's intrinsic width.
 func OverflowRow(cells Array[LayoutChild]) Widget {
-    val widths = cells.Map((c) => overflowCellWidth(c.Constraint))
+    val widths = cells.Map((c) => overflowCellWidth(c))
     val total = widths.FoldLeft(0, (acc, w) => acc + w)
     return CustomW(MinW = total, MinH = 1, Render = (area, buf, hits) => {
         if area.Width > 0 && area.Height > 0 {
@@ -970,9 +971,16 @@ func OverflowRow(cells Array[LayoutChild]) Widget {
     })
 }
 
-func overflowCellWidth(c Constraint) int = c match {
+// A non-`Length` constraint used to measure 0, which rendered the cell at
+// zero width — invisible, with nothing to say it was dropped. That is the
+// same silent-loss failure `OverflowRow` exists to fix, reintroduced one
+// level down: every caller in this library passes `Fixed`, so it would
+// have gone unnoticed until someone outside it passed `Flex`. Measuring
+// the widget instead gives a `Flex`/`Percent`/`Fill` child its natural
+// size, and if the row then overruns, the `›` marker reports it.
+func overflowCellWidth(c LayoutChild) int = c.Constraint match {
     case Length(v) => MaxInt(0, v)
-    case _         => 0
+    case _         => defaultRenderWidth(c.Widget)
 }
 
 func renderOverflowRow(
@@ -1097,7 +1105,7 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         case InputW(value, cursor, placeholder, style, phStyle, focused) =>
             renderInput(value, cursor, placeholder, style, phStyle, focused, area, buf)
         case ProgressW(pct, style) => {
-            val bar = renderProgressBar(pct, area.Width, '█', '░')
+            val bar = renderProgressBar(pct, area.Width, '█', gaugeTrack())
             renderText(bar, style, area, buf)
         }
         case GaugeW(pct, style) => {

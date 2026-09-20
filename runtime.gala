@@ -451,9 +451,35 @@ func readBufBytes() int = 8192
 
 func carryOver(rest []byte) []byte {
     if rest.Size() > maxCarryBytes() {
-        return SliceEmpty[byte]()
+        return resyncOverlongCarry(rest)
     }
     return SliceCopy(rest)
+}
+
+// resyncOverlongCarry decides what to keep when the carry has outgrown its
+// ceiling, which means the stream is malformed: a paste that was opened and
+// never closed, or an endless CSI body.
+//
+// Dropping everything — the old behaviour — turns that into a hang with no
+// way out. While an unterminated paste sits at the head of the carry,
+// `ParseInput` consumes 0 on every read, so the loop dispatches nothing at
+// all: no frame is painted, no `update` runs, and because `isForcedQuit` is
+// only reached AFTER a successful parse, a Ctrl-C the user types is merely
+// appended to the buffer. The escape hatch is gone precisely when it is
+// needed, and it stays gone for another megabyte of input.
+//
+// Dropping just the paste OPENER resyncs instead. The body is re-parsed as
+// ordinary input, so its bytes arrive as the keystroke burst they would
+// have been with the mode off — the correct degradation for "the terminal
+// told us a paste started and then never finished one" — and the very next
+// Ctrl-C quits. Anything else overlong is genuinely unparseable and is
+// dropped as before.
+func resyncOverlongCarry(rest []byte) []byte {
+    val openerLen = 6                   // ESC [ 2 0 0 ~
+    if rest.Size() >= openerLen && isPasteOpenerAt(rest, 0) {
+        return SliceCopy(Slice(rest, openerLen, rest.Size()))
+    }
+    return SliceEmpty[byte]()
 }
 
 func stdinReadFuture() concurrent.Future[ReadResult] {

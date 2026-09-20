@@ -66,5 +66,5 @@ func helpRow[T any](h HelpSpec[T], specWidth int) Widget =
     Row(ArrayOf[LayoutChild](
         Fixed(specWidth + 2, TextStyled(h.Spec,
             DefaultStyle().WithBold().WithFg(BrightCyan()))),
-        Flex(1, Text(h.Desc)),
+        Flex(1, CellText(h.Desc)),
     ))

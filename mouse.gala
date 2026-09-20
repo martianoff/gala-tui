@@ -218,14 +218,22 @@ func pasteCloserIndex(buf []byte, from int) int {
     return -1
 }
 
-func isPasteCloserAt(buf []byte, i int) bool {
+// isPasteOpenerAt reports whether `ESC [ 200 ~` starts at `i`. The runtime
+// uses it to resync a paste that was opened and never closed.
+func isPasteOpenerAt(buf []byte, i int) bool =
+    isPasteMarkerAt(buf, i, pasteStartParam())
+
+func isPasteCloserAt(buf []byte, i int) bool =
+    isPasteMarkerAt(buf, i, pasteEndParam())
+
+func isPasteMarkerAt(buf []byte, i int, param int) bool {
     if int(buf[i]) != 0x1B || int(buf[i + 1]) != 0x5B || int(buf[i + 5]) != 0x7E {
         return false
     }
     val p = (int(buf[i + 2]) - 0x30) * 100 +
             (int(buf[i + 3]) - 0x30) * 10 +
             (int(buf[i + 4]) - 0x30)
-    return p == pasteEndParam()
+    return p == param
 }
 
 // parseSgrMouse consumes an ESC [ < … (M|m) packet. Malformed packets advance
