@@ -123,6 +123,41 @@ used to freeze at the first visible characters with the caret gone.
 
 Both are fixed, and `TextAreaView` inherits the scrolling.
 
+### A filtered `DataTable` says so, on its rule row
+
+A table with an active filter used to be pixel-identical to one without:
+same header, same rule, fewer rows and nothing to say why. Scroll away
+from the row you were looking at and the pane reads as "this is the
+dataset" — the one reading that is false.
+
+The horizontal rule under the header now carries `─ 2 of 4 · query` while
+a filter is active, and is drawn unbroken otherwise. It goes on the rule
+rather than on a row of its own so turning a filter on never changes the
+table's height or pushes a row out of view.
+
+The count leads the query deliberately: on a table too narrow for the
+whole label, the part that survives is the part that says a filter is on
+and how much is hidden.
+
+### Table columns are separated by a blank column, charged to the row
+
+`Table` and `DataTable` rows are now laid out with one column of row
+`Spacing` between cells. Previously each cell reserved its own separator
+internally, which quietly shortened every declared width: a `Length(5)`
+column showed four characters, so `"Alice"` rendered as `"Ali…"` in a
+column sized to hold it.
+
+Charging the row instead takes the gap from the slack the layout solver
+was going to distribute anyway. Declared widths are honoured in full, and
+two columns whose values exactly fill them still get separated — that pair
+used to collide into one token (`Alice` + `Bobby` → `AliceBobby`).
+
+Practical consequence: a table needs `columns + (columns - 1)` cells of
+width to show every column at its declared size. In a pane too narrow for
+that, `Fill` columns shrink first and `Length` columns hold — the same
+order as before, one column later. Values that no longer fit are cut with
+a `…` rather than clipped, so a truncated cell is visible as truncated.
+
 ### Selection highlights span the whole row
 
 Menu, Palette, Table, DataTable and Tree highlights used to fragment into
