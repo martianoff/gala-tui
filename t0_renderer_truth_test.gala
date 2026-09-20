@@ -63,16 +63,46 @@ func TestListBottomToTopShowsNewestWhenContentOverflows(t T) T {
     // A 5-message transcript in a 3-row pane shows the LAST three. The
     // direction flag only moved rows around, so this used to show the first
     // three — the oldest — which is the opposite of the mode's purpose.
-    val w = SelectListReversed(listItems(5), 0)
+    //
+    // -1 is the no-selection sentinel: a transcript has no cursor, which is
+    // what lets the view anchor to the tail.
+    val w = SelectListReversed(listItems(5), -1)
     val rows = SnapshotLines(w, 7, 3)
     val t1 = Eq(t, rows.Get(0), "item2  ")
     val t2 = Eq(t1, rows.Get(1), "item3  ")
     return Eq(t2, rows.Get(2), "item4  ")
 }
 
+func TestListBottomToTopKeepsCursorZeroOnScreen(t T) T {
+    // A SELECTABLE reversed list with the cursor on item 0 must show item 0.
+    // Discriminating tail-anchoring on `sel > 0` overloaded index 0 to mean
+    // "no cursor", so a focused list rendered with no visible highlight and
+    // its viewport jumped back to the head on the first Down key.
+    val buf = NewBuffer(7, 3)
+    RenderTo(SelectListReversed(listItems(5), 0, true),
+        Rect(X = 0, Y = 0, Width = 7, Height = 3), buf)
+    val t1 = Eq(t, RowText(buf, 0), "item0  ")
+    // The highlight is on screen, spanning the cursor's row.
+    return IsTrue(t1, buf.StyleAt(0, 0).Reverse && buf.StyleAt(6, 0).Reverse)
+}
+
+func TestListBottomToTopViewportIsMonotonicInSelection(t T) T {
+    // Stepping the cursor forward must never move the viewport backwards.
+    // The `sel > 0` discriminator made sel 0 -> 1 leap from tail to head.
+    var acc = t
+    var sel = 0
+    for sel <= 4 {
+        val first = SnapshotLines(SelectListReversed(listItems(5), sel), 7, 3).Get(0)
+        val want = if (sel < 3) "item0  " else s"item${sel - 2}  "
+        acc = Eq(acc, first, want)
+        sel = sel + 1
+    }
+    return acc
+}
+
 func TestListBottomToTopUnderflowStillPinsToBottom(t T) T {
     // The already-correct case must not regress.
-    val w = SelectListReversed(listItems(2), 0)
+    val w = SelectListReversed(listItems(2), -1)
     val rows = SnapshotLines(w, 7, 4)
     val t1 = Eq(t, rows.Get(0), "       ")
     val t2 = Eq(t1, rows.Get(1), "       ")
@@ -130,17 +160,76 @@ func TestSpaceAroundEdgeGapsAreHalfTheInnerGaps(t T) T {
     return Eq(t, Snapshot(w, 20, 1), " aaaa   bbbb   cccc ")
 }
 
+// leadingGap / trailingGap count the blank columns at each end of a row.
+func leadingGap(s string) int {
+    var n = 0
+    for _, c := range s {
+        if c != ' ' { return n }
+        n = n + 1
+    }
+    return n
+}
+
+func trailingGap(s string) int {
+    var run = 0
+    for _, c := range s {
+        if c == ' ' { run = run + 1 } else { run = 0 }
+    }
+    return run
+}
+
+func TestSpaceAroundIsSymmetricWhereverSymmetryIsPossible(t T) T {
+    // Sweeping matters here: width 20 is one of the widths where the split
+    // happens to be exact, so pinning it alone proves nothing about the
+    // remainder handling.
+    //
+    // Edge share is slack/6 (weights 1:2:2:1), so at slack ≡ 3 (mod 6) each
+    // edge's ideal share is a half-integer and NO integer split is
+    // symmetric. Everywhere else the two edges must match.
+    val w = RowFlex(threeBoxes(), FlexSpaceAround(), 0)
+    var acc = t
+    var width = 13
+    for width <= 40 {
+        val out = Snapshot(w, width, 1)
+        val slack = width - 12
+        if slack % 6 != 3 {
+            acc = Eq(acc, leadingGap(out), trailingGap(out))
+        }
+        width = width + 1
+    }
+    return acc
+}
+
+func TestSpaceAroundTieBreakFavoursTheLeadingEdge(t T) T {
+    // At a genuine tie (slack ≡ 3 mod 6) the extra cell goes to the leading
+    // edge, because distributeSlack rounds half up. Pinned as a decision:
+    // FlexCenter breaks its tie the other way (floor, trailing), so the two
+    // centring modes disagree on direction and that should be deliberate
+    // rather than discovered.
+    val w = RowFlex(threeBoxes(), FlexSpaceAround(), 0)
+    val out = Snapshot(w, 21, 1)
+    val t1 = Eq(t, leadingGap(out), 2)
+    return Eq(t1, trailingGap(out), 1)
+}
+
 func TestFlexDistributionsAlwaysConsumeTheFullWidth(t T) T {
     // Whatever the width, a space-distributing row must place its last
     // child so the row is exactly filled — no trailing cell unaccounted
     // for. Sweeps the widths where integer division used to drift.
+    // BOTH edges, not just the trailing one. Asserting the suffix alone also
+    // passes for FlexEnd — a mode that dumps all the slack on the leading
+    // edge, i.e. the mirror image of the bug this guards. The pair of
+    // assertions is what actually characterises SpaceBetween.
+    //
+    // (An earlier version also asserted `out.Size() == width`. That is a
+    // tautology: Snapshot walks 0..buf.Width, so it returns exactly `width`
+    // characters at every width, whatever the renderer did.)
     val w = RowFlex(threeBoxes(), FlexSpaceBetween(), 0)
     var acc = t
     var width = 13
     for width <= 30 {
         val out = Snapshot(w, width, 1)
-        // Last child ends at the right edge, so the final cell is 'c'.
-        acc = Eq(acc, out.Size(), width)
+        acc = IsTrue(acc, strings.HasPrefix(out, "aaaa"))
         acc = IsTrue(acc, strings.HasSuffix(out, "cccc"))
         width = width + 1
     }

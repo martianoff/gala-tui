@@ -453,8 +453,14 @@ func SelectListAt(
     )
 }
 
-// SelectListReversed pins the first item to the bottom edge and grows
-// upward — how a chat transcript or REPL log reads.
+// SelectListReversed grows upward from the bottom edge — how a chat
+// transcript or REPL log reads.
+//
+// Pass `selected = -1` for a transcript. That is the no-selection sentinel,
+// and it is what makes the view anchor to the newest rows: with a real index
+// the viewport follows the cursor instead, exactly as a top-to-bottom list
+// does, because a selectable reversed list still has to keep its cursor on
+// screen.
 func SelectListReversed(
     items Array[ListItem],
     selected int,
@@ -1087,10 +1093,16 @@ func renderList(
     // top-anchored default here meant a 5-message transcript opened in a
     // 3-row pane showed messages 1-3 — the oldest — instead of the newest
     // three, which is the opposite of what the mode is for.
+    // `sel < 0` is the no-selection sentinel (the convention NewTable already
+    // uses), and it is what selects tail-anchoring. Discriminating on
+    // `sel > 0` instead would overload index 0 to mean both "no cursor" and
+    // "cursor on the first item": a focused reversed list with the cursor at
+    // 0 would render no visible highlight at all, and the viewport would
+    // jump from the tail back to the head on the first Down keypress.
     val autoOffset = direction match {
         case ListTopToBottom() => listViewportOffset(n, sel, area.Height)
         case ListBottomToTop() =>
-            if (sel > 0) listViewportOffset(n, sel, area.Height)
+            if (sel >= 0) listViewportOffset(n, sel, area.Height)
             else MaxInt(0, n - MaxInt(1, area.Height))
     }
     val offset = if (explicitOffset < 0)
@@ -1306,6 +1318,12 @@ func edgeGaps(n int, lead int, trail int) Array[int] =
 // downward and then repays the debt at the end, which made SpaceAround
 // asymmetric — weights 1:2:2:1 over 8 cells came out 1,3,2,2, so the left
 // edge got one cell and the right edge two. Rounding gives 1,3,3,1.
+//
+// Rounding half UP is also why the two centring modes break ties in opposite
+// directions: at a genuine tie SpaceAround gives the extra cell to the
+// leading edge, while FlexCenter — which does not come through here, and
+// uses `slack / 2` — gives it to the trailing edge. Both are pinned by
+// tests; the asymmetry is a consequence of this line, not a bug.
 func distributeSlack(total int, weights Array[int]) Array[int] {
     val sumW = weights.FoldLeft(0, (acc, w) => acc + MaxInt(0, w))
     if sumW <= 0 || total <= 0 {
