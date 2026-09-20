@@ -163,6 +163,12 @@ func clampPct(p int) int {
 //
 // Named FlexMode rather than Flex because `Flex(weight, widget)` is already
 // the Fill-constrained LayoutChild constructor.
+//
+// A mode only has something to do when there IS slack, so any `Fill` child
+// makes every mode behave like FlexLegacy: Fill absorbs the leftover space
+// by definition, leaving nothing to distribute. `FlexCenter` over a row
+// containing a Fill therefore looks like it does nothing. Size the children
+// you want positioned (Length / Percent / Ratio) and leave the Fills out.
 // ----------------------------------------------------------------------------
 sealed type FlexMode {
     // FlexLegacy is the historical behavior and stays the default: slack

@@ -248,6 +248,11 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case EmptyWidget()                     => w
         case TextWidget(c, s)                  => TextWidget(Content = c, Style = f(s))
         case RichTextW(t)                      => RichTextW(Text = restyleRichText(t, f))
+        // Recurse into the child but leave the region function alone: it
+        // runs last by design, so composing it with `f` here would apply
+        // `f` twice to every cell the region covers.
+        case RestyleW(inner, re)               =>
+            RestyleW(Inner = restyleLeaves(inner, f), Restyle = re)
         case FillWidget(ch, s)                 => FillWidget(Ch = ch, Style = f(s))
         case BorderWidget(inner, kind, sides, style, titles) =>
             // The border's own style is a leaf too — restyling a subtree

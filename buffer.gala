@@ -140,6 +140,51 @@ func (b *Buffer) Fill(r Rect, c Cell) {
     }
 }
 
+// RestyleRegion rewrites the Style of every cell in a rectangle while
+// leaving its glyphs untouched.
+//
+// This is the "this region carries this style" operation, and it is what
+// `Fill` cannot do: Fill overwrites the character too, so applying a
+// selection highlight with it erases the row's text. Widgets that wanted a
+// full-row highlight therefore had to clear-then-redraw in the right order,
+// and most did not — they drew styled text into a `Row`, which styles only
+// the cells the text happens to occupy and leaves the gaps between columns
+// unstyled. The result was a highlight that fragmented into disconnected
+// chips across the row.
+//
+// Because it *modifies* style rather than replacing cells, it also composes
+// with the Overlay(background, content) pattern: the content pass can run
+// first and the style pass afterwards, instead of the content erasing the
+// background it was supposed to sit on.
+//
+// The region is clipped to the buffer; out-of-range cells are skipped.
+func (b *Buffer) RestyleRegion(r Rect, f func(Style) Style) {
+    if r.Zero() {
+        return
+    }
+    var y = r.Y
+    val yEnd = r.Y + r.Height
+    for y < yEnd {
+        var x = r.X
+        val xEnd = r.X + r.Width
+        for x < xEnd {
+            val idx = b.Index(x, y)
+            if idx >= 0 {
+                val c = b.cells[idx]
+                b.cells[idx] = Cell(Ch = c.Ch, St = f(c.St))
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+}
+
+// SetRegionStyle is the common case of RestyleRegion: replace the style
+// outright rather than deriving it from what is there.
+func (b *Buffer) SetRegionStyle(r Rect, style Style) {
+    b.RestyleRegion(r, (s) => style)
+}
+
 // DrawText renders a plain string starting at (x, y) with `style`, advancing
 // horizontally by each rune's grapheme width (1 cell for ASCII / Latin,
 // 2 cells for CJK / fullwidth / emoji, 0 cells for combining marks).

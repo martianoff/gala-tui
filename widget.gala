@@ -25,6 +25,17 @@ sealed type Widget {
     // per-Line alignment. This is what TextWidget cannot express: a bold
     // word inside a sentence that still participates in normal layout.
     case RichTextW(Text RichText)
+    // RestyleW renders `Inner`, then rewrites the Style of every cell in
+    // its area through `Restyle`, keeping the glyphs.
+    //
+    // This is how a region carries a style. Styling the leaf text instead
+    // only reaches the cells the text occupies, so a highlight applied that
+    // way fragments wherever a layout leaves a gap — between a menu label
+    // and its right-aligned hint, between table columns, past the end of a
+    // short row. Restyling after the fact covers the whole area, and
+    // because it modifies rather than replaces cells it also lets an
+    // Overlay's content keep the background it was drawn over.
+    case RestyleW(Inner Widget, Restyle func(Style) Style)
     case FillWidget(Ch rune, Style Style)
     case BorderWidget(
         Inner  Widget,
@@ -338,6 +349,41 @@ func borderWidthOverhead(sides BorderSides) int =
 // borderHeightOverhead is the same count for horizontal edges.
 func borderHeightOverhead(sides BorderSides) int =
     (if (sides.Top) 1 else 0) + (if (sides.Bottom) 1 else 0)
+
+// Restyled renders `inner` and then rewrites the style of every cell in its
+// area through `f`, keeping the glyphs. The way to make a region carry a
+// style — a selected row, a status bar, a themed backdrop — without the
+// gaps between a layout's children falling through unstyled.
+func Restyled(inner Widget, f func(Style) Style) Widget =
+    RestyleW(Inner = inner, Restyle = f)
+
+// Highlighted is the selection case: paint the whole area in `style`,
+// whatever the inner widget drew.
+//
+// It FLATTENS, so it wins over anything underneath — including an outer
+// `.WithBold()` / `.WithFg()`, which `restyleLeaves` applies to the inner
+// widget before the region runs. `Highlighted(x, s).WithBold()` therefore
+// renders unbolded. Reach for `Restyled` when the inner styles should
+// survive: it merges, so a bold label stays bold inside a highlighted row,
+// and a cell that painted its own background keeps it.
+func Highlighted(inner Widget, style Style) Widget =
+    RestyleW(Inner = inner, Restyle = (s) => style)
+
+// Backdrop fills in a background only where a cell has not claimed one,
+// leaving foreground and attributes alone. The shape a themed pane or a
+// surface wants: the text drawn into it stays legible, and anything that
+// deliberately painted itself keeps its colour.
+//
+// The condition is the point. Swapping the background unconditionally would
+// be the mirror of the bug this exists to fix — instead of the parent's
+// surface losing to the child, the child's would lose to the parent, so a
+// coloured chip or a success/error toast inside a themed container would
+// come out indistinguishable from plain text.
+func Backdrop(inner Widget, bg Color) Widget =
+    RestyleW(
+        Inner   = inner,
+        Restyle = (s) => if (ColorEq(s.Bg, DefaultColor())) s.On(bg) else s,
+    )
 
 // RichTextView renders a RichText block — the multi-style counterpart to
 // `Text`. Use it wherever a single row needs more than one style.
@@ -771,6 +817,10 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderText(content, style, area, buf)
         case RichTextW(text) =>
             renderRichText(text, area, buf)
+        case RestyleW(inner, restyle) => {
+            renderToInternal(inner, area, buf, hits)
+            buf.RestyleRegion(area, restyle)
+        }
         case FillWidget(ch, style) =>
             renderFill(ch, style, area, buf)
         case BorderWidget(inner, kind, sides, style, titles) =>
@@ -1654,6 +1704,7 @@ func defaultRenderWidth(w Widget) int {
         case EmptyWidget()                     => 0
         case TextWidget(content, _)            => RuneCount(content)
         case RichTextW(text)                   => text.CellWidth()
+        case RestyleW(inner, _)                => defaultRenderWidth(inner)
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderWidth(inner) + borderWidthOverhead(sides)
@@ -1692,6 +1743,7 @@ func defaultRenderHeight(w Widget) int {
         case EmptyWidget()                     => 0
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
+        case RestyleW(inner, _)                => defaultRenderHeight(inner)
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderHeight(inner) + borderHeightOverhead(sides)
@@ -1753,6 +1805,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case EmptyWidget()                     => 0
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
+        case RestyleW(inner, _)                => IntrinsicHeightAt(inner, width)
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             IntrinsicHeightAt(inner, MaxInt(0, width - borderWidthOverhead(sides)))

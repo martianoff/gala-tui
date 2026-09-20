@@ -297,12 +297,17 @@ func paletteRowWidget[T any](a PaletteAction[T], selected bool, focused bool) Wi
     else
         DefaultStyle()
     val catStyle = if (selected) base else DefaultStyle().WithDim()
-    if a.Category == "" {
-        return TextStyled(" " + a.Label, base)
-    }
-    return Row(ArrayOf[LayoutChild](
-        Flex(1, TextStyled(" " + a.Label, base)),
-        Fixed(RuneCount(a.Category) + 2,
-              TextStyled(" " + a.Category + " ", catStyle)),
-    ))
+    val row = if (a.Category == "")
+        TextStyled(" " + a.Label, base)
+    else
+        Row(ArrayOf[LayoutChild](
+            Flex(1, TextStyled(" " + a.Label, base)),
+            Fixed(RuneCount(a.Category) + 2,
+                  TextStyled(" " + a.Category + " ", catStyle)),
+        ))
+    // Only the selected row is restyled. Styling the leaves alone left the
+    // flex gap between label and category unstyled, so the highlight broke
+    // into two chips with a hole between them. Unselected rows must not go
+    // through this: it would flatten the dim category style into the row's.
+    return if (selected) Highlighted(row, base) else row
 }

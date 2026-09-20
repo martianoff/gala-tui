@@ -158,5 +158,11 @@ func BorderT(theme Theme, inner Widget) Widget =
 // BackgroundT fills the area with theme.Background, then overlays `inner`.
 // Useful as a root container when the theme dictates a non-default surface
 // color.
+// Swaps each cell's background and leaves foreground and attributes alone,
+// so text drawn inside keeps its colour. The previous Overlay form painted
+// the fill first and let `inner` overwrite it, so the theme background
+// survived only on cells no text touched — which mattered most for
+// HighContrastTheme, whose whole point is controlling the background its
+// bright foreground sits on.
 func BackgroundT(theme Theme, inner Widget) Widget =
-    Overlay(FillChStyled(' ', DefaultStyle().WithBg(theme.Background)), inner)
+    Backdrop(inner, theme.Background)
