@@ -1,0 +1,372 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Chart — axes, tick labels and legend (G6).
+//
+// Canvas shipped the rasteriser in 0.12.0; this is the layer that makes the
+// picture readable. Everything here renders and asserts on cells, because
+// the whole point of the gap was that a correct rasteriser still produced an
+// unreadable plot.
+// ============================================================================
+
+func chartPts() Array[CanvasPoint] =
+    ArrayOf[CanvasPoint](
+        CanvasPoint(X = 0.0, Y = 0.0),
+        CanvasPoint(X = 5.0, Y = 5.0),
+        CanvasPoint(X = 10.0, Y = 10.0),
+    )
+
+func chartSample() Widget =
+    Chart(
+        ArrayOf[ChartDataset](DatasetOf("cpu", chartPts(), DefaultStyle())),
+        AxisOf("secs", XBounds(0.0, 10.0), ArrayOf[string]("0", "5", "10")),
+        AxisOf("pct",  YBounds(0.0, 10.0), ArrayOf[string]("0", "5", "10")),
+    )
+
+// ----------------------------------------------------------------------------
+// Axes
+// ----------------------------------------------------------------------------
+
+func TestChartDrawsAVerticalAxisRule(t T) T {
+    val rows = SnapshotLines(chartSample(), 30, 10)
+    // The Y title occupies row 0; the rule runs down the plot rows below it.
+    var seen = 0
+    var y = 1
+    for y < 8 {
+        if strings.Contains(rows.Get(y), "│") { seen = seen + 1 }
+        y = y + 1
+    }
+    return EqMsg(t, seen > 0, true, "no vertical axis rule found in the plot rows")
+}
+
+func TestChartDrawsAHorizontalAxisWithACorner(t T) T {
+    val rows = SnapshotLines(chartSample(), 30, 10)
+    var found = false
+    var y = 0
+    for y < 10 {
+        val r = rows.Get(y)
+        if strings.Contains(r, "└") && strings.Contains(r, "─") { found = true }
+        y = y + 1
+    }
+    return EqMsg(t, found, true, "no `└───` baseline found")
+}
+
+func TestChartWithoutAxesIsJustACanvas(t T) T {
+    // A bare axis draws its rule but writes nothing, so the plot keeps its
+    // columns. Guards against the gutter being reserved unconditionally.
+    val bare = Chart(
+        ArrayOf[ChartDataset](DatasetOf("", chartPts(), DefaultStyle())),
+        AxisBare(XBounds(0.0, 10.0)),
+        AxisBare(YBounds(0.0, 10.0)),
+    )
+    val rows = SnapshotLines(bare, 20, 6)
+    // Gutter is zero wide, so the rule sits in column 0.
+    return Eq(t, strings.HasPrefix(rows.Get(0), "│"), true)
+}
+
+// ----------------------------------------------------------------------------
+// Tick labels
+// ----------------------------------------------------------------------------
+
+func TestYLabelsRunHighestFirst(t T) T {
+    // Labels are supplied low-to-high with the bounds, but screen rows grow
+    // downward — so the top row must carry the HIGHEST value. Getting this
+    // backwards produces a plot that is a vertical mirror of its own scale,
+    // which reads as plausible data.
+    val rows = SnapshotLines(chartSample(), 30, 10)
+    var topIdx = -1
+    var botIdx = -1
+    var y = 1
+    for y < 8 {
+        val r = rows.Get(y)
+        if strings.Contains(r, "10") && topIdx < 0 { topIdx = y }
+        // "0" alone, not the "0" inside "10".
+        if strings.HasPrefix(strings.TrimSpace(r), "0") { botIdx = y }
+        y = y + 1
+    }
+    val t1 = EqMsg(t, topIdx >= 0, true, "highest Y label not rendered")
+    val t2 = EqMsg(t1, botIdx >= 0, true, "lowest Y label not rendered")
+    return EqMsg(t2, topIdx < botIdx, true, "Y labels are upside down")
+}
+
+func TestXLabelsAnchorAtBothEnds(t T) T {
+    // First label hard left, last hard right. Centring the ends would put
+    // the origin label to the right of the origin it names.
+    val rows = SnapshotLines(chartSample(), 30, 10)
+    var labelRow = ""
+    var y = 0
+    for y < 10 {
+        val r = rows.Get(y)
+        if strings.Contains(r, "0") && strings.Contains(r, "10") &&
+           !strings.Contains(r, "│") && !strings.Contains(r, "└") {
+            labelRow = r
+        }
+        y = y + 1
+    }
+    val t1 = EqMsg(t, labelRow != "", true, "no X label row found")
+    return EqMsg(t1, strings.HasSuffix(strings.TrimRight(labelRow, " "), "10"),
+                 true, s"last X label not flush right: [$labelRow]")
+}
+
+func TestAxisTitlesAreRendered(t T) T {
+    val out = Snapshot(chartSample(), 30, 10)
+    val t1 = EqMsg(t, strings.Contains(out, "pct"), true, "Y axis title missing")
+    return EqMsg(t1, strings.Contains(out, "secs"), true, "X axis title missing")
+}
+
+func TestYLabelGutterWidensForLongLabels(t T) T {
+    // A three-digit label must not be clipped by a gutter sized for one.
+    val c = Chart(
+        ArrayOf[ChartDataset](DatasetOf("x", chartPts(), DefaultStyle())),
+        AxisBare(XBounds(0.0, 10.0)),
+        AxisOf("", YBounds(0.0, 250.0), ArrayOf[string]("0", "250")),
+    )
+    return EqMsg(t, strings.Contains(Snapshot(c, 30, 8), "250"), true,
+                 "long Y label was clipped by the gutter")
+}
+
+// ----------------------------------------------------------------------------
+// Legend
+// ----------------------------------------------------------------------------
+
+func TestLegendNamesEverySeriesWhenThereAreTwo(t T) T {
+    val c = Chart(
+        ArrayOf[ChartDataset](
+            DatasetOf("p50", chartPts(), DefaultStyle().WithFg(BrightGreen())),
+            DatasetOf("p99", chartPts(), DefaultStyle().WithFg(BrightRed())),
+        ),
+        AxisBare(XBounds(0.0, 10.0)),
+        AxisBare(YBounds(0.0, 10.0)),
+    )
+    val out = Snapshot(c, 30, 10)
+    val t1 = EqMsg(t, strings.Contains(out, "p50"), true, "p50 missing from legend")
+    return EqMsg(t1, strings.Contains(out, "p99"), true, "p99 missing from legend")
+}
+
+func TestSingleSeriesGetsNoLegend(t T) T {
+    // One line needs no key — the axis titles already say what is measured,
+    // and a box naming the only series on the plot is noise over the data.
+    return EqMsg(t, strings.Contains(Snapshot(chartSample(), 30, 10), "cpu"),
+                 false, "a single-series chart drew a legend")
+}
+
+func TestLegendCanBePlacedInAnyCorner(t T) T {
+    val mk = (pos LegendPosition) => ChartWithLegend(
+        ArrayOf[ChartDataset](DatasetOf("aa", chartPts(), DefaultStyle())),
+        AxisBare(XBounds(0.0, 10.0)), AxisBare(YBounds(0.0, 10.0)), pos)
+    val topRows = SnapshotLines(mk(LegendTopRight()), 24, 8)
+    val botRows = SnapshotLines(mk(LegendBottomRight()), 24, 8)
+    var topAt = -1
+    var botAt = -1
+    var y = 0
+    for y < 8 {
+        if strings.Contains(topRows.Get(y), "aa") && topAt < 0 { topAt = y }
+        if strings.Contains(botRows.Get(y), "aa") { botAt = y }
+        y = y + 1
+    }
+    val t1 = EqMsg(t, topAt >= 0 && botAt >= 0, true, "legend missing in a corner")
+    return EqMsg(t1, topAt < botAt, true,
+                 s"top legend at row $topAt is not above bottom legend at row $botAt")
+}
+
+func TestLegendIsHiddenWhenAsked(t T) T {
+    val c = ChartWithLegend(
+        ArrayOf[ChartDataset](
+            DatasetOf("p50", chartPts(), DefaultStyle()),
+            DatasetOf("p99", chartPts(), DefaultStyle()),
+        ),
+        AxisBare(XBounds(0.0, 10.0)), AxisBare(YBounds(0.0, 10.0)),
+        LegendHidden())
+    return EqMsg(t, strings.Contains(Snapshot(c, 30, 10), "p50"), false,
+                 "LegendHidden still drew the legend")
+}
+
+// ----------------------------------------------------------------------------
+// Series rendering
+// ----------------------------------------------------------------------------
+
+func TestPlotAreaActuallyHasInk(t T) T {
+    // The axes must not be the only thing on screen. Count braille cells in
+    // the plot region — quantitative, so it catches a plot that renders one
+    // stray dot as well as one that renders nothing.
+    val buf = NewBuffer(30, 10)
+    RenderTo(chartSample(), Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
+    var lit = 0
+    var y = 1
+    for y < 8 {
+        var x = 6
+        for x < 30 {
+            val c = buf.CharAt(x, y)
+            if c >= '⠀' && c <= '⣿' && c != '⠀' { lit = lit + 1 }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return EqMsg(t, lit > 3, true, s"plot area has only $lit lit cells")
+}
+
+func TestLineGraphConnectsPointsScatterDoesNot(t T) T {
+    // Two points at opposite corners: a line fills the diagonal between
+    // them, a scatter lights only the ends. If both render the same, the
+    // graph type is being ignored.
+    val pts = ArrayOf[CanvasPoint](
+        CanvasPoint(X = 0.0, Y = 0.0), CanvasPoint(X = 10.0, Y = 10.0))
+    val count = (d ChartDataset) => {
+        val buf = NewBuffer(24, 8)
+        RenderTo(Chart(ArrayOf[ChartDataset](d),
+                       AxisBare(XBounds(0.0, 10.0)), AxisBare(YBounds(0.0, 10.0))),
+                 Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
+        var lit = 0
+        var y = 0
+        for y < 6 {
+            var x = 1
+            for x < 24 {
+                if buf.CharAt(x, y) != ' ' { lit = lit + 1 }
+                x = x + 1
+            }
+            y = y + 1
+        }
+        return lit
+    }
+    val lineLit = count(DatasetOf("", pts, DefaultStyle()))
+    val scatLit = count(DatasetScatter("", pts, DefaultStyle()))
+    return EqMsg(t, lineLit > scatLit, true,
+                 s"line lit $lineLit cells, scatter lit $scatLit — expected line to fill more")
+}
+
+func TestEmptyDatasetRendersAxesNotACrash(t T) T {
+    val c = Chart(
+        ArrayOf[ChartDataset](DatasetOf("none", EmptyArray[CanvasPoint](), DefaultStyle())),
+        AxisOf("x", XBounds(0.0, 1.0), ArrayOf[string]("0", "1")),
+        AxisOf("y", YBounds(0.0, 1.0), ArrayOf[string]("0", "1")),
+    )
+    return EqMsg(t, strings.Contains(Snapshot(c, 20, 8), "└"), true,
+                 "empty series should still draw its axes")
+}
+
+// ----------------------------------------------------------------------------
+// ChartOfValues convenience
+// ----------------------------------------------------------------------------
+
+func TestChartOfValuesLabelsItsOwnRange(t T) T {
+    val c = ChartOfValues("m", ArrayOf[float64](3.0, 9.0, 6.0), DefaultStyle())
+    val out = Snapshot(c, 24, 8)
+    val t1 = EqMsg(t, strings.Contains(out, "9"), true, "max not labelled")
+    return EqMsg(t1, strings.Contains(out, "3"), true, "min not labelled")
+}
+
+func TestFlatSeriesDoesNotCollapseOntoAnEdge(t T) T {
+    // Zero span would divide by zero in projection and flatten every point
+    // onto one row. A steady metric must still read as a line through the
+    // middle, not as an artifact against the frame.
+    val c = ChartOfValues("flat", ArrayOf[float64](5.0, 5.0, 5.0), DefaultStyle())
+    val buf = NewBuffer(24, 8)
+    RenderTo(c, Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
+    var litRow = -1
+    var y = 0
+    for y < 6 {
+        var x = 4
+        for x < 24 {
+            if buf.CharAt(x, y) != ' ' && litRow < 0 { litRow = y }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    val t1 = EqMsg(t, litRow >= 0, true, "flat series rendered nothing")
+    return EqMsg(t1, litRow > 0, true, "flat series collapsed onto the top row")
+}
+
+func TestChartOfValuesOnEmptyInputIsEmpty(t T) T =
+    Eq(t, strings.TrimSpace(Snapshot(ChartOfValues("e", EmptyArray[float64](),
+                                                   DefaultStyle()), 12, 4)), "")
+
+// ----------------------------------------------------------------------------
+// Composition
+// ----------------------------------------------------------------------------
+
+func TestChartRestylesWithItsPane(t T) T {
+    // Built by composition rather than as a `CustomW` precisely so this
+    // works: `restyleLeaves` passes CustomW through untouched, so a chart
+    // built that way would stay at full brightness on a dimmed pane.
+    val dimmed = Restyled(chartSample(), (s) => s.WithDim())
+    val buf = NewBuffer(30, 10)
+    RenderTo(dimmed, Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
+    var found = false
+    var y = 0
+    for y < 10 {
+        var x = 0
+        for x < 30 {
+            if buf.CharAt(x, y) != ' ' && !buf.StyleAt(x, y).Dim { found = true }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return EqMsg(t, found, false, "a cell escaped the dim pass")
+}
+
+// ----------------------------------------------------------------------------
+// Axis labels must line up with the values they name
+//
+// Both defects below were invisible to the assertions above — every test
+// passed while the rendered plot disagreed with its own scale. They were
+// found by dumping a chart and reading it.
+// ----------------------------------------------------------------------------
+
+func TestLowestYLabelSitsOnTheBottomPlotRow(t T) T {
+    // Equal Flex bands put each label at the TOP of its band, so with three
+    // labels over ten rows the lowest landed on row 7 while the value it
+    // names plotted on row 10 — a scale three rows out of register with its
+    // own data, which still reads as plausible.
+    val c = Chart(
+        ArrayOf[ChartDataset](DatasetOf("", chartPts(), DefaultStyle())),
+        AxisBare(XBounds(0.0, 10.0)),
+        AxisOf("", YBounds(0.0, 10.0), ArrayOf[string]("0", "5", "10")),
+    )
+    val rows = SnapshotLines(c, 24, 10)
+    // Rows 0..8 are the plot (row 9 is the `└───` baseline).
+    val bottom = chartGutterOf(rows.Get(8))
+    val top = chartGutterOf(rows.Get(0))
+    val t1 = EqMsg(t, top, "10", s"top plot row should be labelled 10, got [$top]")
+    return EqMsg(t1, bottom, "0", s"bottom plot row should be labelled 0, got [$bottom]")
+}
+
+func TestChartOfValuesDoesNotInvertItsScale(t T) T {
+    // A series running 3 to 18 labelled its TOP row 3 — the labels were
+    // handed over high-first and then reversed again for the screen.
+    val c = ChartOfValues("v", ArrayOf[float64](3.0, 18.0, 9.0), DefaultStyle())
+    val rows = SnapshotLines(c, 24, 8)
+    val top = chartGutterOf(rows.Get(0))
+    return EqMsg(t, top, "18", s"top row should carry the maximum, got [$top]")
+}
+
+func TestTwoLabelAxisAnchorsBothEnds(t T) T {
+    val c = Chart(
+        ArrayOf[ChartDataset](DatasetOf("", chartPts(), DefaultStyle())),
+        AxisBare(XBounds(0.0, 10.0)),
+        AxisOf("", YBounds(0.0, 10.0), ArrayOf[string]("lo", "hi")),
+    )
+    val rows = SnapshotLines(c, 24, 8)
+    val top = chartGutterOf(rows.Get(0))
+    val bottom = chartGutterOf(rows.Get(6))
+    val t1 = EqMsg(t, top, "hi", s"expected hi on the top row, got [$top]")
+    return EqMsg(t1, bottom, "lo", s"expected lo on the bottom row, got [$bottom]")
+}
+
+// chartGutterOf returns the Y-label gutter of a rendered row: everything
+// left of the axis rule, trimmed.
+func chartGutterOf(row string) string {
+    var out = ""
+    for _, c := range row {
+        if c == '│' {
+            return strings.TrimSpace(out)
+        }
+        out = out + string(c)
+    }
+    return strings.TrimSpace(out)
+}
