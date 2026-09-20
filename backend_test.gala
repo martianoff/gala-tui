@@ -1,0 +1,217 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Backend seam (G7) — driving the whole run loop without a terminal.
+//
+// Everything between "bytes arrive on stdin" and "a frame is painted" had no
+// test before this: the widget harness renders widgets directly, so parsing,
+// carry-over, click resolution, quit handling and teardown were exercised
+// only by running the binary by hand. Every bracketed-paste defect found in
+// the 0.12.0 review lived in that gap.
+//
+// These tests script the input and read back what the program did.
+// ============================================================================
+
+sealed type BeMsg {
+    case BeKey(K string)
+    case BePaste(Text string)
+    case BeQuit()
+    case BeNoOp()
+}
+
+struct BeModel(Keys Array[string], Pasted string)
+
+func beInitial() BeModel = BeModel(Keys = EmptyArray[string](), Pasted = "")
+
+func beUpdate(m BeModel, msg BeMsg) Tuple[BeModel, Cmd[BeMsg]] = msg match {
+    case BeKey(k)     => (m.Copy(Keys = m.Keys.Append(k)), NoCmd[BeMsg]())
+    case BePaste(txt) => (m.Copy(Pasted = txt), NoCmd[BeMsg]())
+    case BeQuit()     => (m, QuitCmd[BeMsg]())
+    case BeNoOp()     => (m, NoCmd[BeMsg]())
+}
+
+func beView(m BeModel) Widget =
+    Text("keys=" + strings.Join(m.Keys.ToGoSlice(), ",") + " paste=" + m.Pasted)
+
+func beKeyToMsg(ev KeyEvent) BeMsg = ev.Key match {
+    case Char(c) => if (c == 'q') BeQuit() else BeKey(K = string(c))
+    case Up()    => BeKey(K = "up")
+    case Enter() => BeKey(K = "enter")
+    case _       => BeNoOp()
+}
+
+func beProgram() Program[BeModel, BeMsg] =
+    Program[BeModel, BeMsg](Initial = beInitial(), Update = beUpdate, View = beView)
+
+// ----------------------------------------------------------------------------
+// The loop runs, paints, and terminates
+// ----------------------------------------------------------------------------
+
+func TestRunPaintsTheInitialModelBeforeAnyInput(t T) T {
+    val (backend, st) = NewTestBackend(24, 3, "")
+    val _ = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, st.Wrote("keys= paste="), true,
+                 "the first frame was never painted")
+}
+
+func TestRunConsumesScriptedKeystrokes(t T) T {
+    val (backend, st) = NewTestBackend(40, 3, "abc")
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    val t1 = Eq(t, strings.Join(final.Keys.ToGoSlice(), ","), "a,b,c")
+    return EqMsg(t1, st.Wrote("keys=a,b,c"), true, "the final frame was not painted")
+}
+
+func TestRunStopsWhenInputEnds(t T) T {
+    // A scripted run must terminate on its own. Before the seam there was no
+    // way to assert this at all — an infinite loop in the runtime could only
+    // be found by hanging a terminal.
+    val (backend, _) = NewTestBackend(20, 3, "xy")
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return Eq(t, final.Keys.Length(), 2)
+}
+
+func TestQuitCmdEndsTheLoopImmediately(t T) T {
+    // 'q' quits; the 'z' after it must never be dispatched.
+    val (backend, _) = NewTestBackend(20, 3, "aqz")
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, strings.Join(final.Keys.ToGoSlice(), ","), "a",
+                 "input after QuitCmd was still processed")
+}
+
+// ----------------------------------------------------------------------------
+// Terminal acquisition and release
+// ----------------------------------------------------------------------------
+
+func TestRunOpensAndClosesTheBackendExactlyOnce(t T) T {
+    // The `use` binding must release on the normal return path. A leak here
+    // is what leaves a real user's shell in the alternate screen with no
+    // cursor and mouse reporting still on.
+    val (backend, st) = NewTestBackend(20, 3, "ab")
+    val _ = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    val t1 = EqMsg(t, st.Opened, 1, "backend opened the wrong number of times")
+    return EqMsg(t1, st.Closed, 1, "backend was not released exactly once")
+}
+
+func TestRunReleasesTheBackendOnAnEarlyQuit(t T) T {
+    // Quit returns from deep inside the read loop, which is the path most
+    // likely to skip cleanup if it were written by hand.
+    val (backend, st) = NewTestBackend(20, 3, "q")
+    val _ = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, st.Closed, 1, "quitting from inside the loop skipped release")
+}
+
+// ----------------------------------------------------------------------------
+// Escape sequences through the real loop
+// ----------------------------------------------------------------------------
+
+func TestArrowKeyDecodesThroughTheRunLoop(t T) T {
+    val (backend, _) = NewTestBackend(20, 3, "\x1b[Ab")
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, strings.Join(final.Keys.ToGoSlice(), ","), "up,b",
+                 "arrow key did not decode as one event")
+}
+
+func TestAltBracketDoesNotSwallowTheNextKeyInTheLoop(t T) T {
+    // The regression the 0.12.0 review found, pinned end to end rather than
+    // at the parser alone. The two keystrokes must arrive in SEPARATE reads,
+    // which is what a terminal actually does — it writes each keypress as it
+    // happens. Carrying the bodyless `ESC [` waited for a completion that
+    // never came and absorbed the next keystroke into the pending sequence.
+    val (backend, _) = NewTestBackendChunks(20, 3, ArrayOf[string]("\x1b[", "b"))
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, final.Keys.Contains("b"), true,
+                 "the keystroke after Alt+[ was swallowed by the run loop")
+}
+
+func TestEscBracketAndTheNextKeyInOneReadIsACsiSequence(t T) T {
+    // The honest limit of the fix above, asserted so nobody "fixes" it into
+    // a regression. `ESC [ b` delivered in ONE read is a complete, valid CSI
+    // sequence — `b` is in the final-byte range — and is indistinguishable
+    // from Alt+[ followed by `b` without a timeout, which this runtime does
+    // not have. It decodes as the sequence, and the `b` is consumed by it.
+    //
+    // Terminals write each keypress as its own call, so a human typing
+    // Alt+[ then `b` produces two reads and hits the test above. This case
+    // needs the two to arrive inside one read.
+    val (backend, _) = NewTestBackend(20, 3, "\x1b[b")
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, final.Keys.Contains("b"), false,
+                 "ESC [ b in one read should decode as a single CSI sequence")
+}
+
+func TestSequenceSplitInsideItsBodyStillReassembles(t T) T {
+    // The reason the carry buffer exists, and the half that still works:
+    // once a CSI has a body, a split anywhere inside it carries and
+    // reassembles. `ESC [ 1` + `5~` is F5 torn mid-parameter.
+    val (backend, _) = NewTestBackendChunks(20, 3, ArrayOf[string]("\x1b[1", "5~b"))
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, final.Keys.Contains("b"), true,
+                 "a split F5 consumed the keystroke after it")
+}
+
+func TestSplitAtTheBodylessPrefixResolvesAsAltBracket(t T) T {
+    // The documented cost of making Alt+[ work, asserted so the tradeoff is
+    // visible rather than discovered.
+    //
+    // `ESC [` and `A` arriving in two separate reads is ambiguous: it is
+    // either Alt+[ then `A`, or an arrow key torn at the one boundary that
+    // leaves no body to carry. Without a read timeout the runtime cannot
+    // tell, and it resolves to Alt+[ — because a terminal writes a whole
+    // escape sequence in a single call, so a real arrow key does not split
+    // here, while Alt+[ produces a bodyless two-byte read every time it is
+    // pressed.
+    //
+    // A read timeout is the actual fix and would satisfy both. Until then
+    // this is the better half of the trade.
+    val (backend, _) = NewTestBackendChunks(20, 3, ArrayOf[string]("\x1b[", "A"))
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    return EqMsg(t, final.Keys.Contains("up"), false,
+                 "a bodyless split should resolve as Alt+[ , not as an arrow key")
+}
+
+func TestSizeComesFromTheBackend(t T) T {
+    // A 12-column backend must produce 12-column frames. This is the
+    // property the inline `TermSize()` made untestable and the one a
+    // non-fullscreen viewport depends on.
+    val (backend, st) = NewTestBackend(12, 2, "")
+    val prog = Program[BeModel, BeMsg](
+        Initial = beInitial(), Update = beUpdate,
+        View = (m) => FillCh('#'))
+    val _ = Run[BeModel, BeMsg](prog, beKeyToMsg, backend)
+    // Twelve '#' in a row, and not thirteen.
+    val t1 = EqMsg(t, strings.Contains(st.Written, "############"), true,
+                   "frame was not 12 columns wide")
+    return EqMsg(t1, strings.Contains(st.Written, "#############"), false,
+                 "frame was wider than the backend's 12 columns")
+}
+
+// ----------------------------------------------------------------------------
+// The test backend itself
+// ----------------------------------------------------------------------------
+
+func TestTestBackendReportsEndOfScript(t T) T {
+    val (backend, _) = NewTestBackend(10, 2, "hi")
+    val buf = SliceWithSize[byte](8)
+    val (n1, ok1) = backend.Read(buf)
+    val t1 = Eq(t, n1, 2)
+    val t2 = Eq(t1, ok1, true)
+    val (_, ok2) = backend.Read(buf)
+    return EqMsg(t2, ok2, false, "exhausted script should report not-ok")
+}
+
+func TestTestBackendSplitsLongInputAcrossReads(t T) T {
+    // A read buffer smaller than the script is how a test reproduces an
+    // escape sequence torn across two reads.
+    val (backend, _) = NewTestBackend(10, 2, "abcdef")
+    val small = SliceWithSize[byte](4)
+    val (n1, _) = backend.Read(small)
+    val (n2, _) = backend.Read(small)
+    return Eq(t, s"$n1/$n2", "4/2")
+}
