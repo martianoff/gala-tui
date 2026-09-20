@@ -266,35 +266,25 @@ func TermSize() Tuple[int, int] {
 func Run[M any, T any](
     program Program[M, T],
     makeKeyMsg func(KeyEvent) T,
+    backend Backend = TerminalBackend(),
 ) M {
-    val fd = int(os.Stdin.Fd())
-    var state, err = term.MakeRaw(fd)
-    if err != nil {
-        // Not a tty or no raw mode available — fall back to the pure
-        // StepAll harness so at least one frame is drawn.
-        fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
-        return program.Initial
-    }
     // The session owns raw mode, the alt screen and the cursor; releasing
     // it restores all three on every exit path, normal return or panic.
-    use _session = enterTermSession(fd, state, false)
+    val session = backend.Open(false)
+    use _guard = closeOnExit(session)
 
     var model = program.Initial
 
     // First paint — the initial model before any input.
-    paintFrame(program.View(model))
+    paintFrame(program.View(model), backend)
 
     var readBuf = SliceWithSize[byte](readBufBytes())
     // Bytes left over from the previous read because they were the start of
     // an escape sequence whose tail had not arrived yet. See carryOver.
     var carry = SliceEmpty[byte]()
     for {
-        var n, rerr = os.Stdin.Read(readBuf)
-        if rerr != nil {
-            if rerr == io.EOF {
-                return model
-            }
-            fmt.Fprintln(os.Stderr, "gala-tui: stdin read failed:", rerr)
+        val (n, ok) = backend.Read(readBuf)
+        if !ok {
             return model
         }
         if n == 0 {
@@ -346,7 +336,7 @@ func Run[M any, T any](
                 i = i + 1
             }
 
-            paintFrame(program.View(model))
+            paintFrame(program.View(model), backend)
         }
     }
     return model
@@ -482,31 +472,16 @@ func resyncOverlongCarry(rest []byte) []byte {
     return SliceEmpty[byte]()
 }
 
-func stdinReadFuture() concurrent.Future[ReadResult] {
-    return concurrent.Future[ReadResult](() => {
-        var buf = SliceWithSize[byte](readBufBytes())
-        var n, err = os.Stdin.Read(buf)
-        if err != nil {
-            return ReadResult(Buf = buf, N = 0, Err = true)
-        }
-        return ReadResult(Buf = buf, N = n, Err = false)
-    })
-}
-
 // RunWithSub adds Sub[T] support to Run: timer ticks, batched async
 // events, etc. Use when the app needs anything beyond synchronous key input.
 func RunWithSub[M any, T any](
     program Program[M, T],
     makeKeyMsg func(KeyEvent) T,
     initialSub Sub[T],
+    backend Backend = TerminalBackend(),
 ) M {
-    val fd = int(os.Stdin.Fd())
-    var state, err = term.MakeRaw(fd)
-    if err != nil {
-        fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
-        return program.Initial
-    }
-    use _session = enterTermSession(fd, state, false)
+    val session = backend.Open(false)
+    use _guard = closeOnExit(session)
 
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
@@ -515,7 +490,7 @@ func RunWithSub[M any, T any](
     // Partial escape sequence held back from the previous read — see carryOver.
     var carry = SliceEmpty[byte]()
 
-    paintFrame(program.View(model))
+    paintFrame(program.View(model), backend)
 
     for {
         // 1. Drain ready async Cmds.
@@ -541,12 +516,12 @@ func RunWithSub[M any, T any](
         // If anything above changed the model, paint before blocking on the
         // next input event.
         if asyncMsgs.NonEmpty() || tickMsgs.NonEmpty() {
-            paintFrame(program.View(model))
+            paintFrame(program.View(model), backend)
         }
 
         // 3. Ensure a stdin read future is in flight.
         if readFut.IsEmpty() {
-            readFut = Some[concurrent.Future[ReadResult]](stdinReadFuture())
+            readFut = Some[concurrent.Future[ReadResult]](backend.ReadAsync())
         }
 
         // 4. Wait up to 50ms for it to complete.
@@ -588,7 +563,7 @@ func RunWithSub[M any, T any](
             return model
         }
 
-        paintFrame(program.View(model))
+        paintFrame(program.View(model), backend)
     }
     return model
 }
@@ -609,16 +584,12 @@ func RunWithMouse[M any, T any](
     program Program[M, T],
     makeInputMsg func(InputEvent) T,
     initialSub Sub[T],
+    backend Backend = TerminalBackend(),
 ) M {
-    val fd = int(os.Stdin.Fd())
-    var state, err = term.MakeRaw(fd)
-    if err != nil {
-        fmt.Fprintln(os.Stderr, "gala-tui: MakeRaw failed, running in degraded mode:", err)
-        return program.Initial
-    }
     // Mouse mode is part of the session, so it is turned off by the same
     // release that restores raw mode and the alt screen.
-    use _session = enterTermSession(fd, state, true)
+    val session = backend.Open(true)
+    use _guard = closeOnExit(session)
 
     var model = program.Initial
     var pending = EmptyArray[concurrent.Future[T]]()
@@ -628,7 +599,7 @@ func RunWithMouse[M any, T any](
     // On this path it also accumulates a bracketed paste, which routinely
     // spans several reads before its `ESC [ 201 ~` closer arrives.
     var carry = SliceEmpty[byte]()
-    val (initW, initH) = TermSize()
+    val (initW, initH) = backend.Size()
     var lastW = initW
     var lastH = initH
     // The HitRegistry lives across frames: each render resets it before
@@ -641,7 +612,7 @@ func RunWithMouse[M any, T any](
     // release, regardless of whether the cursor wanders off the
     // press's region in between.
     var dragActive = None[DragActive]()
-    var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits)
+    var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
 
     for {
         // 0. Drain a deferred single-click if its double-click window has
@@ -657,7 +628,7 @@ func RunWithMouse[M any, T any](
             return model
         }
         if drainMsgs.NonEmpty() {
-            prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
+            prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits, backend)
         }
 
         // 1. Drain ready async Cmds.
@@ -681,7 +652,7 @@ func RunWithMouse[M any, T any](
         }
 
         // 3. Detect resize and dispatch it as a ResizeInput event.
-        val (curW, curH) = TermSize()
+        val (curW, curH) = backend.Size()
         var resizeMsgs = EmptyArray[T]()
         if curW != lastW || curH != lastH {
             lastW = curW
@@ -696,12 +667,12 @@ func RunWithMouse[M any, T any](
         }
 
         if asyncMsgs.NonEmpty() || tickMsgs.NonEmpty() || resizeMsgs.NonEmpty() {
-            prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
+            prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits, backend)
         }
 
         // 4. Ensure a stdin read future is in flight and wait briefly for it.
         if readFut.IsEmpty() {
-            readFut = Some[concurrent.Future[ReadResult]](stdinReadFuture())
+            readFut = Some[concurrent.Future[ReadResult]](backend.ReadAsync())
         }
         val got = readFut.Get().AwaitFor(Milliseconds(50))
         if got.IsEmpty() {
@@ -740,7 +711,7 @@ func RunWithMouse[M any, T any](
             return model
         }
 
-        prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits)
+        prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits, backend)
     }
     return model
 }
@@ -1328,12 +1299,12 @@ func processKeyBytes[M any, T any](
 // render into it, then writes the ANSI-escape text to stdout preceded by
 // cursor-home. Full repaint every frame — kept for the simple `Run` path
 // that doesn't care about bandwidth.
-func paintFrame(w Widget) {
-    val (width, height) = TermSize()
+func paintFrame(w Widget, backend Backend) {
+    val (width, height) = backend.Size()
     val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
-    fmt.Fprint(os.Stdout, ansiHome())
-    fmt.Fprint(os.Stdout, buf.String())
+    backend.Write(ansiHome())
+    backend.Write(buf.String())
 }
 
 // paintFrameDiff renders into a fresh buffer, then writes ONLY the cells that
@@ -1344,8 +1315,8 @@ func paintFrame(w Widget) {
 // This is what keeps the wire traffic down when only a spinner frame or a
 // highlighted row moves: typical diff is 80–200 bytes versus a few KB for a
 // full repaint.
-func paintFrameDiff(w Widget, prev *Buffer) *Buffer =
-    paintFrameDiffWithHits(w, prev, nil)
+func paintFrameDiff(w Widget, prev *Buffer, backend Backend) *Buffer =
+    paintFrameDiffWithHits(w, prev, nil, backend)
 
 // paintFrameDiffWithHits is the hit-aware variant used by `RunWithMouse`:
 // before painting it resets `hits`, then renders through the hit-aware
@@ -1354,13 +1325,18 @@ func paintFrameDiff(w Widget, prev *Buffer) *Buffer =
 // frames and consults it on every mouse click.
 //
 // Pass `nil` for `hits` to mirror the plain `paintFrameDiff` shape.
-func paintFrameDiffWithHits(w Widget, prev *Buffer, hits *HitRegistry) *Buffer {
-    val (width, height) = TermSize()
+func paintFrameDiffWithHits(
+    w Widget,
+    prev *Buffer,
+    hits *HitRegistry,
+    backend Backend,
+) *Buffer {
+    val (width, height) = backend.Size()
     val buf = NewBuffer(width, height)
     if hits != nil {
         hits.Reset()
     }
     RenderToWithHits(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf, hits)
-    fmt.Fprint(os.Stdout, buf.DiffString(prev))
+    backend.Write(buf.DiffString(prev))
     return buf
 }

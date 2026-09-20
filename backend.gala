@@ -1,0 +1,289 @@
+package gala_tui
+
+import (
+    "fmt"
+    "strings"
+    "martianoff/gala/concurrent"
+    "os"
+    "golang.org/x/term"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+)
+
+// ============================================================================
+// Backend — the seam between the runtime and the terminal.
+//
+// Everything the run loop needs from the outside world is four operations:
+// how big the screen is, write some bytes, read some bytes, and acquire or
+// release the terminal's global state (raw mode, alternate screen, input
+// protocols). Until now all four were `os.Stdout` / `os.Stdin` /
+// `golang.org/x/term` calls written inline in `runtime.gala`, which had two
+// consequences:
+//
+//   - **The run loop was untestable.** The widget harness renders widgets
+//     directly, so everything between "bytes arrive" and "a frame is
+//     painted" — parsing, carry-over, click resolution, subscription
+//     draining, quit handling — had no test that drove it end to end. The
+//     bracketed-paste defects found in the 0.12.0 review all lived in that
+//     gap, and none of them could have been caught by a widget test.
+//
+//   - **The viewport was fixed.** "Where do I write, and how much of the
+//     screen do I own" is a backend question. Answering it inline is why
+//     every app is full-screen on the alternate screen.
+//
+// A Backend is a struct of functions rather than an interface: GALA models
+// this shape with closures, and it makes a test backend a literal rather
+// than a type declaration.
+//
+// The Run entry points take `backend Backend = TerminalBackend()`, so this
+// is additive — existing calls are unchanged and get the real terminal.
+// ============================================================================
+
+// BackendSession is the release half of acquiring the terminal. `Close`
+// restores whatever `Open` changed and must be safe to call once.
+struct BackendSession(
+    Close func(),
+)
+
+// Backend is the terminal seam.
+//
+// `Read` fills `buf` and returns (bytes read, ok). `ok = false` means the
+// input stream ended or failed, which the run loop treats as a quit — a
+// closed stdin is not recoverable and spinning on it burns a core.
+// `ReadAsync` is a separate operation rather than `Read` wrapped in a
+// Future by the runtime, and that is forced by GALA's data-race checker
+// rather than chosen: a closure crossing into a Future cannot capture the
+// Backend, because a backend's read state is mutable and E0037 refuses to
+// let it be shared. Each backend therefore builds its own Future, where it
+// knows whether that is safe — the terminal reads from a file descriptor
+// with nothing captured, while the test backend reads synchronously and
+// returns an already-completed Future, which is both correct and exactly
+// what a deterministic test wants.
+struct Backend(
+    Name      string,
+    Size      func() Tuple[int, int],
+    Write     func(string),
+    Read      func([]byte) Tuple[int, bool],
+    ReadAsync func() concurrent.Future[ReadResult],
+    // Open acquires the terminal for a run. `mouse` selects the input
+    // protocols — see `currentTermModes`.
+    Open      func(bool) BackendSession,
+)
+
+// ----------------------------------------------------------------------------
+// The real terminal
+// ----------------------------------------------------------------------------
+
+// TerminalBackend is the default: raw mode on stdin, ANSI to stdout, size
+// probed from whichever of the three standard fds is a tty.
+func TerminalBackend() Backend = Backend(
+    Name  = "terminal",
+    Size  = () => TermSize(),
+    Write = (s) => {
+        fmt.Fprint(os.Stdout, s)
+    },
+    Read  = (buf) => {
+        var n, err = os.Stdin.Read(buf)
+        if err != nil {
+            return (0, false)
+        }
+        return (n, true)
+    },
+    ReadAsync = () => terminalReadFuture(),
+    Open  = (mouse) => terminalOpen(mouse),
+)
+
+// terminalOpen puts the terminal into raw mode and enters the alternate
+// screen, returning the session that undoes both.
+//
+// A failure to enter raw mode is NOT fatal here. It means stdin is not a
+// tty — a piped or redirected run — and the caller's degraded path handles
+// that; the session it gets back is a no-op so `Close` stays safe to call.
+func terminalOpen(mouse bool) BackendSession {
+    val fd = int(os.Stdin.Fd())
+    var state, err = term.MakeRaw(fd)
+    if err != nil {
+        return BackendSession(Close = () => {})
+    }
+    val session = enterTermSession(fd, state, mouse)
+    return BackendSession(Close = () => {
+        val _ = session.Close()
+    })
+}
+
+// ----------------------------------------------------------------------------
+// Test backend
+// ----------------------------------------------------------------------------
+
+// TestBackendState is the recorded side of a scripted run: every byte the
+// runtime wrote, and how much of the scripted input it has consumed.
+type TestBackendState struct {
+    var Written string
+    var Input   []byte
+    var Pos     int
+    var Opened  int
+    var Closed  int
+}
+
+// NewTestBackend builds a Backend that reads from `input`, records
+// everything written, and reports a fixed size.
+//
+// This is what makes the run loop testable: a test can hand it a byte
+// sequence — an escape sequence split across two reads, a bracketed paste
+// with no closer, a mouse packet racing a keypress — and assert on what the
+// program did with it. Those are exactly the cases the widget harness
+// cannot reach, and exactly where this library's input bugs have been.
+//
+// `Read` returns `ok = false` once the script is exhausted, which the run
+// loop treats as end of input, so a scripted run terminates on its own
+// rather than needing a Quit message in every fixture.
+func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBackendState] {
+    val st = &TestBackendState{
+        Written: "",
+        Input:   ToBytes(input),
+        Pos:     0,
+        Opened:  0,
+        Closed:  0,
+    }
+    val b = Backend(
+        Name  = "test",
+        Size  = () => (width, height),
+        Write = (s) => {
+            st.Written = st.Written + s
+        },
+        Read  = (buf) => testBackendRead(st, buf),
+        ReadAsync = () => {
+            val buf = SliceWithSize[byte](readBufBytes())
+            val (n, ok) = testBackendRead(st, buf)
+            if !ok {
+                return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = 0, Err = true))
+            }
+            return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = n, Err = false))
+        },
+        Open  = (mouse) => {
+            st.Opened = st.Opened + 1
+            return BackendSession(Close = () => {
+                st.Closed = st.Closed + 1
+            })
+        },
+    )
+    return (b, st)
+}
+
+// Wrote reports whether the run emitted `needle` at any point. Enough for
+// the questions a run-loop test actually asks — "did it paint", "did it
+// enable bracketed paste", "did it restore the cursor" — without pinning
+// the exact byte stream, which would make every test brittle to an
+// unrelated escape-sequence change.
+func (s *TestBackendState) Wrote(needle string) bool =
+    strings.Contains(s.Written, needle)
+
+// closeOnExit adapts a BackendSession to the `Close() error` shape a `use`
+// binding requires, so the runtime releases the terminal on every exit path
+// — normal return, an early return from inside the read loop, or a panic.
+struct backendGuard(Session BackendSession)
+
+func (g backendGuard) Close() error {
+    g.Session.Close()
+    return nil
+}
+
+func closeOnExit(s BackendSession) backendGuard = backendGuard(Session = s)
+
+// testBackendRead copies the next chunk of the script into `buf`, returning
+// (bytes, ok). `ok = false` once the script is exhausted, which the run loop
+// reads as end of input — so a scripted run terminates on its own instead of
+// needing a Quit message in every fixture.
+func testBackendRead(st *TestBackendState, buf []byte) Tuple[int, bool] {
+    val avail = st.Input.Size() - st.Pos
+    if avail <= 0 {
+        return (0, false)
+    }
+    val n = MinInt(avail, buf.Size())
+    var i = 0
+    for i < n {
+        buf[i] = st.Input[st.Pos + i]
+        i = i + 1
+    }
+    st.Pos = st.Pos + n
+    return (n, true)
+}
+
+// terminalReadFuture is the real backend's async read: a blocking stdin read
+// on a pooled goroutine. It captures nothing, which is what lets it cross
+// the concurrency boundary at all.
+func terminalReadFuture() concurrent.Future[ReadResult] {
+    return concurrent.Future[ReadResult](() => {
+        var buf = SliceWithSize[byte](readBufBytes())
+        var n, err = os.Stdin.Read(buf)
+        if err != nil {
+            return ReadResult(Buf = buf, N = 0, Err = true)
+        }
+        return ReadResult(Buf = buf, N = n, Err = false)
+    })
+}
+
+// NewTestBackendChunks is `NewTestBackend` with the input pre-split into
+// reads: each `Read` returns exactly one chunk.
+//
+// This is how a test reproduces a sequence torn across two stdin reads,
+// which is the case the carry buffer exists for and the one a single string
+// cannot express — a whole script handed over at once always arrives in one
+// read, so `ESC [` and the keystroke after it become indistinguishable from
+// a single CSI sequence.
+func NewTestBackendChunks(
+    width int,
+    height int,
+    chunks Array[string],
+) Tuple[Backend, *TestBackendState] {
+    val st = &TestBackendState{
+        Written: "",
+        Input:   ToBytes(""),
+        Pos:     0,
+        Opened:  0,
+        Closed:  0,
+    }
+    val queue = &chunkQueue{Chunks: chunks, Idx: 0}
+    val read = (buf []byte) => {
+        if queue.Idx >= queue.Chunks.Length() {
+            return (0, false)
+        }
+        val chunk = ToBytes(queue.Chunks.Get(queue.Idx))
+        queue.Idx = queue.Idx + 1
+        val n = MinInt(chunk.Size(), buf.Size())
+        var i = 0
+        for i < n {
+            buf[i] = chunk[i]
+            i = i + 1
+        }
+        return (n, true)
+    }
+    val b = Backend(
+        Name  = "test-chunks",
+        Size  = () => (width, height),
+        Write = (s) => {
+            st.Written = st.Written + s
+        },
+        Read  = read,
+        ReadAsync = () => {
+            val buf = SliceWithSize[byte](readBufBytes())
+            val (n, ok) = read(buf)
+            if !ok {
+                return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = 0, Err = true))
+            }
+            return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = n, Err = false))
+        },
+        Open  = (mouse) => {
+            st.Opened = st.Opened + 1
+            return BackendSession(Close = () => {
+                st.Closed = st.Closed + 1
+            })
+        },
+    )
+    return (b, st)
+}
+
+type chunkQueue struct {
+    var Chunks Array[string]
+    var Idx    int
+}
