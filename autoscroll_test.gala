@@ -105,16 +105,14 @@ func TestDataTableCursorStaysVisibleAtTheEnd(t T) T {
 }
 
 func TestDataTableSelectionHighlightIsOnScreenAfterEnd(t T) T {
+    // Names the row. "Some row in the body is highlighted" would pass with
+    // the highlight on the wrong one, and the sibling test already pins
+    // which rows are visible, so there is no excuse for the weaker form.
     val dt = DataTableUpdate(bigTable(8), DTEnd())
     val buf = NewBuffer(6, 4)
     RenderTo(DataTableView(dt, true), Rect(X = 0, Y = 0, Width = 6, Height = 4), buf)
-    var found = false
-    var y = 2
-    for y < 4 {
-        if buf.StyleAt(0, y).Reverse { found = true }
-        y = y + 1
-    }
-    return IsTrue(t, found)
+    val t1 = IsTrue(t, buf.StyleAt(0, 3).Reverse)
+    return IsTrue(t1, !buf.StyleAt(0, 2).Reverse)
 }
 
 func TestDataTableTopIsUnchangedWhenEverythingFits(t T) T {

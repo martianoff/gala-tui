@@ -273,6 +273,9 @@ func paletteHeaderRow[T any](p Palette[T]) Widget =
             Placeholder      = "Type a command…",
             Style            = DefaultStyle(),
             PlaceholderStyle = DefaultStyle().WithDim(),
+            // The palette query field always has the keyboard while the
+            // palette is open.
+            Focused          = true,
         )),
     ))
 

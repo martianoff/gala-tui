@@ -240,6 +240,10 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
         Placeholder      = fld.Placeholder,
         Style            = style,
         PlaceholderStyle = phStyle,
+        // The caret marks the field the keyboard is driving, which is the
+        // active field of a focused form — not every field that happens to
+        // carry a non-default style.
+        Focused          = active && formFocused,
     )
 }
 

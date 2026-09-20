@@ -81,7 +81,19 @@ sealed type Widget {
         Offset   int,
         RowH     int,
     )
-    case InputW(Value string, Cursor int, Placeholder string, Style Style, PlaceholderStyle Style)
+    // Focused is carried explicitly rather than inferred from Style. An
+    // unfocused field legitimately has a non-default style — themed,
+    // error-red, disabled — so "does this style look special" cannot answer
+    // "is the keyboard driving this field", and a renderer that guesses
+    // draws a caret in every field on the form.
+    case InputW(
+        Value            string,
+        Cursor           int,
+        Placeholder      string,
+        Style            Style,
+        PlaceholderStyle Style,
+        Focused          bool,
+    )
     case ProgressW(Percent int, Style Style)
     case GaugeW(Percent int, Style Style)
     case SpinnerW(Kind SpinnerKind, Frame int, Style Style)
@@ -605,7 +617,8 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
                 else DefaultStyle()
     return InputW(Value = value, Cursor = cursor, Placeholder = placeholder,
                   Style = style,
-                  PlaceholderStyle = DefaultStyle().WithDim())
+                  PlaceholderStyle = DefaultStyle().WithDim(),
+                  Focused = focused)
 }
 
 // Progress renders a horizontal progress bar `[████░░░░]  pct%`.
@@ -886,8 +899,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderList(items, sel, selStyle, offset, direction, area, buf)
         case AutoScrollW(rows, sel, offset, rowH) =>
             renderAutoScroll(rows, sel, offset, rowH, area, buf, hits)
-        case InputW(value, cursor, placeholder, style, phStyle) =>
-            renderInput(value, cursor, placeholder, style, phStyle, area, buf)
+        case InputW(value, cursor, placeholder, style, phStyle, focused) =>
+            renderInput(value, cursor, placeholder, style, phStyle, focused, area, buf)
         case ProgressW(pct, style) => {
             val bar = renderProgressBar(pct, area.Width, '█', '░')
             renderText(bar, style, area, buf)
@@ -1295,38 +1308,81 @@ func listViewportOffset(n int, sel int, height int) int =
 // keyboard was driving even though the caller had computed a focus style.
 // And the value was always drawn from its first character, so typing past
 // the right edge froze the text and the caret disappeared off the end.
-func renderInput(value string, cursor int, placeholder string, style Style, phStyle Style, area Rect, buf *Buffer) {
+func renderInput(
+    value string,
+    cursor int,
+    placeholder string,
+    style Style,
+    phStyle Style,
+    focused bool,
+    area Rect,
+    buf *Buffer,
+) {
     if area.Width <= 0 || area.Height <= 0 {
         return
     }
-    // Placeholder text keeps its own (usually dim) style, but the field
-    // still renders in `style` underneath so focus chrome survives.
+    val row = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1)
+
+    // The field is painted across its full width only when it is focused.
+    // That is what the focus affordance needs, and confining it to the
+    // focused field keeps an unfocused input from stamping its style over
+    // whatever surface a parent painted underneath it.
+    if focused {
+        buf.Fill(row, Cell(Ch = ' ', St = style))
+    }
+
     if value == "" {
-        buf.Fill(Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
-                 Cell(Ch = ' ', St = style))
         if placeholder != "" {
             renderText(placeholder, phStyle, area, buf)
         }
-        drawInputCaret(area.X, area.Y, style, buf)
+        if focused {
+            drawInputCaret(area.X, area.Y, style, buf)
+        }
         return
     }
 
     val rs = ToRunes(value)
     val n = rs.Size()
     val cur = clampInt(cursor, 0, n)
-    // Scroll only as far as it takes to bring the caret inside the window.
-    // Reserving a column unconditionally would cost a character of visible
-    // text on every field; the shift is needed only once the caret reaches
-    // the right edge, which includes the end-of-text position where the
-    // caret sits one past the last character.
-    val window = MaxInt(1, area.Width)
-    val start = if (cur < window) 0 else cur - window + 1
-    val visible = string(SliceFrom(SliceTo(rs, MinInt(n, start + window)), start))
 
-    buf.Fill(Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
-             Cell(Ch = ' ', St = style))
+    // The window is measured in CELLS, not runes. Computing it in runes put
+    // the caret on the padding cell of a wide glyph at every odd cursor —
+    // visually the right half of the previous character — and compared a
+    // rune index against a cell width, so text wider than it was long never
+    // scrolled at all: seven CJK runes need fourteen columns, and a
+    // ten-column field simply clipped them with the caret adrift inside.
+    val start = inputWindowStart(rs, cur, area.Width)
+    val visible = string(SliceFrom(SliceTo(rs, n), start))
     renderText(visible, style, area, buf)
-    drawInputCaret(area.X + (cur - start), area.Y, style, buf)
+    if focused {
+        drawInputCaret(area.X + runesCellWidth(rs, start, cur), area.Y, style, buf)
+    }
+}
+
+// inputWindowStart is the first visible rune index such that the caret at
+// `cur` lands inside a field `width` cells wide. Walks the start forward
+// until the run up to the caret fits, leaving one column for the caret
+// itself so an end-of-text caret has somewhere to sit.
+func inputWindowStart(rs []rune, cur int, width int) int {
+    val budget = MaxInt(1, width - 1)
+    var start = 0
+    for start < cur && runesCellWidth(rs, start, cur) > budget {
+        start = start + 1
+    }
+    return start
+}
+
+// runesCellWidth totals the rendered width of rs[from:to) in terminal
+// cells, so CJK and emoji count as the two columns they occupy.
+func runesCellWidth(rs []rune, from int, to int) int {
+    var w = 0
+    var i = MaxInt(0, from)
+    val end = MinInt(rs.Size(), to)
+    for i < end {
+        w = w + RuneCellWidth(rs[i])
+        i = i + 1
+    }
+    return w
 }
 
 // drawInputCaret inverts one cell in place, keeping whatever glyph is there
@@ -1841,7 +1897,7 @@ func defaultRenderWidth(w Widget) int {
             items.FoldLeft(0, (acc, it) => MaxInt(acc, RuneCount(it.Label)))
         case AutoScrollW(rows, _, _, _)        =>
             rows.FoldLeft(0, (acc, r) => MaxInt(acc, defaultRenderWidth(r)))
-        case InputW(value, _, ph, _, _)        => MaxInt(RuneCount(value), RuneCount(ph))
+        case InputW(value, _, ph, _, _, _)     => MaxInt(RuneCount(value), RuneCount(ph))
         case ProgressW(_, _)                   => 20
         case GaugeW(_, _)                      => 20
         case SpinnerW(_, _, _)                 => 1
@@ -1880,7 +1936,7 @@ func defaultRenderHeight(w Widget) int {
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderHeight(w)))
         case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
         case AutoScrollW(rows, _, _, rh)       => MaxInt(1, rows.Length() * MaxInt(1, rh))
-        case InputW(_, _, _, _, _)             => 1
+        case InputW(_, _, _, _, _, _)          => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
         case SpinnerW(_, _, _)                 => 1
@@ -1944,7 +2000,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
             layers.FoldLeft(0, (acc, l) => MaxInt(acc, IntrinsicHeightAt(l, width)))
         case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
         case AutoScrollW(rows, _, _, rh)       => MaxInt(1, rows.Length() * MaxInt(1, rh))
-        case InputW(_, _, _, _, _)             => 1
+        case InputW(_, _, _, _, _, _)          => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
         case SpinnerW(_, _, _)                 => 1

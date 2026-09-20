@@ -387,5 +387,7 @@ func taRowWidget(
         Placeholder      = "",
         Style            = baseStyle,
         PlaceholderStyle = baseStyle,
+        // Only reached when focused && row == cursorRow.
+        Focused          = true,
     )
 }

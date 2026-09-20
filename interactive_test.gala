@@ -50,7 +50,7 @@ func TestListViewportOffsetBasic(t T) T {
 
 func TestInputShowsPlaceholderWhenEmpty(t T) T {
     val buf = NewBuffer(12, 1)
-    val w = Input("", 0, "type here")
+    val w = Input("", 0, "type here", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
     val t1 = Eq(t, BufferText(buf, 0), "type here   ")
     // Placeholder rendered with dim style. Sampled at cell 1, not cell 0:
@@ -64,7 +64,7 @@ func TestInputShowsPlaceholderWhenEmpty(t T) T {
 
 func TestInputShowsValueAndCursor(t T) T {
     val buf = NewBuffer(10, 1)
-    val w = Input("hello", 3, "")
+    val w = Input("hello", 3, "", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val t1 = Eq(t, BufferText(buf, 0), "hello     ")
     // Cursor at column 3 → that cell should be reversed.
