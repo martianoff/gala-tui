@@ -297,6 +297,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ListW(items, sel, ss, off, dir)   =>
             ListW(Items = items, Selected = sel, SelStyle = f(ss),
                   Offset = off, Direction = dir)
+        case AutoScrollW(rows, sel, off, rh)   =>
+            AutoScrollW(Rows = rows.Map((r) => restyleLeaves(r, f)),
+                        Selected = sel, Offset = off, RowH = rh)
         case InputW(v, cu, p, s, ps)           =>
             InputW(Value = v, Cursor = cu, Placeholder = p,
                    Style = f(s), PlaceholderStyle = f(ps))

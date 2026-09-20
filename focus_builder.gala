@@ -110,6 +110,18 @@ func (fb FocusBuilder) DataTableClickable[T any](
     onRowClick func(int) T, onHeaderClick func(int) T,
 ) Widget = DataTableViewClickable[T](dt, fb.IsFocused(pane), onRowClick, onHeaderClick)
 
+// DataTableInteractive adds row double-click to DataTableClickable. Prefer
+// it over chaining `.OnDoublePickRow(...)`, which binds payloads to screen
+// positions measured from the table's top — i.e. from the header.
+func (fb FocusBuilder) DataTableInteractive[T any](
+    pane string, dt DataTable,
+    onRowClick func(int) T,
+    onRowDoubleClick func(int) T,
+    onHeaderClick func(int) T,
+) Widget =
+    DataTableViewInteractive[T](
+        dt, fb.IsFocused(pane), onRowClick, onRowDoubleClick, onHeaderClick)
+
 func (fb FocusBuilder) SelectListPick[T any](
     pane string, items Array[ListItem], sel int, onPick func(int) T,
 ) Widget = SelectListPick[T](items, sel, fb.IsFocused(pane), onPick)

@@ -35,7 +35,10 @@ struct DataTable(
     Widths      Array[Constraint],
     Rows        Array[Array[string]],
     Selected    int,                    // row cursor within visible rows
-    Offset      int,                    // first visible row in the filtered view
+    // First visible row in the filtered view, or -1 to track the cursor.
+    // Same convention as ListW.Offset: an explicit value scrolls the body
+    // independently of the selection (a wheel over an unfocused table).
+    Offset      int,
     SortCol     int,                    // -1 = no sort
     SortDir     SortDir,
     FilterQuery string,                 // empty = no filter
@@ -52,7 +55,7 @@ func NewDataTable(
         Widths      = widths,
         Rows        = rows,
         Selected    = 0,
-        Offset      = 0,
+        Offset      = -1,
         SortCol     = -1,
         SortDir     = SortNone(),
         FilterQuery = "",
@@ -84,8 +87,8 @@ func DataTableUpdate(dt DataTable, ev DataTableEvent) DataTable {
         case DTHome()          => dt.Copy(Selected = 0)
         case DTEnd()           => dt.Copy(Selected = dtVisible(dt).Length() - 1)
         case DTSort(col)       => dtCycleSort(dt, col)
-        case DTFilter(q)       => dt.Copy(FilterQuery = q, Selected = 0, Offset = 0)
-        case DTClearFilter()   => dt.Copy(FilterQuery = "", Selected = 0, Offset = 0)
+        case DTFilter(q)       => dt.Copy(FilterQuery = q, Selected = 0, Offset = -1)
+        case DTClearFilter()   => dt.Copy(FilterQuery = "", Selected = 0, Offset = -1)
         case DTNoOp()          => dt
     }
 }
@@ -103,7 +106,7 @@ func dtMoveCursor(dt DataTable, delta int) DataTable {
 func dtCycleSort(dt DataTable, col int) DataTable {
     if col < 0 || col >= dt.Headers.Length() { return dt }
     if dt.SortCol != col {
-        return dt.Copy(SortCol = col, SortDir = SortAsc(), Selected = 0, Offset = 0)
+        return dt.Copy(SortCol = col, SortDir = SortAsc(), Selected = 0, Offset = -1)
     }
     val next = dt.SortDir match {
         case SortNone() => SortAsc()
@@ -111,8 +114,8 @@ func dtCycleSort(dt DataTable, col int) DataTable {
         case SortDesc() => SortNone()
     }
     return next match {
-        case SortNone() => dt.Copy(SortCol = -1, SortDir = SortNone(), Selected = 0, Offset = 0)
-        case _          => dt.Copy(SortDir = next, Selected = 0, Offset = 0)
+        case SortNone() => dt.Copy(SortCol = -1, SortDir = SortNone(), Selected = 0, Offset = -1)
+        case _          => dt.Copy(SortDir = next, Selected = 0, Offset = -1)
     }
 }
 
@@ -215,12 +218,10 @@ func DataTableViewClick[T any](
 ) Widget {
     val header = dtHeaderRow(dt)
     val rule = FillCh('─')
-    val body = dtBodyWidget(dt, focused)
-    val clickableBody = body.OnPickRow[T](dt.Rows.Length(), onRowClick)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),
-        Flex(1, clickableBody),
+        Flex(1, dtBodyWidgetClick[T](dt, focused, onRowClick)),
     ))
 }
 
@@ -243,12 +244,10 @@ func DataTableViewClickable[T any](
 ) Widget {
     val header = dtHeaderRowClick[T](dt, onHeaderClick)
     val rule = FillCh('─')
-    val body = dtBodyWidget(dt, focused)
-    val clickableBody = body.OnPickRow[T](dt.Rows.Length(), onRowClick)
     return Column(ArrayOf[LayoutChild](
         Fixed(1, header),
         Fixed(1, rule),
-        Flex(1, clickableBody),
+        Flex(1, dtBodyWidgetClick[T](dt, focused, onRowClick)),
     ))
 }
 
@@ -278,13 +277,55 @@ func dtHeaderLabel(dt DataTable, col int) string {
     return base + arrow
 }
 
-func dtBodyWidget(dt DataTable, focused bool) Widget {
+// dtBodyWidget builds the scrolling body.
+//
+// It used to emit a `Column` of every visible row and let the renderer clip,
+// which meant `Offset` was never read and the cursor simply disappeared once
+// it moved past the bottom of the pane — `DTEnd` on a table taller than its
+// slot left no highlight anywhere on screen. `AutoScrollW` computes the
+// window from the area height the way `renderList` always has.
+func dtBodyWidget(dt DataTable, focused bool) Widget =
+    dtBodyOf(dt, focused, (row, absIdx) => row)
+
+// dtBodyWidgetClick is the click-aware body. `decorate` attaches each row's
+// hit region to the row widget itself, so a payload travels with its row as
+// the body scrolls — visible row 0 at offset 3 dispatches index 3.
+//
+// Wrapping the whole body in `OnPickRow` instead, as this used to do, binds
+// payloads to screen positions rather than to rows, which silently targets
+// the wrong record the moment the body scrolls. That form also counted
+// `dt.Rows` rather than the filtered view, so it was already wrong whenever
+// a filter was active.
+func dtBodyWidgetClick[T any](
+    dt DataTable,
+    focused bool,
+    onRowClick func(int) T,
+) Widget =
+    dtBodyOf(dt, focused, (row, absIdx) => row.OnClick[T](onRowClick(absIdx)))
+
+// dtBodyWidgetClickDouble attaches single AND double click to each row.
+func dtBodyWidgetClickDouble[T any](
+    dt DataTable,
+    focused bool,
+    onRowClick func(int) T,
+    onRowDoubleClick func(int) T,
+) Widget =
+    dtBodyOf(dt, focused, (row, absIdx) =>
+        row.OnClick[T](onRowClick(absIdx))
+           .OnDoubleClick[T](onRowDoubleClick(absIdx)))
+
+func dtBodyOf(
+    dt DataTable,
+    focused bool,
+    decorate func(Widget, int) Widget,
+) Widget {
     val visible = dtVisible(dt)
     if visible.IsEmpty() {
         return TextStyled("  (no rows)", DefaultStyle().WithDim())
     }
-    return Column(visible.ZipWithIndex().Map((p) =>
-        Fixed(1, dtRowWidget(dt, p.V1, p.V2 == dt.Selected, focused))))
+    val rows = visible.ZipWithIndex().Map((p) =>
+        decorate(dtRowWidget(dt, p.V1, p.V2 == dt.Selected, focused), p.V2))
+    return AutoScrollAt(rows, dt.Selected, dt.Offset)
 }
 
 func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) Widget {
@@ -304,6 +345,41 @@ func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) W
 }
 
 // SelectedRow returns the currently-selected row's cells, or an empty array.
+// DataTableViewInteractive is the full click surface: row click, row
+// double-click, and header click, all bound to the rows themselves.
+//
+// Chaining `.OnDoublePickRow(n, ...)` onto a table instead — the shape the
+// docs used to suggest — slices the table's WHOLE area into n regions
+// starting at its top, so region 0 lands on the header and every dispatched
+// index is offset by the header and rule. Attaching the contract per row
+// inside the body removes both that offset and the need for the caller to
+// know a row count at all.
+func DataTableViewInteractive[T any](
+    dt DataTable,
+    focused bool,
+    onRowClick func(int) T,
+    onRowDoubleClick func(int) T,
+    onHeaderClick func(int) T,
+) Widget {
+    val header = dtHeaderRowClick[T](dt, onHeaderClick)
+    val rule = FillCh('─')
+    return Column(ArrayOf[LayoutChild](
+        Fixed(1, header),
+        Fixed(1, rule),
+        Flex(1, dtBodyWidgetClickDouble[T](dt, focused, onRowClick, onRowDoubleClick)),
+    ))
+}
+
+// VisibleRowCount is how many rows the table will actually render — after
+// the filter, which is not the same as `dt.Rows.Length()`.
+//
+// Apps need this whenever they wrap a table in their own row-indexed
+// helper, such as chaining `.OnDoublePickRow(n, ...)`. Passing the raw row
+// count there registers hit regions for rows that do not exist, so a click
+// below the last visible row dispatches an index into nothing — and with a
+// filter active the indices are wrong even where rows do exist.
+func VisibleRowCount(dt DataTable) int = dtVisible(dt).Length()
+
 func SelectedRow(dt DataTable) Array[string] {
     val v = dtVisible(dt)
     if v.IsEmpty() || dt.Selected >= v.Length() {

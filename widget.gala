@@ -61,6 +61,26 @@ sealed type Widget {
         Offset    int,
         Direction ListDirection,
     )
+    // AutoScrollW stacks `Rows` as fixed-height children and scrolls the
+    // stack so `Selected` stays visible, using the area height the renderer
+    // supplies.
+    //
+    // `ListW` already does this, but only for `ListItem` — a plain label and
+    // one style. Anything whose rows are composed widgets (a table row of
+    // columns, a file entry with an icon) had no way to express it, because
+    // a `Column` cannot know its own height at build time and the reducer
+    // that owns the cursor cannot know it either. Those widgets emitted
+    // every row and let the renderer clip, so a cursor moved past the
+    // bottom simply vanished with no indication.
+    //
+    // `Offset` is -1 for "track the selection" — the usual case — or an
+    // explicit first-visible index, clamped so it cannot point past the end.
+    case AutoScrollW(
+        Rows     Array[Widget],
+        Selected int,
+        Offset   int,
+        RowH     int,
+    )
     case InputW(Value string, Cursor int, Placeholder string, Style Style, PlaceholderStyle Style)
     case ProgressW(Percent int, Style Style)
     case GaugeW(Percent int, Style Style)
@@ -391,6 +411,22 @@ func Backdrop(inner Widget, bg Color) Widget =
         Inner   = inner,
         Restyle = (s) => if (ColorEq(s.Bg, DefaultColor())) s.On(bg) else s,
     )
+
+// AutoScroll stacks `rows` and scrolls them so row `selected` stays visible
+// once the stack is taller than the area it is given. The composed-widget
+// counterpart to `SelectList`, for rows that are more than a label.
+func AutoScroll(rows Array[Widget], selected int) Widget =
+    AutoScrollW(Rows = rows, Selected = selected, Offset = -1, RowH = 1)
+
+// AutoScrollAt is AutoScroll with an explicit first-visible row, for a
+// stack that scrolls independently of its cursor. Pass -1 to track the
+// selection.
+func AutoScrollAt(rows Array[Widget], selected int, offset int) Widget =
+    AutoScrollW(Rows = rows, Selected = selected, Offset = offset, RowH = 1)
+
+// AutoScrollH is the multi-line-row form — each row occupies `rowH` cells.
+func AutoScrollH(rows Array[Widget], selected int, offset int, rowH int) Widget =
+    AutoScrollW(Rows = rows, Selected = selected, Offset = offset, RowH = rowH)
 
 // RichTextView renders a RichText block — the multi-style counterpart to
 // `Text`. Use it wherever a single row needs more than one style.
@@ -848,6 +884,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             layers.ForEach((layer) => renderToInternal(layer, area, buf, hits))
         case ListW(items, sel, selStyle, offset, direction) =>
             renderList(items, sel, selStyle, offset, direction, area, buf)
+        case AutoScrollW(rows, sel, offset, rowH) =>
+            renderAutoScroll(rows, sel, offset, rowH, area, buf, hits)
         case InputW(value, cursor, placeholder, style, phStyle) =>
             renderInput(value, cursor, placeholder, style, phStyle, area, buf)
         case ProgressW(pct, style) => {
@@ -1200,6 +1238,44 @@ func renderList(
             Width = area.Width, Height = 1,
         ), buf)
         row = row + 1
+    }
+}
+
+// renderAutoScroll paints the window of rows that fits, scrolled so the
+// selection is inside it.
+//
+// Each row keeps its own identity as it scrolls: a row wrapped in a
+// Clickable carries its payload with it, so a hit registered for the third
+// visible row dispatches whatever that row is, not "row three". That is
+// what lets a scrolling table's clicks stay correct without the click
+// wrapper needing to know the offset.
+func renderAutoScroll(
+    rows Array[Widget],
+    selected int,
+    explicitOffset int,
+    rowH int,
+    area Rect,
+    buf *Buffer,
+    hits *HitRegistry,
+) {
+    val n = rows.Length()
+    if n == 0 || rowH <= 0 || area.Height < rowH {
+        return
+    }
+    val window = MaxInt(1, area.Height / rowH)
+    val offset = if (explicitOffset < 0)
+        listViewportOffset(n, selected, window)
+    else
+        clampInt(explicitOffset, 0, MaxInt(0, n - window))
+    var i = 0
+    for i < window && offset + i < n {
+        renderToInternal(rows.Get(offset + i), Rect(
+            X      = area.X,
+            Y      = area.Y + i * rowH,
+            Width  = area.Width,
+            Height = rowH,
+        ), buf, hits)
+        i = i + 1
     }
 }
 
@@ -1727,6 +1803,8 @@ func defaultRenderWidth(w Widget) int {
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderWidth(w)))
         case ListW(items, _, _, _, _)          =>
             items.FoldLeft(0, (acc, it) => MaxInt(acc, RuneCount(it.Label)))
+        case AutoScrollW(rows, _, _, _)        =>
+            rows.FoldLeft(0, (acc, r) => MaxInt(acc, defaultRenderWidth(r)))
         case InputW(value, _, ph, _, _)        => MaxInt(RuneCount(value), RuneCount(ph))
         case ProgressW(_, _)                   => 20
         case GaugeW(_, _)                      => 20
@@ -1765,6 +1843,7 @@ func defaultRenderHeight(w Widget) int {
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderHeight(w)))
         case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
+        case AutoScrollW(rows, _, _, rh)       => MaxInt(1, rows.Length() * MaxInt(1, rh))
         case InputW(_, _, _, _, _)             => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
@@ -1828,6 +1907,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, l) => MaxInt(acc, IntrinsicHeightAt(l, width)))
         case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
+        case AutoScrollW(rows, _, _, rh)       => MaxInt(1, rows.Length() * MaxInt(1, rh))
         case InputW(_, _, _, _, _)             => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1

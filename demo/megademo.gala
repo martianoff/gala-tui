@@ -490,7 +490,8 @@ func megaCopyRow(m MegaModel) MegaModel {
 // the cursor to the clicked index. Focus also shifts to the table
 // pane so subsequent arrow keys advance from the clicked position.
 func megaSelectRow(m MegaModel, idx int) MegaModel {
-    val rows = m.BuildsTable.Rows.Length()
+    // Indices come from the filtered view, so bound them by what is visible.
+    val rows = VisibleRowCount(m.BuildsTable)
     if idx < 0 || idx >= rows { return m }
     return m.Copy(
         BuildsTable = m.BuildsTable.Copy(Selected = idx),
@@ -502,7 +503,8 @@ func megaSelectRow(m MegaModel, idx int) MegaModel {
 // "open" action — represented here as a toast + a log entry naming
 // the build. A real app would push a detail screen via the router.
 func megaOpenRow(m MegaModel, idx int) MegaModel {
-    val rows = m.BuildsTable.Rows.Length()
+    // Indices come from the filtered view, so bound them by what is visible.
+    val rows = VisibleRowCount(m.BuildsTable)
     if idx < 0 || idx >= rows { return m }
     val sel = m.BuildsTable.Copy(Selected = idx)
     val row = SelectedRow(sel)
@@ -689,11 +691,15 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
     // Click contract on the build rows: single-click selects the row,
     // double-click "opens" it (toast + log entry). The framework
     // dispatches both via the HitRegistry — no input-adapter code.
-    val rowCount = m.BuildsTable.Rows.Length()
-    val table = ui.DataTableClickable[MegaMsg]("table", m.BuildsTable,
+    // One call carries all three contracts, each bound to the row it belongs
+    // to. Chaining `.OnDoublePickRow(n, ...)` here instead sliced the whole
+    // table — header and rule included — into n regions, so double-click
+    // indices came out offset by two and a filtered pane registered regions
+    // for rows that were not on screen.
+    val table = ui.DataTableInteractive[MegaMsg]("table", m.BuildsTable,
                     (i) => MegaSelectRow(Idx = i),
+                    (i) => MegaOpenRow(Idx = i),
                     (c) => MegaSortColumn(Col = c))
-                .OnDoublePickRow[MegaMsg](rowCount, (i) => MegaOpenRow(Idx = i))
     val tabs = ui.Tabs(
         "table",
         ArrayOf[string]("Running", "Succeeded", "Failed"),
