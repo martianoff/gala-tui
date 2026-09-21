@@ -139,8 +139,11 @@ bottom row. Shapes outside the bounds clip; they do not wrap.
 | `LineChartAtHeight(values, style, bounds, rows)` | `(Array[int], Style, LineChartBounds, int) Widget` | Pin the chart to exactly `rows` rows. |
 | `MultiLineChart(series, styles)` | `(Array[Array[int]], Array[Style]) Widget` | Overlapping series sharing one Y-axis. |
 | `MultiLineChartAtHeight(series, styles, rows)` | `(Array[Array[int]], Array[Style], int) Widget` | Pinned-row variant. |
-| `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. |
+| `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. Sub-cell precision via partial blocks. |
 | `Progress(percent)` | `(int) Widget` | Cell-precise progress bar. |
+| `LineGauge(percent)` | `(int) Widget` | One-row gauge captioned with its own percentage: `42% ━━━━━━───────`. Whole-cell splits — heavy `━` against light `─`, so the split reads without colour. |
+| `LineGaugeLabeled(label, percent)` | `(string, int) Widget` | Caption of your choosing; `""` gives a bare rule across the row. |
+| `LineGaugeStyled(label, percent, filled, unfilled)` | `(string, int, Style, Style) Widget` | Explicit filled/track styles. The caption takes the filled style — it is the value, not chrome. |
 
 ```gala
 BarChart(ArrayOf[BarChartDatum](

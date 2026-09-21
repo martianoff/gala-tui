@@ -733,6 +733,66 @@ func progressLabelText(percent int) string {
 func Gauge(percent int) Widget =
     GaugeW(Percent = percent, Style = DefaultStyle())
 
+// LineGauge renders a one-row gauge captioned with its own percentage:
+// `42% ━━━━━━━━───────────`. Use it where `Gauge` would cost a row it has
+// not earned — one readout per item in a list, or several stacked in a
+// sidebar.
+func LineGauge(percent int) Widget = LineGaugeLabeled(s"${clampPct(percent)}%", percent)
+
+// LineGaugeLabeled is LineGauge with a caption of the caller's choosing —
+// `Uploading ━━━━━━╸─────`. Pass "" for a bare rule spanning the row.
+func LineGaugeLabeled(label string, percent int) Widget =
+    LineGaugeStyled(label, percent, DefaultStyle(), DefaultStyle().WithDim())
+
+// LineGaugeStyled is LineGaugeLabeled with the two styles spelled out: one
+// for the completed run, one for the track behind it.
+//
+// The label takes the filled style, because in the common case the label
+// *is* the value (`LineGauge` captions with the percentage) and a caption
+// drawn in the track's dim style reads as a disabled control. A caller who
+// wants a third style for the caption composes it, the way `Progress`
+// callers compose their own percentage:
+//
+//     Row(ArrayOf[LayoutChild](
+//         Fixed(10, TextStyled("Uploading", labelStyle)),
+//         Flex(1, LineGaugeStyled("", pct, filled, track)),
+//     ))
+func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Widget =
+    CustomW(
+        MinW = lineGaugeLabelWidth(label) + lineGaugeMinRule(),
+        MinH = 1,
+        Render = (area, buf, _) => {
+            if area.Width <= 0 || area.Height <= 0 {
+                return
+            }
+            val row = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1)
+            val labelW = lineGaugeLabelWidth(label)
+            // Too narrow for both. The label is the half that still says
+            // something in three columns — a rule that short is the same
+            // picture at 20% and at 80% — so the rule is what goes.
+            if area.Width < labelW + lineGaugeMinRule() {
+                renderText(StringCellTruncate(label, area.Width), filled, row, buf)
+                return
+            }
+            renderText(label, filled, row, buf)
+            val ruleW = area.Width - labelW
+            val fillCells = ruleW * clampPct(percent) / 100
+            var i = 0
+            for i < ruleW {
+                val done = i < fillCells
+                buf.Set(
+                    area.X + labelW + i,
+                    area.Y,
+                    Cell(
+                        Ch = if (done) lineGaugeFilled() else lineGaugeTrack(),
+                        St = if (done) filled else unfilled,
+                    ),
+                )
+                i = i + 1
+            }
+        },
+    )
+
 // Spinner renders a single-cell animated glyph.
 func Spinner(kind SpinnerKind, frame int) Widget =
     SpinnerW(Kind = kind, Frame = frame, Style = DefaultStyle())

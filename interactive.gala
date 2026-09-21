@@ -192,3 +192,39 @@ func gaugeEighthRune(eighths int) rune {
     return '█'
 }
 
+// ----------------------------------------------------------------------------
+// LineGauge — a gauge drawn as a rule rather than a bar.
+//
+// `Gauge` spends a whole row on a block bar. A dashboard that wants six
+// progress readouts stacked in a sidebar, or one progress line per item in
+// a list, cannot afford that: what it wants is a caption and a rule on the
+// same row. That is this widget.
+//
+// The division of labour between the two is sub-cell precision. `Gauge`
+// draws partial blocks, so 3% of a 10-cell bar is still visible. A rule has
+// no partial glyphs to draw with, so `LineGauge` splits at whole cells and
+// leans on glyph *shape* instead: the filled run is heavy (`━`) and the
+// track is light (`─`). That contrast survives a monochrome terminal, a
+// `NO_COLOR` session and a colour-blind reader, none of which a
+// filled-vs-track distinction carried by colour alone would.
+// ----------------------------------------------------------------------------
+
+// lineGaugeFilled is the glyph for the completed run of a LineGauge.
+func lineGaugeFilled() rune = '━'
+
+// lineGaugeTrack is the glyph for the remainder — the same rule, drawn
+// light, so the gauge's full extent is visible at 0% exactly as `Gauge`'s
+// `░` track is.
+func lineGaugeTrack() rune = '─'
+
+// lineGaugeMinRule is the narrowest rule worth drawing. Below four cells a
+// rule cannot show a position — every percentage rounds to one of a handful
+// of pictures — so the label is what the row keeps instead.
+func lineGaugeMinRule() int = 4
+
+// lineGaugeLabelWidth is the columns a label claims, including the single
+// space that separates it from the rule. An empty label claims nothing, so
+// `LineGaugeLabeled("", pct)` gets a rule across the whole row.
+func lineGaugeLabelWidth(label string) int =
+    if (label == "") 0 else StringCellWidth(label) + 1
+

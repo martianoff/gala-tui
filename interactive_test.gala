@@ -117,6 +117,94 @@ func TestGaugeFullCells(t T) T {
 }
 
 // ============================================================================
+// LineGauge
+// ============================================================================
+
+func TestLineGaugeSplitsTheRuleAtThePercentage(t T) T {
+    val buf = NewBuffer(14, 1)
+    // "50%" + a space claims 4 columns, leaving a 10-cell rule; half of it
+    // is the filled glyph.
+    RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 14, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "50% ━━━━━─────")
+}
+
+func TestLineGaugeDrawsItsTrackAtZero(t T) T {
+    val buf = NewBuffer(10, 1)
+    // A gauge at 0% must still look like a gauge — same reason Gauge draws
+    // `░` rather than spaces.
+    RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "──────────")
+}
+
+func TestLineGaugeFillsEveryCellAtFull(t T) T {
+    val buf = NewBuffer(10, 1)
+    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "━━━━━━━━━━")
+}
+
+func TestLineGaugeClampsOutOfRangePercentages(t T) T {
+    val over = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 250), Rect(X = 0, Y = 0, Width = 8, Height = 1), over)
+    val t1 = Eq(t, BufferText(over, 0), "━━━━━━━━")
+    val under = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", -40), Rect(X = 0, Y = 0, Width = 8, Height = 1), under)
+    return Eq(t1, BufferText(under, 0), "────────")
+}
+
+func TestLineGaugeEmptyLabelGivesTheRuleTheWholeRow(t T) T {
+    val buf = NewBuffer(8, 1)
+    // No label means no separating space either — all eight cells are rule.
+    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "━━━━────")
+}
+
+func TestLineGaugeKeepsTheLabelWhenTheRowIsTooNarrowForARule(t T) T {
+    val buf = NewBuffer(6, 1)
+    // "Sync" + space + a 4-cell minimum rule needs 9 columns; at 6 the rule
+    // is dropped rather than drawn too short to mean anything.
+    RenderTo(LineGaugeLabeled("Sync", 50), Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "Sync  ")
+}
+
+func TestLineGaugeTruncatesALabelWiderThanTheRow(t T) T {
+    val buf = NewBuffer(4, 1)
+    RenderTo(LineGaugeLabeled("Uploading", 50), Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "Uplo")
+}
+
+func TestLineGaugeStylesTheFilledRunAndTheTrackApart(t T) T {
+    val buf = NewBuffer(8, 1)
+    val filled = DefaultStyle().WithFg(Green())
+    val track = DefaultStyle().WithFg(BrightBlack())
+    RenderTo(
+        LineGaugeStyled("", 50, filled, track),
+        Rect(X = 0, Y = 0, Width = 8, Height = 1),
+        buf,
+    )
+    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Green()))
+    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(3, 0).Fg, Green()))
+    return IsTrue(t2, ColorEq(buf.StyleAt(4, 0).Fg, BrightBlack()))
+}
+
+func TestLineGaugeLabelCarriesTheFilledStyle(t T) T {
+    val buf = NewBuffer(12, 1)
+    val filled = DefaultStyle().WithFg(Green())
+    RenderTo(
+        LineGaugeStyled("Sync", 50, filled, DefaultStyle().WithDim()),
+        Rect(X = 0, Y = 0, Width = 12, Height = 1),
+        buf,
+    )
+    // The caption is the value, not chrome — it must not read as disabled.
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Green()))
+}
+
+func TestLineGaugeRendersNothingIntoAZeroArea(t T) T {
+    val buf = NewBuffer(6, 1)
+    RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 0, Height = 0), buf)
+    return Eq(t, BufferText(buf, 0), "      ")
+}
+
+// ============================================================================
 // Spinner
 // ============================================================================
 
