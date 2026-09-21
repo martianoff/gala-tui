@@ -117,6 +117,203 @@ func TestGaugeFullCells(t T) T {
 }
 
 // ============================================================================
+// LineGauge
+// ============================================================================
+
+func TestLineGaugeSplitsTheRuleAtThePercentage(t T) T {
+    val buf = NewBuffer(14, 1)
+    // A four-column caption plus its separator claims 5, leaving a 9-cell
+    // rule. Half of nine is four and a half, so four heavy cells and a head.
+    RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 14, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), " 50% ━━━━╾────")
+}
+
+func TestLineGaugeCaptionKeepsTheRuleOriginFixed(t T) T {
+    // The caption is right-aligned in a fixed slot, so a one-digit and a
+    // three-digit percentage put the rule in the same column. Without this
+    // the rule slides right as the number grows — and shrinks as it slides.
+    val small = NewBuffer(20, 1)
+    RenderTo(LineGauge(5), Rect(X = 0, Y = 0, Width = 20, Height = 1), small)
+    val big = NewBuffer(20, 1)
+    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 20, Height = 1), big)
+    val t1 = Eq(t, small.CharAt(4, 0), ' ')
+    val t2 = Eq(t1, big.CharAt(4, 0), ' ')
+    val t3 = Eq(t2, small.CharAt(5, 0), lineGaugeHead())
+    return Eq(t3, big.CharAt(5, 0), lineGaugeFilled())
+}
+
+func TestLineGaugeStillGrowsFrom99To100(t T) T {
+    // The transition that matters most. A fitted caption would shrink the
+    // rule by the column the third digit took, and floor(0.99 * n) == n - 1
+    // for every width a terminal can hold — so both would paint the same
+    // number of heavy cells and the bar would only slide sideways.
+    val nearly = NewBuffer(24, 1)
+    RenderTo(LineGauge(99), Rect(X = 0, Y = 0, Width = 24, Height = 1), nearly)
+    val done = NewBuffer(24, 1)
+    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 24, Height = 1), done)
+    // Same last cell, two different glyphs: 99% ends on the head, 100% on a
+    // full cell. Nothing short of done paints the done picture.
+    val t1 = Eq(t, nearly.CharAt(23, 0), lineGaugeHead())
+    return Eq(t1, done.CharAt(23, 0), lineGaugeFilled())
+}
+
+func TestLineGaugeDrawsAHeadOnlyWhenTheFillEndsMidCell(t T) T {
+    // Half of five cells is two and a half — the half earns a head. Half of
+    // eight is four exactly, and a head there would be claiming resolution
+    // the fill has not reached.
+    val odd = NewBuffer(5, 1)
+    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 5, Height = 1), odd)
+    val t1 = Eq(t, BufferText(odd, 0), "━━╾──")
+    val even = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), even)
+    return Eq(t1, BufferText(even, 0), "━━━━────")
+}
+
+func TestLineGaugeNeverClipsACaptionIntoSomethingElse(t T) T {
+    // "100%" clipped to two columns reads as "10" — ten percent, a lie the
+    // rule is incapable of telling. A word clips into a different word,
+    // which is milder but still not a shorter caption. Below the caption's
+    // own width the rule takes the row in both cases.
+    val number = NewBuffer(2, 1)
+    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 2, Height = 1), number)
+    val t1 = Eq(t, BufferText(number, 0), "━━")
+    val word = NewBuffer(4, 1)
+    RenderTo(LineGaugeLabeled("Uploading", 50), Rect(X = 0, Y = 0, Width = 4, Height = 1), word)
+    return Eq(t1, BufferText(word, 0), "━━──")
+}
+
+func TestLineGaugeLeavesRowsBelowItsOwnAlone(t T) T {
+    // A one-row widget owns its row and no more. Handed three rows it fills
+    // the first and leaves the other two to whatever put it there — erasing
+    // them would be the mirror of the bleed-through bug.
+    val buf = NewBuffer(6, 3)
+    buf.Fill(Rect(X = 0, Y = 1, Width = 6, Height = 2), Cell(Ch = '.', St = DefaultStyle()))
+    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "━━━━━━")
+    return Eq(t1, BufferText(buf, 1), "......")
+}
+
+func TestLineGaugeOwnsEveryCellWhenTheRuleIsDropped(t T) T {
+    val buf = NewBuffer(8, 1)
+    // Same bleed-through as the separator cell, in the other branch: the
+    // caption is padded across the row so the parent's highlight cannot
+    // show through the tail.
+    buf.Fill(
+        Rect(X = 0, Y = 0, Width = 8, Height = 1),
+        Cell(Ch = '.', St = DefaultStyle().WithReverse()),
+    )
+    RenderTo(LineGaugeLabeled("Sync", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "Sync    ")
+    return IsTrue(t1, !buf.StyleAt(7, 0).Reverse)
+}
+
+func TestLineGaugePaintsTheSeparatorCell(t T) T {
+    val buf = NewBuffer(16, 1)
+    // A gauge on a highlighted list row: the parent painted the whole row
+    // first. An unwritten cell between caption and rule would show that
+    // background — glyph and attributes both — as a hole in the widget.
+    buf.Fill(
+        Rect(X = 0, Y = 0, Width = 16, Height = 1),
+        Cell(Ch = '.', St = DefaultStyle().WithReverse()),
+    )
+    RenderTo(
+        LineGaugeLabeled("Sync", 50),
+        Rect(X = 0, Y = 0, Width = 16, Height = 1),
+        buf,
+    )
+    val t1 = Eq(t, buf.CharAt(4, 0), ' ')
+    return IsTrue(t1, !buf.StyleAt(4, 0).Reverse)
+}
+
+func TestLineGaugeBareRuleDrawsBelowTheMinimumRuleWidth(t T) T {
+    // With no caption there is nothing to trade the row for, so the rule
+    // keeps it down to a single cell. The alternative is a blank row, which
+    // is the picture `gaugeTrack` exists to prevent.
+    val one = NewBuffer(1, 1)
+    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 1, Height = 1), one)
+    val t1 = Eq(t, BufferText(one, 0), "━")
+    val three = NewBuffer(3, 1)
+    RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 3, Height = 1), three)
+    return Eq(t1, BufferText(three, 0), "───")
+}
+
+func TestLineGaugeIntrinsicWidthDoesNotVaryWithTheValue(t T) T {
+    // A fitted caption would make the widget's intrinsic width grow at 10%
+    // and again at 100%, nudging every sibling in an auto-sized Row twice
+    // during a single run — and giving snapshot tests a different buffer
+    // size per value.
+    val t1 = Eq(t, defaultRenderWidth(LineGauge(5)), defaultRenderWidth(LineGauge(50)))
+    return Eq(t1, defaultRenderWidth(LineGauge(50)), defaultRenderWidth(LineGauge(100)))
+}
+
+func TestLineGaugeDrawsTheTrackAtZeroAndFillsAtFull(t T) T {
+    // 0% must still look like a gauge — same reason Gauge draws `░` rather
+    // than spaces. Out-of-range values land on those same two pictures
+    // rather than on a wider or negative rule.
+    val zero = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 8, Height = 1), zero)
+    val t1 = Eq(t, BufferText(zero, 0), "────────")
+    val full = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 8, Height = 1), full)
+    val t2 = Eq(t1, BufferText(full, 0), "━━━━━━━━")
+    val over = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 250), Rect(X = 0, Y = 0, Width = 8, Height = 1), over)
+    val t3 = Eq(t2, BufferText(over, 0), "━━━━━━━━")
+    val under = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", -40), Rect(X = 0, Y = 0, Width = 8, Height = 1), under)
+    return Eq(t3, BufferText(under, 0), "────────")
+}
+
+func TestLineGaugeKeepsTheLabelWhenTheRowIsTooNarrowForARule(t T) T {
+    val buf = NewBuffer(6, 1)
+    // "Sync" + space + a 4-cell minimum rule needs 9 columns; at 6 the rule
+    // is dropped rather than drawn too short to mean anything.
+    RenderTo(LineGaugeLabeled("Sync", 50), Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "Sync  ")
+}
+
+func TestLineGaugeFallsBackToTheRuleWhenTheLabelCannotFit(t T) T {
+    val buf = NewBuffer(4, 1)
+    // "Uploading" does not fit in four columns, and a clipped caption is not
+    // a shorter caption — it is a different word, or a different number. The
+    // gauge keeps the half of itself that cannot be misread.
+    RenderTo(LineGaugeLabeled("Uploading", 50), Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "━━──")
+}
+
+func TestLineGaugeStylesTheFilledRunAndTheTrackApart(t T) T {
+    val buf = NewBuffer(8, 1)
+    val filled = DefaultStyle().WithFg(Green())
+    val track = DefaultStyle().WithFg(BrightBlack())
+    RenderTo(
+        LineGaugeStyled("", 50, filled, track),
+        Rect(X = 0, Y = 0, Width = 8, Height = 1),
+        buf,
+    )
+    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Green()))
+    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(3, 0).Fg, Green()))
+    return IsTrue(t2, ColorEq(buf.StyleAt(4, 0).Fg, BrightBlack()))
+}
+
+func TestLineGaugeLabelCarriesTheFilledStyle(t T) T {
+    val buf = NewBuffer(12, 1)
+    val filled = DefaultStyle().WithFg(Green())
+    RenderTo(
+        LineGaugeStyled("Sync", 50, filled, DefaultStyle().WithDim()),
+        Rect(X = 0, Y = 0, Width = 12, Height = 1),
+        buf,
+    )
+    // The caption is the value, not chrome — it must not read as disabled.
+    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Green()))
+}
+
+func TestLineGaugeRendersNothingIntoAZeroArea(t T) T {
+    val buf = NewBuffer(6, 1)
+    RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 0, Height = 0), buf)
+    return Eq(t, BufferText(buf, 0), "      ")
+}
+
+// ============================================================================
 // Spinner
 // ============================================================================
 

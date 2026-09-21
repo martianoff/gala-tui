@@ -212,3 +212,24 @@ func StringCellEllipsis(s string, maxW int) string {
     if maxW == 1 { return "…" }
     return StringCellTruncate(s, maxW - 1) + "…"
 }
+
+// padLeftToCells right-aligns `s` in a `width`-cell slot. A string already
+// at or past the slot width is returned as-is — padding is this function's
+// job, truncation is its neighbours' above.
+//
+// Right-aligning a number into a fixed slot is what keeps whatever follows
+// it from sliding sideways as the number grows a digit; `progressLabelText`
+// and `lineGaugeCaption` are both here for that reason.
+func padLeftToCells(s string, width int) string = cellPad(width - StringCellWidth(s)) + s
+
+// cellPad is `n` spaces, or "" for a non-positive count.
+//
+// `strings.Repeat` rather than a concat loop: `out = out + " "` copies the
+// whole accumulated prefix each step, the quadratic pattern StringCellTruncate
+// documents a few lines up. Every caller today pads by less than a handful of
+// cells, where that is arithmetic rather than a cost — but the width comes
+// from the caller, and the next one may hand it a 200-column row.
+//
+// `strings.Repeat` panics on a negative count, so the `n <= 0` branch carries
+// the "string already fills its slot" case rather than decorating it.
+func cellPad(n int) string = if (n <= 0) "" else strings.Repeat(" ", n)

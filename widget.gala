@@ -715,23 +715,114 @@ func progressLabeledMinWidth() int = progressLabelWidth() + 8
 // a right-aligned "100%".
 func progressLabelWidth() int = 6
 
-func progressLabelText(percent int) string {
-    val p = clampPct(percent)
-    val digits = s"$p%"
-    var pad = ""
-    var i = digits.Size()
-    for i < progressLabelWidth() {
-        pad = pad + " "
-        i = i + 1
-    }
-    return pad + digits
-}
+func progressLabelText(percent int) string =
+    padLeftToCells(s"${clampPct(percent)}%", progressLabelWidth())
 
 // Gauge renders a smooth-edged bar using Unicode partial blocks, over a
 // `░` track that stays visible at 0% so an empty gauge still looks like a
 // gauge rather than an empty slot.
 func Gauge(percent int) Widget =
     GaugeW(Percent = percent, Style = DefaultStyle())
+
+// LineGauge renders a one-row gauge captioned with its own percentage:
+// ` 42% ━━━━━━━━──────────`. Use it where `Gauge` would cost a row it has
+// not earned — one readout per item in a list, or several stacked in a
+// sidebar.
+//
+// The caption leads rather than trails (`ProgressLabeled` puts its number on
+// the right) because these stack: a column of leading captions gives the
+// eye a left edge to read down, where trailing ones would sit at whatever
+// column each rule happened to end. It is right-aligned in a fixed
+// four-column slot so the rule's origin does not move as the number grows a
+// digit — see `lineGaugeCaptionWidth`.
+func LineGauge(percent int) Widget = LineGaugeLabeled(lineGaugeCaption(percent), percent)
+
+// LineGaugeLabeled is LineGauge with a caption of the caller's choosing —
+// `Uploading ━━━━━━╾─────`. Pass "" for a bare rule spanning the row.
+//
+// Stacking more than one? Captions of different lengths give every rule a
+// different origin and a different length, which is exactly what makes a
+// column of gauges not comparable by eye. Put the captions in a fixed column
+// of their own instead:
+//
+//     Column(ArrayOf[LayoutChild](Fixed(1, Row(ArrayOf[LayoutChild](
+//         Fixed(12, Text("Downloading")),
+//         Flex(1, LineGaugeLabeled("", pct)),
+//     ))), ...))
+func LineGaugeLabeled(label string, percent int) Widget =
+    LineGaugeStyled(label, percent, DefaultStyle(), DefaultStyle().WithDim())
+
+// LineGaugeStyled is LineGaugeLabeled with the two styles spelled out: one
+// for the completed run, one for the track behind it.
+//
+// The label takes the filled style, because in the common case the label
+// *is* the value (`LineGauge` captions with the percentage) and a caption
+// drawn in the track's dim style reads as a disabled control. A caller who
+// wants a third style for the caption composes it with the fixed-column
+// recipe on `LineGaugeLabeled`, styling the `Text` however they like.
+func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Widget {
+    // Measured once, at tree-build time, rather than per branch per frame:
+    // the closure below would otherwise re-scan the label's cells two to
+    // four times on every paint.
+    val labelW = lineGaugeLabelWidth(label)
+    return CustomW(
+        MinW = labelW + lineGaugeMinRule(),
+        MinH = 1,
+        Render = (area, buf, _) => {
+            if area.Width <= 0 || area.Height <= 0 {
+                return
+            }
+            val row = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1)
+            // The widget owns every cell of the row it draws. An unwritten
+            // cell is not a blank one — it is whatever the parent painted
+            // there, so on a highlighted list row the gaps would show the
+            // row's reverse video through the middle of the gauge. Rows
+            // below the first are left alone: this is a one-row widget
+            // (`MinH = 1`), and erasing rows it does not draw in would wipe
+            // out whatever put it in a taller area.
+            renderFill(' ', filled, row, buf)
+            // Room for the caption, its separator, and a rule worth reading.
+            if area.Width >= labelW + lineGaugeMinRule() {
+                if labelW > 0 {
+                    renderText(
+                        label,
+                        filled,
+                        Rect(X = area.X, Y = area.Y, Width = labelW, Height = 1),
+                        buf,
+                    )
+                }
+                renderLineGaugeRule(
+                    percent,
+                    filled,
+                    unfilled,
+                    Rect(
+                        X = area.X + labelW,
+                        Y = area.Y,
+                        Width = area.Width - labelW,
+                        Height = 1,
+                    ),
+                    buf,
+                )
+                return
+            }
+            // Too narrow for both, but the caption still fits whole. It is
+            // the half that still says something in three columns — a rule
+            // that short is the same picture at 20% and at 80%.
+            //
+            // `labelW - 1` is the caption's own width: `lineGaugeLabelWidth`
+            // adds the separator, which there is no rule left to separate.
+            if labelW > 0 && labelW - 1 <= area.Width {
+                renderText(label, filled, row, buf)
+                return
+            }
+            // No caption, or one that would clip into a different word — or,
+            // worse, a different number: `LineGauge(100)` in two columns
+            // would render "10", which reads as ten percent. The rule cannot
+            // lie that way, so it takes the row.
+            renderLineGaugeRule(percent, filled, unfilled, row, buf)
+        },
+    )
+}
 
 // Spinner renders a single-cell animated glyph.
 func Spinner(kind SpinnerKind, frame int) Widget =

@@ -139,8 +139,11 @@ bottom row. Shapes outside the bounds clip; they do not wrap.
 | `LineChartAtHeight(values, style, bounds, rows)` | `(Array[int], Style, LineChartBounds, int) Widget` | Pin the chart to exactly `rows` rows. |
 | `MultiLineChart(series, styles)` | `(Array[Array[int]], Array[Style]) Widget` | Overlapping series sharing one Y-axis. |
 | `MultiLineChartAtHeight(series, styles, rows)` | `(Array[Array[int]], Array[Style], int) Widget` | Pinned-row variant. |
-| `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. |
+| `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. Sub-cell precision via partial blocks. |
 | `Progress(percent)` | `(int) Widget` | Cell-precise progress bar. |
+| `LineGauge(percent)` | `(int) Widget` | One-row gauge captioned with its own percentage: ` 42% ━━━━━━╾──────`. Heavy `━` against light `─` so the split reads without colour, with `╾` where the fill ends mid-cell. Caption is right-aligned in a fixed 4 columns, so the rule's origin holds still as the number grows a digit. |
+| `LineGaugeLabeled(label, percent)` | `(string, int) Widget` | Caption of your choosing; `""` gives a bare rule across the row (down to one cell). Too narrow for the caption? The rule takes the row — a clipped caption can read as the wrong number. |
+| `LineGaugeStyled(label, percent, filled, unfilled)` | `(string, int, Style, Style) Widget` | Explicit filled/track styles. The caption takes the filled style — it is the value, not chrome. |
 
 ```gala
 BarChart(ArrayOf[BarChartDatum](
@@ -148,6 +151,26 @@ BarChart(ArrayOf[BarChartDatum](
     BarChartDatum(Label = "bob",   Value = 7),
 ))
 ```
+
+Stacking several `LineGaugeLabeled`s? Captions of different lengths give
+every rule a different origin *and* a different length, which is precisely
+what stops a column of gauges being comparable by eye. Give the captions a
+fixed column of their own instead:
+
+```gala
+Row(ArrayOf[LayoutChild](
+    Fixed(12, Text("Downloading")),
+    Flex(1, LineGaugeLabeled("", pct)),
+))
+```
+
+**Narrow slots.** Squeezed below its intrinsic width, a widget keeps the part
+that still carries information and drops the rest: `ProgressLabeled` drops its
+number and keeps the bar, `LineGauge` drops its rule and keeps the caption —
+and drops the caption for the rule when the caption would have to be cut. A
+*clip* is always signalled (`StringCellEllipsis`'s `…`, `OverflowRow`'s `›`),
+because a clipped value can be misread as a shorter one; a *drop* needs no
+marker, because an absent rule cannot be mistaken for a short rule.
 
 ## Lists & tables
 
