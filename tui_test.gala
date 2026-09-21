@@ -146,6 +146,19 @@ func TestPendingPrintsIgnoresEverythingElse(t T) T {
     return Eq(t1, PendingMsgs(PrintAbove[CM]("x")).Length(), 0)
 }
 
+func TestPrintedLinesSplitOnEmbeddedNewlines(t T) T {
+    // In raw mode ONLCR is off, so a bare "\n" moves down a row without
+    // returning to column 0: the text after it would start wherever the
+    // text before it ended, on a row nothing cleared. One element, one row.
+    val lines = PendingPrints(PrintAbove[CM]("one\ntwo"))
+    val t1 = Eq(t, lines.Length(), 2)
+    val t2 = Eq(t1, lines.Get(0), "one")
+    val t3 = Eq(t2, lines.Get(1), "two")
+    // A trailing newline is not an extra row — `PrintAbove("done\n")` means
+    // what a caller porting a println expects it to mean.
+    return Eq(t3, PendingPrints(PrintAbove[CM]("done\n")).Length(), 1)
+}
+
 func TestViewRendersModel(t T) T {
     val m = CModel(Count = 42)
     val out = Render(vw(m))

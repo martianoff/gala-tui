@@ -450,12 +450,18 @@ it. On the full-screen backend the lines are dropped: the alternate screen has
 no scrollback to insert into, which is the same limitation ratatui's
 `insert_before` has.
 
-Each element is one row. A string carrying its own `\n` is split, because in
-raw mode a bare newline moves down without returning to column 0 and the text
-after it would land mid-row. A line wider than the terminal soft-wraps, which
-costs it an extra row but nothing else — the viewport's rows are blanked
-before the lines land on them, so a wrapped line cannot weld the old frame's
-tail onto its continuation row.
+Each element is one row — with one exception worth knowing. A string carrying
+its own `\n` is split, because in raw mode a bare newline moves down without
+returning to column 0 and the text after it would land mid-row. But a printed
+line is the one string in this library that does **not** go through the cell
+model: it is handed to the terminal as bytes, unmeasured, so a line wider than
+the terminal soft-wraps and silently takes two rows. That is safe — the
+viewport's rows are blanked before the lines land, so a wrapped line cannot
+weld the old frame's tail onto its continuation row — but it is a silent clip
+of the one-row rule, not a signalled one. Measuring is not available here:
+`StringCellWidth` counts a line's own SGR escapes as cells, and truncating one
+can cut mid-escape. A caller who needs one row per element fits the text
+itself.
 
 ## Testing a run loop without a terminal
 

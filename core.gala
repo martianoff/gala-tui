@@ -115,7 +115,7 @@ func PendingPrints[T any](c Cmd[T]) Array[string] {
 // same as `PrintAbove("done")`, which is what a caller porting a `println`
 // expects.
 func splitPrintLine(line string) Array[string] =
-    ArrayFromSlice(strings.Split(strings.TrimSuffix(line, "\n"), "\n"))
+    stringToLines(strings.TrimSuffix(line, "\n"))
 
 // PendingFutures walks a command tree and collects every Future[T] the runtime
 // must poll until completion. The runtime enqueues these into its

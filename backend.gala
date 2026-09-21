@@ -73,13 +73,19 @@ struct BackendSession(
 // full-screen app on the alternate screen has no scrollback to insert into
 // at all and discards them.
 //
-// It reports whether the lines went anywhere, which is not bookkeeping: the
-// runtime repaints in full after an insert, because the lines are written
-// over the rows a diff would otherwise compare against. A backend that
-// discarded them disturbed nothing, and `Buffer.DiffString(nil)` is a whole
-// screen of cells rather than the empty diff it might sound like — so an
-// app printing on a ticker into the alternate screen would trade a
-// hundred-byte diff per frame for a full rewrite, to no end.
+// It reports whether the lines went anywhere, which is not bookkeeping:
+// `emitPrints` repaints after an insert that landed, because the lines were
+// written over the viewport's rows on their way up. A backend that
+// discarded them disturbed nothing, and the repaint would be
+// `Buffer.DiffString(nil)` — every cell of the terminal, not the empty diff
+// it might sound like — on every frame an app printed.
+//
+// It is the one optional field. Nil means the same as `TerminalBackend`'s
+// `(lines) => false`: this backend has nowhere to put them. That is
+// deliberate rather than lax — `Backend` is public and its fields are plain
+// functions, so a backend written before this field existed still compiles,
+// and a print should no-op there rather than crash the run loop. The other
+// seven fields have no such reading and a nil one is a bug.
 struct Backend(
     Name         string,
     Size         func() Tuple[int, int],
@@ -209,12 +215,7 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
         // Recorded verbatim, in order, into the same stream as the frames,
         // so a test can assert both that a line was printed and that it was
         // printed before the frame that followed it.
-        InsertBefore = (lines) => {
-            lines.ForEach((line) => {
-                st.Written = st.Written + line + "\n"
-            })
-            return lines.NonEmpty()
-        },
+        InsertBefore = (lines) => testBackendInsertBefore(st, lines),
     )
     return (b, st)
 }
@@ -239,30 +240,16 @@ func (g backendGuard) Close() error {
 
 func closeOnExit(s BackendSession) backendGuard = backendGuard(Session = s)
 
-// paintOnExit repaints the viewport on the way out, on every exit path the
-// `use` binding covers — a Quit cmd, Ctrl-C, end of input, a panic.
-//
-// The run loop paints after each turn, so on a quiet exit this repeats a
-// frame that is already on screen. It earns its place on the paths where
-// something happened *after* the last paint. `PrintAbove` is the sharp one:
-// printed lines are written over the viewport's rows on their way into the
-// scrollback, and the loop's repaint is what puts the frame back. An
-// update() that prints and quits in the same Batch — which the docs
-// recommend, for an app whose last act is to print a summary — returns
-// before that repaint, and `inlineExitString` would then freeze a half
-// scrolled frame into the user's scrollback for good.
-//
-// Declared after `closeOnExit` so it runs before it: the frame has to land
-// while the viewport still exists, not after the session has stepped the
-// cursor past the block.
-struct paintGuard(Repaint func())
 
-func (g paintGuard) Close() error {
-    g.Repaint()
-    return nil
+// testBackendInsertBefore records scrollback lines verbatim, in order, into
+// the same stream as the frames — so a test can assert both that a line was
+// printed and that it was printed before the frame that followed it.
+func testBackendInsertBefore(st *TestBackendState, lines Array[string]) bool {
+    lines.ForEach((line) => {
+        st.Written = st.Written + line + "\n"
+    })
+    return true
 }
-
-func paintOnExit(repaint func()) paintGuard = paintGuard(Repaint = repaint)
 
 // testBackendRead copies the next chunk of the script into `buf`, returning
 // (bytes, ok). `ok = false` once the script is exhausted, which the run loop
@@ -359,12 +346,7 @@ func NewTestBackendChunks(
         // Recorded verbatim, in order, into the same stream as the frames,
         // so a test can assert both that a line was printed and that it was
         // printed before the frame that followed it.
-        InsertBefore = (lines) => {
-            lines.ForEach((line) => {
-                st.Written = st.Written + line + "\n"
-            })
-            return lines.NonEmpty()
-        },
+        InsertBefore = (lines) => testBackendInsertBefore(st, lines),
     )
     return (b, st)
 }
@@ -434,7 +416,7 @@ func InlineBackend(height int) Backend {
         },
         InsertBefore = (lines) => {
             fmt.Fprint(os.Stdout, inlineInsertBeforeString(lines, h))
-            return lines.NonEmpty()
+            return true
         },
     )
 }
@@ -465,11 +447,9 @@ func InlineBackend(height int) Backend {
 // Empty input returns "" rather than walking the viewport down `height`
 // rows, so the guard lives here and callers cannot forget it.
 //
-// What is NOT done here is repainting: the caller paints next, and the rows
-// this leaves are stale until it does. Painting from inside the backend's
-// insert path would need the frame, which is the runtime's to own, and
-// would paint twice whenever a print and a model change land in the same
-// turn.
+// The rows it leaves are stale until the caller paints, which `emitPrints`
+// does as the other half of the same operation — see its comment for why
+// the pairing lives there and not in this string.
 func inlineInsertBeforeString(lines Array[string], height int) string {
     if lines.IsEmpty() {
         return ""
@@ -477,63 +457,73 @@ func inlineInsertBeforeString(lines Array[string], height int) string {
     var sb strings.Builder
     sb.WriteString(inlineBlankBlockString(height))
     lines.ForEach((line) => {
-        sb.WriteString("\r")
-        sb.WriteString(ansiClearLine())
         sb.WriteString(line)
         // A line that set a colour and did not clear it would otherwise
         // paint every row after it: `ESC[K` erases with the *current*
-        // background in every terminal that matters, so the next line's
-        // erase would fill its whole width with the previous line's colour.
+        // background in every terminal that matters, so the blanking of the
+        // next block would fill its whole width with this line's colour.
         sb.WriteString(ResetSgr())
         sb.WriteString("\r\n")
     })
-    var i = 0
-    for i < height - 1 {
-        sb.WriteString("\r\n")
-        i = i + 1
-    }
-    sb.WriteString("\r")
-    sb.WriteString(ansiCursorUp(height - 1))
+    // No per-line erase: every row a line can land on is already blank —
+    // the block's own rows were just cleared above, and rows past it arrive
+    // by scrolling, which scrolls in blank rows.
+    sb.WriteString(inlineReserveString(height))
     return sb.String()
 }
 
 // inlineBlankBlockString erases the viewport's rows and returns the cursor
 // to the top of the block, leaving it where it started.
-func inlineBlankBlockString(height int) string {
-    var sb strings.Builder
-    var i = 0
-    for i < height {
-        sb.WriteString("\r")
-        sb.WriteString(ansiClearLine())
-        if i < height - 1 {
-            sb.WriteString("\r\n")
-        }
-        i = i + 1
-    }
-    sb.WriteString("\r")
-    sb.WriteString(ansiCursorUp(height - 1))
-    return sb.String()
-}
+func inlineBlankBlockString(height int) string = inlineRowsString(height, (i) => "")
 
 // inlineFrameString is one repaint: each row cleared and rewritten from
 // column 0, then the cursor walked back to the top of the block so the next
 // paint starts from the same place.
 func inlineFrameString(frame *Buffer, height int) string {
-    var sb strings.Builder
     val rows = strings.Split(frame.String(), "\n")
+    return inlineRowsString(height, (i) => if (i < rows.Size()) rows[i] else "")
+}
+
+// inlineRowsString walks the block once, writing `rowText(i)` into each row
+// over an erase, and leaves the cursor back at the top.
+//
+// The one place that knows the inline row protocol. A paint and a blanking
+// pass differ only in what they put in the row, and when the insert path
+// needed a trailing `ResetSgr` it was the paint path's loop it would have
+// drifted from.
+func inlineRowsString(height int, rowText func(int) string) string {
+    var sb strings.Builder
     var i = 0
     for i < height {
         sb.WriteString("\r")
         sb.WriteString(ansiClearLine())
-        if i < rows.Size() {
-            sb.WriteString(rows[i])
-        }
+        sb.WriteString(rowText(i))
         if i < height - 1 {
             sb.WriteString("\r\n")
         }
         i = i + 1
     }
     // Back to the top of the block, column 0.
+    sb.WriteString("\r")
+    sb.WriteString(ansiCursorUp(height - 1))
+    return sb.String()
+}
+
+// inlineReserveString scrolls `height` rows into existence and parks the
+// cursor on the first of them.
+//
+// Printing newlines is the only portable way to make a terminal scroll at
+// the bottom of the screen, and stepping back up leaves the cursor at the
+// top of a block that is now guaranteed to be on screen. Both the entry
+// sequence and every insert need exactly this: one creates the viewport,
+// the other puts it back after lines have pushed it up.
+func inlineReserveString(height int) string {
+    var sb strings.Builder
+    var i = 0
+    for i < height - 1 {
+        sb.WriteString("\r\n")
+        i = i + 1
+    }
     sb.WriteString("\r")
     sb.WriteString(ansiCursorUp(height - 1))
     return sb.String()
@@ -575,19 +565,8 @@ func inlineOpen(height int, mouse bool) BackendSession {
 // the bottom of the screen, printing the newlines is what makes the terminal
 // scroll; drawing first and scrolling later would push the top of the frame
 // into the scrollback mid-render.
-func inlineEnterString(height int, modesOn string) string {
-    var sb strings.Builder
-    sb.WriteString(ansiCursorHide())
-    sb.WriteString(modesOn)
-    var i = 0
-    for i < height - 1 {
-        sb.WriteString("\r\n")
-        i = i + 1
-    }
-    sb.WriteString("\r")
-    sb.WriteString(ansiCursorUp(height - 1))
-    return sb.String()
-}
+func inlineEnterString(height int, modesOn string) string =
+    ansiCursorHide() + modesOn + inlineReserveString(height)
 
 // inlineExitString releases it: step past the block so the shell's next
 // prompt lands BELOW the app's final frame rather than overwriting it, then

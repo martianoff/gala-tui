@@ -274,10 +274,6 @@ func Run[M any, T any](
     use _guard = closeOnExit(session)
 
     var model = program.Initial
-    // Puts the final frame back on exit — see paintOnExit. Chiefly for the
-    // paths that leave after a PrintAbove has scrolled the viewport's rows
-    // away and before the loop's own repaint.
-    use _final = paintOnExit(() => paintFrame(program.View(model), backend))
 
     // First paint — the initial model before any input.
     paintFrame(program.View(model), backend)
@@ -323,7 +319,8 @@ func Run[M any, T any](
             val (newModel, cmd) = program.Update(model, msg)
             model = newModel
 
-            emitPrints(backend, PendingPrints(cmd))
+            emitPrints(backend, PendingPrints(cmd),
+                       () => paintFrame(program.View(model), backend))
             if IsQuit(cmd) {
                 return model
             }
@@ -335,7 +332,8 @@ func Run[M any, T any](
             for i < emitted.Length() {
                 val (nm, nc) = program.Update(model, emitted.Get(i))
                 model = nm
-                emitPrints(backend, PendingPrints(nc))
+                emitPrints(backend, PendingPrints(nc),
+                           () => paintFrame(program.View(model), backend))
                 if IsQuit(nc) {
                     return model
                 }
@@ -495,7 +493,6 @@ func RunWithSub[M any, T any](
     var readFut = None[concurrent.Future[ReadResult]]()
     // Partial escape sequence held back from the previous read — see carryOver.
     var carry = SliceEmpty[byte]()
-    use _final = paintOnExit(() => paintFrame(program.View(model), backend))
 
     paintFrame(program.View(model), backend)
 
@@ -507,10 +504,10 @@ func RunWithSub[M any, T any](
         model = asyncRes.Model
         pending = pending.AppendAll(asyncRes.NewFutures)
         // Before the quit check: an update() that prints and quits in one
-        // Batch means both. This path always repaints in full (paintFrame
-        // passes no `prev`), so unlike RunWithMouse it has no frame to
-        // invalidate.
-        emitPrints(backend, asyncRes.Prints)
+        // Batch means both, and emitPrints puts the frame back under the
+        // lines before this path can return.
+        emitPrints(backend, asyncRes.Prints,
+                   () => paintFrame(program.View(model), backend))
         if asyncRes.Quit {
             return model
         }
@@ -521,7 +518,8 @@ func RunWithSub[M any, T any](
         val tickRes = dispatchAll(program, model, tickMsgs)
         model = tickRes.Model
         pending = pending.AppendAll(tickRes.NewFutures)
-        emitPrints(backend, tickRes.Prints)
+        emitPrints(backend, tickRes.Prints,
+                   () => paintFrame(program.View(model), backend))
         if tickRes.Quit {
             return model
         }
@@ -576,7 +574,8 @@ func RunWithSub[M any, T any](
         carry = leftover
         // Flushed before the exit check so a keystroke that prints on its
         // way out still leaves its line behind.
-        emitPrints(backend, keyPrints)
+        emitPrints(backend, keyPrints,
+                   () => paintFrame(program.View(model), backend))
         if exitNow {
             return model
         }
@@ -630,12 +629,6 @@ func RunWithMouse[M any, T any](
     // release, regardless of whether the cursor wanders off the
     // press's region in between.
     var dragActive = None[DragActive]()
-    // Full repaint rather than a diff: the exit paths this covers are
-    // exactly the ones where what is on screen no longer matches the frame
-    // `prevFrame` holds.
-    use _final = paintOnExit(() => {
-        val _ = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
-    })
     var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
 
     for {
@@ -648,13 +641,11 @@ func RunWithMouse[M any, T any](
         val drainRes = dispatchAll(program, model, drainMsgs)
         model = drainRes.Model
         pending = pending.AppendAll(drainRes.NewFutures)
-        // Dropping `prevFrame` forces the next paint to write every cell:
-        // the inserted lines went in over the viewport's rows, so the frame
-        // recorded here is no longer what the terminal is showing and a
-        // diff against it would leave the overwritten rows stale.
-        if emitPrints(backend, drainRes.Prints) {
-            prevFrame = nil
-        }
+        // Full repaint, not a diff: the lines were written over the very
+        // rows `prevFrame` records.
+        emitPrints(backend, drainRes.Prints, () => {
+            prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+        })
         if drainRes.Quit {
             return model
         }
@@ -668,10 +659,11 @@ func RunWithMouse[M any, T any](
         val asyncRes = dispatchAll(program, model, asyncMsgs)
         model = asyncRes.Model
         pending = pending.AppendAll(asyncRes.NewFutures)
-        val asyncPrinted = emitPrints(backend, asyncRes.Prints)
-        if asyncPrinted {
-            prevFrame = nil
-        }
+        // Full repaint, not a diff: the lines were written over the very
+        // rows `prevFrame` records.
+        emitPrints(backend, asyncRes.Prints, () => {
+            prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+        })
         if asyncRes.Quit {
             return model
         }
@@ -682,10 +674,11 @@ func RunWithMouse[M any, T any](
         val tickRes = dispatchAll(program, model, tickMsgs)
         model = tickRes.Model
         pending = pending.AppendAll(tickRes.NewFutures)
-        val tickPrinted = emitPrints(backend, tickRes.Prints)
-        if tickPrinted {
-            prevFrame = nil
-        }
+        // Full repaint, not a diff: the lines were written over the very
+        // rows `prevFrame` records.
+        emitPrints(backend, tickRes.Prints, () => {
+            prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+        })
         if tickRes.Quit {
             return model
         }
@@ -701,19 +694,19 @@ func RunWithMouse[M any, T any](
         val resRes = dispatchAll(program, model, resizeMsgs)
         model = resRes.Model
         pending = pending.AppendAll(resRes.NewFutures)
-        val resizePrinted = emitPrints(backend, resRes.Prints)
-        if resizePrinted {
-            prevFrame = nil
-        }
+        // Full repaint, not a diff: the lines were written over the very
+        // rows `prevFrame` records.
+        emitPrints(backend, resRes.Prints, () => {
+            prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+        })
         if resRes.Quit {
             return model
         }
 
-        // Printing is a reason to paint on its own: the lines overwrote the
-        // viewport's rows on their way into the scrollback, so the frame has
-        // to be put back even when nothing about the model changed.
-        if asyncMsgs.NonEmpty() || tickMsgs.NonEmpty() || resizeMsgs.NonEmpty()
-            || asyncPrinted || tickPrinted || resizePrinted {
+        // Printing needs no clause of its own here: a print can only come
+        // from a dispatched message, so these three already cover it — and
+        // emitPrints has repainted anyway.
+        if asyncMsgs.NonEmpty() || tickMsgs.NonEmpty() || resizeMsgs.NonEmpty() {
             prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits, backend)
         }
 
@@ -756,11 +749,10 @@ func RunWithMouse[M any, T any](
         )
         carry = leftover
         // Flushed before the exit check so an event that prints on its way
-        // out still leaves its line behind. The paint below is unconditional
-        // here, so dropping `prevFrame` is all the invalidation needed.
-        if emitPrints(backend, inputPrints) {
-            prevFrame = nil
-        }
+        // out still leaves its line behind.
+        emitPrints(backend, inputPrints, () => {
+            prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+        })
         if exitNow {
             return model
         }
@@ -813,7 +805,7 @@ func processInputBytesWithHits[M any, T any](
             *model = newModel
             // Collected before the quit check, same as dispatchAll: a
             // keystroke whose update() prints and quits means both.
-            *prints = prints.AppendAll(PendingPrints(cmd))
+            PendingPrints(cmd).ForEach((line) => { *prints = prints.Append(line) })
             if IsQuit(cmd) {
                 return (true, SliceEmpty[byte]())
             }
@@ -824,7 +816,7 @@ func processInputBytesWithHits[M any, T any](
             for i < emitted.Length() {
                 val (nm, nc) = program.Update(*model, emitted.Get(i))
                 *model = nm
-                *prints = prints.AppendAll(PendingPrints(nc))
+                PendingPrints(nc).ForEach((line) => { *prints = prints.Append(line) })
                 if IsQuit(nc) {
                     return (true, SliceEmpty[byte]())
                 }
@@ -1292,7 +1284,7 @@ func dispatchAll[M any, T any](
         // print a summary and quit means both, and dropping the lines
         // because the same update() also asked to exit would make the
         // ordering of a Batch decide whether its output survives.
-        prints = prints.AppendAll(PendingPrints(cmd))
+        PendingPrints(cmd).ForEach((line) => { prints = prints.Append(line) })
         if IsQuit(cmd) {
             return DispatchResult[M, T](
                 Model = model, NewFutures = futures, Prints = prints, Quit = true)
@@ -1304,7 +1296,7 @@ func dispatchAll[M any, T any](
         for j < emitted.Length() {
             val (nm2, cmd2) = program.Update(model, emitted.Get(j))
             model = nm2
-            prints = prints.AppendAll(PendingPrints(cmd2))
+            PendingPrints(cmd2).ForEach((line) => { prints = prints.Append(line) })
             if IsQuit(cmd2) {
                 return DispatchResult[M, T](
                     Model = model, NewFutures = futures, Prints = prints, Quit = true)
@@ -1351,7 +1343,7 @@ func processKeyBytes[M any, T any](
         *model = newModel
         // Collected before the quit check, same as dispatchAll: a keystroke
         // whose update() prints and quits means both.
-        *prints = prints.AppendAll(PendingPrints(cmd))
+        PendingPrints(cmd).ForEach((line) => { *prints = prints.Append(line) })
         if IsQuit(cmd) {
             return (true, SliceEmpty[byte]())
         }
@@ -1362,7 +1354,7 @@ func processKeyBytes[M any, T any](
         for i < emitted.Length() {
             val (nm, nc) = program.Update(*model, emitted.Get(i))
             *model = nm
-            *prints = prints.AppendAll(PendingPrints(nc))
+            PendingPrints(nc).ForEach((line) => { *prints = prints.Append(line) })
             if IsQuit(nc) {
                 return (true, SliceEmpty[byte]())
             }
@@ -1373,31 +1365,42 @@ func processKeyBytes[M any, T any](
     return (false, SliceEmpty[byte]())
 }
 
+// emitPrints hands `lines` to the backend's scrollback and repaints.
+//
+// The repaint is not the caller's to remember. Inserted lines are written
+// over the viewport's rows on their way into the scrollback, so an insert
+// on its own leaves the screen showing neither the old frame nor the new
+// one — while `Paint`, the only other backend operation that touches the
+// screen, leaves it valid every time. Pairing the two here makes that
+// invariant true of the whole seam instead of all but one member of it,
+// and with it goes every "repaint after printing" rule a dispatch site
+// could forget: the quit paths are covered because the paint has already
+// happened by the time they return.
+//
+// `repaint` is a closure because the two loops paint differently — one a
+// full frame, one through the hit registry, threading its own previous
+// buffer forward. It runs only when the backend says the lines went
+// somewhere: on the alternate screen they are dropped, nothing on screen
+// moved, and a repaint there would be `DiffString(nil)` — every cell of the
+// terminal — on every frame that printed.
+//
+// `Backend` is a public struct of plain function fields, so a caller can
+// build one without `InsertBefore` and gala will compile it — the nil check
+// is what turns "this backend predates PrintAbove" into a no-op instead of
+// a crash inside the run loop the first time an app prints.
+func emitPrints(backend Backend, lines Array[string], repaint func()) {
+    if lines.IsEmpty() || backend.InsertBefore == nil {
+        return
+    }
+    if backend.InsertBefore(lines) {
+        repaint()
+    }
+}
+
 // paintFrame sizes a Buffer to the current terminal, asks the Widget tree to
 // render into it, then writes the ANSI-escape text to stdout preceded by
 // cursor-home. Full repaint every frame — kept for the simple `Run` path
 // that doesn't care about bandwidth.
-// emitPrints hands `lines` to the backend's scrollback and reports whether
-// they went anywhere.
-//
-// The bool is what the diffing paint paths need. Lines are written where
-// the viewport's top row is, so once they have gone in, the buffer the next
-// diff would compare against is no longer what is on screen — the caller
-// drops its `prev` on a true and repaints in full. A backend that discarded
-// them says so, and the diff is left intact: on the alternate screen, where
-// prints go nowhere, `DiffString(nil)` would otherwise rewrite every cell
-// of the screen on every frame that printed.
-//
-// `Backend` is a public struct of plain function fields, so a caller can
-// build one without this field and gala will compile it — the nil check is
-// what turns "this backend predates PrintAbove" into a no-op instead of a
-// crash inside the run loop the first time an app prints.
-func emitPrints(backend Backend, lines Array[string]) bool {
-    if lines.IsEmpty() || backend.InsertBefore == nil {
-        return false
-    }
-    return backend.InsertBefore(lines)
-}
 
 func paintFrame(w Widget, backend Backend) {
     val (width, height) = backend.Size()
