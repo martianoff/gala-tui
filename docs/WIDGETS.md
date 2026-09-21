@@ -123,6 +123,24 @@ same way above and below. Reach for it when the area reads as a quantity
 (throughput, bytes, requests) and for a plain `ShapeLine` when it does not (a
 temperature, a percentage).
 
+Chain one segment per pair of points and the shared endpoints meet without a
+seam:
+
+```gala
+ArrayTabulate(ys.Length() - 1, (i) => ShapeFilledLine(
+    X1 = xs.Get(i),     Y1 = ys.Get(i),
+    X2 = xs.Get(i + 1), Y2 = ys.Get(i + 1),
+    YRef = 0.0, Style = dim,
+))
+```
+
+Two notes on fills specifically. **Pick a marker that tiles**: braille,
+half-block and block all render a fill as solid; `DotMarker` turns one into a
+field of `•` that reads worse than the bare line, so keep it for sparse point
+series. And the fill and its outline share one `Style` — for a bright edge over
+a dim band, draw a `ShapeLine` *after* the `ShapeFilledLine`, since a canvas
+cell takes the style of the last shape to light it.
+
 ```gala
 CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](
     ShapeCircle(X = 0.0, Y = 0.0, Radius = 0.8, Style = accent),
@@ -132,7 +150,9 @@ CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](
 ```
 
 Y grows **up**, as a plot's does — `Y = 0.0` on `YBounds(0.0, 1.0)` is the
-bottom row. Shapes outside the bounds clip; they do not wrap.
+bottom row. Shapes outside the bounds clip; they do not wrap. Bounds want
+`Min < Max`: an inverted pair is not a flipped axis, and every shape collapses
+onto one edge.
 
 ## Charts
 
