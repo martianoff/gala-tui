@@ -141,9 +141,16 @@ bottom row. Shapes outside the bounds clip; they do not wrap.
 | `MultiLineChartAtHeight(series, styles, rows)` | `(Array[Array[int]], Array[Style], int) Widget` | Pinned-row variant. |
 | `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. Sub-cell precision via partial blocks. |
 | `Progress(percent)` | `(int) Widget` | Cell-precise progress bar. |
-| `LineGauge(percent)` | `(int) Widget` | One-row gauge captioned with its own percentage: ` 42% ━━━━━━╸──────`. Heavy `━` against light `─` so the split reads without colour, with `╸` where the fill ends mid-cell. Caption is right-aligned in a fixed 4 columns, so the rule's origin holds still as the number grows a digit. |
-| `LineGaugeLabeled(label, percent)` | `(string, int) Widget` | Caption of your choosing; `""` gives a bare rule across the row (down to one cell). |
+| `LineGauge(percent)` | `(int) Widget` | One-row gauge captioned with its own percentage: ` 42% ━━━━━━╾──────`. Heavy `━` against light `─` so the split reads without colour, with `╾` where the fill ends mid-cell. Caption is right-aligned in a fixed 4 columns, so the rule's origin holds still as the number grows a digit. |
+| `LineGaugeLabeled(label, percent)` | `(string, int) Widget` | Caption of your choosing; `""` gives a bare rule across the row (down to one cell). Too narrow for the caption? The rule takes the row — a clipped caption can read as the wrong number. |
 | `LineGaugeStyled(label, percent, filled, unfilled)` | `(string, int, Style, Style) Widget` | Explicit filled/track styles. The caption takes the filled style — it is the value, not chrome. |
+
+```gala
+BarChart(ArrayOf[BarChartDatum](
+    BarChartDatum(Label = "alice", Value = 12),
+    BarChartDatum(Label = "bob",   Value = 7),
+))
+```
 
 Stacking several `LineGaugeLabeled`s? Captions of different lengths give
 every rule a different origin *and* a different length, which is precisely
@@ -154,13 +161,6 @@ fixed column of their own instead:
 Row(ArrayOf[LayoutChild](
     Fixed(12, Text("Downloading")),
     Flex(1, LineGaugeLabeled("", pct)),
-))
-```
-
-```gala
-BarChart(ArrayOf[BarChartDatum](
-    BarChartDatum(Label = "alice", Value = 12),
-    BarChartDatum(Label = "bob",   Value = 7),
 ))
 ```
 

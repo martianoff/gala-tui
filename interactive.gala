@@ -202,23 +202,27 @@ func gaugeEighthRune(eighths int) rune {
 //
 // Where `Gauge` reaches for partial *blocks*, the rule reaches for partial
 // *weight*: the completed run is heavy (`━`), the track is light (`─`), and
-// the boundary cell is a left-half-heavy `╸` when the fill lands mid-cell.
-// The weight contrast survives a monochrome terminal, a `NO_COLOR` session
-// and a colour-blind reader, none of which a distinction carried by colour
-// alone would; `╸` then buys back the half cell of resolution that whole-cell
-// glyphs would otherwise cost.
+// the boundary cell is `╾` — heavy left, light right — when the fill lands
+// mid-cell. The weight contrast survives a monochrome terminal, a `NO_COLOR`
+// session and a colour-blind reader, none of which a distinction carried by
+// colour alone would; `╾` then buys back the half cell of resolution that
+// whole-cell glyphs would otherwise cost.
 // ----------------------------------------------------------------------------
 
 // lineGaugeFilled is the glyph for the completed run of a LineGauge.
 func lineGaugeFilled() rune = '━'
 
-// lineGaugeHead is the boundary glyph — heavy on its left half, light on its
-// right — drawn when the fill ends inside a cell rather than on its edge.
+// lineGaugeHead is the boundary glyph, drawn when the fill ends inside a
+// cell rather than on its edge: U+257E, heavy on its left half and light on
+// its right. It continues the filled run into the cell and hands the rest of
+// the cell to the track, so the rule stays unbroken across the boundary —
+// U+2578 `╸`, the other candidate, is heavy-left and *blank* right, which
+// puts a half-cell hole in the middle of the gauge.
 //
 // It is deliberately not the same picture as a full cell: rounding a fill up
 // to `━` would let 99% paint the same rule as 100%, and "done" is the one
 // state a progress widget must never claim early.
-func lineGaugeHead() rune = '╸'
+func lineGaugeHead() rune = '╾'
 
 // lineGaugeTrack is the glyph for the remainder — the same rule, drawn
 // light, so the gauge's full extent is visible at 0% exactly as `Gauge`'s
@@ -262,24 +266,34 @@ func lineGaugeCaption(percent int) string =
 // padLeftToCells right-aligns `s` in a `width`-cell slot. A string already
 // at or past the slot width is returned as-is — padding is this function's
 // job, truncation is the renderer's.
-func padLeftToCells(s string, width int) string {
+func padLeftToCells(s string, width int) string = cellPad(width - StringCellWidth(s)) + s
+
+// padRightToCells left-aligns `s` in a `width`-cell slot. Used where a
+// widget must own every cell of its area: an unwritten cell is not blank,
+// it is whatever the parent painted there.
+func padRightToCells(s string, width int) string = s + cellPad(width - StringCellWidth(s))
+
+// cellPad is `n` spaces, or "" for a non-positive count.
+func cellPad(n int) string {
     var pad = ""
-    var i = StringCellWidth(s)
-    for i < width {
+    var i = 0
+    for i < n {
         pad = pad + " "
         i = i + 1
     }
-    return pad + s
+    return pad
 }
 
 // renderLineGaugeRule paints `width` cells of rule at (x, y): the completed
 // run, then the boundary cell when the fill ends mid-cell, then the track.
 //
-// The fill is rounded to the nearest half cell — `full` whole cells plus a
-// `╸` when at least half of the next one is earned. Rounding to nearest
-// rather than flooring is what `distributeSlack` does with layout slack a
-// few hundred lines down, and it halves the dead zone at the bottom of the
-// range: at 20 cells a floor-only rule shows nothing until 5%.
+// The fill is floored to the half cell — `full` whole cells, plus a head
+// when the next half is fully earned. Floored, not rounded to nearest, and
+// that is load-bearing: `(width * 2 * p + 50) / 100` at width 19 and p = 99
+// yields 38 halves, a full 19 cells, so 99% would paint the exact picture of
+// 100%. Flooring keeps the widget's one hard promise — nothing short of done
+// renders as done — and costs only a half cell of resolution, which the head
+// glyph is there to buy back.
 func renderLineGaugeRule(
     buf *Buffer,
     x int,

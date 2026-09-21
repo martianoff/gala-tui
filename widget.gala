@@ -738,7 +738,7 @@ func Gauge(percent int) Widget =
 func LineGauge(percent int) Widget = LineGaugeLabeled(lineGaugeCaption(percent), percent)
 
 // LineGaugeLabeled is LineGauge with a caption of the caller's choosing —
-// `Uploading ━━━━━━╸─────`. Pass "" for a bare rule spanning the row.
+// `Uploading ━━━━━━╾─────`. Pass "" for a bare rule spanning the row.
 //
 // Stacking more than one? Captions of different lengths give every rule a
 // different origin and a different length, which is exactly what makes a
@@ -779,10 +779,22 @@ func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Wi
             }
             // Too narrow for both. The caption is the half that still says
             // something in three columns — a rule that short is the same
-            // picture at 20% and at 80% — so the rule is what goes.
+            // picture at 20% and at 80% — so the rule is what goes, and the
+            // caption is padded across the row rather than left to show the
+            // parent's background through the gap.
             if area.Width < labelW + lineGaugeMinRule() {
+                // …unless the caption does not fit either. A clipped caption
+                // is not a shorter caption when the caption is a number:
+                // `LineGauge(100)` in two columns would render "10", which
+                // reads as ten percent. The rule cannot lie that way, so
+                // below the caption's own width the rule takes the row.
+                if StringCellWidth(label) > area.Width {
+                    renderLineGaugeRule(
+                        buf, area.X, area.Y, area.Width, percent, filled, unfilled)
+                    return
+                }
                 renderText(
-                    StringCellTruncate(label, area.Width),
+                    padRightToCells(label, area.Width),
                     filled,
                     Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
                     buf,

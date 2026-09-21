@@ -125,7 +125,7 @@ func TestLineGaugeSplitsTheRuleAtThePercentage(t T) T {
     // A four-column caption plus its separator claims 5, leaving a 9-cell
     // rule. Half of nine is four and a half, so four heavy cells and a head.
     RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 14, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), " 50% ━━━━╸────")
+    return Eq(t, BufferText(buf, 0), " 50% ━━━━╾────")
 }
 
 func TestLineGaugeCaptionKeepsTheRuleOriginFixed(t T) T {
@@ -161,7 +161,30 @@ func TestLineGaugeDrawsAHeadWhenTheFillEndsMidCell(t T) T {
     val buf = NewBuffer(5, 1)
     // Half of five cells is two and a half.
     RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "━━╸──")
+    return Eq(t, BufferText(buf, 0), "━━╾──")
+}
+
+func TestLineGaugeNeverClipsACaptionIntoAWrongNumber(t T) T {
+    // "100%" clipped to two columns reads as "10" — ten percent, which is a
+    // lie the rule is incapable of telling. Below the caption's own width
+    // the rule takes the row instead.
+    val buf = NewBuffer(2, 1)
+    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 2, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "━━")
+}
+
+func TestLineGaugeOwnsEveryCellWhenTheRuleIsDropped(t T) T {
+    val buf = NewBuffer(8, 1)
+    // Same bleed-through as the separator cell, in the other branch: the
+    // caption is padded across the row so the parent's highlight cannot
+    // show through the tail.
+    buf.Fill(
+        Rect(X = 0, Y = 0, Width = 8, Height = 1),
+        Cell(Ch = '.', St = DefaultStyle().WithReverse()),
+    )
+    RenderTo(LineGaugeLabeled("Sync", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "Sync    ")
+    return IsTrue(t1, !buf.StyleAt(7, 0).Reverse)
 }
 
 func TestLineGaugePaintsTheSeparatorCell(t T) T {
@@ -241,10 +264,13 @@ func TestLineGaugeKeepsTheLabelWhenTheRowIsTooNarrowForARule(t T) T {
     return Eq(t, BufferText(buf, 0), "Sync  ")
 }
 
-func TestLineGaugeTruncatesALabelWiderThanTheRow(t T) T {
+func TestLineGaugeFallsBackToTheRuleWhenTheLabelCannotFit(t T) T {
     val buf = NewBuffer(4, 1)
+    // "Uploading" does not fit in four columns, and a clipped caption is not
+    // a shorter caption — it is a different word, or a different number. The
+    // gauge keeps the half of itself that cannot be misread.
     RenderTo(LineGaugeLabeled("Uploading", 50), Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "Uplo")
+    return Eq(t, BufferText(buf, 0), "━━──")
 }
 
 func TestLineGaugeStylesTheFilledRunAndTheTrackApart(t T) T {
