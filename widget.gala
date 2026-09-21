@@ -715,17 +715,8 @@ func progressLabeledMinWidth() int = progressLabelWidth() + 8
 // a right-aligned "100%".
 func progressLabelWidth() int = 6
 
-func progressLabelText(percent int) string {
-    val p = clampPct(percent)
-    val digits = s"$p%"
-    var pad = ""
-    var i = digits.Size()
-    for i < progressLabelWidth() {
-        pad = pad + " "
-        i = i + 1
-    }
-    return pad + digits
-}
+func progressLabelText(percent int) string =
+    padLeftToCells(s"${clampPct(percent)}%", progressLabelWidth())
 
 // Gauge renders a smooth-edged bar using Unicode partial blocks, over a
 // `░` track that stays visible at 0% so an empty gauge still looks like a
@@ -734,13 +725,30 @@ func Gauge(percent int) Widget =
     GaugeW(Percent = percent, Style = DefaultStyle())
 
 // LineGauge renders a one-row gauge captioned with its own percentage:
-// `42% ━━━━━━━━───────────`. Use it where `Gauge` would cost a row it has
+// ` 42% ━━━━━━━━──────────`. Use it where `Gauge` would cost a row it has
 // not earned — one readout per item in a list, or several stacked in a
 // sidebar.
-func LineGauge(percent int) Widget = LineGaugeLabeled(s"${clampPct(percent)}%", percent)
+//
+// The caption leads rather than trails (`ProgressLabeled` puts its number on
+// the right) because these stack: a column of leading captions gives the
+// eye a left edge to read down, where trailing ones would sit at whatever
+// column each rule happened to end. It is right-aligned in a fixed
+// four-column slot so the rule's origin does not move as the number grows a
+// digit — see `lineGaugeCaptionWidth`.
+func LineGauge(percent int) Widget = LineGaugeLabeled(lineGaugeCaption(percent), percent)
 
 // LineGaugeLabeled is LineGauge with a caption of the caller's choosing —
 // `Uploading ━━━━━━╸─────`. Pass "" for a bare rule spanning the row.
+//
+// Stacking more than one? Captions of different lengths give every rule a
+// different origin and a different length, which is exactly what makes a
+// column of gauges not comparable by eye. Put the captions in a fixed column
+// of their own instead:
+//
+//     Column(ArrayOf[LayoutChild](Fixed(1, Row(ArrayOf[LayoutChild](
+//         Fixed(12, Text("Downloading")),
+//         Flex(1, LineGaugeLabeled("", pct)),
+//     ))), ...))
 func LineGaugeLabeled(label string, percent int) Widget =
     LineGaugeStyled(label, percent, DefaultStyle(), DefaultStyle().WithDim())
 
@@ -750,13 +758,8 @@ func LineGaugeLabeled(label string, percent int) Widget =
 // The label takes the filled style, because in the common case the label
 // *is* the value (`LineGauge` captions with the percentage) and a caption
 // drawn in the track's dim style reads as a disabled control. A caller who
-// wants a third style for the caption composes it, the way `Progress`
-// callers compose their own percentage:
-//
-//     Row(ArrayOf[LayoutChild](
-//         Fixed(10, TextStyled("Uploading", labelStyle)),
-//         Flex(1, LineGaugeStyled("", pct, filled, track)),
-//     ))
+// wants a third style for the caption composes it with the fixed-column
+// recipe on `LineGaugeLabeled`, styling the `Text` however they like.
 func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Widget =
     CustomW(
         MinW = lineGaugeLabelWidth(label) + lineGaugeMinRule(),
@@ -765,31 +768,46 @@ func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Wi
             if area.Width <= 0 || area.Height <= 0 {
                 return
             }
-            val row = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1)
             val labelW = lineGaugeLabelWidth(label)
-            // Too narrow for both. The label is the half that still says
+            // No caption, no trade to make: the rule takes the row at
+            // whatever width it has. One cell of `━` is a crude gauge, but a
+            // blank row is not a gauge at all.
+            if labelW == 0 {
+                renderLineGaugeRule(
+                    buf, area.X, area.Y, area.Width, percent, filled, unfilled)
+                return
+            }
+            // Too narrow for both. The caption is the half that still says
             // something in three columns — a rule that short is the same
             // picture at 20% and at 80% — so the rule is what goes.
             if area.Width < labelW + lineGaugeMinRule() {
-                renderText(StringCellTruncate(label, area.Width), filled, row, buf)
+                renderText(
+                    StringCellTruncate(label, area.Width),
+                    filled,
+                    Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
+                    buf,
+                )
                 return
             }
-            renderText(label, filled, row, buf)
-            val ruleW = area.Width - labelW
-            val fillCells = ruleW * clampPct(percent) / 100
-            var i = 0
-            for i < ruleW {
-                val done = i < fillCells
-                buf.Set(
-                    area.X + labelW + i,
-                    area.Y,
-                    Cell(
-                        Ch = if (done) lineGaugeFilled() else lineGaugeTrack(),
-                        St = if (done) filled else unfilled,
-                    ),
-                )
-                i = i + 1
-            }
+            // The separator is painted, not skipped: an unwritten cell in
+            // the middle of the widget shows whatever the parent drew there
+            // — a highlighted list row bleeds its reverse video through the
+            // gap.
+            renderText(
+                label + " ",
+                filled,
+                Rect(X = area.X, Y = area.Y, Width = labelW, Height = 1),
+                buf,
+            )
+            renderLineGaugeRule(
+                buf,
+                area.X + labelW,
+                area.Y,
+                area.Width - labelW,
+                percent,
+                filled,
+                unfilled,
+            )
         },
     )
 

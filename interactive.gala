@@ -200,31 +200,110 @@ func gaugeEighthRune(eighths int) rune {
 // a list, cannot afford that: what it wants is a caption and a rule on the
 // same row. That is this widget.
 //
-// The division of labour between the two is sub-cell precision. `Gauge`
-// draws partial blocks, so 3% of a 10-cell bar is still visible. A rule has
-// no partial glyphs to draw with, so `LineGauge` splits at whole cells and
-// leans on glyph *shape* instead: the filled run is heavy (`━`) and the
-// track is light (`─`). That contrast survives a monochrome terminal, a
-// `NO_COLOR` session and a colour-blind reader, none of which a
-// filled-vs-track distinction carried by colour alone would.
+// Where `Gauge` reaches for partial *blocks*, the rule reaches for partial
+// *weight*: the completed run is heavy (`━`), the track is light (`─`), and
+// the boundary cell is a left-half-heavy `╸` when the fill lands mid-cell.
+// The weight contrast survives a monochrome terminal, a `NO_COLOR` session
+// and a colour-blind reader, none of which a distinction carried by colour
+// alone would; `╸` then buys back the half cell of resolution that whole-cell
+// glyphs would otherwise cost.
 // ----------------------------------------------------------------------------
 
 // lineGaugeFilled is the glyph for the completed run of a LineGauge.
 func lineGaugeFilled() rune = '━'
+
+// lineGaugeHead is the boundary glyph — heavy on its left half, light on its
+// right — drawn when the fill ends inside a cell rather than on its edge.
+//
+// It is deliberately not the same picture as a full cell: rounding a fill up
+// to `━` would let 99% paint the same rule as 100%, and "done" is the one
+// state a progress widget must never claim early.
+func lineGaugeHead() rune = '╸'
 
 // lineGaugeTrack is the glyph for the remainder — the same rule, drawn
 // light, so the gauge's full extent is visible at 0% exactly as `Gauge`'s
 // `░` track is.
 func lineGaugeTrack() rune = '─'
 
-// lineGaugeMinRule is the narrowest rule worth drawing. Below four cells a
-// rule cannot show a position — every percentage rounds to one of a handful
-// of pictures — so the label is what the row keeps instead.
+// lineGaugeMinRule is the narrowest rule worth drawing *next to a label*.
+// Below four cells a rule cannot show a position — every percentage rounds
+// to one of a handful of pictures — so a labelled gauge keeps the label
+// instead and drops the rule.
+//
+// This is a trade between two things that both want the row. A gauge with no
+// label has nothing to trade: `lineGaugeRuleOnly` draws the rule at whatever
+// width it is given, because the alternative is a blank row, and a widget
+// that renders as nothing is the failure `gaugeTrack` was introduced to
+// eliminate.
 func lineGaugeMinRule() int = 4
+
+// lineGaugeCaptionWidth is the fixed slot `LineGauge`'s own percentage is
+// right-aligned into: four columns, enough for "100%".
+//
+// Fixed rather than fitted, for the reason `ProgressLabeled` gives one
+// screen up: a caption that grows a digit moves everything after it. Here
+// that is worse than a twitch — the rule would start a column later *and*
+// end a column shorter, and since floor(0.99 * n) == n - 1 for every rule
+// width a terminal can hold, 99% and 100% would paint the same number of
+// heavy cells. The most important transition the widget has would render as
+// a sideways slide with no forward motion.
+func lineGaugeCaptionWidth() int = 4
 
 // lineGaugeLabelWidth is the columns a label claims, including the single
 // space that separates it from the rule. An empty label claims nothing, so
 // `LineGaugeLabeled("", pct)` gets a rule across the whole row.
 func lineGaugeLabelWidth(label string) int =
     if (label == "") 0 else StringCellWidth(label) + 1
+
+// lineGaugeCaption right-aligns a percentage into `lineGaugeCaptionWidth`.
+func lineGaugeCaption(percent int) string =
+    padLeftToCells(s"${clampPct(percent)}%", lineGaugeCaptionWidth())
+
+// padLeftToCells right-aligns `s` in a `width`-cell slot. A string already
+// at or past the slot width is returned as-is — padding is this function's
+// job, truncation is the renderer's.
+func padLeftToCells(s string, width int) string {
+    var pad = ""
+    var i = StringCellWidth(s)
+    for i < width {
+        pad = pad + " "
+        i = i + 1
+    }
+    return pad + s
+}
+
+// renderLineGaugeRule paints `width` cells of rule at (x, y): the completed
+// run, then the boundary cell when the fill ends mid-cell, then the track.
+//
+// The fill is rounded to the nearest half cell — `full` whole cells plus a
+// `╸` when at least half of the next one is earned. Rounding to nearest
+// rather than flooring is what `distributeSlack` does with layout slack a
+// few hundred lines down, and it halves the dead zone at the bottom of the
+// range: at 20 cells a floor-only rule shows nothing until 5%.
+func renderLineGaugeRule(
+    buf *Buffer,
+    x int,
+    y int,
+    width int,
+    percent int,
+    filled Style,
+    unfilled Style,
+) {
+    val p = clampPct(percent)
+    // Halves of a cell, so the boundary test is integer arithmetic: `halves`
+    // odd means the fill ended mid-cell.
+    val halves = width * 2 * p / 100
+    val full = halves / 2
+    val head = halves - full * 2 > 0 && full < width
+    var i = 0
+    for i < width {
+        val glyph =
+            if (i < full) lineGaugeFilled()
+            else if (i == full && head) lineGaugeHead()
+            else lineGaugeTrack()
+        val st = if (i < full || (i == full && head)) filled else unfilled
+        buf.Set(x + i, y, Cell(Ch = glyph, St = st))
+        i = i + 1
+    }
+}
 

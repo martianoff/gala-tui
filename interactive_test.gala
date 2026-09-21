@@ -122,10 +122,85 @@ func TestGaugeFullCells(t T) T {
 
 func TestLineGaugeSplitsTheRuleAtThePercentage(t T) T {
     val buf = NewBuffer(14, 1)
-    // "50%" + a space claims 4 columns, leaving a 10-cell rule; half of it
-    // is the filled glyph.
+    // A four-column caption plus its separator claims 5, leaving a 9-cell
+    // rule. Half of nine is four and a half, so four heavy cells and a head.
     RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 14, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "50% ━━━━━─────")
+    return Eq(t, BufferText(buf, 0), " 50% ━━━━╸────")
+}
+
+func TestLineGaugeCaptionKeepsTheRuleOriginFixed(t T) T {
+    // The caption is right-aligned in a fixed slot, so a one-digit and a
+    // three-digit percentage put the rule in the same column. Without this
+    // the rule slides right as the number grows — and shrinks as it slides.
+    val small = NewBuffer(20, 1)
+    RenderTo(LineGauge(5), Rect(X = 0, Y = 0, Width = 20, Height = 1), small)
+    val big = NewBuffer(20, 1)
+    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 20, Height = 1), big)
+    val t1 = Eq(t, small.CharAt(4, 0), ' ')
+    val t2 = Eq(t1, big.CharAt(4, 0), ' ')
+    val t3 = Eq(t2, small.CharAt(5, 0), lineGaugeHead())
+    return Eq(t3, big.CharAt(5, 0), lineGaugeFilled())
+}
+
+func TestLineGaugeStillGrowsFrom99To100(t T) T {
+    // The transition that matters most. A fitted caption would shrink the
+    // rule by the column the third digit took, and floor(0.99 * n) == n - 1
+    // for every width a terminal can hold — so both would paint the same
+    // number of heavy cells and the bar would only slide sideways.
+    val nearly = NewBuffer(24, 1)
+    RenderTo(LineGauge(99), Rect(X = 0, Y = 0, Width = 24, Height = 1), nearly)
+    val done = NewBuffer(24, 1)
+    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 24, Height = 1), done)
+    // Same last cell, two different glyphs: 99% ends on the head, 100% on a
+    // full cell. Nothing short of done paints the done picture.
+    val t1 = Eq(t, nearly.CharAt(23, 0), lineGaugeHead())
+    return Eq(t1, done.CharAt(23, 0), lineGaugeFilled())
+}
+
+func TestLineGaugeDrawsAHeadWhenTheFillEndsMidCell(t T) T {
+    val buf = NewBuffer(5, 1)
+    // Half of five cells is two and a half.
+    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "━━╸──")
+}
+
+func TestLineGaugePaintsTheSeparatorCell(t T) T {
+    val buf = NewBuffer(16, 1)
+    // A gauge on a highlighted list row: the parent painted the whole row
+    // first. An unwritten cell between caption and rule would show that
+    // background — glyph and attributes both — as a hole in the widget.
+    buf.Fill(
+        Rect(X = 0, Y = 0, Width = 16, Height = 1),
+        Cell(Ch = '.', St = DefaultStyle().WithReverse()),
+    )
+    RenderTo(
+        LineGaugeLabeled("Sync", 50),
+        Rect(X = 0, Y = 0, Width = 16, Height = 1),
+        buf,
+    )
+    val t1 = Eq(t, buf.CharAt(4, 0), ' ')
+    return IsTrue(t1, !buf.StyleAt(4, 0).Reverse)
+}
+
+func TestLineGaugeBareRuleDrawsBelowTheMinimumRuleWidth(t T) T {
+    // With no caption there is nothing to trade the row for, so the rule
+    // keeps it down to a single cell. The alternative is a blank row, which
+    // is the picture `gaugeTrack` exists to prevent.
+    val one = NewBuffer(1, 1)
+    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 1, Height = 1), one)
+    val t1 = Eq(t, BufferText(one, 0), "━")
+    val three = NewBuffer(3, 1)
+    RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 3, Height = 1), three)
+    return Eq(t1, BufferText(three, 0), "───")
+}
+
+func TestLineGaugeIntrinsicWidthDoesNotVaryWithTheValue(t T) T {
+    // A fitted caption would make the widget's intrinsic width grow at 10%
+    // and again at 100%, nudging every sibling in an auto-sized Row twice
+    // during a single run — and giving snapshot tests a different buffer
+    // size per value.
+    val t1 = Eq(t, defaultRenderWidth(LineGauge(5)), defaultRenderWidth(LineGauge(50)))
+    return Eq(t1, defaultRenderWidth(LineGauge(50)), defaultRenderWidth(LineGauge(100)))
 }
 
 func TestLineGaugeDrawsItsTrackAtZero(t T) T {

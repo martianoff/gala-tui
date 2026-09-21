@@ -141,9 +141,21 @@ bottom row. Shapes outside the bounds clip; they do not wrap.
 | `MultiLineChartAtHeight(series, styles, rows)` | `(Array[Array[int]], Array[Style], int) Widget` | Pinned-row variant. |
 | `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. Sub-cell precision via partial blocks. |
 | `Progress(percent)` | `(int) Widget` | Cell-precise progress bar. |
-| `LineGauge(percent)` | `(int) Widget` | One-row gauge captioned with its own percentage: `42% ━━━━━━───────`. Whole-cell splits — heavy `━` against light `─`, so the split reads without colour. |
-| `LineGaugeLabeled(label, percent)` | `(string, int) Widget` | Caption of your choosing; `""` gives a bare rule across the row. |
+| `LineGauge(percent)` | `(int) Widget` | One-row gauge captioned with its own percentage: ` 42% ━━━━━━╸──────`. Heavy `━` against light `─` so the split reads without colour, with `╸` where the fill ends mid-cell. Caption is right-aligned in a fixed 4 columns, so the rule's origin holds still as the number grows a digit. |
+| `LineGaugeLabeled(label, percent)` | `(string, int) Widget` | Caption of your choosing; `""` gives a bare rule across the row (down to one cell). |
 | `LineGaugeStyled(label, percent, filled, unfilled)` | `(string, int, Style, Style) Widget` | Explicit filled/track styles. The caption takes the filled style — it is the value, not chrome. |
+
+Stacking several `LineGaugeLabeled`s? Captions of different lengths give
+every rule a different origin *and* a different length, which is precisely
+what stops a column of gauges being comparable by eye. Give the captions a
+fixed column of their own instead:
+
+```gala
+Row(ArrayOf[LayoutChild](
+    Fixed(12, Text("Downloading")),
+    Flex(1, LineGaugeLabeled("", pct)),
+))
+```
 
 ```gala
 BarChart(ArrayOf[BarChartDatum](
