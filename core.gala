@@ -18,12 +18,26 @@ import (
 // (or an error-wrapper Msg on failure) through update() once it completes.
 // This is how every non-trivial TUI moves blocking IO off the event loop —
 // update() stays pure, the Future's own execution context handles the wait.
+// PrintCmd asks the runtime to put `Lines` into the terminal's scrollback,
+// above the viewport, where they stay after the app exits.
+//
+// This is what makes an inline app part of a session rather than a window
+// onto it: a build tool prints one line per finished target while a live
+// progress block stays pinned below, and when the run ends the log is still
+// there to scroll back through. Printing to stdout directly cannot do this
+// — the viewport is drawn relative to the cursor, so a stray write lands in
+// the middle of the frame and the next paint overwrites it.
+//
+// It is a Cmd rather than a method for the usual reason: update() says what
+// should happen and the runtime does it, so a test can assert the lines
+// without a terminal.
 sealed type Cmd[T any] {
     case NoCmd()
     case QuitCmd()
     case MsgCmd(Msg T)
     case BatchCmd(Cmds Array[Cmd[T]])
     case FutureCmd(Fut Future[T])
+    case PrintCmd(Lines Array[string])
 }
 
 // Batch is the varargs constructor for `BatchCmd`. Saves the
@@ -56,6 +70,28 @@ func PendingMsgs[T any](c Cmd[T]) Array[T] {
         case MsgCmd(m)      => ArrayOf(m)
         case BatchCmd(cmds) => cmds.FlatMap((inner) => PendingMsgs(inner))
         case _              => EmptyArray[T]()
+    }
+}
+
+// PrintAbove is the varargs constructor for `PrintCmd` — the shape the call
+// site wants, since lines are usually written out one by one:
+//
+//     return (m1, PrintAbove[Msg](s"✓ ${target} in ${ms}ms"))
+func PrintAbove[T any](lines ...string) Cmd[T] =
+    PrintCmd[T](Lines = ArrayOf[string](lines...))
+
+// PendingPrints walks a command tree and returns every line destined for the
+// scrollback, in the order update() asked for them.
+//
+// Separate from PendingMsgs because these do not re-enter update(): they
+// leave the program entirely. The runtime hands them to the backend, which
+// is the only part that knows whether "above the viewport" means anything —
+// see `Backend.InsertBefore`.
+func PendingPrints[T any](c Cmd[T]) Array[string] {
+    return c match {
+        case PrintCmd(lines) => lines
+        case BatchCmd(cmds)  => cmds.FlatMap((inner) => PendingPrints(inner))
+        case _               => EmptyArray[string]()
     }
 }
 

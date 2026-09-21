@@ -119,6 +119,33 @@ func TestPendingMsgsFromBatch(t T) T {
     return Eq(t, msgs.Length(), 2)
 }
 
+func TestPendingPrintsFlattensNestedBatchesInOrder(t T) T {
+    // Order is the whole point: these are log lines, and a Batch is how an
+    // update() emits several at once alongside its other commands.
+    val batch = BatchCmd[CM](ArrayOf[Cmd[CM]](
+        PrintAbove[CM]("one", "two"),
+        MsgCmd[CM](Inc()),
+        BatchCmd[CM](ArrayOf[Cmd[CM]](
+            NoCmd[CM](),
+            PrintAbove[CM]("three"),
+        )),
+    ))
+    val lines = PendingPrints(batch)
+    val t1 = Eq(t, lines.Length(), 3)
+    val t2 = Eq(t1, lines.Get(0), "one")
+    val t3 = Eq(t2, lines.Get(1), "two")
+    return Eq(t3, lines.Get(2), "three")
+}
+
+func TestPendingPrintsIgnoresEverythingElse(t T) T {
+    // Print lines leave the program rather than re-entering update(), so
+    // they must not show up in the message or future collectors — and those
+    // commands must not show up here.
+    val cmd = BatchCmd[CM](ArrayOf[Cmd[CM]](MsgCmd[CM](Inc()), QuitCmd[CM]()))
+    val t1 = Eq(t, PendingPrints(cmd).Length(), 0)
+    return Eq(t1, PendingMsgs(PrintAbove[CM]("x")).Length(), 0)
+}
+
 func TestViewRendersModel(t T) T {
     val m = CModel(Count = 42)
     val out = Render(vw(m))

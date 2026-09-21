@@ -66,16 +66,23 @@ struct BackendSession(
 // previous frame, while the inline backend positions relative to wherever
 // the shell prompt left the cursor. `prev` is the last frame painted, or
 // nil to force a full repaint.
+// `InsertBefore` puts lines into the scrollback above the viewport, where
+// they survive the app. Like `Paint`, it belongs to the backend because
+// only the backend knows what "above the viewport" is: an inline app owns a
+// few rows below the prompt and can scroll text in above them, while a
+// full-screen app on the alternate screen has no scrollback to insert into
+// at all and discards them.
 struct Backend(
-    Name      string,
-    Size      func() Tuple[int, int],
-    Write     func(string),
-    Read      func([]byte) Tuple[int, bool],
-    ReadAsync func() concurrent.Future[ReadResult],
+    Name         string,
+    Size         func() Tuple[int, int],
+    Write        func(string),
+    Read         func([]byte) Tuple[int, bool],
+    ReadAsync    func() concurrent.Future[ReadResult],
     // Open acquires the terminal for a run. `mouse` selects the input
     // protocols — see `currentTermModes`.
-    Open      func(bool) BackendSession,
-    Paint     func(*Buffer, *Buffer),
+    Open         func(bool) BackendSession,
+    Paint        func(*Buffer, *Buffer),
+    InsertBefore func(Array[string]),
 )
 
 // ----------------------------------------------------------------------------
@@ -107,6 +114,12 @@ func TerminalBackend() Backend = Backend(
             fmt.Fprint(os.Stdout, frame.DiffString(prev))
         }
     },
+    // The alternate screen has no scrollback — it is a second screen that
+    // is thrown away on exit, which is the whole reason a full-screen app
+    // can leave the shell's history untouched. Lines asked for here have
+    // nowhere to go, so they are dropped rather than written into the
+    // frame the app is drawing.
+    InsertBefore = (lines) => {},
 )
 
 // terminalOpen puts the terminal into raw mode and enters the alternate
@@ -184,6 +197,14 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
         },
         Paint = (frame, prev) => {
             st.Written = st.Written + frame.String()
+        },
+        // Recorded verbatim, in order, into the same stream as the frames,
+        // so a test can assert both that a line was printed and that it was
+        // printed before the frame that followed it.
+        InsertBefore = (lines) => {
+            lines.ForEach((line) => {
+                st.Written = st.Written + line + "\n"
+            })
         },
     )
     return (b, st)
@@ -301,6 +322,14 @@ func NewTestBackendChunks(
         Paint = (frame, prev) => {
             st.Written = st.Written + frame.String()
         },
+        // Recorded verbatim, in order, into the same stream as the frames,
+        // so a test can assert both that a line was printed and that it was
+        // printed before the frame that followed it.
+        InsertBefore = (lines) => {
+            lines.ForEach((line) => {
+                st.Written = st.Written + line + "\n"
+            })
+        },
     )
     return (b, st)
 }
@@ -368,7 +397,47 @@ func InlineBackend(height int) Backend {
         Paint = (frame, prev) => {
             fmt.Fprint(os.Stdout, inlineFrameString(frame, h))
         },
+        InsertBefore = (lines) => {
+            if lines.NonEmpty() {
+                fmt.Fprint(os.Stdout, inlineInsertBeforeString(lines, h))
+            }
+        },
     )
+}
+
+// inlineInsertBeforeString writes `lines` where the viewport's top row is,
+// then re-reserves the viewport below them.
+//
+// The cursor sits at the top of the block between paints, so the lines go
+// in exactly where the frame would have. Each one overwrites a viewport row
+// and pushes the rest of the terminal's content up; once more lines have
+// been written than the viewport is tall, the terminal is scrolling, which
+// is what puts them in the scrollback. The viewport rows are then scrolled
+// back into existence the same way `inlineEnterString` created them — by
+// printing newlines, the only portable way to make a terminal scroll at the
+// bottom of the screen — and the cursor returns to the top of the block.
+//
+// What is NOT done here is repainting: the caller paints next, and the rows
+// this leaves are stale until it does. Painting from inside the backend's
+// insert path would need the frame, which is the runtime's to own, and
+// would paint twice whenever a print and a model change land in the same
+// turn.
+func inlineInsertBeforeString(lines Array[string], height int) string {
+    var sb strings.Builder
+    lines.ForEach((line) => {
+        sb.WriteString("\r")
+        sb.WriteString(ansiClearLine())
+        sb.WriteString(line)
+        sb.WriteString("\r\n")
+    })
+    var i = 0
+    for i < height - 1 {
+        sb.WriteString("\r\n")
+        i = i + 1
+    }
+    sb.WriteString("\r")
+    sb.WriteString(ansiCursorUp(height - 1))
+    return sb.String()
 }
 
 // inlineFrameString is one repaint: each row cleared and rewritten from

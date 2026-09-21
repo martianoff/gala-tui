@@ -421,6 +421,30 @@ Repaints are full rather than diffed: an inline viewport is a handful of
 rows, so the bandwidth argument for diffing does not apply, and a diff in
 relative cursor moves is much easier to get wrong than to make fast.
 
+### Printing above the viewport
+
+`PrintAbove(lines…)` is a `Cmd` that puts lines into the scrollback *above*
+the viewport, where they stay after the app exits — one line per finished
+target while a live progress block stays pinned below it:
+
+```gala
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
+    case TargetDone(name, ms) =>
+        (m.Advance(), PrintAbove[Msg](s"✓ ${name} in ${ms}ms"))
+    ...
+}
+```
+
+Writing to stdout yourself cannot do this: the viewport is drawn relative to
+the cursor, so a stray write lands inside the frame and the next paint
+overwrites it. Going through a `Cmd` also keeps `update()` pure, so a test
+asserts the lines with `NewTestBackend` instead of a terminal.
+
+A line printed alongside `QuitCmd` in the same `Batch` still lands — an app
+whose last act is to print a summary and exit means both. On the full-screen
+backend the lines are dropped: the alternate screen has no scrollback to
+insert into, which is the same limitation ratatui's `insert_before` has.
+
 ## Testing a run loop without a terminal
 
 `NewTestBackend(width, height, input)` scripts stdin and records everything
