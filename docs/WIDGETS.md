@@ -421,6 +421,48 @@ Repaints are full rather than diffed: an inline viewport is a handful of
 rows, so the bandwidth argument for diffing does not apply, and a diff in
 relative cursor moves is much easier to get wrong than to make fast.
 
+### Printing above the viewport
+
+`PrintAbove(lines…)` is a `Cmd` that puts lines into the scrollback *above*
+the viewport, where they stay after the app exits — one line per finished
+target while a live progress block stays pinned below it:
+
+```gala
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
+    case TargetDone(name, ms) =>
+        (m.Advance(), PrintAbove[Msg](s"✓ ${name} in ${ms}ms"))
+    ...
+}
+
+// …and it needs the inline backend — the default is the alternate screen.
+val _ = RunWithSub[Model, Msg](program, keyToMsg, sub, InlineBackend(3))
+```
+
+Writing to stdout yourself cannot do this: the viewport is drawn relative to
+the cursor, so a stray write lands inside the frame and the next paint
+overwrites it. Going through a `Cmd` also keeps `update()` pure, so a test
+asserts the lines with `NewTestBackend` instead of a terminal.
+
+A line printed alongside `QuitCmd` in the same `Batch` still lands — an app
+whose last act is to print a summary and exit means both, and the viewport is
+repainted on the way out so the final frame survives in the scrollback below
+it. On the full-screen backend the lines are dropped: the alternate screen has
+no scrollback to insert into, which is the same limitation ratatui's
+`insert_before` has.
+
+Each element is one row — with one exception worth knowing. A string carrying
+its own `\n` is split, because in raw mode a bare newline moves down without
+returning to column 0 and the text after it would land mid-row. But a printed
+line is the one string in this library that does **not** go through the cell
+model: it is handed to the terminal as bytes, unmeasured, so a line wider than
+the terminal soft-wraps and silently takes two rows. That is safe — the
+viewport's rows are blanked before the lines land, so a wrapped line cannot
+weld the old frame's tail onto its continuation row — but it is a silent clip
+of the one-row rule, not a signalled one. Measuring is not available here:
+`StringCellWidth` counts a line's own SGR escapes as cells, and truncating one
+can cut mid-escape. A caller who needs one row per element fits the text
+itself.
+
 ## Testing a run loop without a terminal
 
 `NewTestBackend(width, height, input)` scripts stdin and records everything

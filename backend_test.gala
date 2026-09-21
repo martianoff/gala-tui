@@ -50,6 +50,24 @@ func beKeyToMsg(ev KeyEvent) BeMsg = ev.Key match {
 func beProgram() Program[BeModel, BeMsg] =
     Program[BeModel, BeMsg](Initial = beInitial(), Update = beUpdate, View = beView)
 
+// A second program whose update() prints: 'p' logs a line and carries on,
+// 'z' logs one and quits in the same Batch.
+func bePrintUpdate(m BeModel, msg BeMsg) Tuple[BeModel, Cmd[BeMsg]] = msg match {
+    case BeKey(k) =>
+        (m.Copy(Keys = m.Keys.Append(k)), PrintAbove[BeMsg](s"logged: $k"))
+    case BeQuit() =>
+        (m, Batch[BeMsg](PrintAbove[BeMsg]("bye"), QuitCmd[BeMsg]()))
+    case _ => (m, NoCmd[BeMsg]())
+}
+
+func bePrintKeyToMsg(ev KeyEvent) BeMsg = ev.Key match {
+    case Char(c) => if (c == 'z') BeQuit() else BeKey(K = string(c))
+    case _       => BeNoOp()
+}
+
+func bePrintProgram() Program[BeModel, BeMsg] =
+    Program[BeModel, BeMsg](Initial = beInitial(), Update = bePrintUpdate, View = beView)
+
 // ----------------------------------------------------------------------------
 // The loop runs, paints, and terminates
 // ----------------------------------------------------------------------------
@@ -329,4 +347,135 @@ func TestSingleRowInlineNeedsNoCursorMovement(t T) T {
     val t1 = Eq(t, strings.Count(out, "\r\n"), 0)
     return EqMsg(t1, strings.Contains(out, "\x1b[0A"), false,
                  "emitted a zero-row cursor move")
+}
+
+// ============================================================================
+// insert_before — lines into the scrollback, above the viewport
+// ============================================================================
+
+func TestInsertBeforeWritesEveryLineInOrder(t T) T {
+    val out = inlineInsertBeforeString(ArrayOf[string]("first", "second"), 3)
+    val t1 = EqMsg(t, strings.Index(out, "first") >= 0, true, "first line missing")
+    val t2 = EqMsg(t1, strings.Index(out, "second") >= 0, true, "second line missing")
+    return EqMsg(t2, strings.Index(out, "first") < strings.Index(out, "second"), true,
+                 "lines reached the scrollback out of order")
+}
+
+func TestInsertBeforeReReservesTheViewportAndComesBack(t T) T {
+    // Two lines into a 3-row viewport. Six row-advances: two to walk the
+    // block while blanking it, two for the lines, two to scroll the
+    // viewport's rows back into existence. Without the re-reservation the
+    // viewport would shrink by a row for every line printed.
+    val out = inlineInsertBeforeString(ArrayOf[string]("a", "b"), 3)
+    val t1 = Eq(t, strings.Count(out, "\r\n"), 6)
+    // Twice: once to come back from blanking, once at the end.
+    val t2 = Eq(t1, strings.Count(out, ansiCursorUp(2)), 2)
+    return EqMsg(t2, strings.HasSuffix(out, "\r" + ansiCursorUp(2)), true,
+                 "cursor was not left at the top of the viewport")
+}
+
+func TestInsertBeforeBlanksTheRowsTheLinesLandOn(t T) T {
+    // A line wider than the terminal soft-wraps onto the next row, which is
+    // still showing the previous frame. `ESC[K` only erases to the end of
+    // the row the cursor is on, so the wrapped row's tail would keep the
+    // frame's cells — and by the time the caller repaints, that row has
+    // scrolled out of the viewport and into permanent scrollback. Blanking
+    // the block first is what makes a wrapped line land on clean rows.
+    val out = inlineInsertBeforeString(ArrayOf[string]("x"), 3)
+    return EqMsg(t, strings.HasPrefix(out, inlineBlankBlockString(3)), true,
+                 "the viewport's rows were not blanked before the lines landed")
+}
+
+func TestInsertBeforeResetsStyleAfterEveryLine(t T) T {
+    // `ESC[K` erases with the *current* background, so a line that set a
+    // colour and did not clear it would paint the full width of every row
+    // after it — including the rows the re-reservation scrolls in.
+    val out = inlineInsertBeforeString(ArrayOf[string]("\x1b[41mred", "plain"), 2)
+    val t1 = EqMsg(t, strings.Contains(out, "red" + ResetSgr()), true,
+                   "a line's style leaked into the next row")
+    return EqMsg(t1, strings.Contains(out, "plain" + ResetSgr()), true,
+                 "the last line's style leaked into the re-reserved rows")
+}
+
+func TestInsertBeforeNeverPositionsAbsolutely(t T) T {
+    // Same rule the frame painter follows: an inline app that homed the
+    // cursor would write over the user's scrollback rather than into it.
+    val out = inlineInsertBeforeString(ArrayOf[string]("x"), 4)
+    return EqMsg(t, strings.Contains(out, "\x1b[H"), false,
+                 "insert_before homed the cursor")
+}
+
+// ----------------------------------------------------------------------------
+// …and the whole way through the run loop
+// ----------------------------------------------------------------------------
+
+func TestRunEmitsPrintedLinesThroughTheBackend(t T) T {
+    // 'p' prints. The line must reach the backend, not the frame — a widget
+    // rendering it would put it inside the viewport, where the next paint
+    // overwrites it.
+    val (backend, st) = NewTestBackend(30, 2, "p")
+    Run[BeModel, BeMsg](bePrintProgram(), bePrintKeyToMsg, backend)
+    return EqMsg(t, st.Wrote("logged: p"), true,
+                 "a PrintCmd line never reached the backend")
+}
+
+func TestTheFinalFrameIsRepaintedAfterAPrintingQuit(t T) T {
+    // The defect this pins: printed lines are written over the viewport's
+    // rows on their way into the scrollback, and the loop's next paint is
+    // what puts the frame back. Quitting in the same update() returned
+    // before that paint, freezing a half-scrolled frame into the user's
+    // scrollback — with as many lines as the viewport is tall, the whole
+    // final frame was replaced by blank rows.
+    val (backend, st) = NewTestBackend(30, 2, "z")
+    Run[BeModel, BeMsg](bePrintProgram(), bePrintKeyToMsg, backend)
+    val printedAt = strings.Index(st.Written, "bye")
+    val framedAt = strings.LastIndex(st.Written, "keys=")
+    val t1 = EqMsg(t, printedAt >= 0, true, "the line was not printed")
+    return EqMsg(t1, framedAt > printedAt, true,
+                 "no frame was painted after the printed line")
+}
+
+func TestFullScreenBackendReportsThatItDroppedTheLines(t T) T {
+    // The alternate screen has no scrollback to insert into. Saying so is
+    // what keeps the runtime from throwing away its frame diff for an
+    // insert that never happened — DiffString(nil) is a whole screen of
+    // cells, so an app printing on a ticker would rewrite the terminal on
+    // every frame to no purpose.
+    return Eq(t, TerminalBackend().InsertBefore(ArrayOf[string]("nowhere")), false)
+}
+
+func TestEmitPrintsToleratesABackendWithoutInsertBefore(t T) T {
+    // Backend is public and its fields are plain functions, so a consumer's
+    // backend built before PrintAbove existed still compiles against this
+    // version — with a nil field. Without the guard the first PrintAbove in
+    // any app using one would nil-deref inside the run loop.
+    val (complete, _) = NewTestBackend(10, 1, "")
+    val legacy = Backend(
+        Name      = "legacy",
+        Size      = complete.Size,
+        Write     = complete.Write,
+        Read      = complete.Read,
+        ReadAsync = complete.ReadAsync,
+        Open      = complete.Open,
+        Paint     = complete.Paint,
+    )
+    var painted = false
+    emitPrints(legacy, ArrayOf[string]("x"), () => { painted = true })
+    return EqMsg(t, painted, false,
+                 "a backend that cannot insert should not trigger a repaint")
+}
+
+func TestEmitPrintsRepaintsOnlyWhenTheLinesLanded(t T) T {
+    // The pairing the whole design rests on: an insert leaves the viewport's
+    // rows holding neither the old frame nor the new one, so the repaint is
+    // part of the operation rather than a rule for each dispatch site to
+    // remember. The alternate screen drops the lines, nothing moved, and a
+    // repaint there would be a whole-screen rewrite for nothing.
+    val (recording, _) = NewTestBackend(10, 1, "")
+    var landed = false
+    emitPrints(recording, ArrayOf[string]("x"), () => { landed = true })
+    val t1 = EqMsg(t, landed, true, "an insert that landed did not repaint")
+    var dropped = false
+    emitPrints(TerminalBackend(), ArrayOf[string]("x"), () => { dropped = true })
+    return EqMsg(t1, dropped, false, "a dropped insert repainted anyway")
 }
