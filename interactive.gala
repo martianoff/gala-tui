@@ -235,7 +235,7 @@ func lineGaugeTrack() rune = '─'
 // instead and drops the rule.
 //
 // This is a trade between two things that both want the row. A gauge with no
-// label has nothing to trade: `lineGaugeRuleOnly` draws the rule at whatever
+// label has nothing to trade, so it falls through to the rule at whatever
 // width it is given, because the alternative is a blank row, and a widget
 // that renders as nothing is the failure `gaugeTrack` was introduced to
 // eliminate.
@@ -263,29 +263,8 @@ func lineGaugeLabelWidth(label string) int =
 func lineGaugeCaption(percent int) string =
     padLeftToCells(s"${clampPct(percent)}%", lineGaugeCaptionWidth())
 
-// padLeftToCells right-aligns `s` in a `width`-cell slot. A string already
-// at or past the slot width is returned as-is — padding is this function's
-// job, truncation is the renderer's.
-func padLeftToCells(s string, width int) string = cellPad(width - StringCellWidth(s)) + s
-
-// padRightToCells left-aligns `s` in a `width`-cell slot. Used where a
-// widget must own every cell of its area: an unwritten cell is not blank,
-// it is whatever the parent painted there.
-func padRightToCells(s string, width int) string = s + cellPad(width - StringCellWidth(s))
-
-// cellPad is `n` spaces, or "" for a non-positive count.
-func cellPad(n int) string {
-    var pad = ""
-    var i = 0
-    for i < n {
-        pad = pad + " "
-        i = i + 1
-    }
-    return pad
-}
-
-// renderLineGaugeRule paints `width` cells of rule at (x, y): the completed
-// run, then the boundary cell when the fill ends mid-cell, then the track.
+// renderLineGaugeRule paints `area`'s first row as rule: the completed run,
+// then the boundary cell when the fill ends mid-cell, then the track.
 //
 // The fill is floored to the half cell — `full` whole cells, plus a head
 // when the next half is fully earned. Floored, not rounded to nearest, and
@@ -294,29 +273,24 @@ func cellPad(n int) string {
 // 100%. Flooring keeps the widget's one hard promise — nothing short of done
 // renders as done — and costs only a half cell of resolution, which the head
 // glyph is there to buy back.
-func renderLineGaugeRule(
-    buf *Buffer,
-    x int,
-    y int,
-    width int,
-    percent int,
-    filled Style,
-    unfilled Style,
-) {
-    val p = clampPct(percent)
-    // Halves of a cell, so the boundary test is integer arithmetic: `halves`
-    // odd means the fill ended mid-cell.
-    val halves = width * 2 * p / 100
+func renderLineGaugeRule(percent int, filled Style, unfilled Style, area Rect, buf *Buffer) {
+    // Halves of a cell, so the boundary test is integer arithmetic. `p` is
+    // at most 100, so `halves` is at most `2 * width`; an odd `halves` is
+    // therefore strictly below that, which is why `full` cannot reach
+    // `width` on the head branch and needs no guard of its own.
+    val halves = area.Width * 2 * clampPct(percent) / 100
     val full = halves / 2
-    val head = halves - full * 2 > 0 && full < width
+    val head = halves % 2 == 1
     var i = 0
-    for i < width {
-        val glyph =
-            if (i < full) lineGaugeFilled()
-            else if (i == full && head) lineGaugeHead()
-            else lineGaugeTrack()
-        val st = if (i < full || (i == full && head)) filled else unfilled
-        buf.Set(x + i, y, Cell(Ch = glyph, St = st))
+    for i < area.Width {
+        // Glyph and style are never chosen independently — one conditional,
+        // so a change to the fill rule cannot reach the glyph and miss the
+        // colour.
+        val cell =
+            if (i < full) Cell(Ch = lineGaugeFilled(), St = filled)
+            else if (i == full && head) Cell(Ch = lineGaugeHead(), St = filled)
+            else Cell(Ch = lineGaugeTrack(), St = unfilled)
+        buf.Set(area.X + i, area.Y, cell)
         i = i + 1
     }
 }

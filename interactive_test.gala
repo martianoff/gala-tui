@@ -157,20 +157,40 @@ func TestLineGaugeStillGrowsFrom99To100(t T) T {
     return Eq(t1, done.CharAt(23, 0), lineGaugeFilled())
 }
 
-func TestLineGaugeDrawsAHeadWhenTheFillEndsMidCell(t T) T {
-    val buf = NewBuffer(5, 1)
-    // Half of five cells is two and a half.
-    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "━━╾──")
+func TestLineGaugeDrawsAHeadOnlyWhenTheFillEndsMidCell(t T) T {
+    // Half of five cells is two and a half — the half earns a head. Half of
+    // eight is four exactly, and a head there would be claiming resolution
+    // the fill has not reached.
+    val odd = NewBuffer(5, 1)
+    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 5, Height = 1), odd)
+    val t1 = Eq(t, BufferText(odd, 0), "━━╾──")
+    val even = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), even)
+    return Eq(t1, BufferText(even, 0), "━━━━────")
 }
 
-func TestLineGaugeNeverClipsACaptionIntoAWrongNumber(t T) T {
-    // "100%" clipped to two columns reads as "10" — ten percent, which is a
-    // lie the rule is incapable of telling. Below the caption's own width
-    // the rule takes the row instead.
-    val buf = NewBuffer(2, 1)
-    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 2, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "━━")
+func TestLineGaugeNeverClipsACaptionIntoSomethingElse(t T) T {
+    // "100%" clipped to two columns reads as "10" — ten percent, a lie the
+    // rule is incapable of telling. A word clips into a different word,
+    // which is milder but still not a shorter caption. Below the caption's
+    // own width the rule takes the row in both cases.
+    val number = NewBuffer(2, 1)
+    RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 2, Height = 1), number)
+    val t1 = Eq(t, BufferText(number, 0), "━━")
+    val word = NewBuffer(4, 1)
+    RenderTo(LineGaugeLabeled("Uploading", 50), Rect(X = 0, Y = 0, Width = 4, Height = 1), word)
+    return Eq(t1, BufferText(word, 0), "━━──")
+}
+
+func TestLineGaugeLeavesRowsBelowItsOwnAlone(t T) T {
+    // A one-row widget owns its row and no more. Handed three rows it fills
+    // the first and leaves the other two to whatever put it there — erasing
+    // them would be the mirror of the bleed-through bug.
+    val buf = NewBuffer(6, 3)
+    buf.Fill(Rect(X = 0, Y = 1, Width = 6, Height = 2), Cell(Ch = '.', St = DefaultStyle()))
+    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
+    val t1 = Eq(t, BufferText(buf, 0), "━━━━━━")
+    return Eq(t1, BufferText(buf, 1), "......")
 }
 
 func TestLineGaugeOwnsEveryCellWhenTheRuleIsDropped(t T) T {
@@ -226,34 +246,22 @@ func TestLineGaugeIntrinsicWidthDoesNotVaryWithTheValue(t T) T {
     return Eq(t1, defaultRenderWidth(LineGauge(50)), defaultRenderWidth(LineGauge(100)))
 }
 
-func TestLineGaugeDrawsItsTrackAtZero(t T) T {
-    val buf = NewBuffer(10, 1)
-    // A gauge at 0% must still look like a gauge — same reason Gauge draws
-    // `░` rather than spaces.
-    RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "──────────")
-}
-
-func TestLineGaugeFillsEveryCellAtFull(t T) T {
-    val buf = NewBuffer(10, 1)
-    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "━━━━━━━━━━")
-}
-
-func TestLineGaugeClampsOutOfRangePercentages(t T) T {
+func TestLineGaugeDrawsTheTrackAtZeroAndFillsAtFull(t T) T {
+    // 0% must still look like a gauge — same reason Gauge draws `░` rather
+    // than spaces. Out-of-range values land on those same two pictures
+    // rather than on a wider or negative rule.
+    val zero = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 8, Height = 1), zero)
+    val t1 = Eq(t, BufferText(zero, 0), "────────")
+    val full = NewBuffer(8, 1)
+    RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 8, Height = 1), full)
+    val t2 = Eq(t1, BufferText(full, 0), "━━━━━━━━")
     val over = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", 250), Rect(X = 0, Y = 0, Width = 8, Height = 1), over)
-    val t1 = Eq(t, BufferText(over, 0), "━━━━━━━━")
+    val t3 = Eq(t2, BufferText(over, 0), "━━━━━━━━")
     val under = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", -40), Rect(X = 0, Y = 0, Width = 8, Height = 1), under)
-    return Eq(t1, BufferText(under, 0), "────────")
-}
-
-func TestLineGaugeEmptyLabelGivesTheRuleTheWholeRow(t T) T {
-    val buf = NewBuffer(8, 1)
-    // No label means no separating space either — all eight cells are rule.
-    RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "━━━━────")
+    return Eq(t3, BufferText(under, 0), "────────")
 }
 
 func TestLineGaugeKeepsTheLabelWhenTheRowIsTooNarrowForARule(t T) T {

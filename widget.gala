@@ -760,68 +760,69 @@ func LineGaugeLabeled(label string, percent int) Widget =
 // drawn in the track's dim style reads as a disabled control. A caller who
 // wants a third style for the caption composes it with the fixed-column
 // recipe on `LineGaugeLabeled`, styling the `Text` however they like.
-func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Widget =
-    CustomW(
-        MinW = lineGaugeLabelWidth(label) + lineGaugeMinRule(),
+func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Widget {
+    // Measured once, at tree-build time, rather than per branch per frame:
+    // the closure below would otherwise re-scan the label's cells two to
+    // four times on every paint.
+    val labelW = lineGaugeLabelWidth(label)
+    return CustomW(
+        MinW = labelW + lineGaugeMinRule(),
         MinH = 1,
         Render = (area, buf, _) => {
             if area.Width <= 0 || area.Height <= 0 {
                 return
             }
-            val labelW = lineGaugeLabelWidth(label)
-            // No caption, no trade to make: the rule takes the row at
-            // whatever width it has. One cell of `━` is a crude gauge, but a
-            // blank row is not a gauge at all.
-            if labelW == 0 {
-                renderLineGaugeRule(
-                    buf, area.X, area.Y, area.Width, percent, filled, unfilled)
-                return
-            }
-            // Too narrow for both. The caption is the half that still says
-            // something in three columns — a rule that short is the same
-            // picture at 20% and at 80% — so the rule is what goes, and the
-            // caption is padded across the row rather than left to show the
-            // parent's background through the gap.
-            if area.Width < labelW + lineGaugeMinRule() {
-                // …unless the caption does not fit either. A clipped caption
-                // is not a shorter caption when the caption is a number:
-                // `LineGauge(100)` in two columns would render "10", which
-                // reads as ten percent. The rule cannot lie that way, so
-                // below the caption's own width the rule takes the row.
-                if StringCellWidth(label) > area.Width {
-                    renderLineGaugeRule(
-                        buf, area.X, area.Y, area.Width, percent, filled, unfilled)
-                    return
+            val row = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1)
+            // The widget owns every cell of the row it draws. An unwritten
+            // cell is not a blank one — it is whatever the parent painted
+            // there, so on a highlighted list row the gaps would show the
+            // row's reverse video through the middle of the gauge. Rows
+            // below the first are left alone: this is a one-row widget
+            // (`MinH = 1`), and erasing rows it does not draw in would wipe
+            // out whatever put it in a taller area.
+            renderFill(' ', filled, row, buf)
+            // Room for the caption, its separator, and a rule worth reading.
+            if area.Width >= labelW + lineGaugeMinRule() {
+                if labelW > 0 {
+                    renderText(
+                        label,
+                        filled,
+                        Rect(X = area.X, Y = area.Y, Width = labelW, Height = 1),
+                        buf,
+                    )
                 }
-                renderText(
-                    padRightToCells(label, area.Width),
+                renderLineGaugeRule(
+                    percent,
                     filled,
-                    Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
+                    unfilled,
+                    Rect(
+                        X = area.X + labelW,
+                        Y = area.Y,
+                        Width = area.Width - labelW,
+                        Height = 1,
+                    ),
                     buf,
                 )
                 return
             }
-            // The separator is painted, not skipped: an unwritten cell in
-            // the middle of the widget shows whatever the parent drew there
-            // — a highlighted list row bleeds its reverse video through the
-            // gap.
-            renderText(
-                label + " ",
-                filled,
-                Rect(X = area.X, Y = area.Y, Width = labelW, Height = 1),
-                buf,
-            )
-            renderLineGaugeRule(
-                buf,
-                area.X + labelW,
-                area.Y,
-                area.Width - labelW,
-                percent,
-                filled,
-                unfilled,
-            )
+            // Too narrow for both, but the caption still fits whole. It is
+            // the half that still says something in three columns — a rule
+            // that short is the same picture at 20% and at 80%.
+            //
+            // `labelW - 1` is the caption's own width: `lineGaugeLabelWidth`
+            // adds the separator, which there is no rule left to separate.
+            if labelW > 0 && labelW - 1 <= area.Width {
+                renderText(label, filled, row, buf)
+                return
+            }
+            // No caption, or one that would clip into a different word — or,
+            // worse, a different number: `LineGauge(100)` in two columns
+            // would render "10", which reads as ten percent. The rule cannot
+            // lie that way, so it takes the row.
+            renderLineGaugeRule(percent, filled, unfilled, row, buf)
         },
     )
+}
 
 // Spinner renders a single-cell animated glyph.
 func Spinner(kind SpinnerKind, frame int) Widget =

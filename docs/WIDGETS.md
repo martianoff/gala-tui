@@ -164,6 +164,14 @@ Row(ArrayOf[LayoutChild](
 ))
 ```
 
+**Narrow slots.** Squeezed below its intrinsic width, a widget keeps the part
+that still carries information and drops the rest: `ProgressLabeled` drops its
+number and keeps the bar, `LineGauge` drops its rule and keeps the caption —
+and drops the caption for the rule when the caption would have to be cut. A
+*clip* is always signalled (`StringCellEllipsis`'s `…`, `OverflowRow`'s `›`),
+because a clipped value can be misread as a shorter one; a *drop* needs no
+marker, because an absent rule cannot be mistaken for a short rule.
+
 ## Lists & tables
 
 | Widget | Signature | Notes |
