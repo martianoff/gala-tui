@@ -54,7 +54,7 @@ func beProgram() Program[BeModel, BeMsg] =
 // 'z' logs one and quits in the same Batch.
 func bePrintUpdate(m BeModel, msg BeMsg) Tuple[BeModel, Cmd[BeMsg]] = msg match {
     case BeKey(k) =>
-        (m.Copy(Keys = m.Keys.Append(k)), PrintAbove[BeMsg]("logged: " + k))
+        (m.Copy(Keys = m.Keys.Append(k)), PrintAbove[BeMsg](s"logged: $k"))
     case BeQuit() =>
         (m, Batch[BeMsg](PrintAbove[BeMsg]("bye"), QuitCmd[BeMsg]()))
     case _ => (m, NoCmd[BeMsg]())
@@ -414,7 +414,7 @@ func TestRunEmitsPrintedLinesThroughTheBackend(t T) T {
     // rendering it would put it inside the viewport, where the next paint
     // overwrites it.
     val (backend, st) = NewTestBackend(30, 2, "p")
-    val _ = Run[BeModel, BeMsg](bePrintProgram(), bePrintKeyToMsg, backend)
+    Run[BeModel, BeMsg](bePrintProgram(), bePrintKeyToMsg, backend)
     return EqMsg(t, st.Wrote("logged: p"), true,
                  "a PrintCmd line never reached the backend")
 }
@@ -427,7 +427,7 @@ func TestTheFinalFrameIsRepaintedAfterAPrintingQuit(t T) T {
     // scrollback — with as many lines as the viewport is tall, the whole
     // final frame was replaced by blank rows.
     val (backend, st) = NewTestBackend(30, 2, "z")
-    val _ = Run[BeModel, BeMsg](bePrintProgram(), bePrintKeyToMsg, backend)
+    Run[BeModel, BeMsg](bePrintProgram(), bePrintKeyToMsg, backend)
     val printedAt = strings.Index(st.Written, "bye")
     val framedAt = strings.LastIndex(st.Written, "keys=")
     val t1 = EqMsg(t, printedAt >= 0, true, "the line was not printed")

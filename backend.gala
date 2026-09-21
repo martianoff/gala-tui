@@ -480,8 +480,8 @@ func inlineBlankBlockString(height int) string = inlineRowsString(height, (i) =>
 // column 0, then the cursor walked back to the top of the block so the next
 // paint starts from the same place.
 func inlineFrameString(frame *Buffer, height int) string {
-    val rows = strings.Split(frame.String(), "\n")
-    return inlineRowsString(height, (i) => if (i < rows.Size()) rows[i] else "")
+    val rows = stringToLines(frame.String())
+    return inlineRowsString(height, (i) => rows.GetOption(i).GetOrElse(""))
 }
 
 // inlineRowsString walks the block once, writing `rowText(i)` into each row
@@ -517,17 +517,8 @@ func inlineRowsString(height int, rowText func(int) string) string {
 // top of a block that is now guaranteed to be on screen. Both the entry
 // sequence and every insert need exactly this: one creates the viewport,
 // the other puts it back after lines have pushed it up.
-func inlineReserveString(height int) string {
-    var sb strings.Builder
-    var i = 0
-    for i < height - 1 {
-        sb.WriteString("\r\n")
-        i = i + 1
-    }
-    sb.WriteString("\r")
-    sb.WriteString(ansiCursorUp(height - 1))
-    return sb.String()
-}
+func inlineReserveString(height int) string =
+    strings.Repeat("\r\n", MaxInt(0, height - 1)) + "\r" + ansiCursorUp(height - 1)
 
 // inlineOpen takes raw mode and the input protocols but NOT the alternate
 // screen, then reserves the viewport.

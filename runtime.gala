@@ -805,7 +805,7 @@ func processInputBytesWithHits[M any, T any](
             *model = newModel
             // Collected before the quit check, same as dispatchAll: a
             // keystroke whose update() prints and quits means both.
-            PendingPrints(cmd).ForEach((line) => { *prints = prints.Append(line) })
+            *prints = PendingPrints(cmd).FoldLeft(*prints, (acc, line) => acc.Append(line))
             if IsQuit(cmd) {
                 return (true, SliceEmpty[byte]())
             }
@@ -816,7 +816,7 @@ func processInputBytesWithHits[M any, T any](
             for i < emitted.Length() {
                 val (nm, nc) = program.Update(*model, emitted.Get(i))
                 *model = nm
-                PendingPrints(nc).ForEach((line) => { *prints = prints.Append(line) })
+                *prints = PendingPrints(nc).FoldLeft(*prints, (acc, line) => acc.Append(line))
                 if IsQuit(nc) {
                     return (true, SliceEmpty[byte]())
                 }
@@ -1284,7 +1284,7 @@ func dispatchAll[M any, T any](
         // print a summary and quit means both, and dropping the lines
         // because the same update() also asked to exit would make the
         // ordering of a Batch decide whether its output survives.
-        PendingPrints(cmd).ForEach((line) => { prints = prints.Append(line) })
+        prints = PendingPrints(cmd).FoldLeft(prints, (acc, line) => acc.Append(line))
         if IsQuit(cmd) {
             return DispatchResult[M, T](
                 Model = model, NewFutures = futures, Prints = prints, Quit = true)
@@ -1296,7 +1296,7 @@ func dispatchAll[M any, T any](
         for j < emitted.Length() {
             val (nm2, cmd2) = program.Update(model, emitted.Get(j))
             model = nm2
-            PendingPrints(cmd2).ForEach((line) => { prints = prints.Append(line) })
+            prints = PendingPrints(cmd2).FoldLeft(prints, (acc, line) => acc.Append(line))
             if IsQuit(cmd2) {
                 return DispatchResult[M, T](
                     Model = model, NewFutures = futures, Prints = prints, Quit = true)
@@ -1343,7 +1343,7 @@ func processKeyBytes[M any, T any](
         *model = newModel
         // Collected before the quit check, same as dispatchAll: a keystroke
         // whose update() prints and quits means both.
-        PendingPrints(cmd).ForEach((line) => { *prints = prints.Append(line) })
+        *prints = PendingPrints(cmd).FoldLeft(*prints, (acc, line) => acc.Append(line))
         if IsQuit(cmd) {
             return (true, SliceEmpty[byte]())
         }
@@ -1354,7 +1354,7 @@ func processKeyBytes[M any, T any](
         for i < emitted.Length() {
             val (nm, nc) = program.Update(*model, emitted.Get(i))
             *model = nm
-            PendingPrints(nc).ForEach((line) => { *prints = prints.Append(line) })
+            *prints = PendingPrints(nc).FoldLeft(*prints, (acc, line) => acc.Append(line))
             if IsQuit(nc) {
                 return (true, SliceEmpty[byte]())
             }
@@ -1401,7 +1401,6 @@ func emitPrints(backend Backend, lines Array[string], repaint func()) {
 // render into it, then writes the ANSI-escape text to stdout preceded by
 // cursor-home. Full repaint every frame — kept for the simple `Run` path
 // that doesn't care about bandwidth.
-
 func paintFrame(w Widget, backend Backend) {
     val (width, height) = backend.Size()
     val buf = NewBuffer(width, height)

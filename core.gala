@@ -74,12 +74,10 @@ func IsQuit[T any](c Cmd[T]) bool {
 // PendingMsgs walks a command tree and returns all messages a pure runtime
 // would immediately re-dispatch. Non-synchronous commands (like FutureCmd)
 // don't yield here — they go through PendingFutures / PollFutures instead.
-func PendingMsgs[T any](c Cmd[T]) Array[T] {
-    return c match {
-        case MsgCmd(m)      => ArrayOf(m)
-        case BatchCmd(cmds) => cmds.FlatMap((inner) => PendingMsgs(inner))
-        case _              => EmptyArray[T]()
-    }
+func PendingMsgs[T any](c Cmd[T]) Array[T] = c match {
+    case MsgCmd(m)      => ArrayOf(m)
+    case BatchCmd(cmds) => cmds.FlatMap((inner) => PendingMsgs(inner))
+    case _              => EmptyArray[T]()
 }
 
 // PrintAbove is the varargs constructor for `PrintCmd` — the shape the call
@@ -102,12 +100,10 @@ func PrintAbove[T any](lines ...string) Cmd[T] =
 // *without* returning it to column 0 — the terminal is in raw mode, where
 // ONLCR is off — and the text after it would start wherever the text before
 // it happened to end, over a row nothing has cleared.
-func PendingPrints[T any](c Cmd[T]) Array[string] {
-    return c match {
-        case PrintCmd(lines) => lines.FlatMap((line) => splitPrintLine(line))
-        case BatchCmd(cmds)  => cmds.FlatMap((inner) => PendingPrints(inner))
-        case _               => EmptyArray[string]()
-    }
+func PendingPrints[T any](c Cmd[T]) Array[string] = c match {
+    case PrintCmd(lines) => lines.FlatMap((line) => splitPrintLine(line))
+    case BatchCmd(cmds)  => cmds.FlatMap((inner) => PendingPrints(inner))
+    case _               => EmptyArray[string]()
 }
 
 // splitPrintLine breaks one printed string into the rows it will occupy.
@@ -120,12 +116,10 @@ func splitPrintLine(line string) Array[string] =
 // PendingFutures walks a command tree and collects every Future[T] the runtime
 // must poll until completion. The runtime enqueues these into its
 // "awaiting-async" list right after each update() call.
-func PendingFutures[T any](c Cmd[T]) Array[Future[T]] {
-    return c match {
-        case FutureCmd(fut) => ArrayOf[Future[T]](fut)
-        case BatchCmd(cmds) => cmds.FlatMap((inner) => PendingFutures(inner))
-        case _              => EmptyArray[Future[T]]()
-    }
+func PendingFutures[T any](c Cmd[T]) Array[Future[T]] = c match {
+    case FutureCmd(fut) => ArrayOf[Future[T]](fut)
+    case BatchCmd(cmds) => cmds.FlatMap((inner) => PendingFutures(inner))
+    case _              => EmptyArray[Future[T]]()
 }
 
 // PollFutures inspects each future in `pending` non-blockingly. Returns
