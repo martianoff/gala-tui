@@ -229,11 +229,7 @@ func padLeftToCells(s string, width int) string = cellPad(width - StringCellWidt
 // documents a few lines up. Every caller today pads by less than a handful of
 // cells, where that is arithmetic rather than a cost — but the width comes
 // from the caller, and the next one may hand it a 200-column row.
-func cellPad(n int) string {
-    // strings.Repeat panics on a negative count, so this guard carries the
-    // "already at or past the slot width" case rather than decorating it.
-    if n <= 0 {
-        return ""
-    }
-    return strings.Repeat(" ", n)
-}
+//
+// `strings.Repeat` panics on a negative count, so the `n <= 0` branch carries
+// the "string already fills its slot" case rather than decorating it.
+func cellPad(n int) string = if (n <= 0) "" else strings.Repeat(" ", n)
