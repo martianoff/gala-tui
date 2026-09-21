@@ -487,13 +487,29 @@ func TestTheExitPaintShowsTheFinalModelNotTheInitialOne(t T) T {
     return EqMsg(t, lastFrame, lastAny, "the exit repaint used a stale model")
 }
 
-func TestFullScreenBackendDropsPrintedLines(t T) T {
-    // The alternate screen has no scrollback to insert into. Dropping the
-    // lines is the honest outcome; writing them into the frame would corrupt
-    // whatever the app was drawing.
-    val b = TerminalBackend()
-    // Asserting it does not paint is the best a unit test can do without a
-    // pty — what matters is that the call is total and writes no frame.
-    b.InsertBefore(ArrayOf[string]("nowhere"))
-    return Eq(t, b.Name, "terminal")
+func TestFullScreenBackendReportsThatItDroppedTheLines(t T) T {
+    // The alternate screen has no scrollback to insert into. Saying so is
+    // what keeps the runtime from throwing away its frame diff for an
+    // insert that never happened — DiffString(nil) is a whole screen of
+    // cells, so an app printing on a ticker would rewrite the terminal on
+    // every frame to no purpose.
+    return Eq(t, TerminalBackend().InsertBefore(ArrayOf[string]("nowhere")), false)
+}
+
+func TestEmitPrintsToleratesABackendWithoutInsertBefore(t T) T {
+    // Backend is public and its fields are plain functions, so a consumer's
+    // backend built before PrintAbove existed still compiles against this
+    // version — with a nil field. Without the guard the first PrintAbove in
+    // any app using one would nil-deref inside the run loop.
+    val (complete, _) = NewTestBackend(10, 1, "")
+    val legacy = Backend(
+        Name      = "legacy",
+        Size      = complete.Size,
+        Write     = complete.Write,
+        Read      = complete.Read,
+        ReadAsync = complete.ReadAsync,
+        Open      = complete.Open,
+        Paint     = complete.Paint,
+    )
+    return Eq(t, emitPrints(legacy, ArrayOf[string]("x")), false)
 }

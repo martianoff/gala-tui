@@ -1378,24 +1378,25 @@ func processKeyBytes[M any, T any](
 // cursor-home. Full repaint every frame — kept for the simple `Run` path
 // that doesn't care about bandwidth.
 // emitPrints hands `lines` to the backend's scrollback and reports whether
-// there was anything to hand over.
+// they went anywhere.
 //
 // The bool is what the diffing paint paths need. Lines are written where
 // the viewport's top row is, so once they have gone in, the buffer the next
 // diff would compare against is no longer what is on screen — the caller
-// drops its `prev` on a true and repaints in full.
+// drops its `prev` on a true and repaints in full. A backend that discarded
+// them says so, and the diff is left intact: on the alternate screen, where
+// prints go nowhere, `DiffString(nil)` would otherwise rewrite every cell
+// of the screen on every frame that printed.
 //
-// A backend that cannot insert at all still causes that repaint: `Backend`
-// does not report back, and asking it to would put a return value on the
-// seam for a case where the repaint finds nothing to write anyway. An app
-// printing into the alternate screen, where the lines are dropped, pays one
-// diff that comes up empty.
+// `Backend` is a public struct of plain function fields, so a caller can
+// build one without this field and gala will compile it — the nil check is
+// what turns "this backend predates PrintAbove" into a no-op instead of a
+// crash inside the run loop the first time an app prints.
 func emitPrints(backend Backend, lines Array[string]) bool {
-    if lines.IsEmpty() {
+    if lines.IsEmpty() || backend.InsertBefore == nil {
         return false
     }
-    backend.InsertBefore(lines)
-    return true
+    return backend.InsertBefore(lines)
 }
 
 func paintFrame(w Widget, backend Backend) {

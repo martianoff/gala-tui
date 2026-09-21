@@ -72,6 +72,14 @@ struct BackendSession(
 // few rows below the prompt and can scroll text in above them, while a
 // full-screen app on the alternate screen has no scrollback to insert into
 // at all and discards them.
+//
+// It reports whether the lines went anywhere, which is not bookkeeping: the
+// runtime repaints in full after an insert, because the lines are written
+// over the rows a diff would otherwise compare against. A backend that
+// discarded them disturbed nothing, and `Buffer.DiffString(nil)` is a whole
+// screen of cells rather than the empty diff it might sound like — so an
+// app printing on a ticker into the alternate screen would trade a
+// hundred-byte diff per frame for a full rewrite, to no end.
 struct Backend(
     Name         string,
     Size         func() Tuple[int, int],
@@ -82,7 +90,7 @@ struct Backend(
     // protocols — see `currentTermModes`.
     Open         func(bool) BackendSession,
     Paint        func(*Buffer, *Buffer),
-    InsertBefore func(Array[string]),
+    InsertBefore func(Array[string]) bool,
 )
 
 // ----------------------------------------------------------------------------
@@ -119,7 +127,7 @@ func TerminalBackend() Backend = Backend(
     // can leave the shell's history untouched. Lines asked for here have
     // nowhere to go, so they are dropped rather than written into the
     // frame the app is drawing.
-    InsertBefore = (lines) => {},
+    InsertBefore = (lines) => false,
 )
 
 // terminalOpen puts the terminal into raw mode and enters the alternate
@@ -205,6 +213,7 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
             lines.ForEach((line) => {
                 st.Written = st.Written + line + "\n"
             })
+            return lines.NonEmpty()
         },
     )
     return (b, st)
@@ -354,6 +363,7 @@ func NewTestBackendChunks(
             lines.ForEach((line) => {
                 st.Written = st.Written + line + "\n"
             })
+            return lines.NonEmpty()
         },
     )
     return (b, st)
@@ -424,6 +434,7 @@ func InlineBackend(height int) Backend {
         },
         InsertBefore = (lines) => {
             fmt.Fprint(os.Stdout, inlineInsertBeforeString(lines, h))
+            return lines.NonEmpty()
         },
     )
 }
