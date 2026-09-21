@@ -274,6 +274,10 @@ func Run[M any, T any](
     use _guard = closeOnExit(session)
 
     var model = program.Initial
+    // Puts the final frame back on exit — see paintOnExit. Chiefly for the
+    // paths that leave after a PrintAbove has scrolled the viewport's rows
+    // away and before the loop's own repaint.
+    use _final = paintOnExit(() => paintFrame(program.View(model), backend))
 
     // First paint — the initial model before any input.
     paintFrame(program.View(model), backend)
@@ -491,6 +495,7 @@ func RunWithSub[M any, T any](
     var readFut = None[concurrent.Future[ReadResult]]()
     // Partial escape sequence held back from the previous read — see carryOver.
     var carry = SliceEmpty[byte]()
+    use _final = paintOnExit(() => paintFrame(program.View(model), backend))
 
     paintFrame(program.View(model), backend)
 
@@ -625,6 +630,12 @@ func RunWithMouse[M any, T any](
     // release, regardless of whether the cursor wanders off the
     // press's region in between.
     var dragActive = None[DragActive]()
+    // Full repaint rather than a diff: the exit paths this covers are
+    // exactly the ones where what is on screen no longer matches the frame
+    // `prevFrame` holds.
+    use _final = paintOnExit(() => {
+        val _ = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+    })
     var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
 
     for {

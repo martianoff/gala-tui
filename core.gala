@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/concurrent"
     . "martianoff/gala/std"
@@ -31,6 +32,14 @@ import (
 // It is a Cmd rather than a method for the usual reason: update() says what
 // should happen and the runtime does it, so a test can assert the lines
 // without a terminal.
+//
+// Needs `InlineBackend(n)`. The default backend runs on the alternate
+// screen, which has no scrollback to insert into — the same limitation
+// ratatui's `insert_before` has — so there the lines are dropped. Nothing
+// warns about it at runtime because the only channels available are the
+// screen the app is drawing on and a stderr the app has no reason to
+// expect; a print that quietly does nothing is better than one that
+// corrupts the frame to complain.
 sealed type Cmd[T any] {
     case NoCmd()
     case QuitCmd()
@@ -87,13 +96,26 @@ func PrintAbove[T any](lines ...string) Cmd[T] =
 // leave the program entirely. The runtime hands them to the backend, which
 // is the only part that knows whether "above the viewport" means anything —
 // see `Backend.InsertBefore`.
+// A line carrying its own newlines is split here, so that one element is
+// always one row on screen. A backend writes each element and then moves to
+// the next row itself; a bare "\n" inside one would move the cursor down
+// *without* returning it to column 0 — the terminal is in raw mode, where
+// ONLCR is off — and the text after it would start wherever the text before
+// it happened to end, over a row nothing has cleared.
 func PendingPrints[T any](c Cmd[T]) Array[string] {
     return c match {
-        case PrintCmd(lines) => lines
+        case PrintCmd(lines) => lines.FlatMap((line) => splitPrintLine(line))
         case BatchCmd(cmds)  => cmds.FlatMap((inner) => PendingPrints(inner))
         case _               => EmptyArray[string]()
     }
 }
+
+// splitPrintLine breaks one printed string into the rows it will occupy.
+// A trailing newline yields no extra row: `PrintAbove("done\n")` means the
+// same as `PrintAbove("done")`, which is what a caller porting a `println`
+// expects.
+func splitPrintLine(line string) Array[string] =
+    ArrayFromSlice(strings.Split(strings.TrimSuffix(line, "\n"), "\n"))
 
 // PendingFutures walks a command tree and collects every Future[T] the runtime
 // must poll until completion. The runtime enqueues these into its

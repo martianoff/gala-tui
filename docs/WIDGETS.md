@@ -433,6 +433,9 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
         (m.Advance(), PrintAbove[Msg](s"✓ ${name} in ${ms}ms"))
     ...
 }
+
+// …and it needs the inline backend — the default is the alternate screen.
+val _ = RunWithSub[Model, Msg](program, keyToMsg, sub, InlineBackend(3))
 ```
 
 Writing to stdout yourself cannot do this: the viewport is drawn relative to
@@ -441,9 +444,18 @@ overwrites it. Going through a `Cmd` also keeps `update()` pure, so a test
 asserts the lines with `NewTestBackend` instead of a terminal.
 
 A line printed alongside `QuitCmd` in the same `Batch` still lands — an app
-whose last act is to print a summary and exit means both. On the full-screen
-backend the lines are dropped: the alternate screen has no scrollback to
-insert into, which is the same limitation ratatui's `insert_before` has.
+whose last act is to print a summary and exit means both, and the viewport is
+repainted on the way out so the final frame survives in the scrollback below
+it. On the full-screen backend the lines are dropped: the alternate screen has
+no scrollback to insert into, which is the same limitation ratatui's
+`insert_before` has.
+
+Each element is one row. A string carrying its own `\n` is split, because in
+raw mode a bare newline moves down without returning to column 0 and the text
+after it would land mid-row. A line wider than the terminal soft-wraps, which
+costs it an extra row but nothing else — the viewport's rows are blanked
+before the lines land on them, so a wrapped line cannot weld the old frame's
+tail onto its continuation row.
 
 ## Testing a run loop without a terminal
 
