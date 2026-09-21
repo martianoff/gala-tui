@@ -251,6 +251,8 @@ func restyleShape(s Shape, f func(Style) Style) Shape = s match {
     case ShapeCircle(x, y, r, st)     => ShapeCircle(X = x, Y = y, Radius = r, Style = f(st))
     case ShapePoints(pts, st)         => ShapePoints(Pts = pts, Style = f(st))
     case ShapeLabel(x, y, text, st)   => ShapeLabel(X = x, Y = y, Text = text, Style = f(st))
+    case ShapeFilledLine(a, b, c, d, yRef, st) =>
+        ShapeFilledLine(X1 = a, Y1 = b, X2 = c, Y2 = d, YRef = yRef, Style = f(st))
 }
 
 func restyleLeaves(w Widget, f func(Style) Style) Widget {

@@ -110,10 +110,18 @@ Shapes in your own coordinate space, at sub-cell resolution. Braille packs
 | `XBounds(min, max)` / `YBounds(min, max)` | `(float64, float64) Bounds` | The caller's coordinate range per axis. |
 | `PointsOf(xs, ys, style)` | `(Array[float64], Array[float64], Style) Shape` | Build a series from parallel arrays. |
 
-Shapes: `ShapeLine`, `ShapeRect` (outline), `ShapeCircle`, `ShapePoints`,
-`ShapeLabel`. Each carries its own `Style`, so one canvas holds a dim grid, a
-bright series and a labelled axis. Only lit cells are written, so a canvas
-composes over whatever is beneath it.
+Shapes: `ShapeLine`, `ShapeFilledLine`, `ShapeRect` (outline), `ShapeCircle`,
+`ShapePoints`, `ShapeLabel`. Each carries its own `Style`, so one canvas holds
+a dim grid, a bright series and a labelled axis. Only lit cells are written, so
+a canvas composes over whatever is beneath it.
+
+`ShapeFilledLine(X1, Y1, X2, Y2, YRef, Style)` is `ShapeLine` plus the band
+between it and `YRef` — an area chart. The reference is a coordinate, not "the
+bottom", so a series can be filled to a baseline that means something: zero on
+an axis that goes negative, a budget line, last run's average. It fills the
+same way above and below. Reach for it when the area reads as a quantity
+(throughput, bytes, requests) and for a plain `ShapeLine` when it does not (a
+temperature, a percentage).
 
 ```gala
 CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](

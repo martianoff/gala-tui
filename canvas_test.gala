@@ -313,6 +313,101 @@ func TestLabelLeftOfTheBoundsDoesNotPaintOutsideTheCanvas(t T) T {
     return Eq(t, strings.HasPrefix(BufferText(buf, 0), "####"), true)
 }
 
+// ============================================================================
+// ShapeFilledLine — the band between a series and a reference
+// ============================================================================
+
+// filledCanvas renders one shape over `w` x `h` cells of unit bounds.
+func filledCanvas(s Shape, w int, h int) *Buffer =
+    canvasBuf(CanvasOf(unitBounds(), unitBounds(), ArrayOf[Shape](s)), w, h)
+
+func TestFilledLineFillsBetweenTheLineAndTheReference(t T) T {
+    // A flat line at y = 0.5 filled down to 0.0 lights the bottom half of
+    // every column and leaves the top half dark. Counting lit cells per row
+    // is the claim: an unfilled line would light one row, not half of them.
+    val buf = filledCanvas(
+        ShapeFilledLine(X1 = 0.0, Y1 = 0.5, X2 = 1.0, Y2 = 0.5, YRef = 0.0,
+                        Style = DefaultStyle()),
+        8, 4)
+    val topRow = litCells(buf, 8, 1)
+    val wholeCanvas = litCells(buf, 8, 4)
+    val t1 = EqMsg(t, topRow, 0, "the band reached above the line")
+    return EqMsg(t1, wholeCanvas > 8, true, "the band did not fill a column")
+}
+
+func TestFilledLineFillsUpwardsWhenTheReferenceIsAbove(t T) T {
+    // The band is between the line and the reference, whichever is higher —
+    // a series below a budget line fills up to it.
+    val buf = filledCanvas(
+        ShapeFilledLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, YRef = 1.0,
+                        Style = DefaultStyle()),
+        8, 4)
+    return EqMsg(t, litCells(buf, 8, 1) > 0, true,
+                 "a reference above the line left the top of the band unfilled")
+}
+
+func TestFilledLineAtItsReferenceDrawsOnlyTheLine(t T) T {
+    // Degenerate band: the line and the reference coincide, so the shape is
+    // its own outline and nothing more.
+    val flat = filledCanvas(
+        ShapeFilledLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, YRef = 0.0,
+                        Style = DefaultStyle()),
+        8, 4)
+    val plain = filledCanvas(
+        ShapeLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, Style = DefaultStyle()),
+        8, 4)
+    return Eq(t, litCells(flat, 8, 4), litCells(plain, 8, 4))
+}
+
+func TestFilledLineFollowsASlope(t T) T {
+    // A rising series must light more of the right of the canvas than the
+    // left — the test that a fill interpolates rather than filling a box.
+    val buf = filledCanvas(
+        ShapeFilledLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 1.0, YRef = 0.0,
+                        Style = DefaultStyle()),
+        8, 4)
+    var left = 0
+    var right = 0
+    var y = 0
+    for y < 4 {
+        var x = 0
+        for x < 8 {
+            if buf.CharAt(x, y) != ' ' {
+                if x < 4 { left = left + 1 } else { right = right + 1 }
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return EqMsg(t, right > left, true, "the fill did not follow the slope")
+}
+
+func TestVerticalFilledLineFillsItsOwnColumn(t T) T {
+    // No columns to walk: the degenerate case that an interpolation would
+    // divide by zero on.
+    val buf = filledCanvas(
+        ShapeFilledLine(X1 = 0.5, Y1 = 1.0, X2 = 0.5, Y2 = 0.5, YRef = 0.0,
+                        Style = DefaultStyle()),
+        8, 4)
+    return EqMsg(t, litCells(buf, 8, 4) > 0, true,
+                 "a vertical filled line drew nothing")
+}
+
+func TestFilledLineOutsideTheBoundsClips(t T) T {
+    // Same contract every other shape keeps: off-canvas clips, it does not
+    // wrap, and it does not reach into the widget laid out next door.
+    val buf = NewBuffer(12, 2)
+    RenderTo(FillCh('#'), Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
+    RenderTo(
+        CanvasW(XMin = 0.0, XMax = 1.0, YMin = 0.0, YMax = 1.0,
+                Marker = BrailleMarker(),
+                Shapes = ArrayOf[Shape](
+                    ShapeFilledLine(X1 = -3.0, Y1 = 0.5, X2 = -2.0, Y2 = 0.5,
+                                    YRef = 0.0, Style = DefaultStyle()))),
+        Rect(X = 4, Y = 0, Width = 8, Height = 2), buf)
+    return Eq(t, strings.HasPrefix(BufferText(buf, 0), "####"), true)
+}
+
 func TestLabelInsideTheBoundsStillRenders(t T) T {
     val buf = NewBuffer(12, 1)
     RenderTo(

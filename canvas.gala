@@ -58,6 +58,25 @@ sealed type Shape {
     case ShapeRect(X float64, Y float64, Width float64, Height float64, Style Style)
     case ShapeCircle(X float64, Y float64, Radius float64, Style Style)
     case ShapePoints(Pts Array[CanvasPoint], Style Style)
+    // ShapeFilledLine is ShapeLine plus the band between it and `YRef` — an
+    // area chart's shape. Filling under a series is what separates "this
+    // much, over time" from "this value, over time": the eye reads the area
+    // as a quantity, which is exactly wrong for a temperature and exactly
+    // right for a throughput.
+    //
+    // `YRef` is a coordinate rather than "the bottom", so a series can be
+    // filled to a baseline that means something — zero on an axis that goes
+    // negative, a budget line, a previous run's average. Above and below it
+    // fill the same way; the band is between the line and the reference,
+    // whichever is higher.
+    case ShapeFilledLine(
+        X1 float64,
+        Y1 float64,
+        X2 float64,
+        Y2 float64,
+        YRef float64,
+        Style Style,
+    )
     // ShapeLabel is text, which cannot be sub-cell: it is drawn at the cell
     // containing (X, Y), after every dot shape, so a label is never buried
     // under the series it annotates.
@@ -233,10 +252,11 @@ func renderCanvas(
                 ), buf)
             }
         }
-        case ShapeLine(_, _, _, _, _)   => {}
-        case ShapeRect(_, _, _, _, _)   => {}
-        case ShapeCircle(_, _, _, _)    => {}
-        case ShapePoints(_, _)          => {}
+        case ShapeLine(_, _, _, _, _)         => {}
+        case ShapeRect(_, _, _, _, _)         => {}
+        case ShapeCircle(_, _, _, _)          => {}
+        case ShapePoints(_, _)                => {}
+        case ShapeFilledLine(_, _, _, _, _, _) => {}
     })
 }
 
@@ -262,8 +282,56 @@ func rasterShape(
         case ShapeCircle(cx, cy, r, style) => plotCircle(g, cx, cy, r, toGx, toGy, style)
         case ShapePoints(pts, style) =>
             pts.ForEach((p) => g.plot(toGx(p.X), toGy(p.Y), style))
+        case ShapeFilledLine(x1, y1, x2, y2, yRef, style) =>
+            plotFilledLine(g, toGx(x1), toGy(y1), toGx(x2), toGy(y2),
+                           toGy(yRef), style)
         // Labels are text and are drawn after the glyph pass.
         case ShapeLabel(_, _, _, _) => {}
+    }
+}
+
+// plotFilledLine draws the segment and the band between it and row `yRef`.
+//
+// Column by column rather than Bresenham: a fill needs the line's row at
+// every column it covers, which is what an interpolation gives directly and
+// what Bresenham's error term only passes through. The two agree on the
+// endpoints, and a filled line's outline is the fill's own top edge, so the
+// slight difference in which cells a steep segment lights is invisible
+// under the band.
+//
+// A vertical segment has no columns to walk: it fills the one column it
+// occupies, between whichever of its endpoints and `yRef` are extreme.
+func plotFilledLine(
+    g *canvasGrid,
+    x1 int,
+    y1 int,
+    x2 int,
+    y2 int,
+    yRef int,
+    style Style,
+) {
+    if x1 == x2 {
+        fillColumn(g, x1, MinInt(MinInt(y1, y2), yRef),
+                   MaxInt(MaxInt(y1, y2), yRef), style)
+        return
+    }
+    val lo = MinInt(x1, x2)
+    val hi = MaxInt(x1, x2)
+    var gx = lo
+    for gx <= hi {
+        val gy = y1 + (y2 - y1) * (gx - x1) / (x2 - x1)
+        fillColumn(g, gx, MinInt(gy, yRef), MaxInt(gy, yRef), style)
+        gx = gx + 1
+    }
+}
+
+// fillColumn plots every grid row from `top` to `bottom` inclusive. Clipping
+// is `plot`'s job, as it is for every other shape.
+func fillColumn(g *canvasGrid, gx int, top int, bottom int, style Style) {
+    var gy = top
+    for gy <= bottom {
+        g.plot(gx, gy, style)
+        gy = gy + 1
     }
 }
 
