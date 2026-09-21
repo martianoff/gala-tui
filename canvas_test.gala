@@ -393,6 +393,60 @@ func TestVerticalFilledLineFillsItsOwnColumn(t T) T {
                  "a vertical filled line drew nothing")
 }
 
+func TestFilledLineFarOffCanvasCostsNothing(t T) T {
+    // Clipping is not only about what is painted. A fill's loops are nested,
+    // and a segment that starts a million units off-canvas and ends on it
+    // spans ~16 million grid columns — walking them to discard all but the
+    // last few took long enough to read as a hang. The assertion is that
+    // this test returns at all; what it paints is the visible tail.
+    val buf = filledCanvas(
+        ShapeFilledLine(X1 = -1000000.0, Y1 = 0.5, X2 = 1.0, Y2 = 0.5,
+                        YRef = 0.0, Style = DefaultStyle()),
+        8, 4)
+    return EqMsg(t, litCells(buf, 8, 4) > 0, true,
+                 "the visible tail of a far-off-canvas fill was dropped")
+}
+
+func TestFilledLineReferenceFarBelowTheBoundsFillsToTheEdge(t T) T {
+    // The ordinary version of the same hazard, and the one the docs invite:
+    // `YRef = 0.0` against bounds auto-scaled to a byte count puts the
+    // reference tens of thousands of rows below the canvas. The band must
+    // stop at the bottom edge, in time proportional to what is visible.
+    val buf = filledCanvas(
+        ShapeFilledLine(X1 = 0.0, Y1 = 1.0, X2 = 1.0, Y2 = 1.0,
+                        YRef = -50000.0, Style = DefaultStyle()),
+        8, 4)
+    return EqMsg(t, litCells(buf, 8, 4), 32,
+                 "a reference below the canvas did not fill exactly to the edge")
+}
+
+func TestFilledLineKeepsItsSlopeWhenPartlyOffCanvas(t T) T {
+    // The clip is on the walk, not on the geometry: the visible half of a
+    // segment that starts off-canvas must keep the slope the caller asked
+    // for, not one refitted to the part that survived.
+    val whole = filledCanvas(
+        ShapeFilledLine(X1 = -1.0, Y1 = -1.0, X2 = 1.0, Y2 = 1.0, YRef = 0.0,
+                        Style = DefaultStyle()),
+        8, 4)
+    // Same line, clipped by the canvas rather than by the caller: the right
+    // half rises from the middle of the canvas to its top-right corner.
+    var left = 0
+    var right = 0
+    var y = 0
+    for y < 4 {
+        var x = 0
+        for x < 8 {
+            if whole.CharAt(x, y) != ' ' {
+                if x < 4 { left = left + 1 } else { right = right + 1 }
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return EqMsg(t, right > left, true,
+                 "the visible span was refitted instead of clipped")
+}
+
 func TestFilledLineOutsideTheBoundsClips(t T) T {
     // Same contract every other shape keeps: off-canvas clips, it does not
     // wrap, and it does not reach into the widget laid out next door.

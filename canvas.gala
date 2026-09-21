@@ -301,6 +301,16 @@ func rasterShape(
 //
 // A vertical segment has no columns to walk: it fills the one column it
 // occupies, between whichever of its endpoints and `yRef` are extreme.
+// Both loops are clipped to the grid before they run, which for every other
+// shape is `plot`'s job alone. A fill cannot afford that: `plot` discards an
+// off-grid dot, but only after the loop has counted its way there, and a
+// fill's loops are nested. The coordinates arriving here are projections of
+// the caller's own units with no bound on their magnitude — a byte count
+// against auto-scaled bounds puts `YRef = 0.0` tens of thousands of rows
+// below the canvas — so an unclipped version costs millions of discarded
+// plots per frame in the ordinary case and effectively hangs on a shape
+// placed far off-canvas. `plotLine` has its own version of this guard in
+// the `limit` its Bresenham walk counts against.
 func plotFilledLine(
     g *canvasGrid,
     x1 int,
@@ -315,21 +325,31 @@ func plotFilledLine(
                    MaxInt(MaxInt(y1, y2), yRef), style)
         return
     }
-    val lo = MinInt(x1, x2)
-    val hi = MaxInt(x1, x2)
+    // Clipped for the walk, but the interpolation below still runs against
+    // the segment's true endpoints, so the visible part keeps the slope the
+    // caller asked for rather than one fitted to the clipped span.
+    val lo = MaxInt(0, MinInt(x1, x2))
+    val hi = MinInt(g.W - 1, MaxInt(x1, x2))
     var gx = lo
     for gx <= hi {
-        val gy = y1 + (y2 - y1) * (gx - x1) / (x2 - x1)
+        // Float, because both operands are unbounded projections: the
+        // integer form multiplies before it divides, and two large
+        // coordinates wrap into a garbage row that then becomes a loop
+        // bound.
+        val t = float64(gx - x1) / float64(x2 - x1)
+        val gy = y1 + int(float64(y2 - y1) * t)
         fillColumn(g, gx, MinInt(gy, yRef), MaxInt(gy, yRef), style)
         gx = gx + 1
     }
 }
 
-// fillColumn plots every grid row from `top` to `bottom` inclusive. Clipping
-// is `plot`'s job, as it is for every other shape.
+// fillColumn plots every grid row from `top` to `bottom` inclusive, clipped
+// to the grid — see `plotFilledLine` for why this one clips rather than
+// leaving it to `plot`.
 func fillColumn(g *canvasGrid, gx int, top int, bottom int, style Style) {
-    var gy = top
-    for gy <= bottom {
+    var gy = MaxInt(0, top)
+    val last = MinInt(g.H - 1, bottom)
+    for gy <= last {
         g.plot(gx, gy, style)
         gy = gy + 1
     }

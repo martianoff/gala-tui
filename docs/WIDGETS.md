@@ -127,12 +127,16 @@ Chain one segment per pair of points and the shared endpoints meet without a
 seam:
 
 ```gala
-ArrayTabulate(ys.Length() - 1, (i) => ShapeFilledLine(
+ArrayTabulate(MinInt(xs.Length(), ys.Length()) - 1, (i) => ShapeFilledLine(
     X1 = xs.Get(i),     Y1 = ys.Get(i),
     X2 = xs.Get(i + 1), Y2 = ys.Get(i + 1),
     YRef = 0.0, Style = dim,
 ))
 ```
+
+(`MinInt` for the same reason `PointsOf` uses it: two parallel arrays are one
+refactor away from disagreeing about their length, and the shorter one is the
+honest bound.)
 
 Two notes on fills specifically. **Pick a marker that tiles**: braille,
 half-block and block all render a fill as solid; `DotMarker` turns one into a
@@ -150,9 +154,10 @@ CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](
 ```
 
 Y grows **up**, as a plot's does — `Y = 0.0` on `YBounds(0.0, 1.0)` is the
-bottom row. Shapes outside the bounds clip; they do not wrap. Bounds want
-`Min < Max`: an inverted pair is not a flipped axis, and every shape collapses
-onto one edge.
+bottom row. `YBounds(1.0, 0.0)` genuinely flips that, so a depth or a rank
+plots the right way up without negating the data. The degenerate pair is
+`Min == Max`: a zero span has no scale to project onto and every shape lands
+on one edge. Shapes outside the bounds clip; they do not wrap.
 
 ## Charts
 
