@@ -1,7 +1,6 @@
 package gala_tui
 
 import (
-    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
 )
@@ -677,77 +676,64 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
 // this library renders it one cell wide (see `runewidth.gala`), matching
 // xterm, iTerm2 and Alacritty, but a terminal configured ambiguous-wide
 // draws it in two. One column of error in a toast is nothing; twenty-four
-// on a password smears the frame. That is what `MaskValueWith` is for: `*`
-// is unambiguously narrow everywhere.
+// on a password smears the frame. Pass `*` — unambiguously narrow — as the
+// `mask` argument where that matters.
 func MaskRune() rune = '•'
 
-// MaskValue replaces every code point of `v` with `MaskRune`.
-func MaskValue(v string) string = MaskValueWith(v, MaskRune())
-
-// ResolvedMaskRune reads the zero rune as "the default".
+// MaskValue replaces every code point of `v` with `mask`.
 //
-// Not defensive padding: a GALA struct literal may omit any field, and an
-// omitted field is the zero value — a declared default does not fill it.
-// So a mask glyph threaded out of a caller's own config or theme struct
+// The zero rune means `MaskRune()`, and the resolution lives here rather
+// than in a helper each caller remembers to apply, because a GALA struct
+// literal may omit any field and an omitted field is the zero value. A mask
+// glyph threaded out of a caller's own config or theme struct therefore
 // arrives as NUL whenever that struct was built without it, and NUL has
-// cell width 0. Masking with it draws a field that looks empty while
-// holding a secret, which is worse than any glyph.
-func ResolvedMaskRune(mask rune) rune = if (mask == rune(0)) MaskRune() else mask
-
-// MaskValueWith replaces every code point of `v` with `mask`.
+// cell width 0 — masking with it draws a field that looks empty while
+// holding a secret. Every masking path in the library goes through this
+// function, so that outcome is unreachable rather than merely documented.
 //
-// Per code point, not per cell — a masked CJK password comes out narrower
-// than the text it hides, and that is deliberate: a mask that matched the
-// display width would publish which characters were wide. It is also not
-// per *grapheme*: a decomposed é is two code points and draws two bullets,
-// as does each half of a flag emoji. Within a field that is self-consistent
-// — one keystroke is one bullet is one backspace — but a pasted secret can
-// show more bullets than the user thinks they pasted.
+// Per code point, not per cell and not per grapheme. A mask that matched
+// the display width would publish which characters were wide; a decomposed
+// é draws two bullets, as does each half of a flag emoji. Within a field
+// that stays self-consistent — one keystroke is one code point is one
+// backspace — but a pasted secret can show more bullets than the user
+// expects.
 //
 // The count itself is published, visually and to the layout. Every password
 // field does this, and per-keystroke feedback is what makes backspace
-// usable. A caller who wants a constant-width mask has this function:
-// `Input(MaskValue("········"), …)`.
-func MaskValueWith(v string, mask rune) string =
-    strings.Repeat(string(mask), RuneCount(v))
+// usable. For a constant-width mask: `Input(MaskValue("········"), …)`.
+func MaskValue(v string, mask rune = MaskRune()) string =
+    repeatRune(if (mask == rune(0)) MaskRune() else mask, RuneCount(v))
 
 // InputMasked is `Input` for a secret — a password, a token, an API key.
 //
 // The masking happens here, before the value reaches the widget tree,
-// rather than in the renderer. That is the whole design: a `Widget` is a
-// value this library encourages callers to snapshot, diff and log, and a
-// tree that carried the real password would put it in every one of those.
-// What the caller hands over is what could leak, so nothing downstream ever
-// holds it. The cost of that choice is that a reveal toggle cannot be a
-// free addition later — showing the secret means putting it back in the
-// tree, which is the thing being prevented.
+// rather than in the renderer. The security half of that is narrower than
+// it sounds and worth stating precisely: every sink in this library —
+// `Render`, `Snapshot`, `SnapshotStyled`, the harness — goes through a
+// `Buffer`, so renderer-time masking would keep the plaintext out of those
+// too, and the caller's own model holds it either way. What build-time
+// masking additionally protects is a dump of the view itself.
+//
+// The reason it belongs here is cost. A `Mask` field on the `InputW` case
+// would have to be threaded through every positional destructure of it —
+// five sites across widget.gala and fluent.gala — to encode a decision one
+// widget makes at one call site. This composes instead, and reuses `Input`
+// verbatim.
+//
+// For a different glyph, compose: `Input(MaskValue(v, '*'), cursor, ph,
+// focused)`. That is also how a reveal toggle is written — `if (reveal)
+// Input(v, …) else InputMasked(v, …)` — free here, and one more field on
+// `FormField`.
 //
 // `placeholder` is drawn verbatim, because an empty field holds no secret.
 // Make it a hint ("at least 12 characters") rather than anything that could
 // be mistaken for the value.
-//
-// The caret sits at `cursor` code points in, clamped to the value's length,
-// so a caller threading a cursor from its own editor cannot push it past
-// the end of what is drawn.
 func InputMasked(
     value string,
     cursor int,
     placeholder string,
     focused bool = false,
-) Widget = InputMaskedWith(value, cursor, placeholder, MaskRune(), focused)
-
-// InputMaskedWith is `InputMasked` with the mask glyph spelled out — see
-// `MaskRune` for when the default is the wrong one.
-func InputMaskedWith(
-    value string,
-    cursor int,
-    placeholder string,
-    mask rune,
-    focused bool = false,
-) Widget {
-    val masked = MaskValueWith(value, ResolvedMaskRune(mask))
-    return Input(masked, clampInt(cursor, 0, RuneCount(masked)), placeholder, focused)
-}
+) Widget = Input(MaskValue(value), cursor, placeholder, focused)
 
 // Progress renders a horizontal progress bar `[████░░░░]` — bar only.
 //

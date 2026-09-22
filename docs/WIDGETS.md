@@ -201,8 +201,7 @@ RenderTo(DataTableView(dt2), area, buf)
 | Widget | Signature | Notes |
 |---|---|---|
 | `Input(value, cursor, placeholder)` | `(string, int, string) Widget` | Single-line text field; cursor is the **rune index** of the caret, clamped to the value's length. |
-| `InputMasked(value, cursor, placeholder)` | `(string, int, string) Widget` | The same field for a secret — one `•` per code point. |
-| `InputMaskedWith(value, cursor, placeholder, mask)` | `(string, int, string, rune) Widget` | …with the mask glyph spelled out. |
+| `InputMasked(value, cursor, placeholder)` | `(string, int, string) Widget` | The same field for a secret — one `•` per code point. For another glyph, compose: `Input(MaskValue(v, '*'), cursor, ph)`. |
 | `Button(label, focused)` | `(string, bool) Widget` | Reverse style when focused. |
 | `FormView(f)` | `(FormState) Widget` | Multi-field form. State in `FormState`. |
 | `Spinner(kind, frame)` | `(SpinnerKind, int) Widget` | Pick: `BrailleSpinner()`, `DotsSpinner()`, `PipeSpinner()`, `ArrowSpinner()`. Increment `frame` each tick. |
@@ -247,6 +246,9 @@ Two things a masked field does **not** hide, and one it publishes:
   feedback is what makes backspace usable. For a constant-width mask, build the
   widget yourself: `Input(MaskValue("········"), …)`.
 
+A reveal toggle is the same composition: `if (reveal) Input(v, …) else
+InputMasked(v, …)`.
+
 Per *code point*, not per cell and not per grapheme: matching a wide
 character's display width would publish which characters were wide, while a
 decomposed `é` draws two bullets. Within a field that stays self-consistent —
@@ -254,7 +256,7 @@ one keystroke is one bullet is one backspace — but a pasted secret can show
 more bullets than the user expects.
 
 `MaskChar` picks the glyph (`.Copy(Masked = true, MaskChar = '*')`), and
-`InputMaskedWith` is the standalone equivalent. The default `•` is East Asian
+`MaskValue(v, '*')` is the standalone equivalent. The default `•` is East Asian
 *Ambiguous*: this library draws it one cell wide, matching xterm, iTerm2 and
 Alacritty, but a terminal configured ambiguous-wide gives it two — one column
 of error per character, which a long password turns into a smeared frame. `*`

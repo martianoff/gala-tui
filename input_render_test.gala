@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/test"
 )
 
@@ -220,4 +221,61 @@ func TestWideGlyphsAreNotSplitAtTheCaret(t T) T {
     val t2 = Eq(t1, buf.CharAt(1, 0), ' ')
     val t3 = Eq(t2, buf.CharAt(2, 0), rune(0x672C))
     return Eq(t3, buf.CharAt(3, 0), ' ')
+}
+
+// ============================================================================
+// InputMasked — the value never reaches the widget
+// ============================================================================
+
+func TestInputMaskedDrawsBulletsNotTheSecret(t T) T {
+    val row = RowText(inputBuf(InputMasked("hunter2", 7, "", true), 12), 0)
+    val t1 = EqMsg(t, strings.Contains(row, "hunter2"), false,
+                   "the secret was rendered in clear text")
+    return EqMsg(t1, strings.HasPrefix(row, "•••••••"), true,
+                 "one bullet per code point was not drawn")
+}
+
+func TestMaskValueKeepsNoneOfTheOriginal(t T) T {
+    // The property that matters: whatever a caller passes, what comes back
+    // is mask glyphs and a length.
+    val masked = MaskValue("s3cr3t!")
+    val t1 = Eq(t, masked, "•••••••")
+    return Eq(t1, RuneCount(masked), RuneCount("s3cr3t!"))
+}
+
+func TestMaskValueCountsCodePointsNotCellsOrGraphemes(t T) T {
+    // A wide character masks to ONE bullet: matching its display width would
+    // publish which characters were wide.
+    val t1 = Eq(t, MaskValue("同期中"), "•••")
+    // A decomposed é is two code points and draws two, where the
+    // precomposed one draws one. Self-consistent within a field, since one
+    // keystroke is one code point is one backspace — but a pasted secret can
+    // show more bullets than the user expects.
+    val decomposed = "e" + string(rune(0x0301))
+    val t2 = Eq(t1, MaskValue(decomposed), "••")
+    val t3 = Eq(t2, MaskValue(string(rune(0x00E9))), "•")
+    return Eq(t3, MaskValue(""), "")
+}
+
+func TestMaskValueTakesTheCallersGlyph(t T) T {
+    // U+2022 is East Asian Ambiguous; `*` is unambiguously narrow.
+    val t1 = Eq(t, MaskValue("abc", '*'), "***")
+    // The zero rune is what an omitted struct field carries, and NUL has
+    // cell width 0 — a field that looks empty while holding a secret. Every
+    // masking path resolves it here, so that outcome is unreachable.
+    return Eq(t1, MaskValue("abc", rune(0)), "•••")
+}
+
+func TestInputMaskedCaretSitsWhereTheCursorPoints(t T) T {
+    // A caller with arrow keys puts the caret mid-secret; bullets either
+    // side, caret on the bullet it names.
+    return Eq(t, caretColumn(inputBuf(InputMasked("abcdef", 2, "", true), 10), 10), 2)
+}
+
+func TestInputMaskedEmptyStillShowsThePlaceholder(t T) T {
+    // Nothing typed yet is not a secret, and a form that hid its own prompt
+    // would be unusable.
+    val row = RowText(inputBuf(InputMasked("", 0, "password", true), 12), 0)
+    return EqMsg(t, strings.HasPrefix(row, "password"), true,
+                 "an empty masked field hid its placeholder")
 }

@@ -46,7 +46,15 @@ struct FormField(
     // MaskChar is the glyph `Masked` draws. See `MaskRune` for why a CJK
     // locale may want `*` instead of the default bullet.
     //
-    // The zero rune means `MaskRune()` — see `ResolvedMaskRune`. No `=`
+    // Two fields rather than one `Mask Option[rune]`, which is the opposite
+    // of the call made for `clippedSegment` in canvas.gala — and for a
+    // reason that does not apply there. `FormField` literals are written by
+    // callers, and an omitted `Option` field is a nil interface that panics
+    // on the first `IsDefined`. An omitted `rune` is NUL, which `MaskValue`
+    // reads as the default. `Style.Link` gets away with `Option` only
+    // because nothing constructs a `Style` literal by hand.
+    //
+    // The zero rune means `MaskRune()` — see `MaskValue`. No `=`
     // default is declared, because a GALA struct literal may omit any
     // field and an omitted field is the zero value; a default here would
     // read as a promise the language does not keep, and would pin a glyph
@@ -86,6 +94,10 @@ func requiredValidator(v string) Option[string] {
 }
 
 // NewFieldValidated lets callers plug in any predicate-plus-message pair.
+//
+// On a `Masked` field, remember the validator sees the plaintext and its
+// message is drawn verbatim — describe the rule ("at least 12 characters"),
+// never the value.
 func NewFieldValidated(
     name string,
     label string,
@@ -269,7 +281,7 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
     // Masked here rather than in the renderer, for the reason InputMasked
     // gives: the widget tree is a value callers snapshot and log, so the
     // secret must not reach it.
-    val shown = if (fld.Masked) MaskValueWith(fld.Value, ResolvedMaskRune(fld.MaskChar)) else fld.Value
+    val shown = if (fld.Masked) MaskValue(fld.Value, fld.MaskChar) else fld.Value
     return InputW(
         Value            = shown,
         Cursor           = RuneCount(shown),

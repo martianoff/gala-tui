@@ -1,7 +1,6 @@
 package gala_tui
 
 import (
-    "strings"
     . "martianoff/gala/go_interop"
     . "martianoff/gala/test"
 )
@@ -151,88 +150,4 @@ func TestKeyEqualTypesDiffer(t T) T {
 
 func TestKeyEqualFKeyVsChar(t T) T {
     return IsFalse(t, KeyEqual(FKey(1), Char('1')))
-}
-
-// ============================================================================
-// InputMasked — the value never reaches the widget
-// ============================================================================
-
-func TestInputMaskedDrawsBulletsNotTheSecret(t T) T {
-    val buf = NewBuffer(12, 1)
-    RenderTo(InputMasked("hunter2", 7, "", true),
-             Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = EqMsg(t, strings.Contains(row, "hunter2"), false,
-                   "the secret was rendered in clear text")
-    return EqMsg(t1, strings.HasPrefix(row, "•••••••"), true,
-                 "one bullet per character was not drawn")
-}
-
-func TestMaskValueKeepsNoneOfTheOriginal(t T) T {
-    // The property that matters: whatever a caller passes, what comes back
-    // is bullets and a length. A widget tree built from this cannot leak
-    // the value into a snapshot, a log line or a rendered buffer.
-    val masked = MaskValue("s3cr3t!")
-    val t1 = Eq(t, masked, "•••••••")
-    return Eq(t1, RuneCount(masked), RuneCount("s3cr3t!"))
-}
-
-func TestMaskValueCountsCharactersNotCells(t T) T {
-    // A wide character masks to ONE bullet. Matching its display width
-    // would publish which characters were wide — the mask would leak the
-    // shape of the secret even though it hid the characters.
-    val t1 = Eq(t, MaskValue("同期中"), "•••")
-    return Eq(t1, MaskValue(""), "")
-}
-
-func TestInputMaskedClampsACursorPastTheEnd(t T) T {
-    // A caller threading a cursor from its own editor state cannot push the
-    // caret past what is drawn.
-    val buf = NewBuffer(8, 1)
-    RenderTo(InputMasked("ab", 99, "", true),
-             Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "••      ")
-    return IsTrue(t1, buf.StyleAt(2, 0).Reverse)
-}
-
-func TestInputMaskedEmptyStillShowsThePlaceholder(t T) T {
-    // Nothing typed yet is not a secret: an empty masked field is an empty
-    // field, and a form that hid its own prompt would be unusable.
-    val buf = NewBuffer(12, 1)
-    RenderTo(InputMasked("", 0, "password", true),
-             Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
-    return EqMsg(t, strings.HasPrefix(BufferText(buf, 0), "password"), true,
-                 "an empty masked field hid its placeholder")
-}
-
-func TestInputMaskedWithDrawsTheCallersGlyph(t T) T {
-    val buf = NewBuffer(8, 1)
-    RenderTo(InputMaskedWith("abc", 3, "", '*', true),
-             Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "***     ")
-}
-
-func TestInputMaskedCaretSitsWhereTheCursorPoints(t T) T {
-    // A caller with arrow keys puts the caret mid-secret; bullets either
-    // side, caret on the bullet it names.
-    val buf = NewBuffer(10, 1)
-    RenderTo(InputMasked("abcdef", 2, "", true),
-             Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    val t1 = IsTrue(t, buf.StyleAt(2, 0).Reverse)
-    return IsTrue(t1, !buf.StyleAt(3, 0).Reverse)
-}
-
-func TestInputMaskedClampsANegativeCursor(t T) T {
-    val buf = NewBuffer(8, 1)
-    RenderTo(InputMasked("ab", -5, "", true),
-             Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    return IsTrue(t, buf.StyleAt(0, 0).Reverse)
-}
-
-func TestMaskValueCountsCodePointsNotGraphemes(t T) T {
-    // A decomposed é is two code points and draws two bullets. Documented
-    // rather than fixed: within a field it stays self-consistent, because
-    // one keystroke is one code point is one backspace.
-    val t1 = Eq(t, MaskValue("é"), "••")
-    return Eq(t1, MaskValue("é"), "•")
 }

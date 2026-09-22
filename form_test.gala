@@ -129,10 +129,10 @@ func TestFormViewRendersLabelsAndErrors(t T) T {
     val buf = NewBuffer(30, 9)
     RenderTo(FormView(f), Rect(X = 0, Y = 0, Width = 30, Height = 9), buf)
     val joined = joinAllRows(buf)
-    val t1 = IsTrue(t, rowTextContains(joined, "Name"))
-    val t2 = IsTrue(t1, rowTextContains(joined, "Email"))
+    val t1 = IsTrue(t, strings.Contains(joined, "Name"))
+    val t2 = IsTrue(t1, strings.Contains(joined, "Email"))
     // Required error should appear on the first field (empty).
-    return IsTrue(t2, rowTextContains(joined, "required"))
+    return IsTrue(t2, strings.Contains(joined, "required"))
 }
 
 func joinAllRows(buf *Buffer) string {
@@ -145,39 +145,6 @@ func joinAllRows(buf *Buffer) string {
     return s
 }
 
-func rowTextContains(hay string, needle string) bool {
-    val ha = runeArr(hay)
-    val ne = runeArr(needle)
-    val hn = ha.Length()
-    val nn = ne.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if ha.Get(i + j) != ne.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
-}
-
-func runeArr(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
-}
-
 // ============================================================================
 // Masked fields — a password is drawn, never carried
 // ============================================================================
@@ -186,22 +153,6 @@ func maskedForm() FormState = NewForm(ArrayOf[FormField](
     NewFieldRequired("user", "User", "who"),
     NewFieldRequired("pass", "Password", "at least 12 chars").Copy(Masked = true),
 ))
-
-func TestMaskedFieldRendersBulletsNotTheValue(t T) T {
-    var f = maskedForm()
-    f = FormUpdate(f, FENext())
-    f = FormUpdate(f, FEChar(C = 'h'))
-    f = FormUpdate(f, FEChar(C = 'u'))
-    f = FormUpdate(f, FEChar(C = 'n'))
-    f = FormUpdate(f, FEChar(C = 't'))
-    f = FormUpdate(f, FEChar(C = 'e'))
-    f = FormUpdate(f, FEChar(C = 'r'))
-    val out = Render(FormView(f, true))
-    val t1 = EqMsg(t, strings.Contains(out, "hunter"), false,
-                   "the typed password was rendered in clear text")
-    return EqMsg(t1, strings.Contains(out, "••••••"), true,
-                 "the masked field drew no bullets")
-}
 
 func TestMaskedFieldStillYieldsTheRealValue(t T) T {
     // Masking is a drawing decision. Submit has to see what was typed.
@@ -275,38 +226,18 @@ func TestMaskedFieldDrawsTheCallersMaskChar(t T) T {
     return EqMsg(t1, strings.Contains(out, "••"), false, "the default mask was drawn anyway")
 }
 
-func TestMaskedFormFieldMasksInTheBufferNotJustTheString(t T) T {
-    // Render() is a string; the buffer is what a terminal receives. Assert
-    // the cells directly so a renderer change cannot quietly unmask.
+func TestMaskedFieldDrawsBulletsNotTheValue(t T) T {
     var f = maskedForm()
     f = FormUpdate(f, FENext())
-    f = FormUpdate(f, FEChar(C = 'q'))
-    f = FormUpdate(f, FEChar(C = 'w'))
-    val buf = NewBuffer(24, 8)
-    RenderTo(FormView(f, true), Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
-    var found = false
-    var y = 0
-    for y < 8 {
-        if strings.Contains(BufferText(buf, y), "••") { found = true }
-        if strings.Contains(BufferText(buf, y), "qw") {
-            return EqMsg(t, "plaintext in the buffer", "bullets", "row " + string(rune(48 + y)))
-        }
-        y = y + 1
-    }
-    return EqMsg(t, found, true, "no masked row was painted")
-}
-
-func TestMaskingComposesWithEveryFieldConstructor(t T) T {
-    // The reason Masked is a field rather than a constructor: it has to
-    // compose with required and validated fields, which is most of what a
-    // password field is.
-    val plain = NewField("a", "A", "").Copy(Masked = true)
-    val required = NewFieldRequired("b", "B", "").Copy(Masked = true)
-    val validated = NewFieldValidated("c", "C", "", (_) => None[string]())
-        .Copy(Masked = true)
-    val t1 = IsTrue(t, plain.Masked)
-    val t2 = IsTrue(t1, required.Masked)
-    return IsTrue(t2, validated.Masked)
+    f = FormUpdate(f, FEChar(C = 'h'))
+    f = FormUpdate(f, FEChar(C = 'u'))
+    f = FormUpdate(f, FEChar(C = 'n'))
+    f = FormUpdate(f, FEChar(C = 't'))
+    val out = joinAllRows(renderAt(FormView(f, true), 24, 8))
+    val t1 = EqMsg(t, strings.Contains(out, "hunt"), false,
+                   "the typed password was rendered in clear text")
+    return EqMsg(t1, strings.Contains(out, "••••"), true,
+                 "the masked field drew no bullets")
 }
 
 func TestAFieldLiteralWithoutMaskCharStillMasks(t T) T {
