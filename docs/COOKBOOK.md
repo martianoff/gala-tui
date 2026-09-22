@@ -529,10 +529,6 @@ Available fluent click attachers:
 - `widget.OnClick(msg)` — whole rendered area is a single hit
 - `widget.OnPickRow(count, (i) => msg)` — N stacked rows, click row i fires msg(i)
 - `widget.OnPickRowH(count, rowH, (i) => msg)` — same but with custom row height
-- `widget.OnPickCell((col, row) => msg)` — the clicked CELL, local to the
-  widget. This is the one a text widget needs: a row index cannot say which
-  character was clicked, and the answer only exists once the click lands.
-
 For text specifically, a cell column is not a character: a CJK glyph is two
 columns, a combining mark is zero, and a field or cursor row scrolls. Use the
 widgets that do the conversion rather than `OnPickCell` directly —

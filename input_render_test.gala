@@ -286,16 +286,10 @@ func TestInputMaskedEmptyStillShowsThePlaceholder(t T) T {
 
 // clickIndex renders a clickable input `width` wide and returns the rune
 // index a click at column `col` reports, or -1 if nothing registered.
-func clickIndex(value string, cursor int, width int, col int) int {
-    val buf = NewBuffer(width, 1)
-    val hits = NewHitRegistry()
-    val w = InputClick[int](value, cursor, "", (i) => i, true)
-    RenderToWithHits(w, Rect(X = 0, Y = 0, Width = width, Height = 1), buf, hits)
-    return hits.HitAt(col, 0).Map((p) => p match {
-        case i: int => i
-        case _      => -1
-    }).GetOrElse(-1)
-}
+func clickIndex(value string, cursor int, width int, col int) int =
+    clickCellAt(InputClick[int](value, cursor, "", (i) => i, true), width, 1, col, 0)
+        .Map((p) => castInt(p))
+        .GetOrElse(-1)
 
 func TestInputClickReportsTheRuneUnderThePointer(t T) T {
     val t1 = Eq(t, clickIndex("hello", 5, 12, 0), 0)
@@ -330,4 +324,15 @@ func TestInputClickAccountsForHorizontalScroll(t T) T {
     // which is what a mapping that ignored the scroll would say.
     val t1 = Eq(t, clickIndex("abcdefghij", 10, 6, 0), 5)
     return Eq(t1, clickIndex("abcdefghij", 10, 6, 2), 7)
+}
+
+func TestClickableInputClaimsOnlyItsOwnRow(t T) T {
+    // A single-line field in a taller slot must let clicks through to
+    // whatever the layout put beneath it, rather than swallowing them.
+    val buf = NewBuffer(8, 3)
+    val hits = NewHitRegistry()
+    RenderToWithHits(InputClick[int]("ab", 2, "", (i) => i, true),
+                     Rect(X = 0, Y = 0, Width = 8, Height = 3), buf, hits)
+    val t1 = IsTrue(t, hits.HitAt(1, 0).IsDefined())
+    return IsTrue(t1, !hits.HitAt(1, 2).IsDefined())
 }

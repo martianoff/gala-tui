@@ -250,25 +250,18 @@ func typeInto(ta TextArea, text string) TextArea {
     return acc
 }
 
-func TestTextAreaClickDeliversTheClickedColumn(t T) T {
+func TestTextAreaClickDeliversTheClickedCell(t T) T {
     // The defect this closes: the wrapper used OnPickRow, which carries a
     // row index and nothing else, so every click reported column 0 and the
     // caret jumped to the start of the line.
-    val ta = typedLines("hello world", "second")
-    val w = TextAreaViewClick[TaClick](ta, true, "",
+    val w = TextAreaViewClick[TaClick](typedLines("hello world", "second"), true, "",
         (row, col) => TaClick(Row = row, Col = col))
-    val click = clickedCell(clickCellAt(w, 20, 2, 6, 0))
-    val t1 = Eq(t, click.Row, 0)
-    return Eq(t1, click.Col, 6)
-}
-
-func TestTextAreaClickCarriesTheRowToo(t T) T {
-    val ta = typedLines("hello world", "second")
-    val w = TextAreaViewClick[TaClick](ta, true, "",
-        (row, col) => TaClick(Row = row, Col = col))
-    val click = clickedCell(clickCellAt(w, 20, 2, 3, 1))
-    val t1 = Eq(t, click.Row, 1)
-    return Eq(t1, click.Col, 3)
+    val first = clickedCell(clickCellAt(w, 20, 2, 6, 0))
+    val t1 = Eq(t, first.Row, 0)
+    val t2 = Eq(t1, first.Col, 6)
+    val second = clickedCell(clickCellAt(w, 20, 2, 3, 1))
+    val t3 = Eq(t2, second.Row, 1)
+    return Eq(t3, second.Col, 3)
 }
 
 func TestClickPastAShortLineEndsAtItsEnd(t T) T {
@@ -285,6 +278,10 @@ func TestTextAreaClickMapsCellsToRunesOnWideGlyphs(t T) T {
     // cell column is only correct while every glyph is one cell wide. On a
     // CJK line it put the caret two characters along for every one clicked,
     // and the last glyph could not be reached at all.
+    //
+    // Deliberately an integration test: the mapping itself is pinned
+    // against Input in input_render_test.gala. What this adds is that the
+    // editor reaches it at all — the defect was that it did not.
     val ta = typedLines("同期中", "x")
     val w = TextAreaViewClick[TaClick](ta, true, "",
         (row, col) => TaClick(Row = row, Col = col))
@@ -335,13 +332,3 @@ func TestClickableTextAreaStillRestyles(t T) T {
     return IsTrue(t, ColorEq(a.StyleAt(0, 0).Fg, b.StyleAt(0, 0).Fg))
 }
 
-func TestClickableInputClaimsOnlyItsOwnRow(t T) T {
-    // A single-line field in a taller slot must let clicks through to
-    // whatever the layout put beneath it, rather than swallowing them.
-    val buf = NewBuffer(8, 3)
-    val hits = NewHitRegistry()
-    RenderToWithHits(InputClick[int]("ab", 2, "", (i) => i, true),
-                     Rect(X = 0, Y = 0, Width = 8, Height = 3), buf, hits)
-    val t1 = IsTrue(t, hits.HitAt(1, 0).IsDefined())
-    return IsTrue(t1, !hits.HitAt(1, 2).IsDefined())
-}

@@ -183,10 +183,12 @@ sealed type Widget {
     // horizontally by an amount that depends on its width, and the width
     // is not known until layout runs.
     //
-    // `Rows` bounds the hit to the widget's top `Rows` rows; 0 means the
-    // whole area. A single-line field claims one row, so clicks in a
-    // taller slot fall through to whatever is laid out beneath it.
-    case ClickableCellW(Inner Widget, Rows int, Payload func(Rect, int, int) any)
+    // `HitRows` caps the hit at the widget's top `HitRows` rows; 0 means
+    // the whole area. Not `ClickableRowsW`'s `Count`, which slices an
+    // area into N separate hits — this bounds one. A single-line field
+    // claims one row, so clicks in a taller slot fall through to whatever
+    // the layout put beneath it.
+    case ClickableCellW(Inner Widget, HitRows int, Payload func(Rect, int, int) any)
     // CustomW is the escape hatch for user-authored widgets that need
     // pixel-level control. The framework hands the closure the rendered
     // area, the target Buffer, and the live HitRegistry — the user can
@@ -1334,9 +1336,9 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
-        case ClickableCellW(inner, rows, payload) => {
+        case ClickableCellW(inner, hitRows, payload) => {
             if hits != nil {
-                val h = if (rows <= 0) area.Height else MinInt(rows, area.Height)
+                val h = if (hitRows <= 0) area.Height else MinInt(hitRows, area.Height)
                 val hitArea = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = h)
                 hits.RegisterAt(hitArea, (col, row) => payload(area, col, row))
             }
@@ -1767,6 +1769,12 @@ func inputIndexAtColumn(rs []rune, start int, col int) int {
     return n
 }
 
+// inputRuneIndexAt maps a clicked column to a rune index for a field of
+// `width` cells holding `rs` with its caret at `cursor` — the window the
+// renderer would scroll to, then the cell walk.
+func inputRuneIndexAt(rs []rune, cursor int, width int, col int) int =
+    inputIndexAtColumn(rs, inputWindowStart(rs, clampInt(cursor, 0, rs.Size()), width), col)
+
 // InputClick is `Input` that reports where it was clicked, as a rune index
 // into `value` — feed it back as the field's new cursor to put the caret
 // under the pointer.
@@ -1776,9 +1784,9 @@ func inputIndexAtColumn(rs []rune, start int, col int) int {
 //
 // The mapping resolves at render time rather than at dispatch, and it has
 // to: the field's horizontal scroll depends on the width the layout gave
-// it, which nothing knows when the widget is built. `CustomW` is the seam
-// for that — it is handed the area AND the hit registry, so the closure it
-// registers already has the scroll folded in.
+// it, which nothing knows when the widget is built. That is why a cell
+// hit's payload takes the rendered `Rect` — the scroll is folded in where
+// the width is finally known.
 //
 // Known limitation, in a scrolled field: the reported index is right, but
 // the view moves under the pointer. `inputWindowStart` derives the window
@@ -1798,7 +1806,7 @@ func InputClick[T any](
     Inner = Input(value, cursor, placeholder, focused),
     // One row: the field paints its top row only, and claiming the rest
     // would swallow clicks meant for whatever the layout put below it.
-    Rows = 1,
+    HitRows = 1,
     Payload = (area Rect, col int, _ int) =>
         inputClickPayload(value, cursor, onIndex, area, col),
 )
@@ -1811,11 +1819,7 @@ func inputClickPayload[T any](
     onIndex func(int) T,
     area Rect,
     col int,
-) any {
-    val rs = ToRunes(value)
-    val start = inputWindowStart(rs, clampInt(cursor, 0, rs.Size()), area.Width)
-    return any(onIndex(inputIndexAtColumn(rs, start, col)))
-}
+) any = any(onIndex(inputRuneIndexAt(ToRunes(value), cursor, area.Width, col)))
 
 // drawInputCaret inverts one cell in place, keeping whatever glyph is there
 // so the caret reads as sitting on the character rather than replacing it.

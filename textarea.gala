@@ -362,7 +362,7 @@ func TextAreaViewClick[T any](
     // The whole slot: a click below the last line is a click in the
     // editor, and lands on the last line — which is what an editor does
     // with the empty space under its text.
-    Rows = 0,
+    HitRows = 0,
     Payload = (area Rect, col int, row int) =>
         taClickPayload(t, focused, onClick, area, col, row),
 )
@@ -399,13 +399,12 @@ func taClickPayload[T any](
 // takes a window offset. (That rows scroll inconsistently is a pre-existing
 // oddity of the widget, not something this mapping introduces — it just has
 // to agree with it.)
+// `row` is already clamped by the only caller, `taClickPayload`.
 func taIndexAtColumn(t TextArea, row int, col int, width int, focused bool) int {
-    val r = clampInt(row, 0, MaxInt(0, t.Lines.Length() - 1))
-    val rs = ToRunes(t.Lines.Get(r))
-    val start = if (focused && r == t.Row)
-                    inputWindowStart(rs, clampInt(t.Col, 0, rs.Size()), width)
-                else 0
-    return inputIndexAtColumn(rs, start, col)
+    val rs = ToRunes(t.Lines.Get(row))
+    // Only the cursor row scrolls, so only it needs the window.
+    return if (focused && row == t.Row) inputRuneIndexAt(rs, t.Col, width, col)
+           else inputIndexAtColumn(rs, 0, col)
 }
 
 func taIsEmpty(t TextArea) bool =
