@@ -255,6 +255,16 @@ func (b *Buffer) ContentsEqual(other *Buffer) bool {
 // If `prev` is nil or has different dimensions from this buffer, falls back
 // to a full paint: cursor-home + the complete String() output. That gives
 // the first frame and any post-resize frame a clean slate.
+// cellAdvance is how far the terminal's cursor moves after printing `ch`,
+// and therefore how many cells of the buffer that one write covers.
+//
+// It is 2 for a wide glyph, whose trailing half-cell `DrawText` reserves is
+// a bookkeeping slot rather than something to print: the terminal has
+// already moved past it. A zero-width rune never reaches a cell — DrawText
+// drops combining marks — so the floor of 1 only guards a hand-built
+// buffer.
+func cellAdvance(ch rune) int = MaxInt(1, RuneCellWidth(ch))
+
 func (b *Buffer) DiffString(prev *Buffer) string {
     if prev == nil || prev.Width != b.Width || prev.Height != b.Height {
         return "\x1b[H" + b.String()
@@ -280,7 +290,7 @@ func (b *Buffer) DiffString(prev *Buffer) string {
                 sb.WriteString(runStyle.ToSgr())
                 openLink = writeLinkTransition(&sb, openLink, LinkUrl(runStyle))
                 sb.WriteRune(newC.Ch)
-                x = x + 1
+                x = x + cellAdvance(newC.Ch)
                 for x < b.Width {
                     val i2 = y*b.Width + x
                     val n2 = b.cells[i2]
@@ -295,7 +305,7 @@ func (b *Buffer) DiffString(prev *Buffer) string {
                         runStyle = n2.St
                     }
                     sb.WriteRune(n2.Ch)
-                    x = x + 1
+                    x = x + cellAdvance(n2.Ch)
                 }
                 // Close before leaving the run: the cells after it were not
                 // repainted, so an open link would swallow them.
@@ -341,7 +351,11 @@ func (b *Buffer) String() string {
                 styleActive = true
             }
             sb.WriteRune(c.Ch)
-            x = x + 1
+            // A wide glyph already moved the terminal's cursor two columns,
+            // so the sentinel `DrawText` parked beside it must not be
+            // written — doing so pushes the rest of the row one column
+            // right, and a row gains one column of drift per wide glyph.
+            x = x + cellAdvance(c.Ch)
         }
         // A hyperlink never spans rows: leaving one open would make the rest
         // of the screen clickable.
