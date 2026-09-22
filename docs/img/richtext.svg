@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="102.00" viewBox="0 0 537.60 102.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<text x="0.00" y="13.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">RichText</text>
+<text x="75.60" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">—</text>
+<text x="92.40" y="13.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">per-span</text>
+<text x="168.00" y="13.00" fill="#cccccc" textLength="58.80" lengthAdjust="spacingAndGlyphs" opacity="0.65">styling</text>
+<text x="235.20" y="13.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">inside</text>
+<text x="294.00" y="13.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">one</text>
+<text x="327.60" y="13.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">line:</text>
+<text x="0.00" y="47.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs">build</text>
+<text x="50.40" y="47.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">#4211</text>
+<text x="100.80" y="47.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs">finished</text>
+<text x="176.40" y="47.00" fill="#4ebf22" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">green</text>
+<text x="0.00" y="64.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">one</text>
+<text x="33.60" y="64.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">line,</text>
+<text x="84.00" y="64.00" fill="#b954e1" textLength="33.60" lengthAdjust="spacingAndGlyphs">many</text>
+<text x="126.00" y="64.00" fill="#b954e1" textLength="50.40" lengthAdjust="spacingAndGlyphs">styles</text>
+</svg>

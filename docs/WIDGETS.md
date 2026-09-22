@@ -4,6 +4,26 @@ Every widget gala-tui exposes, grouped by purpose. Each entry has the
 constructor signature and a one-line example. For deeper docs on any
 widget, read the source — every public function has a docstring.
 
+Each section opens with a picture of the widgets in it. Those are not
+screenshots: a screenshot is a photograph, and a photograph goes stale the
+moment a widget changes and nobody notices. They are rendered *by the library*
+— the example is drawn into a `Buffer`, the same Buffer a terminal gets, and
+those cells are serialised to SVG. So an image that stops matching its widget
+shows up as a diff in the repository rather than as something a reader spots
+before the maintainer does.
+
+Regenerate them after changing a widget:
+
+```bash
+gala build ./tools/widgetshots
+./gala-tui | python3 tools/widgetshots/split.py    # writes docs/img/*.svg
+gala build ./demo                                  # the generator took the name back
+```
+
+The examples themselves live in `tools/widgetshots/catalogue.gala`, one per
+section below. Adding a widget means adding it there too — that is the whole
+review: if it is not in the catalogue, it has no picture.
+
 ## A note on focus
 
 Every interactive widget ships with a `focused bool = false` last
@@ -30,6 +50,8 @@ val tree  = ui.Tree("pipelines", m.Pipelines, m.Cursor)
 
 ## Primitives
 
+![Primitives widgets](img/primitives.svg)
+
 | Widget | Signature | Notes |
 |---|---|---|
 | `Empty()` | → `Widget` | Renders nothing. Useful as a placeholder. |
@@ -45,6 +67,8 @@ TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan(
 ```
 
 ## Layout
+
+![Layout widgets](img/layout.svg)
 
 | Widget | Signature | Notes |
 |---|---|---|
@@ -64,6 +88,8 @@ TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan(
 | `AutoScroll(rows, selected)` | `(Array[Widget], int) Widget` | Stack composed row widgets and scroll so `selected` stays visible. What `SelectList` does, for rows that are more than a label. |
 
 ### Rich text
+
+![Rich text widgets](img/richtext.svg)
 
 `TextWidget` carries one style for its whole string. `Span` / `Line` /
 `RichText` is the three-level model for styling runs within a line.
@@ -99,6 +125,8 @@ Column(ArrayOf[LayoutChild](
 `Pct(n, w)`.
 
 ## Canvas
+
+![Canvas widgets](img/canvas.svg)
 
 Shapes in your own coordinate space, at sub-cell resolution. Braille packs
 2×4 dots per cell, so a 40×10 pane addresses 80×40 points.
@@ -160,6 +188,8 @@ on one edge. Shapes outside the bounds clip; they do not wrap.
 
 ## Charts
 
+![Charts widgets](img/charts.svg)
+
 | Widget | Signature | Notes |
 |---|---|---|
 | `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. A value at the series minimum floors to the smallest visible block; an *empty* series still renders blank. |
@@ -206,6 +236,8 @@ marker, because an absent rule cannot be mistaken for a short rule.
 
 ## Lists & tables
 
+![Lists & tables widgets](img/lists.svg)
+
 | Widget | Signature | Notes |
 |---|---|---|
 | `SelectList(items, selected)` | `(Array[ListItem], int) Widget` | Vertical list. Each item carries label + optional hint via `NewListItem(label)`. |
@@ -229,6 +261,8 @@ RenderTo(DataTableView(dt2), area, buf)
 ```
 
 ## Forms & input
+
+![Forms & input widgets](img/forms.svg)
 
 | Widget | Signature | Notes |
 |---|---|---|
@@ -296,6 +330,8 @@ is unambiguously narrow.
 
 ## Modals & overlays
 
+![Modals & overlays widgets](img/modals.svg)
+
 | Widget | Signature | Notes |
 |---|---|---|
 | `Modal(w, h, body)` | `(int, int, Widget) Widget` | Centered panel with dimmed backdrop. |
@@ -312,6 +348,8 @@ Stack(ArrayOf[Widget](
 ```
 
 ## Status & notifications
+
+![Status & notifications widgets](img/status.svg)
 
 | Widget | Signature | Notes |
 |---|---|---|
@@ -332,6 +370,8 @@ RenderTo(ToastView(toasts1), area, buf)
 
 ## Navigation
 
+![Navigation widgets](img/navigation.svg)
+
 | Widget | Signature | Notes |
 |---|---|---|
 | `MenuView(m)` | `(Menu) Widget` | Vertical or horizontal menu — set `Menu.Orientation`. |
@@ -343,6 +383,8 @@ RenderTo(ToastView(toasts1), area, buf)
 | `ScrollableViewport(inner, offset, contentHeight)` | `(Widget, int, int) Widget` | Vertically scroll a tall widget; clip to the area. |
 
 ## Markdown & code
+
+![Markdown & code widgets](img/markdown.svg)
 
 | Widget | Signature | Notes |
 |---|---|---|
@@ -357,6 +399,8 @@ MarkdownView("# Quick start\n\nRun `gala build .` then **enjoy**.")
 ```
 
 ## Compact chrome widgets
+
+![Compact chrome widgets widgets](img/chrome.svg)
 
 Small composable building blocks for headers / footers / status rows.
 Each is a thin wrapper over `Text`/`Row` primitives, pulled out so apps
@@ -383,6 +427,8 @@ val beta = Tag("Beta", BrightYellow())
 
 ## Status indicators
 
+![Status indicators widgets](img/indicators.svg)
+
 Transient app state widgets — pair with a `TickSub` so the animation
 phases advance.
 
@@ -408,6 +454,8 @@ val view = Column(ArrayOf[LayoutChild](
 
 ## Search + diff
 
+![Search + diff widgets](img/diff.svg)
+
 | Widget | Signature | Notes |
 |---|---|---|
 | `SearchInput(query, matched, total)` | `(string, int, int) Widget` | `/  query… (12/45)` — icon + input + result-count badge. Empty query collapses the badge. |
@@ -432,6 +480,8 @@ val view = Column(ArrayOf[LayoutChild](
 
 ## Themed helpers
 
+![Themed helpers widgets](img/themes.svg)
+
 These pick fg/bg/border from a `Theme` so you don't have to wire each
 widget by hand.
 
@@ -450,6 +500,8 @@ Built-in themes: `DefaultTheme()`, `DarkTheme()`, `LightTheme()`,
 `HighContrastTheme()`. Roll your own with the `Theme` struct directly.
 
 ## Hit-testing & domain helpers
+
+![Hit-testing & domain helpers widgets](img/domain.svg)
 
 | Widget | Signature | Notes |
 |---|---|---|

@@ -1,0 +1,269 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// The examples, one per section of docs/WIDGETS.md.
+//
+// Each is a small composition rather than a lone widget, because a widget on
+// its own tells a reader nothing about the thing they actually want to know —
+// how much room it takes and what it looks like beside its neighbours. The
+// names match the anchors the docs link to.
+// ============================================================================
+
+func shots() Array[Shot] = ArrayOf[Shot](
+    Shot(Name = "primitives",   Cols = 64, Rows = 7,  W = shotPrimitives()),
+    Shot(Name = "layout",       Cols = 64, Rows = 9,  W = shotLayout()),
+    Shot(Name = "richtext",     Cols = 64, Rows = 6,  W = shotRichText()),
+    Shot(Name = "canvas",       Cols = 64, Rows = 9,  W = shotCanvas()),
+    Shot(Name = "charts",       Cols = 64, Rows = 14, W = shotCharts()),
+    Shot(Name = "lists",        Cols = 64, Rows = 11, W = shotLists()),
+    Shot(Name = "forms",        Cols = 64, Rows = 9,  W = shotForms()),
+    Shot(Name = "modals",       Cols = 64, Rows = 9,  W = shotModals()),
+    Shot(Name = "status",       Cols = 64, Rows = 9,  W = shotStatus()),
+    Shot(Name = "navigation",   Cols = 64, Rows = 10, W = shotNavigation()),
+    Shot(Name = "markdown",     Cols = 64, Rows = 11, W = shotMarkdown()),
+    Shot(Name = "chrome",       Cols = 64, Rows = 6,  W = shotChrome()),
+    Shot(Name = "indicators",   Cols = 64, Rows = 8,  W = shotIndicators()),
+    Shot(Name = "diff",         Cols = 64, Rows = 10, W = shotDiff()),
+    Shot(Name = "themes",       Cols = 64, Rows = 8,  W = shotThemes()),
+    Shot(Name = "domain",       Cols = 64, Rows = 11, W = shotDomain()),
+)
+
+func demoSeries() Array[int] = ArrayOf[int](
+    3, 7, 12, 9, 18, 24, 21, 30, 38, 33, 27, 36, 45, 41, 52,
+    48, 58, 54, 44, 39, 33, 38, 47, 56, 61, 54, 48, 42, 36, 30)
+
+// ----------------------------------------------------------------------------
+
+func shotPrimitives() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, Text("Text — plain, unstyled")),
+        Fixed(1, TextStyled("TextStyled — bold", DefaultStyle().WithBold())),
+        Fixed(1, TextStyled("TextStyled — dim", DefaultStyle().WithDim())),
+        Fixed(1, TextStyled("TextStyled — colour", DefaultStyle().WithFg(BrightCyan()))),
+        Fixed(1, TextStyled(" TextStyled — reverse ", DefaultStyle().WithReverse())),
+        Fixed(1, ParagraphStyled(
+            "Paragraph wraps on word boundaries when the line runs past the width it was given.",
+            DefaultStyle().WithDim())),
+    ))
+
+func shotLayout() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(4, Row(ArrayOf[LayoutChild](
+            Fixed(18, Titled(Text(" Fixed(18) "), " rounded ").BorderedOf(RoundedBorder())),
+            Flex(1, Titled(Text(" Flex(1) "), " thick ").BorderedOf(ThickBorder())),
+        ))),
+        Fixed(4, Row(ArrayOf[LayoutChild](
+            Flex(1, Titled(Text(" Flex(1) "), " single ").BorderedOf(SingleBorder())),
+            Flex(2, Titled(Text(" Flex(2) — twice the share "), " double ")
+                .BorderedOf(DoubleBorder())),
+        ))),
+    ))
+
+func shotRichText() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled("RichText — per-span styling inside one line:",
+            DefaultStyle().WithDim())),
+        Fixed(1, Text("")),
+        Fixed(3, RichTextView(RichTextOf(ArrayOf[Line](
+            LineOfSpans(
+                SpanOf("build "),
+                SpanStyled("#4211", DefaultStyle().WithBold()),
+                SpanOf(" finished "),
+                SpanStyled("green", DefaultStyle().WithFg(BrightGreen()).WithBold())),
+            LineOfSpans(
+                SpanStyled("one line, ", DefaultStyle().WithDim()),
+                SpanStyled("many styles", DefaultStyle().WithFg(BrightMagenta()))),
+        )))),
+    ))
+
+func shotCanvas() Widget {
+    val n = demoSeries().Length()
+    val xs = ArrayTabulate(n, (i) => float64(i))
+    val ys = demoSeries().Map((v) => float64(v))
+    return Titled(CanvasOf(
+        XBounds(0.0, float64(n - 1)),
+        YBounds(0.0, 64.0),
+        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan()))),
+        " CanvasOf + FilledSeriesOf — braille, 2x4 per cell ")
+}
+
+func shotCharts() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(7, Titled(LineChart(demoSeries()), " LineChart ")),
+        Fixed(1, LineGauge(64)),
+        Fixed(1, LineGaugeLabeled(" deploy ", 64)),
+        Fixed(1, Gauge(64)),
+        Fixed(1, Sparkline(demoSeries())),
+        Fixed(3, BarChart(ArrayOf[BarChartDatum](
+            BarChartDatum(Label = "backend",  Value = 42),
+            BarChartDatum(Label = "frontend", Value = 28),
+            BarChartDatum(Label = "infra",    Value = 15),
+        ))),
+    ))
+
+func shotLists() Widget =
+    Row(ArrayOf[LayoutChild](
+        Flex(1, Titled(SelectListOf(ArrayOf[string](
+            "  overview", "  builds", "  pipelines", "  logs"), 1, true), " SelectList ")),
+        Flex(1, Titled(Table(TableData(
+            Headers  = ArrayOf[string]("build", "state"),
+            Widths   = ArrayOf[Constraint](Percent(N = 55), Percent(N = 45)),
+            Rows     = ArrayOf[Array[string]](
+                ArrayOf[string]("#4211", "running"),
+                ArrayOf[string]("#4210", "passed"),
+                ArrayOf[string]("#4209", "passed"),
+            ),
+            Selected = 0)), " Table ")),
+    ))
+
+func shotForms() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" user", DefaultStyle().WithDim())),
+        Fixed(1, Input("admin", 5, "you@example.com", true)),
+        Fixed(1, TextStyled(" password", DefaultStyle().WithDim())),
+        Fixed(1, InputMasked("s3cr3t", 6, "required", false)),
+        Fixed(1, Text("")),
+        Fixed(1, Row(ArrayOf[LayoutChild](
+            Fixed(14, Button(" Sign in ", true)),
+            Fixed(2, Empty()),
+            Fixed(14, Button(" Cancel ", false)),
+            Flex(1, Empty()),
+        ))),
+        Fixed(1, Text("")),
+        Fixed(1, SearchInput("depl", 3, 24)),
+    ))
+
+func shotModals() Widget =
+    Overlay(
+        Column(ArrayOf[LayoutChild](
+            Fixed(1, TextStyled("the screen underneath", DefaultStyle().WithDim())),
+            Flex(1, Empty()),
+        )),
+        Modal(46, 7, ConfirmDialog("Deploy to prod?",
+            "This promotes #4211 to production.", true)))
+
+func shotStatus() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(5, Titled(LogPanelView(shotLogs()), " LogPanelView ")),
+        Fixed(1, Text("")),
+        Fixed(2, ToastStackView(shotToasts())),
+    ))
+
+func shotLogs() LogPanel {
+    var p = NewLogPanel(20)
+    val t0 = FromUnixNanos(int64(0))
+    p = p.AppendAt(LogInfo(),  "connected to scheduler", t0)
+    p = p.AppendAt(LogWarn(),  "test flake in #4210", t0)
+    p = p.AppendAt(LogError(), "#4207 failed: exit code 1", t0)
+    return p
+}
+
+func shotToasts() ToastQueue {
+    val t0 = FromUnixNanos(int64(0))
+    var q = NewToastQueue(3)
+    q = q.PushSuccess("#4210 succeeded", t0, Seconds(int64(30)))
+    q = q.PushWarn("#4207 needs a rerun", t0, Seconds(int64(30)))
+    return q
+}
+
+func shotNavigation() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, Breadcrumb(ArrayOf[string]("home", "builds", "#4211"))),
+        Fixed(1, Text("")),
+        Fixed(6, Row(ArrayOf[LayoutChild](
+            Flex(1, Titled(MenuView(NewMenu(ArrayOf[MenuItem](
+                NewMenuItemWithHint("staging", "auto"),
+                NewMenuItemWithHint("canary", "10%"),
+                NewMenuItem("production"),
+                NewMenuItemDisabled("archived"),
+            )), true), " MenuView ")),
+            Fixed(3, Scrollbar(40, 8, 12)),
+        ))),
+    ))
+
+func shotMarkdown() Widget =
+    Titled(MarkdownView(
+        "# Release notes\n" +
+        "\n" +
+        "Rendering\n" +
+        "\n" +
+        "- rows end with `\\r\\n`\n" +
+        "- a wide glyph covers **two cells**\n" +
+        "\n" +
+        "> A recorded demo is a test you can look at.\n"), " MarkdownView ")
+
+func shotChrome() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, Row(ArrayOf[LayoutChild](
+            Fixed(12, Tag(" passing ", BrightGreen())),
+            Fixed(12, Tag(" 0.12.0 ", BrightCyan())),
+            Fixed(12, Tag(" flaky ", BrightYellow())),
+            Flex(1, Empty()),
+        ))),
+        Fixed(1, Text("")),
+        Fixed(1, KeyHintRow(ArrayOf[string](
+            "^P", "palette", "^/", "logs", "?", "help", "q", "quit"))),
+        Fixed(1, Text("")),
+        Fixed(1, Link("gala-tui on GitHub", "https://github.com/martianoff/gala-tui")),
+    ))
+
+func shotIndicators() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, Loader("building", 2)),
+        Fixed(1, Text("")),
+        Fixed(1, Row(ArrayOf[LayoutChild](
+            Fixed(14, Spinner(BrailleSpinner(), 3)),
+            Fixed(14, Spinner(DotsSpinner(), 1)),
+            Flex(1, Pulse(4, BrightGreen())),
+        ))),
+        Fixed(1, Text("")),
+        Fixed(3, EmptyStateHinted("(empty)", "No builds yet", "Push a commit to start one")),
+    ))
+
+func shotDiff() Widget =
+    Titled(DiffViewStats(ArrayOf[DiffLine](
+        DiffContext(Text = "if y < b.Height-1 {"),
+        DiffRemoved(Text = "    sb.WriteString(\"\\n\")"),
+        DiffAdded(Text = "    sb.WriteString(\"\\r\\n\")"),
+        DiffContext(Text = "}"),
+    )), " DiffViewStats ")
+
+func shotThemes() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(2, shotThemeRow("DefaultTheme", DefaultTheme())),
+        Fixed(2, shotThemeRow("DarkTheme", DarkTheme())),
+        Fixed(2, shotThemeRow("LightTheme", LightTheme())),
+        Fixed(2, shotThemeRow("HighContrastTheme", HighContrastTheme())),
+    ))
+
+func shotThemeRow(name string, th Theme) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(20, TextStyled(s" $name", th.Heading)),
+        Fixed(9, TextStyled(" accent ", th.Accent)),
+        Fixed(9, TextStyled(" muted ", th.Muted)),
+        Fixed(9, TextStyled(" success ", th.Success)),
+        Fixed(9, TextStyled(" error ", th.Error)),
+        Flex(1, Empty()),
+    ))
+
+func shotDomain() Widget =
+    Row(ArrayOf[LayoutChild](
+        Flex(1, Titled(CalendarView(NewCalendarAt(2026, 9, 22), true), " CalendarView ")),
+        Flex(1, Titled(TreeFocused(shotTree(), 2, true), " Tree ")),
+    ))
+
+func shotTree() TreeNode =
+    NewTreeBranchExpanded("pipelines", ArrayOf[TreeNode](
+        NewTreeBranchExpanded("backend", ArrayOf[TreeNode](
+            NewTreeLeaf("unit-tests"),
+            NewTreeLeaf("lint"),
+        )),
+        NewTreeBranch("frontend", ArrayOf[TreeNode](
+            NewTreeLeaf("build"),
+        )),
+    ))
