@@ -31,13 +31,28 @@ import (
 // Charts
 // ----------------------------------------------------------------------------
 
-// megaChartSeries is one fixed series, shared by every chart on the screen so
-// the widgets can be compared rather than just listed. It is deterministic:
-// a recorded demo that drifted between runs would make every re-record a diff.
-func megaChartSeries() Array[int] = ArrayOf[int](
-    12, 18, 24, 21, 33, 41, 38, 52, 61, 55,
-    48, 59, 72, 68, 81, 77, 90, 84, 71, 66,
-    58, 63, 75, 88, 94, 86, 79, 70, 62, 54)
+// megaChartSeries is one series, shared by every chart on the screen so the
+// widgets can be compared rather than just listed.
+//
+// It is a random walk from a fixed seed, not a hand-written array: the charts
+// paint one column per sample, so a short series leaves two thirds of the
+// panel empty, and ninety hand-written numbers is ninety chances to make the
+// curve look artificial. Fixed seed because a recorded demo that drifted
+// between runs would make every re-record a diff.
+func megaChartSeries() Array[int] {
+    var seed = 1234567
+    var v = 28
+    var out = EmptyArray[int]()
+    var i = 0
+    for i < 86 {
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        val step = (seed / 65536) % 19 - 9
+        v = MinInt(96, MaxInt(6, v + step))
+        out = out.Append(v)
+        i = i + 1
+    }
+    return out
+}
 
 func megaChartsBody(m MegaModel, th Theme) Widget =
     Row(ArrayOf[LayoutChild](
@@ -83,10 +98,14 @@ func megaGaugeStack(pct int) Widget =
         Fixed(1, Sparkline(megaChartSeries())),
     ))
 
+// megaMultiChart overlays two series. The chart is a filled glyph matrix, so
+// the second one painted wins every cell they share — which means two series
+// only read as two if the gap between them is wider than a row. A baseline at
+// just over half the primary leaves the taller one showing as a band above it.
 func megaMultiChart(series Array[int]) Widget {
-    val lagged = series.Map((v) => MaxInt(0, v - 18))
+    val baseline = series.Map((v) => v * 55 / 100)
     return MultiLineChart(
-        ArrayOf[Array[int]](series, lagged),
+        ArrayOf[Array[int]](series, baseline),
         ArrayOf[Style](
             DefaultStyle().WithFg(BrightGreen()),
             DefaultStyle().WithFg(BrightMagenta())))

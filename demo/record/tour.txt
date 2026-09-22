@@ -47,7 +47,7 @@ wait 0.6
 #     canvas, the three gauges, sparkline. The gauges animate on their own,
 #     so this screen only needs to be held on camera.
 click 14 10
-wait 2.4
+wait 4.0
 
 # --- Forms: the input path end to end, which is the part that needs a mouse
 #     to show at all.

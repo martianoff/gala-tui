@@ -110,6 +110,40 @@ func TestMultiLineChartSharesBounds(t T) T {
     return Eq(t, buf.CharAt(1, 2), '█')
 }
 
+// The defect this widget shipped with: a chart row is a string and its empty
+// cells are spaces, so stacking one chart widget per series let the topmost
+// layer blank every series beneath it everywhere it was empty — which is
+// everywhere above its own curve. Two series rendered as one.
+//
+// The taller series is passed FIRST here, so nothing but correct per-cell
+// composition can leave its colour on screen: under the old stacking it was
+// painted first and then wiped by the shorter series' blanks.
+func TestMultiLineChartKeepsEverySeriesVisible(t T) T {
+    val tall  = ArrayOf(10, 10)
+    val short = ArrayOf(2, 2)
+    val chart = MultiLineChartAtHeight(
+        ArrayOf[Array[int]](tall, short),
+        ArrayOf[Style](DefaultStyle().WithFg(Green()), DefaultStyle().WithFg(Red())),
+        4)
+    val buf = NewBuffer(2, 4)
+    RenderTo(chart, Rect(X = 0, Y = 0, Width = 2, Height = 4), buf)
+    // Top row belongs to the tall series alone; the bottom to the short one,
+    // which is drawn later and so wins the cells they share.
+    val t1 = Eq(t, StyleEqual(buf.StyleAt(0, 0), DefaultStyle().WithFg(Green())), true)
+    return Eq(t1, StyleEqual(buf.StyleAt(0, 3), DefaultStyle().WithFg(Red())), true)
+}
+
+// A column no series reaches stays blank rather than borrowing a style.
+func TestMultiLineChartLeavesUnreachedCellsBlank(t T) T {
+    val chart = MultiLineChartAtHeight(
+        ArrayOf[Array[int]](ArrayOf(1, 1)),
+        ArrayOf[Style](DefaultStyle().WithFg(Green())),
+        4)
+    val buf = NewBuffer(2, 4)
+    RenderTo(chart, Rect(X = 0, Y = 0, Width = 2, Height = 4), buf)
+    return Eq(t, buf.CharAt(0, 0), ' ')
+}
+
 func TestMultiLineChartEmpty(t T) T {
     val chart = MultiLineChart(EmptyArray[Array[int]](), EmptyArray[Style]())
     return Eq(t, defaultRenderWidth(chart), 0)
