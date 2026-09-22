@@ -27,7 +27,7 @@ func TestMegaArrowDownMovesSidebarCursor(t T) T {
 
 func TestMegaArrowUpWrapsSidebarToLastEntry(t T) T {
     val (m1, _) = MegaUpdate(NewMegaModel(), MegaKeyUp())
-    val t1 = Eq(t, m1.SidebarSel, 3)  // 4 entries: 0..3 → wraps to 3
+    val t1 = Eq(t, m1.SidebarSel, 7)  // 8 entries: 0..7 → wraps to 7
     return Eq(t1, m1.Screens.Current(), "overview")
 }
 
@@ -390,7 +390,11 @@ func TestHarnessSidebarWrapsAround(t T) T {
         StepKey(Ev = PlainKey(Down())),
         StepKey(Ev = PlainKey(Down())),
         StepKey(Ev = PlainKey(Down())),
-        StepKey(Ev = PlainKey(Down())),    // wraps 3 → 0
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),
+        StepKey(Ev = PlainKey(Down())),    // wraps 7 → 0
         StepKey(Ev = PlainKey(Enter())),
     ))
     return Eq(t, final.Model.Screens.Current(), "overview")
@@ -881,9 +885,55 @@ func TestMegaRendersPaletteWhenOpen(t T) T {
 // MegaKeyToMsg — every key binding the demo advertises in the help screen.
 // ----------------------------------------------------------------------------
 
+// The shortcut letters are resolved by update(), not by the key adapter:
+// what `q` means depends on whether a text field is on screen. These assert
+// the resolved behaviour, which is what the user of the demo experiences.
 func TestMegaKeyToMsgQIsQuit(t T) T {
-    val msg = MegaKeyToMsg(PlainKey(Char('q')))
-    return IsTrue(t, megaIsQuitMsg(msg))
+    val (_, cmd) = megaPressChar(NewMegaModel(), 'q')
+    return IsTrue(t, megaIsQuitCmd(cmd))
+}
+
+// …and the same letter typed into a form is a letter. This is the regression
+// the routing exists for: `q` used to quit mid-password.
+func TestMegaCharOnFormsScreenTypesInsteadOfQuitting(t T) T {
+    val (m1, cmd) = megaPressChar(megaOnForms(), 'q')
+    val t1 = IsTrue(t, !megaIsQuitCmd(cmd))
+    return Eq(t1, m1.FormUser, "q")
+}
+
+func TestMegaFormLettersThatAreAlsoShortcutsAreTyped(t T) T {
+    var m = megaOnForms()
+    for _, c := range "admin" {
+        val (next, _) = megaPressChar(m, c)
+        m = next
+    }
+    return Eq(t, m.FormUser, "admin")
+}
+
+// A click inside the value moves the caret, and the next character lands
+// there rather than at the end.
+func TestMegaFormClickPositionsCaretForTyping(t T) T {
+    var m = megaOnForms()
+    for _, c := range "admin" {
+        val (next, _) = megaPressChar(m, c)
+        m = next
+    }
+    val (m2, _) = MegaUpdate(m, MegaFormCaret(Field = 0, Idx = 2))
+    val (m3, _) = megaPressChar(m2, 'X')
+    return Eq(t, m3.FormUser, "adXmin")
+}
+
+// The mask is one glyph per code point, which is what makes a click on a
+// masked field resolve to the right rune of the secret.
+func TestMegaMaskedValueIsOneGlyphPerRune(t T) T {
+    val (m1, _) = MegaUpdate(megaOnForms(), MegaFormCaret(Field = 1, Idx = 0))
+    var m = m1
+    for _, c := range "s3cr3t" {
+        val (next, _) = megaPressChar(m, c)
+        m = next
+    }
+    val t1 = Eq(t, m.FormPass, "s3cr3t")
+    return Eq(t1, RuneCount(MaskValue(m.FormPass)), RuneCount(m.FormPass))
 }
 
 func TestMegaKeyToMsgCtrlCIsQuit(t T) T {
@@ -892,30 +942,19 @@ func TestMegaKeyToMsgCtrlCIsQuit(t T) T {
 }
 
 func TestMegaKeyToMsgQuestionTogglesHelp(t T) T {
-    val msg = MegaKeyToMsg(PlainKey(Char('?')))
-    val isHelp = msg match {
-        case MegaToggleHelp() => true
-        case _                => false
-    }
-    return IsTrue(t, isHelp)
+    val (m1, _) = megaPressChar(NewMegaModel(), '?')
+    return IsTrue(t, m1.ShowHelp)
 }
 
 func TestMegaKeyToMsgTCyclesTheme(t T) T {
-    val msg = MegaKeyToMsg(PlainKey(Char('t')))
-    val isCycle = msg match {
-        case MegaCycleTheme() => true
-        case _                => false
-    }
-    return IsTrue(t, isCycle)
+    val m0 = NewMegaModel()
+    val (m1, _) = megaPressChar(m0, 't')
+    return IsTrue(t, megaThemeName(m1.ActiveTheme) != megaThemeName(m0.ActiveTheme))
 }
 
 func TestMegaKeyToMsgSlashTogglesLogs(t T) T {
-    val msg = MegaKeyToMsg(PlainKey(Char('/')))
-    val isToggle = msg match {
-        case MegaToggleLogs() => true
-        case _                => false
-    }
-    return IsTrue(t, isToggle)
+    val (m1, _) = megaPressChar(NewMegaModel(), '/')
+    return IsTrue(t, m1.ShowLogs)
 }
 
 func TestMegaKeyToMsgTabIsFocusNext(t T) T {
@@ -955,21 +994,13 @@ func TestMegaKeyToMsgUnboundCtrlIsNoOp(t T) T {
 }
 
 func TestMegaKeyToMsgCCopiesRow(t T) T {
-    val msg = MegaKeyToMsg(PlainKey(Char('c')))
-    val isCopy = msg match {
-        case MegaCopySelected() => true
-        case _                  => false
-    }
-    return IsTrue(t, isCopy)
+    val (m1, _) = megaPressChar(NewMegaModel(), 'c')
+    return IsTrue(t, m1.Toasts.Length() > 0)
 }
 
 func TestMegaKeyToMsgDOpensDeploy(t T) T {
-    val msg = MegaKeyToMsg(PlainKey(Char('d')))
-    val isConfirm = msg match {
-        case MegaShowConfirm(_) => true
-        case _                  => false
-    }
-    return IsTrue(t, isConfirm)
+    val (m1, _) = megaPressChar(NewMegaModel(), 'd')
+    return Eq(t, m1.ConfirmAction, "Deploy to Prod")
 }
 
 // ----------------------------------------------------------------------------
@@ -1538,6 +1569,23 @@ func megaTestRunes(s string) Array[rune] {
     }
     return acc
 }
+
+// megaPressChar puts a printable key through the whole path the runtime uses
+// — adapter then update — because that is where the meaning of a letter is
+// now decided.
+func megaPressChar(m MegaModel, c rune) Tuple[MegaModel, Cmd[MegaMsg]] =
+    MegaUpdate(m, MegaKeyToMsg(PlainKey(Char(c))))
+
+func megaOnForms() MegaModel {
+    val (m, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "forms"))
+    return m
+}
+
+func megaIsQuitCmd(c Cmd[MegaMsg]) bool =
+    c match {
+        case QuitCmd() => true
+        case _         => false
+    }
 
 func megaIsQuitMsg(msg MegaMsg) bool {
     return msg match {

@@ -66,13 +66,30 @@ gala build ./demo
 ./gala_tui.exe
 ```
 
-The bundled demo is a build-server dashboard that exercises every widget on
-screen at once — sortable DataTable, collapsible Tree, command palette,
-confirm modal, line/bar/sparkline charts, themes, and the log drawer.
+The bundled demo is a build-server dashboard across eight screens, and between
+them they put every widget on screen at least once:
+
+| Screen | What it shows |
+|---|---|
+| Overview | sidebar nav, collapsible Tree, BarChart, Sparkline, Gauge, Recent Builds |
+| Builds | sortable/filterable DataTable behind a Tabs bar |
+| Pipelines | the Tree as the main pane, expand/collapse by double-click |
+| Logs | LogPanel, also reachable as a drawer over any screen |
+| Charts | LineChart, MultiLineChart, a Canvas filled-area series, LineGauge, Gauge, Sparkline |
+| Forms | Input and InputMasked with click-to-position, Button, SearchInput |
+| Data | SelectList, Dropdown, Table and the Scrollbar that tracks it |
+| Review | DiffViewStats, MarkdownView, OSC 8 links, Tags |
+
+Over the top of all of them: the command palette, the confirm modal, toasts,
+the help overlay and four themes.
 
 The GIF above is recorded from a committed script — keystrokes *and* mouse
-clicks — so it can be regenerated after a UI change rather than re-shot by
-hand. See [demo/record/README.md](demo/record/README.md).
+clicks — that visits all eight screens, so it can be regenerated after a UI
+change rather than re-shot by hand. Every widget is driven by whichever input
+suits it, and the ones that take both are shown taking both: the same list
+selection moves under a click and under the arrow keys, and the caret in a
+text field lands wherever the pointer does — including inside a masked
+password. See [demo/record/README.md](demo/record/README.md).
 
 ### Keys
 

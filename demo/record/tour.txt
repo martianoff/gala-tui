@@ -1,53 +1,160 @@
-# A tour of the mega demo, driven entirely by scripted input — keys AND
-# mouse clicks. Columns/rows are 1-based, as a terminal reports them.
-# Coordinates were read off a recorded frame at 120x36; re-check them if the
-# layout changes.
+# A tour of the mega demo, driven entirely by scripted input — keys AND mouse.
+# Columns/rows are 1-based, as a terminal reports them. Coordinates were read
+# off recorded frames at 120x36; re-check them if the layout changes.
+#
+# The tour visits every screen, because a widget the tour never reaches is a
+# widget nobody can see working. Each screen is driven with both a click and a
+# keystroke where both mean something — the point is not that gala-tui has a
+# mouse, it is that the same widget answers to either.
+#
+# Order matters. A sidebar click navigates, and the sidebar is only rendered on
+# the screens that include it: overview, charts, forms, data, review. Builds
+# and pipelines give the main pane the whole width, so they are reached through
+# the command palette and left with Esc — clicking where the nav *would* be on
+# those screens hits nothing at all, which is the hit registry behaving.
+#
+# Sidebar nav rows, at column 14:
+#   6 Overview   7 Builds   8 Pipelines   9 Logs
+#  10 Charts    11 Forms   12 Data       13 Review
 
 wait 1.6
 
-# --- Click around the sidebar tree: collapse and expand a branch.
-click 14 10
-wait 0.8
-click 14 13
-wait 0.8
+# --- Overview: click the pipelines tree, collapse and expand a branch.
 click 14 22
-wait 0.9
-
-# --- Click a row in the Recent Builds table.
-click 52 9
-wait 0.9
-click 52 11
-wait 0.9
-
-# --- Scroll the table under the pointer.
-scroll down 60 11
-wait 0.5
-scroll down 60 11
 wait 0.7
-scroll up 60 11
-wait 0.7
-
-# --- The command palette: fuzzy search, pick an action.
-keys Ctrl+P
+click 14 26
 wait 0.8
-text theme
+click 14 26
+wait 0.8
+
+# --- Click a row in the Recent Builds table, then scroll it under the pointer.
+click 52 19
+wait 0.7
+click 52 21
+wait 0.7
+scroll down 60 21
+wait 0.4
+scroll up 60 21
+wait 0.6
+
+# --- A modal: 'd' asks before deploying. Dismissed with Esc.
+key d
+wait 1.3
+key esc
+wait 0.6
+
+# --- Charts: every plotting widget against one series — line, filled-area
+#     canvas, the three gauges, sparkline. The gauges animate on their own,
+#     so this screen only needs to be held on camera.
+click 14 10
+wait 2.4
+
+# --- Forms: the input path end to end, which is the part that needs a mouse
+#     to show at all.
+click 14 11
+wait 0.9
+
+# Click into the empty field to focus it, then type.
+click 33 7
+wait 0.5
+text admin
+wait 0.9
+
+# Click back into the middle of the value — the caret lands on the character
+# under the pointer, so the next keystroke is an insertion, not an append.
+# ('d' is also the deploy shortcut everywhere else; here it is just a letter.)
+click 33 7
+wait 0.8
+text 1
 wait 1.0
-key enter
+
+# Tab to the password field and type a secret.
+key tab
+wait 0.5
+text s3cr3t
+wait 0.9
+
+# A click inside the mask still resolves to a rune of the real value.
+click 34 10
+wait 0.8
+
+# Submit by clicking the button rather than pressing Enter.
+click 33 12
+wait 1.3
+
+# --- Data: selection widgets, driven both ways.
+click 14 12
+wait 0.9
+
+# Click a row in the SelectList…
+click 40 8
+wait 0.7
+# …then move the same selection with the keyboard.
+key down
+wait 0.5
+key down
+wait 0.8
+
+# Wheel over the table: the scrollbar thumb tracks it.
+scroll down 60 22
+wait 0.5
+scroll down 60 22
+wait 0.5
+scroll up 60 22
+wait 0.8
+
+# Open the dropdown and pick from it with the mouse.
+click 80 6
+wait 0.9
+click 80 9
 wait 1.1
 
-# --- Cycle themes so the colours change on camera.
-key t
-wait 0.9
-key t
+# --- Review: diff with stats, rendered markdown, an OSC 8 link and tags.
+click 14 13
+wait 2.2
+
+# --- Back to the overview, then into the screens that take the full width.
+click 14 6
+wait 1.0
+
+# --- The command palette: fuzzy search, confirm with the keyboard.
+keys Ctrl+P
+wait 0.8
+text builds
+wait 1.0
+key enter
+wait 1.2
+
+# Builds: the tab bar and a sortable header, both clicked.
+key tab
+wait 0.6
+click 52 6
+wait 1.0
+key esc
 wait 0.9
 
-# --- The log drawer, then the help overlay.
-key /
+# Pipelines through the palette, this time picking the row with the mouse.
+keys Ctrl+P
+wait 0.8
+text pipe
+wait 1.0
+click 45 12
 wait 1.2
+key esc
+wait 0.9
+
+# --- Themes, the log drawer and the help overlay — keyboard only, and safely
+#     off the forms screen, where these letters would be text.
+key t
+wait 0.8
+key t
+wait 0.8
+key /
+wait 1.4
 key /
 wait 0.6
 key ?
-wait 1.4
+wait 1.8
 key ?
 wait 0.7
 

@@ -1,0 +1,339 @@
+package main
+
+import (
+    . "github.com/martianoff/gala-tui"
+    "github.com/martianoff/gala-tui/state"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+)
+
+// ============================================================================
+// The screens that exist so the demo can *show* the rest of the framework.
+//
+// The overview, builds, pipelines and logs screens grew out of a plausible
+// application. These four did not: they are here because a recorded tour is
+// the only artefact that shows what a widget looks like while it is being
+// used, and a widget the tour cannot reach may as well not ship. Each screen
+// is therefore grouped by what a viewer is being shown rather than by what an
+// application would group together:
+//
+//   charts  — every plotting widget against the same data, so the choice
+//             between them is a visual one
+//   forms   — the input path end to end: type, click to move the caret,
+//             mask a secret, submit
+//   data    — the selection widgets, and the scrollbar that pairs with them
+//   review  — the read-only widgets: diff, markdown, links, tags
+//
+// The tour drives all four with both keys and clicks; see demo/record/tour.txt.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Charts
+// ----------------------------------------------------------------------------
+
+// megaChartSeries is one fixed series, shared by every chart on the screen so
+// the widgets can be compared rather than just listed. It is deterministic:
+// a recorded demo that drifted between runs would make every re-record a diff.
+func megaChartSeries() Array[int] = ArrayOf[int](
+    12, 18, 24, 21, 33, 41, 38, 52, 61, 55,
+    48, 59, 72, 68, 81, 77, 90, 84, 71, 66,
+    58, 63, 75, 88, 94, 86, 79, 70, 62, 54)
+
+func megaChartsBody(m MegaModel, th Theme) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(28, megaSidebar(m, th)),
+        Flex(3, megaChartsMain(m, th)),
+    ))
+
+func megaChartsMain(m MegaModel, th Theme) Widget {
+    val series = megaChartSeries()
+    // The animated percentage drives the gauges, so the screen is alive on
+    // camera without the tour having to press anything.
+    val pct = state.TweenAt(m.Progress, m.Now)
+    return Column(ArrayOf[LayoutChild](
+        Fixed(9, Titled(LineChart(series), " LineChart ")),
+        Fixed(9, Titled(megaAreaChart(series), " Canvas — filled area series ")),
+        Fixed(7, Titled(megaGaugeStack(pct), " Gauges ")),
+        Flex(1, Titled(megaMultiChart(series), " MultiLineChart ")),
+    ))
+}
+
+// megaAreaChart plots the series as a filled area on a Canvas. Braille cells
+// are 2x4, so the canvas resolves finer than one glyph per sample — which is
+// the reason to reach for it over LineChart.
+func megaAreaChart(series Array[int]) Widget {
+    val n = series.Length()
+    val xs = ArrayTabulate(n, (i) => float64(i))
+    val ys = series.Map((v) => float64(v))
+    return CanvasOf(
+        XBounds(0.0, float64(n - 1)),
+        YBounds(0.0, 100.0),
+        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan())))
+}
+
+// megaGaugeStack shows the three gauge shapes against one value, which is the
+// comparison a reader actually wants: they differ in how much room they take,
+// not in what they mean.
+func megaGaugeStack(pct int) Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, LineGauge(pct)),
+        Fixed(1, LineGaugeLabeled(" deploy ", pct)),
+        Fixed(1, Text("")),
+        Fixed(1, Gauge(pct)),
+        Fixed(1, Sparkline(megaChartSeries())),
+    ))
+
+func megaMultiChart(series Array[int]) Widget {
+    val lagged = series.Map((v) => MaxInt(0, v - 18))
+    return MultiLineChart(
+        ArrayOf[Array[int]](series, lagged),
+        ArrayOf[Style](
+            DefaultStyle().WithFg(BrightGreen()),
+            DefaultStyle().WithFg(BrightMagenta())))
+}
+
+// ----------------------------------------------------------------------------
+// Forms
+// ----------------------------------------------------------------------------
+
+func megaFormsBody(m MegaModel, th Theme) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(28, megaSidebar(m, th)),
+        Flex(3, megaFormsMain(m, th)),
+    ))
+
+func megaFormsMain(m MegaModel, th Theme) Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(12, Titled(megaCredentialsForm(m), " Sign in ")),
+        Fixed(7, Titled(megaSearchRow(m), " SearchInput ")),
+        Flex(1, Titled(megaFormNotes(m), " What the tour is doing ")),
+    ))
+
+// megaCredentialsForm is the whole input story on one screen: a plain field,
+// a masked one, and a button. Both fields are built with `InputClick`, so a
+// click inside the text moves the caret to the clicked character instead of
+// merely focusing the field — the thing a text field is expected to do and
+// the thing a scripted tour can actually show.
+func megaCredentialsForm(m MegaModel) Widget =
+    PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" user", DefaultStyle().WithDim())),
+        Fixed(1, InputClick[MegaMsg](
+            m.FormUser, m.FormUserCur, "you@example.com",
+            (i) => MegaFormCaret(Field = 0, Idx = i),
+            m.FormField == 0)),
+        Fixed(1, Text("")),
+        Fixed(1, TextStyled(" password", DefaultStyle().WithDim())),
+        Fixed(1, megaSecretField(m)),
+        Fixed(1, Text("")),
+        Fixed(1, megaSubmitRow(m)),
+    )))
+
+// megaSecretField masks the value but keeps the caret honest: the click lands
+// on the character under the pointer even though every glyph on screen is the
+// same bullet.
+//
+// There is no `InputMaskedClick`, and none is needed. `InputMasked` is
+// `Input(MaskValue(value), …)`, and `MaskValue` replaces one code point with
+// one mask rune — so a rune index into the mask is the same rune index into
+// the secret, and `InputClick` over the masked value reports it directly.
+func megaSecretField(m MegaModel) Widget = InputClick[MegaMsg](
+    MaskValue(m.FormPass), m.FormPassCur, "required",
+    (i) => MegaFormCaret(Field = 1, Idx = i),
+    m.FormField == 1)
+
+func megaSubmitRow(m MegaModel) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(14, Button(" Sign in ", m.FormField == 2).OnClick(MegaFormSubmit())),
+        Fixed(2, Empty()),
+        Flex(1, megaFormStatus(m)),
+    ))
+
+func megaFormStatus(m MegaModel) Widget {
+    if m.FormSubmitted {
+        return Tag(" signed in ", BrightGreen())
+    }
+    if RuneCount(m.FormPass) == 0 {
+        return TextStyled(" password required", DefaultStyle().WithDim())
+    }
+    return TextStyled(s" ${RuneCount(m.FormPass)} characters", DefaultStyle().WithDim())
+}
+
+func megaSearchRow(m MegaModel) Widget {
+    val total = megaSearchCorpus().Length()
+    val matched = megaSearchMatches(m.SearchQuery).Length()
+    return PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
+        Fixed(1, SearchInput(m.SearchQuery, matched, total)),
+        Fixed(1, Text("")),
+        Fixed(1, megaSearchHits(m)),
+    )))
+}
+
+func megaSearchHits(m MegaModel) Widget {
+    val hits = megaSearchMatches(m.SearchQuery)
+    if hits.IsEmpty() {
+        return TextStyled(" no matches", DefaultStyle().WithDim())
+    }
+    return TextStyled(s" ${hits.MkString(" · ")}", DefaultStyle().WithFg(BrightCyan()))
+}
+
+func megaSearchCorpus() Array[string] = ArrayOf[string](
+    "deploy", "deploy:staging", "deploy:prod", "rollback",
+    "restart", "scale", "logs", "status")
+
+func megaSearchMatches(q string) Array[string] =
+    if (RuneCount(q) == 0) EmptyArray[string]()
+    else megaSearchCorpus().Filter((c) => MatchSubstring(c, q))
+
+func megaFormNotes(m MegaModel) Widget =
+    PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled("Both fields are built with InputClick:",
+            DefaultStyle().WithBold())),
+        Fixed(1, TextStyled("a click lands the caret on the character under",
+            DefaultStyle().WithDim())),
+        Fixed(1, TextStyled("the pointer — including inside the mask, where",
+            DefaultStyle().WithDim())),
+        Fixed(1, TextStyled("every glyph looks the same.",
+            DefaultStyle().WithDim())),
+        Flex(1, Empty()),
+    )))
+
+// ----------------------------------------------------------------------------
+// Data
+// ----------------------------------------------------------------------------
+
+func megaDataBody(m MegaModel, th Theme) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(28, megaSidebar(m, th)),
+        Flex(3, megaDataMain(m, th)),
+    ))
+
+func megaDataMain(m MegaModel, th Theme) Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(12, Row(ArrayOf[LayoutChild](
+            Flex(1, Titled(megaRegionList(m), " SelectList ")),
+            Flex(1, Titled(megaEnvDropdown(m), " Dropdown ")),
+        ))),
+        Flex(1, Titled(megaQuotaTable(m), " Table + Scrollbar ")),
+    ))
+
+// megaRegionList is a clickable SelectList — the rows dispatch on click, and
+// the same selection moves with the arrow keys, so the tour can show that a
+// widget is not "mouse-driven" or "keyboard-driven" but simply driven.
+func megaRegionList(m MegaModel) Widget =
+    SelectListOf(megaRegions(), m.SelectIdx, true)
+        .OnPickRow(megaRegions().Length(), (i) => MegaSelectPick(Idx = i))
+
+func megaRegions() Array[string] =
+    megaQuotaRows().Map((r) => s"  ${r.Get(0)}")
+
+func megaEnvDropdown(m MegaModel) Widget {
+    val menu = NewMenu(ArrayOf[MenuItem](
+        NewMenuItemWithHint("staging", "auto"),
+        NewMenuItemWithHint("canary", "10%"),
+        NewMenuItem("production"),
+        NewMenuItemDisabled("archived"),
+    )).Copy(Selected = m.DropSel)
+    val label = if (m.DropOpen) " environment ▴ " else " environment ▾ "
+    val drop = Dropdown(
+        Trigger = Button(label, m.DropOpen).OnClick(MegaDropToggle()),
+        Menu    = menu,
+        Open    = m.DropOpen,
+        Width   = 24)
+    if !m.DropOpen {
+        return PaddingHV(1, 1, DropdownView(drop, true))
+    }
+    // Only the open menu's rows are clickable — a closed dropdown has no rows
+    // on screen, and registering hits for them would swallow clicks meant for
+    // whatever the layout put underneath.
+    return PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
+        Fixed(1, Button(label, true).OnClick(MegaDropToggle())),
+        Flex(1, MenuView(menu, true)
+            .OnPickRow(menu.Items.Length(), (i) => MegaDropPick(Idx = i))
+            .Bordered()),
+    )))
+}
+
+func megaQuotaTable(m MegaModel) Widget {
+    val rows = megaQuotaRows()
+    val visible = megaQuotaVisible()
+    return Row(ArrayOf[LayoutChild](
+        Flex(1, Table(TableData(
+            Headers  = ArrayOf[string]("region", "quota", "used", "state"),
+            Widths   = ArrayOf[Constraint](
+                Percent(N = 34), Percent(N = 22), Percent(N = 22), Percent(N = 22)),
+            Rows     = rows.Drop(m.DataScroll).Take(visible),
+            Selected = m.SelectIdx - m.DataScroll))),
+        Fixed(1, Scrollbar(rows.Length(), visible, m.DataScroll)),
+    ))
+}
+
+// megaQuotaVisible is the window the table shows and the scrollbar reports.
+// One number, used by the view and by the update that scrolls it — two copies
+// would drift and the thumb would stop matching the rows.
+func megaQuotaVisible() int = 6
+
+func megaQuotaRowCount() int = megaQuotaRows().Length()
+
+func megaQuotaRows() Array[Array[string]] = ArrayOf[Array[string]](
+    ArrayOf[string]("us-east-1",    "400", "318", "ok"),
+    ArrayOf[string]("us-west-2",    "400", "122", "ok"),
+    ArrayOf[string]("eu-west-1",    "250", "241", "near limit"),
+    ArrayOf[string]("eu-central-1", "250", "88",  "ok"),
+    ArrayOf[string]("ap-south-1",   "150", "149", "near limit"),
+    ArrayOf[string]("sa-east-1",    "100", "12",  "ok"),
+    ArrayOf[string]("af-south-1",   "100", "0",   "unused"),
+    ArrayOf[string]("me-south-1",   "100", "44",  "ok"),
+    ArrayOf[string]("ca-central-1", "200", "173", "ok"),
+    ArrayOf[string]("ap-northeast-1", "300", "295", "near limit"))
+
+// ----------------------------------------------------------------------------
+// Review
+// ----------------------------------------------------------------------------
+
+func megaReviewBody(m MegaModel, th Theme) Widget =
+    Row(ArrayOf[LayoutChild](
+        Fixed(28, megaSidebar(m, th)),
+        Flex(3, megaReviewMain(m, th)),
+    ))
+
+func megaReviewMain(m MegaModel, th Theme) Widget =
+    Row(ArrayOf[LayoutChild](
+        Flex(1, Titled(DiffViewStats(megaDiffLines()), " DiffViewStats ")),
+        Flex(1, Column(ArrayOf[LayoutChild](
+            Flex(1, Titled(MarkdownView(megaReviewNotes()), " MarkdownView ")),
+            Fixed(6, Titled(megaLinkRow(), " Links & tags ")),
+        ))),
+    ))
+
+func megaDiffLines() Array[DiffLine] = ArrayOf[DiffLine](
+    DiffContext(Text = "func (b *Buffer) String() string {"),
+    DiffContext(Text = "    if y < b.Height-1 {"),
+    DiffRemoved(Text = "        sb.WriteString(\"\\n\")"),
+    DiffAdded(Text = "        sb.WriteString(\"\\r\\n\")"),
+    DiffContext(Text = "    }"),
+    DiffContext(Text = "}"),
+    DiffContext(Text = ""),
+    DiffContext(Text = "// a full-width row ends in deferred wrap, so LF"),
+    DiffAdded(Text = "// alone moves down without returning the carriage"),
+)
+
+func megaReviewNotes() string =
+    "# Release notes\n" +
+    "\n" +
+    "Rendering\n" +
+    "\n" +
+    "- rows are separated by `\\r\\n`\n" +
+    "- a wide glyph covers **two cells**, not two writes\n" +
+    "\n" +
+    "> A recorded demo is a test you can look at.\n"
+
+func megaLinkRow() Widget =
+    PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
+        Fixed(1, Link("gala-tui on GitHub", "https://github.com/martianoff/gala-tui")),
+        Fixed(1, Text("")),
+        Fixed(1, Row(ArrayOf[LayoutChild](
+            Fixed(12, Tag(" passing ", BrightGreen())),
+            Fixed(12, Tag(" 0.12.0 ", BrightCyan())),
+            Flex(1, Tag(" opus ", BrightMagenta())),
+        ))),
+    )))

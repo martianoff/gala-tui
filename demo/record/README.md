@@ -69,6 +69,22 @@ drive.py ──► pty ──► ./gala-tui
 to the layout at a given size — the committed tour was written against 120×36.
 If the layout changes, re-check them rather than guessing.
 
+### Order is part of the script
+
+The tour visits every screen, because a widget it never reaches is a widget
+nobody can see working. That constrains the order: a sidebar click navigates,
+and the sidebar is only rendered on the screens that include it (overview,
+charts, forms, data, review). Builds and pipelines hand the main pane the whole
+width, so the tour reaches them through the command palette and leaves with
+`esc`. Clicking where the nav *would* be on those screens does nothing at all,
+which is the hit registry working as designed — and a silent way for a tour to
+go wrong, since the app just keeps painting the screen it was already on.
+
+The other ordering constraint is the forms screen. A letter typed there is
+text, not a shortcut, so `t`, `/`, `?` and `q` only do their global jobs
+elsewhere. The tour therefore does its theme/log/help/quit run after it has
+left the form.
+
 ### Finding a coordinate
 
 Record once, pull a frame out, and read the columns off it:
@@ -84,6 +100,24 @@ A click that lands nowhere is silent — the app simply doesn't repaint. The
 quickest signal that the tour is hitting something is the byte count: a run
 whose clicks land emits several times the output of one whose clicks miss
 (212 KB vs 37 KB, when this tour was written).
+
+To check *what* a frame actually showed rather than how many bytes it took,
+replay the cast through a terminal emulator instead of looking at the GIF:
+
+```python
+import json, pyte                      # pip install pyte
+s = pyte.Screen(120, 36); st = pyte.Stream(s)
+for line in open("docs/demo.cast").read().splitlines()[1:]:
+    t, kind, data = json.loads(line)
+    if kind == "o" and t <= 22.0:      # the moment you care about
+        st.feed(data)
+print("\n".join(s.display))
+```
+
+That is the ground truth for what a terminal would put on screen, and it is how
+the deferred-wrap bug in `Buffer.String` was pinned down: the bytes were right
+read on their own, and only an emulator that models the cursor showed them
+landing in the wrong column.
 
 ---
 
