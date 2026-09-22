@@ -240,7 +240,7 @@ func TestMaskValueKeepsNoneOfTheOriginal(t T) T {
     // is mask glyphs and a length.
     val masked = MaskValue("s3cr3t!")
     val t1 = Eq(t, masked, "•••••••")
-    return Eq(t1, RuneCount(masked), RuneCount("s3cr3t!"))
+    return Eq(t1, masked.Size(), "s3cr3t!".Size())
 }
 
 func TestMaskValueCountsCodePointsNotCellsOrGraphemes(t T) T {

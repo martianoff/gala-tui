@@ -11,7 +11,7 @@ import (
 // FormState tests — verify update semantics and validator behavior.
 // ============================================================================
 
-func sampleForm() FormState = NewForm(ArrayOf[FormField](
+func sampleForm() FormState = NewForm(ArrayOf(
     NewFieldRequired("name", "Name", "your name"),
     NewFieldRequired("email", "Email", "you@example.com"),
 ))
@@ -106,7 +106,7 @@ func TestFormCustomValidator(t T) T {
         }
         return None[string]()
     }
-    val custom = NewForm(ArrayOf[FormField](
+    val custom = NewForm(ArrayOf(
         NewFieldValidated("email", "Email", "you@…", emailValidator),
     ))
     var f = custom
@@ -149,17 +149,15 @@ func joinAllRows(buf *Buffer) string {
 // Masked fields — a password is drawn, never carried
 // ============================================================================
 
-func maskedForm() FormState = NewForm(ArrayOf[FormField](
+func maskedForm() FormState = NewForm(ArrayOf(
     NewFieldRequired("user", "User", "who"),
     NewFieldRequired("pass", "Password", "at least 12 chars").Copy(Masked = true),
 ))
 
 func TestMaskedFieldStillYieldsTheRealValue(t T) T {
     // Masking is a drawing decision. Submit has to see what was typed.
-    var f = maskedForm()
-    f = FormUpdate(f, FENext())
-    f = FormUpdate(f, FEChar(C = 'p'))
-    f = FormUpdate(f, FEChar(C = 'w'))
+    val f = ArrayOf[FormEvent](FENext(), FEChar(C = 'p'), FEChar(C = 'w'))
+        .FoldLeft(maskedForm(), FormUpdate)
     return Eq(t, FormValue(f, "pass"), "pw")
 }
 
@@ -168,17 +166,14 @@ func TestMaskedFieldValidatesAgainstTheRealValue(t T) T {
     // an empty masked field is empty, however many characters are drawn.
     val t1 = EqMsg(t, FormIsValid(maskedForm()), false,
                    "an empty required password passed validation")
-    var f = maskedForm()
-    f = FormUpdate(f, FEChar(C = 'u'))
-    f = FormUpdate(f, FENext())
-    f = FormUpdate(f, FEChar(C = 'p'))
+    val f = ArrayOf[FormEvent](FEChar(C = 'u'), FENext(), FEChar(C = 'p'))
+        .FoldLeft(maskedForm(), FormUpdate)
     return EqMsg(t1, FormIsValid(f), true, "a filled masked field failed validation")
 }
 
 func TestUnmaskedFieldsAreUnaffected(t T) T {
-    var f = maskedForm()
-    f = FormUpdate(f, FEChar(C = 'a'))
-    f = FormUpdate(f, FEChar(C = 'l'))
+    val f = ArrayOf[FormEvent](FEChar(C = 'a'), FEChar(C = 'l'))
+        .FoldLeft(maskedForm(), FormUpdate)
     val out = Render(FormView(f, true))
     return EqMsg(t, strings.Contains(out, "al"), true,
                  "a plain field stopped rendering its value")
@@ -199,13 +194,13 @@ func TestAValidatorThatQuotesTheValueLeaksIt(t T) T {
     // the plaintext — it has to be, that is what it validates — and its
     // message is drawn as given. A validator that echoes its input puts the
     // secret back on screen, and masking cannot stop it.
-    val echoing = (v string) => if (v == "") None[string]() else Some[string]("bad: " + v)
-    val f0 = NewForm(ArrayOf[FormField](
-        NewFieldValidated("pass", "Password", "", echoing).Copy(Masked = true),
-    ))
-    var f = f0
-    f = FormUpdate(f, FEChar(C = 'x'))
-    f = FormUpdate(f, FEChar(C = 'y'))
+    val echoing = (v string) => if (v == "") None[string]() else Some(s"bad: $v")
+    val f = ArrayOf[FormEvent](FEChar(C = 'x'), FEChar(C = 'y')).FoldLeft(
+        NewForm(ArrayOf(
+            NewFieldValidated("pass", "Password", "", echoing).Copy(Masked = true),
+        )),
+        FormUpdate,
+    )
     val out = Render(FormView(f, true))
     val t1 = EqMsg(t, strings.Contains(out, "••"), true, "the value was not masked")
     return EqMsg(t1, strings.Contains(out, "bad: xy"), true,
@@ -215,24 +210,21 @@ func TestAValidatorThatQuotesTheValueLeaksIt(t T) T {
 func TestMaskedFieldDrawsTheCallersMaskChar(t T) T {
     // A terminal configured East-Asian-ambiguous-wide draws the default
     // bullet in two cells, which smears a frame across a long password.
-    val f0 = NewForm(ArrayOf[FormField](
-        NewFieldRequired("pass", "Password", "").Copy(Masked = true, MaskChar = '*'),
-    ))
-    var f = f0
-    f = FormUpdate(f, FEChar(C = 'a'))
-    f = FormUpdate(f, FEChar(C = 'b'))
+    val f = ArrayOf[FormEvent](FEChar(C = 'a'), FEChar(C = 'b')).FoldLeft(
+        NewForm(ArrayOf(
+            NewFieldRequired("pass", "Password", "").Copy(Masked = true, MaskChar = '*'),
+        )),
+        FormUpdate,
+    )
     val out = Render(FormView(f, true))
     val t1 = EqMsg(t, strings.Contains(out, "**"), true, "the mask glyph was ignored")
     return EqMsg(t1, strings.Contains(out, "••"), false, "the default mask was drawn anyway")
 }
 
 func TestMaskedFieldDrawsBulletsNotTheValue(t T) T {
-    var f = maskedForm()
-    f = FormUpdate(f, FENext())
-    f = FormUpdate(f, FEChar(C = 'h'))
-    f = FormUpdate(f, FEChar(C = 'u'))
-    f = FormUpdate(f, FEChar(C = 'n'))
-    f = FormUpdate(f, FEChar(C = 't'))
+    val f = ArrayOf[FormEvent](
+        FENext(), FEChar(C = 'h'), FEChar(C = 'u'), FEChar(C = 'n'), FEChar(C = 't'),
+    ).FoldLeft(maskedForm(), FormUpdate)
     val out = joinAllRows(renderAt(FormView(f, true), 24, 8))
     val t1 = EqMsg(t, strings.Contains(out, "hunt"), false,
                    "the typed password was rendered in clear text")
@@ -253,9 +245,8 @@ func TestAFieldLiteralWithoutMaskCharStillMasks(t T) T {
         Placeholder = "",
         Validator   = (_) => None[string](),
     ).Copy(Masked = true)
-    var f = NewForm(ArrayOf[FormField](legacy))
-    f = FormUpdate(f, FEChar(C = 'a'))
-    f = FormUpdate(f, FEChar(C = 'b'))
+    val f = ArrayOf[FormEvent](FEChar(C = 'a'), FEChar(C = 'b'))
+        .FoldLeft(NewForm(ArrayOf(legacy)), FormUpdate)
     val out = Render(FormView(f, true))
     return EqMsg(t, strings.Contains(out, "••"), true,
                  "a field built without MaskChar drew no visible mask")

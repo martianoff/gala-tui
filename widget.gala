@@ -702,7 +702,7 @@ func MaskRune() rune = '•'
 // field does this, and per-keystroke feedback is what makes backspace
 // usable. For a constant-width mask: `Input(MaskValue("········"), …)`.
 func MaskValue(v string, mask rune = MaskRune()) string =
-    repeatRune(if (mask == rune(0)) MaskRune() else mask, RuneCount(v))
+    repeatRune(if (mask == rune(0)) MaskRune() else mask, v.Size())
 
 // InputMasked is `Input` for a secret — a password, a token, an API key.
 //

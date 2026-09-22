@@ -284,7 +284,7 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
     val shown = if (fld.Masked) MaskValue(fld.Value, fld.MaskChar) else fld.Value
     return InputW(
         Value            = shown,
-        Cursor           = RuneCount(shown),
+        Cursor           = shown.Size(),
         Placeholder      = fld.Placeholder,
         Style            = style,
         PlaceholderStyle = phStyle,
