@@ -3,6 +3,7 @@ package gala_tui
 import (
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
+    . "martianoff/gala/std"
 )
 
 // ============================================================================
@@ -280,7 +281,7 @@ func renderCanvas(
         case ShapeRect(_, _, _, _, _)         => {}
         case ShapeCircle(_, _, _, _)          => {}
         case ShapePoints(_, _)                => {}
-        case ShapeFilledLine(_, _, _, _, _, _) => {}
+        case ShapeFilledLine(_, _, _, _, _, _)  => {}
     })
 }
 
@@ -398,50 +399,59 @@ func gridSpan(a int, b int, n int) Tuple[int, int] =
 //
 // Liang-Barsky, in floats because the inputs are projections of the caller's
 // own units and have no bound on their magnitude.
-struct clippedSegment(X1 int, Y1 int, X2 int, Y2 int, Visible bool)
+struct clippedSegment(X1 int, Y1 int, X2 int, Y2 int)
 
-func clipSegment(g *canvasGrid, x1 int, y1 int, x2 int, y2 int) clippedSegment {
+// clipEdge is one half-plane of the grid: `P` is how fast the segment
+// approaches that edge, `Q` its signed distance from the edge at t = 0.
+struct clipEdge(P float64, Q float64)
+
+// narrowSpan shrinks the surviving parameter range by one edge, or gives it
+// up entirely. `P < 0` enters the half-plane, `P > 0` leaves it, and `P == 0`
+// runs parallel to it — surviving only if the segment already sits inside.
+//
+// None means the segment misses the grid, and it short-circuits the rest of
+// the fold: a range that has been given up cannot be narrowed back.
+func narrowSpan(
+    span Option[Tuple[float64, float64]],
+    e clipEdge,
+) Option[Tuple[float64, float64]] = span.FlatMap((r) => {
+    val (t0, t1) = r
+    if e.P == 0.0 {
+        return When(e.Q >= 0.0, (t0, t1))
+    }
+    val t = e.Q / e.P
+    if e.P < 0.0 {
+        return When(t <= t1, (if (t > t0) t else t0, t1))
+    }
+    return When(t >= t0, (t0, if (t < t1) t else t1))
+})
+
+// None for a segment that misses the grid entirely, rather than a struct
+// with a `Visible` flag: nothing makes a caller check a flag before reading
+// coordinates that mean nothing.
+func clipSegment(
+    g *canvasGrid,
+    x1 int,
+    y1 int,
+    x2 int,
+    y2 int,
+) Option[clippedSegment] {
     val dx = float64(x2 - x1)
     val dy = float64(y2 - y1)
-    var t0 = 0.0
-    var t1 = 1.0
-    var ok = true
-    // Each edge narrows the surviving parameter range: p < 0 enters the
-    // half-plane, p > 0 leaves it, p == 0 is parallel and only survives if
-    // the segment is already inside.
-    val ps = ArrayOf[float64](-dx, dx, -dy, dy)
-    val qs = ArrayOf[float64](
-        float64(x1), float64(g.W - 1 - x1),
-        float64(y1), float64(g.H - 1 - y1),
-    )
-    var i = 0
-    for i < 4 {
-        val p = ps.Get(i)
-        val q = qs.Get(i)
-        if p == 0.0 {
-            if q < 0.0 {
-                ok = false
-            }
-        } else {
-            val r = q / p
-            if p < 0.0 {
-                if r > t1 { ok = false } else if r > t0 { t0 = r }
-            } else {
-                if r < t0 { ok = false } else if r < t1 { t1 = r }
-            }
-        }
-        i = i + 1
-    }
-    if !ok {
-        return clippedSegment(X1 = 0, Y1 = 0, X2 = 0, Y2 = 0, Visible = false)
-    }
-    return clippedSegment(
-        X1 = x1 + int(t0 * dx),
-        Y1 = y1 + int(t0 * dy),
-        X2 = x1 + int(t1 * dx),
-        Y2 = y1 + int(t1 * dy),
-        Visible = true,
-    )
+    return ArrayOf(
+        clipEdge(P = -dx, Q = float64(x1)),
+        clipEdge(P = dx,  Q = float64(g.W - 1 - x1)),
+        clipEdge(P = -dy, Q = float64(y1)),
+        clipEdge(P = dy,  Q = float64(g.H - 1 - y1)),
+    ).FoldLeft(Some[Tuple[float64, float64]]((0.0, 1.0)), narrowSpan).Map((r) => {
+        val (t0, t1) = r
+        return clippedSegment(
+            X1 = x1 + int(t0 * dx),
+            Y1 = y1 + int(t0 * dy),
+            X2 = x1 + int(t1 * dx),
+            Y2 = y1 + int(t1 * dy),
+        )
+    })
 }
 
 // plotLine is Bresenham in grid space. Integer-only, so it neither
@@ -456,10 +466,12 @@ func clipSegment(g *canvasGrid, x1 int, y1 int, x2 int, y2 int) clippedSegment {
 // stops a malformed walk from running forever, but it is not a clamp to the
 // canvas and never was.
 func plotLine(g *canvasGrid, x1 int, y1 int, x2 int, y2 int, style Style) {
-    val seg = clipSegment(g, x1, y1, x2, y2)
-    if !seg.Visible {
-        return
-    }
+    clipSegment(g, x1, y1, x2, y2).ForEach((seg) => plotClippedLine(g, seg, style))
+}
+
+// plotClippedLine is the Bresenham walk itself, over endpoints already known
+// to sit on the grid.
+func plotClippedLine(g *canvasGrid, seg clippedSegment, style Style) {
     var x = seg.X1
     var y = seg.Y1
     val dx = AbsInt(seg.X2 - seg.X1)
