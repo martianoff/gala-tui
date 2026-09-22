@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
 )
@@ -663,6 +664,42 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
                   Style = style,
                   PlaceholderStyle = DefaultStyle().WithDim(),
                   Focused = focused)
+}
+
+// maskRune is the glyph a masked field shows in place of each character.
+//
+// U+2022, not `*`: a bullet reads as "hidden" rather than as a character
+// someone might have typed, and it is what every terminal password prompt a
+// user has seen uses.
+func maskRune() rune = '•'
+
+// MaskValue replaces every character of `v` with the mask glyph.
+//
+// Per character, not per cell. A masked CJK password comes out narrower
+// than the text it hides, which is the point: matching the width would
+// publish which characters were wide.
+func MaskValue(v string) string = strings.Repeat(string(maskRune()), RuneCount(v))
+
+// InputMasked is `Input` for a secret — a password, a token, an API key.
+//
+// The masking happens here, before the value reaches the widget tree,
+// rather than in the renderer. That is the whole design: a `Widget` is a
+// value this library encourages callers to snapshot, diff and log, and a
+// tree that carried the real password would put it in every one of those.
+// What the caller hands over is what could leak, so nothing downstream ever
+// holds it.
+//
+// The caret sits at `cursor` characters in, clamped to the value's length —
+// a caller threading a cursor from an editor cannot push it past the end of
+// what is drawn.
+func InputMasked(
+    value string,
+    cursor int,
+    placeholder string,
+    focused bool = false,
+) Widget {
+    val masked = MaskValue(value)
+    return Input(masked, clampInt(cursor, 0, RuneCount(masked)), placeholder, focused)
 }
 
 // Progress renders a horizontal progress bar `[████░░░░]` — bar only.

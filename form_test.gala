@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
     . "martianoff/gala/test"
@@ -175,4 +176,72 @@ func runeArr(s string) Array[rune] {
         acc = acc.Append(c)
     }
     return acc
+}
+
+// ============================================================================
+// Masked fields — a password is drawn, never carried
+// ============================================================================
+
+func maskedForm() FormState = NewForm(ArrayOf[FormField](
+    NewFieldRequired("user", "User", "who"),
+    NewFieldRequired("pass", "Password", "secret").Copy(Masked = true),
+))
+
+func TestMaskedFieldRendersBulletsNotTheValue(t T) T {
+    var f = maskedForm()
+    f = FormUpdate(f, FENext())
+    f = FormUpdate(f, FEChar(C = 'h'))
+    f = FormUpdate(f, FEChar(C = 'u'))
+    f = FormUpdate(f, FEChar(C = 'n'))
+    f = FormUpdate(f, FEChar(C = 't'))
+    f = FormUpdate(f, FEChar(C = 'e'))
+    f = FormUpdate(f, FEChar(C = 'r'))
+    val out = Render(FormView(f, true))
+    val t1 = EqMsg(t, strings.Contains(out, "hunter"), false,
+                   "the typed password was rendered in clear text")
+    return EqMsg(t1, strings.Contains(out, "••••••"), true,
+                 "the masked field drew no bullets")
+}
+
+func TestMaskedFieldStillYieldsTheRealValue(t T) T {
+    // Masking is a drawing decision. Submit has to see what was typed.
+    var f = maskedForm()
+    f = FormUpdate(f, FENext())
+    f = FormUpdate(f, FEChar(C = 'p'))
+    f = FormUpdate(f, FEChar(C = 'w'))
+    return Eq(t, FormValue(f, "pass"), "pw")
+}
+
+func TestMaskedFieldValidatesAgainstTheRealValue(t T) T {
+    // The required validator must run on the value, not on the bullets —
+    // an empty masked field is empty, however many characters are drawn.
+    val t1 = EqMsg(t, FormIsValid(maskedForm()), false,
+                   "an empty required password passed validation")
+    var f = maskedForm()
+    f = FormUpdate(f, FEChar(C = 'u'))
+    f = FormUpdate(f, FENext())
+    f = FormUpdate(f, FEChar(C = 'p'))
+    return EqMsg(t1, FormIsValid(f), true, "a filled masked field failed validation")
+}
+
+func TestUnmaskedFieldsAreUnaffected(t T) T {
+    var f = maskedForm()
+    f = FormUpdate(f, FEChar(C = 'a'))
+    f = FormUpdate(f, FEChar(C = 'l'))
+    val out = Render(FormView(f, true))
+    return EqMsg(t, strings.Contains(out, "al"), true,
+                 "a plain field stopped rendering its value")
+}
+
+func TestMaskingComposesWithEveryFieldConstructor(t T) T {
+    // The reason Masked is a field rather than a constructor: it has to
+    // compose with required and validated fields, which is most of what a
+    // password field is.
+    val plain = NewField("a", "A", "").Copy(Masked = true)
+    val required = NewFieldRequired("b", "B", "").Copy(Masked = true)
+    val validated = NewFieldValidated("c", "C", "", (_) => None[string]())
+        .Copy(Masked = true)
+    val t1 = IsTrue(t, plain.Masked)
+    val t2 = IsTrue(t1, required.Masked)
+    return IsTrue(t2, validated.Masked)
 }

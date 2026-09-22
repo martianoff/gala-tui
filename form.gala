@@ -26,6 +26,12 @@ struct FormField(
     Value     string,
     Placeholder string,
     Validator func(string) Option[string],
+    // Masked draws the value as bullets. It is a field rather than a
+    // separate constructor so it composes with all three of them —
+    // `NewFieldRequired(...).Copy(Masked = true)` is the password case, and
+    // a validated one is the same move. `Value` and `FormValue` still hand
+    // back what the user typed; only the drawing changes.
+    Masked    bool = false,
 )
 
 // NewField builds a field with no validator — always valid.
@@ -36,6 +42,7 @@ func NewField(name string, label string, placeholder string) FormField =
         Value       = "",
         Placeholder = placeholder,
         Validator   = (_) => None[string](),
+        Masked      = false,
     )
 
 // NewFieldRequired marks the field as "non-empty required".
@@ -46,6 +53,7 @@ func NewFieldRequired(name string, label string, placeholder string) FormField =
         Value       = "",
         Placeholder = placeholder,
         Validator   = requiredValidator,
+        Masked      = false,
     )
 
 func requiredValidator(v string) Option[string] {
@@ -234,9 +242,13 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
     else
         DefaultStyle()
     val phStyle = DefaultStyle().WithDim()
+    // Masked here rather than in the renderer, for the reason InputMasked
+    // gives: the widget tree is a value callers snapshot and log, so the
+    // secret must not reach it.
+    val shown = if (fld.Masked) MaskValue(fld.Value) else fld.Value
     return InputW(
-        Value            = fld.Value,
-        Cursor           = RuneCount(fld.Value),
+        Value            = shown,
+        Cursor           = RuneCount(shown),
         Placeholder      = fld.Placeholder,
         Style            = style,
         PlaceholderStyle = phStyle,

@@ -201,6 +201,7 @@ RenderTo(DataTableView(dt2), area, buf)
 | Widget | Signature | Notes |
 |---|---|---|
 | `Input(value, cursor, placeholder)` | `(string, int, string) Widget` | Single-line text field; cursor is the byte offset for the caret glyph. |
+| `InputMasked(value, cursor, placeholder)` | `(string, int, string) Widget` | The same field for a secret — one `•` per character. The cursor is clamped to the value's length. |
 | `Button(label, focused)` | `(string, bool) Widget` | Reverse style when focused. |
 | `FormView(f)` | `(FormState) Widget` | Multi-field form. State in `FormState`. |
 | `Spinner(kind, frame)` | `(SpinnerKind, int) Widget` | Pick: `BrailleSpinner()`, `DotsSpinner()`, `PipeSpinner()`, `ArrowSpinner()`. Increment `frame` each tick. |
@@ -212,6 +213,25 @@ val form = NewForm(ArrayOf[FormField](
 ))
 RenderTo(FormView(form), area, buf)
 ```
+
+**Passwords.** `Masked` is a field on `FormField`, not a fourth constructor, so
+it composes with the three that exist — a required password is
+`NewFieldRequired(…).Copy(Masked = true)`, and a validated one is the same
+move:
+
+```gala
+NewForm(ArrayOf[FormField](
+    NewFieldRequired("user", "User", "who"),
+    NewFieldRequired("pass", "Password", "").Copy(Masked = true),
+))
+```
+
+`FormValue` and the field's validator still see what the user typed; only the
+drawing changes. The masking happens where the widget is built, not in the
+renderer, so the widget tree never holds the secret — which matters in a
+library whose trees are meant to be snapshotted, diffed and logged. One bullet
+per *character*, not per cell: matching a wide character's display width would
+publish which characters were wide.
 
 ## Modals & overlays
 
