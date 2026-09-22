@@ -1730,6 +1730,68 @@ func runesCellWidth(rs []rune, from int, to int) int {
     return w
 }
 
+// inputIndexAtColumn maps a clicked column back to a rune index.
+//
+// Two things stand between the two. The field scrolls horizontally, so
+// column 0 is `start` runes in rather than the value's beginning; and a
+// rune is not a column — a CJK glyph occupies two, so the mapping has to
+// walk cell widths rather than divide.
+//
+// A click past the last glyph returns the end index, which puts the caret
+// after the text. That is what a click in the empty tail of a field means
+// in every editor, and it is also what makes click-then-type work.
+func inputIndexAtColumn(rs []rune, start int, col int) int {
+    var i = MaxInt(0, start)
+    var x = 0
+    val n = rs.Size()
+    for i < n {
+        val w = RuneCellWidth(rs[i])
+        // `col < x + w` rather than `col == x`: a click on the RIGHT half
+        // of a wide glyph still selects that glyph, not the next one.
+        if col < x + w {
+            return i
+        }
+        x = x + w
+        i = i + 1
+    }
+    return n
+}
+
+// InputClick is `Input` that reports where it was clicked, as a rune index
+// into `value` — feed it back as the field's new cursor to put the caret
+// under the pointer.
+//
+//     Fixed(1, InputClick[Msg](m.Query, m.Cursor, "search",
+//                              (idx) => CaretTo(Idx = idx), true))
+//
+// The mapping resolves at render time rather than at dispatch, and it has
+// to: the field's horizontal scroll depends on the width the layout gave
+// it, which nothing knows when the widget is built. `CustomW` is the seam
+// for that — it is handed the area AND the hit registry, so the closure it
+// registers already has the scroll folded in.
+func InputClick[T any](
+    value string,
+    cursor int,
+    placeholder string,
+    onIndex func(int) T,
+    focused bool = false,
+) Widget {
+    val inner = Input(value, cursor, placeholder, focused)
+    return CustomW(
+        MinW = MaxInt(RuneCount(value), RuneCount(placeholder)),
+        MinH = 1,
+        Render = (area, buf, hits) => {
+            if hits != nil {
+                val rs = ToRunes(value)
+                val start = inputWindowStart(rs, clampInt(cursor, 0, rs.Size()), area.Width)
+                hits.RegisterAt(area, (col, _) =>
+                    any(onIndex(inputIndexAtColumn(rs, start, col))))
+            }
+            renderToInternal(inner, area, buf, hits)
+        },
+    )
+}
+
 // drawInputCaret inverts one cell in place, keeping whatever glyph is there
 // so the caret reads as sitting on the character rather than replacing it.
 func drawInputCaret(x int, y int, style Style, buf *Buffer) {
