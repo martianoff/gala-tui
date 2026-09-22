@@ -3,6 +3,7 @@ package gala_tui
 import (
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
+    . "martianoff/gala/std"
 )
 
 // ============================================================================
@@ -58,6 +59,25 @@ sealed type Shape {
     case ShapeRect(X float64, Y float64, Width float64, Height float64, Style Style)
     case ShapeCircle(X float64, Y float64, Radius float64, Style Style)
     case ShapePoints(Pts Array[CanvasPoint], Style Style)
+    // ShapeFilledLine is ShapeLine plus the band between it and `YRef` — an
+    // area chart's shape. Filling under a series is what separates "this
+    // much, over time" from "this value, over time": the eye reads the area
+    // as a quantity, which is exactly wrong for a temperature and exactly
+    // right for a throughput.
+    //
+    // `YRef` is a coordinate rather than "the bottom", so a series can be
+    // filled to a baseline that means something — zero on an axis that goes
+    // negative, a budget line, a previous run's average. Above and below it
+    // fill the same way; the band is between the line and the reference,
+    // whichever is higher.
+    case ShapeFilledLine(
+        X1 float64,
+        Y1 float64,
+        X2 float64,
+        Y2 float64,
+        YRef float64,
+        Style Style,
+    )
     // ShapeLabel is text, which cannot be sub-cell: it is drawn at the cell
     // containing (X, Y), after every dot shape, so a label is never buried
     // under the series it annotates.
@@ -81,6 +101,30 @@ func Canvas(x Bounds, y Bounds, marker CanvasMarker, shapes Array[Shape]) Widget
 // CanvasOf is the common case: braille markers over the given bounds.
 func CanvasOf(x Bounds, y Bounds, shapes Array[Shape]) Widget =
     Canvas(x, y, BrailleMarker(), shapes)
+
+// FilledSeriesOf builds the chain of filled segments for a series held as
+// parallel x / y arrays — an area chart, from the shape a caller has.
+//
+// One segment per adjacent pair, so the shared endpoints meet without a
+// seam. Like `PointsOf` it takes the shorter of the two arrays: parallel
+// arrays are one refactor away from disagreeing about their length, and the
+// shorter one is the only honest bound.
+func FilledSeriesOf(
+    xs Array[float64],
+    ys Array[float64],
+    yRef float64,
+    style Style,
+) Array[Shape] {
+    val n = MinInt(xs.Length(), ys.Length())
+    return ArrayTabulate(MaxInt(0, n - 1), (i) => ShapeFilledLine(
+        X1 = xs.Get(i),
+        Y1 = ys.Get(i),
+        X2 = xs.Get(i + 1),
+        Y2 = ys.Get(i + 1),
+        YRef = yRef,
+        Style = style,
+    ))
+}
 
 // PointsOf builds a ShapePoints from parallel x / y arrays — the shape a
 // caller usually has when plotting a series.
@@ -233,10 +277,11 @@ func renderCanvas(
                 ), buf)
             }
         }
-        case ShapeLine(_, _, _, _, _)   => {}
-        case ShapeRect(_, _, _, _, _)   => {}
-        case ShapeCircle(_, _, _, _)    => {}
-        case ShapePoints(_, _)          => {}
+        case ShapeLine(_, _, _, _, _)         => {}
+        case ShapeRect(_, _, _, _, _)         => {}
+        case ShapeCircle(_, _, _, _)          => {}
+        case ShapePoints(_, _)                => {}
+        case ShapeFilledLine(_, _, _, _, _, _)  => {}
     })
 }
 
@@ -262,26 +307,183 @@ func rasterShape(
         case ShapeCircle(cx, cy, r, style) => plotCircle(g, cx, cy, r, toGx, toGy, style)
         case ShapePoints(pts, style) =>
             pts.ForEach((p) => g.plot(toGx(p.X), toGy(p.Y), style))
+        case ShapeFilledLine(x1, y1, x2, y2, yRef, style) =>
+            plotFilledLine(g, toGx(x1), toGy(y1), toGx(x2), toGy(y2),
+                           toGy(yRef), style)
         // Labels are text and are drawn after the glyph pass.
         case ShapeLabel(_, _, _, _) => {}
     }
 }
 
+// plotFilledLine draws the segment and the band between it and row `yRef`.
+//
+// Column by column rather than Bresenham: a fill needs the line's row at
+// every column it covers, which is what an interpolation gives directly and
+// what Bresenham's error term only passes through. The two agree on the
+// endpoints, and a filled line's outline is the fill's own top edge, so the
+// slight difference in which cells a steep segment lights is invisible
+// under the band.
+//
+// A vertical segment has no columns to walk: it fills the one column it
+// occupies, between whichever of its endpoints and `yRef` are extreme.
+// Both loops are clipped to the grid before they run, which for every other
+// shape is `plot`'s job alone. A fill cannot afford that: `plot` discards an
+// off-grid dot, but only after the loop has counted its way there, and a
+// fill's loops are nested. The coordinates arriving here are projections of
+// the caller's own units with no bound on their magnitude — a byte count
+// against auto-scaled bounds puts `YRef = 0.0` tens of thousands of rows
+// below the canvas — so an unclipped version costs millions of discarded
+// plots per frame in the ordinary case and effectively hangs on a shape
+// placed far off-canvas. `plotLine` has its own version of this guard in
+// the `limit` its Bresenham walk counts against.
+func plotFilledLine(
+    g *canvasGrid,
+    x1 int,
+    y1 int,
+    x2 int,
+    y2 int,
+    yRef int,
+    style Style,
+) {
+    // A vertical segment has no columns to interpolate across, and the
+    // general path below would divide by zero — `int(NaN)` is whatever the
+    // platform makes of it, which then becomes a loop bound. It also draws
+    // something the general path cannot: the segment's own extent inside one
+    // column, which is what keeps a chained series unbroken wherever two
+    // adjacent points land in the same column.
+    if x1 == x2 {
+        fillColumn(g, x1, MinInt(y1, y2), MaxInt(MaxInt(y1, y2), yRef), style)
+        return
+    }
+    // The walk is clipped; the slope is not. It is taken from the segment's
+    // true endpoints, so the visible part of a line that starts off-canvas
+    // keeps the angle the caller asked for rather than one refitted to
+    // whatever survived.
+    val (lo, hi) = gridSpan(x1, x2, g.W)
+    // Float, and hoisted: both operands are unbounded projections, so the
+    // integer form would multiply before dividing and wrap two large
+    // coordinates into a garbage row.
+    val slope = float64(y2 - y1) / float64(x2 - x1)
+    var gx = lo
+    for gx <= hi {
+        val gy = y1 + int(slope * float64(gx - x1))
+        fillColumn(g, gx, MinInt(gy, yRef), MaxInt(gy, yRef), style)
+        gx = gx + 1
+    }
+}
+
+// fillColumn plots every grid row from `top` to `bottom` inclusive, clipped
+// to the grid — see `plotFilledLine` for why this one clips rather than
+// leaving it to `plot`.
+func fillColumn(g *canvasGrid, gx int, top int, bottom int, style Style) {
+    val (first, last) = gridSpan(top, bottom, g.H)
+    var gy = first
+    for gy <= last {
+        g.plot(gx, gy, style)
+        gy = gy + 1
+    }
+}
+
+// gridSpan clips the unordered span [a, b] to [0, n-1]. A span that misses
+// the grid entirely comes back with lo > hi, which every caller reads as
+// "walk nothing" — the asymmetry is the point, and is why `clampInt` cannot
+// stand in here: clamping both ends of a span that sits past the right edge
+// would fold it onto the last column and paint an edge that is not there.
+func gridSpan(a int, b int, n int) Tuple[int, int] =
+    (MaxInt(0, MinInt(a, b)), MinInt(n - 1, MaxInt(a, b)))
+
+// clipSegment trims a segment to the grid, parametrically, leaving its line
+// alone: the returned endpoints sit on the same infinite line as the
+// originals, so a shape that runs off the canvas keeps the slope the caller
+// asked for and merely starts and stops at the edge.
+//
+// Liang-Barsky, in floats because the inputs are projections of the caller's
+// own units and have no bound on their magnitude.
+struct clippedSegment(X1 int, Y1 int, X2 int, Y2 int)
+
+// clipEdge is one half-plane of the grid: `P` is how fast the segment
+// approaches that edge, `Q` its signed distance from the edge at t = 0.
+struct clipEdge(P float64, Q float64)
+
+// narrowSpan shrinks the surviving parameter range by one edge, or gives it
+// up entirely. `P < 0` enters the half-plane, `P > 0` leaves it, and `P == 0`
+// runs parallel to it — surviving only if the segment already sits inside.
+//
+// None means the segment misses the grid, and it short-circuits the rest of
+// the fold: a range that has been given up cannot be narrowed back.
+func narrowSpan(
+    span Option[Tuple[float64, float64]],
+    e clipEdge,
+) Option[Tuple[float64, float64]] = span.FlatMap((r) => {
+    val (t0, t1) = r
+    if e.P == 0.0 {
+        return When(e.Q >= 0.0, (t0, t1))
+    }
+    val t = e.Q / e.P
+    if e.P < 0.0 {
+        return When(t <= t1, (if (t > t0) t else t0, t1))
+    }
+    return When(t >= t0, (t0, if (t < t1) t else t1))
+})
+
+// None for a segment that misses the grid entirely, rather than a struct
+// with a `Visible` flag: nothing makes a caller check a flag before reading
+// coordinates that mean nothing.
+func clipSegment(
+    g *canvasGrid,
+    x1 int,
+    y1 int,
+    x2 int,
+    y2 int,
+) Option[clippedSegment] {
+    val dx = float64(x2 - x1)
+    val dy = float64(y2 - y1)
+    return ArrayOf(
+        clipEdge(P = -dx, Q = float64(x1)),
+        clipEdge(P = dx,  Q = float64(g.W - 1 - x1)),
+        clipEdge(P = -dy, Q = float64(y1)),
+        clipEdge(P = dy,  Q = float64(g.H - 1 - y1)),
+    ).FoldLeft(Some[Tuple[float64, float64]]((0.0, 1.0)), narrowSpan).Map((r) => {
+        val (t0, t1) = r
+        return clippedSegment(
+            X1 = x1 + int(t0 * dx),
+            Y1 = y1 + int(t0 * dy),
+            X2 = x1 + int(t1 * dx),
+            Y2 = y1 + int(t1 * dy),
+        )
+    })
+}
+
 // plotLine is Bresenham in grid space. Integer-only, so it neither
 // accumulates float error along a long line nor needs a sqrt per step.
+//
+// Clipped to the grid before the walk starts. `plot` discards an off-grid
+// dot, but a Bresenham walk visits one dot per step, and the coordinates
+// arriving here are projections with no bound on their magnitude — a line
+// from a million units off-canvas onto it would step sixteen million times
+// to light a handful of dots, and `ShapeRect` pays that four times over.
+// The `limit` below is a termination guard sized by the walk itself; it
+// stops a malformed walk from running forever, but it is not a clamp to the
+// canvas and never was.
 func plotLine(g *canvasGrid, x1 int, y1 int, x2 int, y2 int, style Style) {
-    var x = x1
-    var y = y1
-    val dx = AbsInt(x2 - x1)
-    val dy = -AbsInt(y2 - y1)
-    val sx = if (x1 < x2) 1 else -1
-    val sy = if (y1 < y2) 1 else -1
+    clipSegment(g, x1, y1, x2, y2).ForEach((seg) => plotClippedLine(g, seg, style))
+}
+
+// plotClippedLine is the Bresenham walk itself, over endpoints already known
+// to sit on the grid.
+func plotClippedLine(g *canvasGrid, seg clippedSegment, style Style) {
+    var x = seg.X1
+    var y = seg.Y1
+    val dx = AbsInt(seg.X2 - seg.X1)
+    val dy = -AbsInt(seg.Y2 - seg.Y1)
+    val sx = if (seg.X1 < seg.X2) 1 else -1
+    val sy = if (seg.Y1 < seg.Y2) 1 else -1
     var err = dx + dy
     var guard = 0
     val limit = (dx - dy) + 2
     for guard <= limit {
         g.plot(x, y, style)
-        if x == x2 && y == y2 {
+        if x == seg.X2 && y == seg.Y2 {
             return
         }
         val e2 = 2 * err

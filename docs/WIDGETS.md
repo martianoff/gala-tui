@@ -109,11 +109,40 @@ Shapes in your own coordinate space, at sub-cell resolution. Braille packs
 | `CanvasOf(x, y, shapes)` | `(Bounds, Bounds, Array[Shape]) Widget` | Braille, the usual choice. |
 | `XBounds(min, max)` / `YBounds(min, max)` | `(float64, float64) Bounds` | The caller's coordinate range per axis. |
 | `PointsOf(xs, ys, style)` | `(Array[float64], Array[float64], Style) Shape` | Build a series from parallel arrays. |
+| `FilledSeriesOf(xs, ys, yRef, style)` | `(Array[float64], Array[float64], float64, Style) Array[Shape]` | An area series: one `ShapeFilledLine` per adjacent pair, filled to `yRef`. |
 
-Shapes: `ShapeLine`, `ShapeRect` (outline), `ShapeCircle`, `ShapePoints`,
-`ShapeLabel`. Each carries its own `Style`, so one canvas holds a dim grid, a
-bright series and a labelled axis. Only lit cells are written, so a canvas
-composes over whatever is beneath it.
+Shapes: `ShapeLine`, `ShapeFilledLine`, `ShapeRect` (outline), `ShapeCircle`,
+`ShapePoints`, `ShapeLabel`. Each carries its own `Style`, so one canvas holds
+a dim grid, a bright series and a labelled axis. Only lit cells are written, so
+a canvas composes over whatever is beneath it.
+
+`ShapeFilledLine(X1, Y1, X2, Y2, YRef, Style)` is `ShapeLine` plus the band
+between it and `YRef` — an area chart. The reference is a coordinate, not "the
+bottom", so a series can be filled to a baseline that means something: zero on
+an axis that goes negative, a budget line, last run's average. It fills the
+same way above and below. Reach for it when the area reads as a quantity
+(throughput, bytes, requests) and for a plain `ShapeLine` when it does not (a
+temperature, a percentage).
+
+For a whole series, `FilledSeriesOf(xs, ys, yRef, style)` builds the chain —
+one segment per adjacent pair, meeting at their shared endpoints with no seam.
+It is `PointsOf`'s sibling and takes the shorter of the two arrays for the same
+reason:
+
+```gala
+CanvasOf(XBounds(0.0, 60.0), YBounds(0.0, maxRps),
+         FilledSeriesOf(seconds, rps, 0.0, dim))
+```
+
+The `Chart` API has no filled dataset yet — an area series means reaching for
+the canvas directly, as above.
+
+Two notes on fills specifically. **Pick a marker that tiles**: braille,
+half-block and block all render a fill as solid; `DotMarker` turns one into a
+field of `•` that reads worse than the bare line, so keep it for sparse point
+series. And the fill and its outline share one `Style` — for a bright edge over
+a dim band, draw a `ShapeLine` *after* the `ShapeFilledLine`, since a canvas
+cell takes the style of the last shape to light it.
 
 ```gala
 CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](
@@ -124,7 +153,10 @@ CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](
 ```
 
 Y grows **up**, as a plot's does — `Y = 0.0` on `YBounds(0.0, 1.0)` is the
-bottom row. Shapes outside the bounds clip; they do not wrap.
+bottom row. `YBounds(1.0, 0.0)` genuinely flips that, so a depth or a rank
+plots the right way up without negating the data. The degenerate pair is
+`Min == Max`: a zero span has no scale to project onto and every shape lands
+on one edge. Shapes outside the bounds clip; they do not wrap.
 
 ## Charts
 
