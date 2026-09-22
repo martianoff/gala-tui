@@ -1,0 +1,55 @@
+# A tour of the mega demo, driven entirely by scripted input — keys AND
+# mouse clicks. Columns/rows are 1-based, as a terminal reports them.
+# Coordinates were read off a recorded frame at 120x36; re-check them if the
+# layout changes.
+
+wait 1.6
+
+# --- Click around the sidebar tree: collapse and expand a branch.
+click 14 10
+wait 0.8
+click 14 13
+wait 0.8
+click 14 22
+wait 0.9
+
+# --- Click a row in the Recent Builds table.
+click 52 9
+wait 0.9
+click 52 11
+wait 0.9
+
+# --- Scroll the table under the pointer.
+scroll down 60 11
+wait 0.5
+scroll down 60 11
+wait 0.7
+scroll up 60 11
+wait 0.7
+
+# --- The command palette: fuzzy search, pick an action.
+keys Ctrl+P
+wait 0.8
+text theme
+wait 1.0
+key enter
+wait 1.1
+
+# --- Cycle themes so the colours change on camera.
+key t
+wait 0.9
+key t
+wait 0.9
+
+# --- The log drawer, then the help overlay.
+key /
+wait 1.2
+key /
+wait 0.6
+key ?
+wait 1.4
+key ?
+wait 0.7
+
+key q
+wait 0.5
