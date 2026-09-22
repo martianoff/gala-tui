@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Drive a gala-tui app through a scripted session, mouse clicks included.
 
-No recorder has mouse primitives — VHS types keys, asciinema records a human.
-But gala-tui speaks SGR mouse mode (see mouse.gala), so a click is just bytes
-on stdin: `ESC [ < btn ; col ; row M` to press and `... m` to release. That
+Recording tools replay keystrokes and have no notion of a click. But gala-tui
+speaks SGR mouse mode (see mouse.gala), so a click is just bytes: `ESC [ < btn ; col ; row M` to press and `... m` to release. That
 makes a fully scripted, reproducible session possible with no one at the
 mouse, which is the whole point: the demo can be re-recorded after a UI change
 instead of being a 10 MB artifact nobody knows how to reproduce.
@@ -16,10 +15,6 @@ size or speed without re-running the app.
     python3 tools/record/drive.py --script demo/record/tour.txt \
         --cast docs/demo.cast --cols 100 --rows 30 -- ./gala-tui
     agg docs/demo.cast docs/gala-tui-demo.gif
-
-VHS is the obvious alternative and was tried first: it needs a headless Chrome
-to screenshot ttyd, and without one it exits 0 having written nothing. agg
-renders the cast directly and is a single binary.
 
 Script lines, one action each, `#` for comments:
 

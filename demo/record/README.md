@@ -23,8 +23,8 @@ Knobs: `COLS=100 ROWS=30 demo/record/record.sh`, or `GIF=docs/other.gif`.
 
 ## How a click gets recorded
 
-This is the part that needs explaining, because no recording tool can do it.
-VHS types keys; asciinema records whatever a human does. Neither has a click.
+This is the part that needs explaining, because recording tools replay
+keystrokes and have no notion of a click.
 
 gala-tui speaks SGR mouse mode (`mouse.gala`), so a click is **just bytes on
 stdin**:
@@ -104,29 +104,6 @@ the cast holds its stderr, so read it: `head -c 400 docs/demo.cast`.
 the renderer: `agg` replays the byte stream faithfully, so a rendering bug in
 the library shows up in the GIF exactly as it would on a terminal. Recording
 this demo is how the wide-glyph drift in `Buffer.String` was found.
-
----
-
-## Why `agg`, not VHS
-
-VHS is the better-known tool and was tried first. It screenshots `ttyd`
-through a **headless Chrome**, and with no Chrome installed it prints
-`Creating demo.gif...`, exits 0, and writes nothing at all — a silent failure
-that costs an hour if you trust the exit code.
-
-`agg` renders the asciicast directly: one 15 MB binary, no browser, no ttyd.
-It also draws *text* rather than screenshotting pixels, which is why the
-output is ~900 KB where the previous hand-made GIF was 10 MB.
-
-If you want VHS anyway (its themes and window chrome are nicer), install a
-Chromium and point a `.tape` at the driver — the driver is the recorder-agnostic
-half:
-
-```
-Type "python3 tools/record/drive.py --script demo/record/tour.txt -- ./gala-tui"
-Enter
-Sleep 22s
-```
 
 ---
 

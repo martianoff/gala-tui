@@ -6,14 +6,10 @@
 # Two steps, deliberately separate:
 #
 #   1. tools/record/drive.py runs the demo under a pty, replays tour.txt
-#      (including SGR mouse clicks, which no recorder can produce on its own)
-#      and writes an asciicast — plain text, diffable, committed.
+#      (including SGR mouse clicks) and writes an asciicast — plain text,
+#      diffable, committed.
 #   2. agg renders that cast to a GIF. Re-render at any size, speed or theme
 #      without running the app again.
-#
-# VHS was the first choice and is not used: it screenshots ttyd through a
-# headless Chrome, and with no Chrome installed it exits 0 having written
-# nothing. agg needs no browser and renders the cast directly.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
