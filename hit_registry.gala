@@ -40,7 +40,22 @@ import (
 // type is sealed and adding a new HitEntry case rippled into many
 // match sites; the runtime only switches on these two flags so the
 // dispatch paths stay simple.
-struct HitEntry(R Rect, Payload any, IsDouble bool, IsDrag bool)
+// `AtPoint`, when set, computes the payload from the click's position
+// *within* the entry's rectangle — local (col, row), origin at the
+// rect's top-left. It is what a text widget needs: "which character did
+// they click" is not answerable when the widget renders, only when the
+// click lands. A nil `AtPoint` means `Payload` is the answer, which is
+// every other hit in the library.
+struct HitEntry(
+    R        Rect,
+    Payload  any,
+    // Mutable only so it can be nil: a `val` field rejects nil, and an
+    // Option of a function type is not expressible here. Nothing ever
+    // reassigns it — the registry builds an entry and never edits one.
+    var AtPoint func(int, int) any,
+    IsDouble bool,
+    IsDrag   bool,
+)
 
 // HitRegistry is the mutable accumulator.
 type HitRegistry struct {
@@ -60,7 +75,26 @@ func (h *HitRegistry) Register(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = SliceAppend(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false, IsDrag = false))
+    h.entries = SliceAppend(h.entries, HitEntry(
+        R = r, Payload = payload, AtPoint = nil, IsDouble = false, IsDrag = false))
+}
+
+// RegisterAt adds a single-click region whose payload depends on WHERE
+// inside it the click landed — `atPoint(col, row)` in coordinates local
+// to `r`. Everything else about dispatch is unchanged: same ordering,
+// same last-registered-wins, and the three HitAt* lookups share one
+// scan, so cells work for double-click and drag at no extra cost.
+func (h *HitRegistry) RegisterAt(r Rect, atPoint func(int, int) any) {
+    if r.Zero() {
+        return
+    }
+    h.entries = SliceAppend(h.entries, HitEntry(
+        // `Payload` is never read for a cell entry — `AtPoint` takes
+        // precedence in `lastPayloadAt` — but the field cannot be nil, so
+        // it carries the same closure rather than a stand-in value that
+        // would read as meaningful.
+        R = r, Payload = any(atPoint), AtPoint = atPoint,
+        IsDouble = false, IsDrag = false))
 }
 
 // RegisterDouble adds a double-click `(rect, payload)` to the registry.
@@ -72,7 +106,8 @@ func (h *HitRegistry) RegisterDouble(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = SliceAppend(h.entries, HitEntry(R = r, Payload = payload, IsDouble = true, IsDrag = false))
+    h.entries = SliceAppend(h.entries, HitEntry(
+        R = r, Payload = payload, AtPoint = nil, IsDouble = true, IsDrag = false))
 }
 
 // RegisterDrag adds a drag `(rect, payload)` to the registry. The
@@ -89,7 +124,8 @@ func (h *HitRegistry) RegisterDrag(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = SliceAppend(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false, IsDrag = true))
+    h.entries = SliceAppend(h.entries, HitEntry(
+        R = r, Payload = payload, AtPoint = nil, IsDouble = false, IsDrag = true))
 }
 
 // HitAt returns the payload of the LAST-registered single-click entry
@@ -122,6 +158,12 @@ func (h *HitRegistry) lastPayloadAt(
     for i >= 0 {
         val e = h.entries[i]
         if kindMatches(e) && e.R.Contains(x, y) {
+            // Local coordinates, so a caller reasons in "column 3 of this
+            // field" rather than in screen space it never chose. A plain
+            // entry has no AtPoint and falls back to its fixed payload.
+            if e.AtPoint != nil {
+                return Some[any](e.AtPoint(x - e.R.X, y - e.R.Y))
+            }
             return Some[any](e.Payload)
         }
         i = i - 1

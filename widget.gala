@@ -173,6 +173,12 @@ sealed type Widget {
     // `Payloads(i)` producing row `i`'s `func(DragPhase) any`.
     // Used by list / log widgets that want every row drag-selectable.
     case DraggableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
+    // ClickableCellW registers its whole rendered area as one hit whose
+    // payload is computed from the clicked CELL — `Payload(col, row)` in
+    // coordinates local to the widget. `ClickableW` answers "was this
+    // clicked"; this answers "where". A text field needs the second
+    // question, and it cannot be answered at render time.
+    case ClickableCellW(Inner Widget, Payload func(int, int) any)
     // CustomW is the escape hatch for user-authored widgets that need
     // pixel-level control. The framework hands the closure the rendered
     // area, the target Buffer, and the live HitRegistry — the user can
@@ -1320,6 +1326,12 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
+        case ClickableCellW(inner, payload) => {
+            if hits != nil {
+                hits.RegisterAt(area, payload)
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
         case DblClickableW(inner, payload) => {
             if hits != nil {
                 hits.RegisterDouble(area, payload)
@@ -2241,6 +2253,7 @@ func defaultRenderWidth(w Widget) int {
         case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderWidth(inner)
+        case ClickableCellW(inner, _)          => defaultRenderWidth(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
         case DblClickableW(inner, _)           => defaultRenderWidth(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderWidth(inner)
@@ -2282,6 +2295,7 @@ func defaultRenderHeight(w Widget) int {
         case ViewportW(_, _, _)                => 1
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderHeight(inner)
+        case ClickableCellW(inner, _)          => defaultRenderHeight(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
         case DblClickableW(inner, _)           => defaultRenderHeight(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderHeight(inner)
@@ -2350,6 +2364,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case ViewportW(_, _, contentHeight)    => contentHeight
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => IntrinsicHeightAt(inner, width)
+        case ClickableCellW(inner, _)          => IntrinsicHeightAt(inner, width)
         case ClickableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
         case DblClickableW(inner, _)           => IntrinsicHeightAt(inner, width)
         case DblClickableRowsW(inner, _, _, _) => IntrinsicHeightAt(inner, width)

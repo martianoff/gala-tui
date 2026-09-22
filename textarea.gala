@@ -347,8 +347,10 @@ func TextAreaView(t TextArea, focused bool, placeholder string) Widget {
 }
 
 // TextAreaViewClick wraps TextAreaView so a click anywhere in the
-// editor dispatches `onClick(row, col)` — the row is the line index,
-// col is the column under the cursor.
+// editor dispatches `onClick(row, col)` — the row is the line index and
+// col the column under the pointer, both local to the editor. Feed the
+// pair straight back as `TaClickAt(row, col)` to put the caret where the
+// user pointed.
 func TextAreaViewClick[T any](
     t TextArea,
     focused bool,
@@ -356,13 +358,12 @@ func TextAreaViewClick[T any](
     onClick func(int, int) T,
 ) Widget {
     val view = TextAreaView(t, focused, placeholder)
-    val rowCount = if (taIsEmpty(t) && placeholder != "") 1
-                   else t.Lines.Length()
-    // ClickableRows registers per-row hits; we capture the click's
-    // X-coordinate via a wrapper because `OnPickRow` only carries the
-    // row index. For column-precise clicks the user can call
-    // TaClickAt(row, col) directly inside their own onClick handler.
-    return view.OnPickRow[T](rowCount, (r) => onClick(r, 0))
+    // Column-precise: `OnPickCell` resolves the clicked cell at dispatch
+    // time, which is the only time it is knowable. The column is a cell
+    // offset into the rendered row, so `taClickAt` clamps it against the
+    // line's own length — clicking past the end of a short line puts the
+    // caret at its end, which is what every editor does.
+    return view.OnPickCell[T]((col, row) => onClick(row, col))
 }
 
 func taIsEmpty(t TextArea) bool =

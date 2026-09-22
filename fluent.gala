@@ -131,6 +131,24 @@ func (w Widget) OnDragPickRowH[T any](count int, rowH int, msgFor func(int, Drag
     )
 }
 
+// OnPickCell attaches a position-aware click contract: a left-click
+// dispatches `msgFor(col, row)` where the pair is the clicked cell in
+// coordinates local to this widget, origin at its top-left.
+//
+// `OnClick` says a widget was clicked and `OnPickRow` says which row.
+// This says which cell, which is the question a text widget has to ask —
+// "put the caret where I pointed" is unanswerable from a row index, and
+// a payload fixed when the widget renders cannot carry it.
+//
+//     val editor = TextAreaView(m.Draft, true, "")
+//         .OnPickCell[Msg]((col, row) => MoveCaret(Row = row, Col = col))
+func (w Widget) OnPickCell[T any](msgFor func(int, int) T) Widget {
+    // Erased to `any` for the same reason every other payload is: the
+    // Widget tree is one non-generic sealed type.
+    val erased = (col int, row int) => any(msgFor(col, row))
+    return ClickableCellW(Inner = w, Payload = erased)
+}
+
 // Padded wraps the widget in equal-margin Padding.
 func (w Widget) Padded(n int) Widget = Padding(n, w)
 
@@ -336,6 +354,8 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ClickableRowsW(inner, n, h, p)    =>
             ClickableRowsW(Inner = restyleLeaves(inner, f),
                            Count = n, RowH = h, Payloads = p)
+        case ClickableCellW(inner, payload)    =>
+            ClickableCellW(Inner = restyleLeaves(inner, f), Payload = payload)
         case DblClickableW(inner, payload)     =>
             DblClickableW(Inner = restyleLeaves(inner, f), Payload = payload)
         case DblClickableRowsW(inner, n, h, p) =>
