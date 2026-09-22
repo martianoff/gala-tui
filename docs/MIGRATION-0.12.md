@@ -1,6 +1,6 @@
 # Migrating from 0.11 to 0.12
 
-0.12 is a breaking release. Six types gained cases or fields.
+0.12 is a breaking release. Ten types gained cases or fields.
 
 **The good news about the breakage**: GALA verifies exhaustive matches and
 requires every field at construction, so **all six break at compile time**.
@@ -17,7 +17,8 @@ not announce themselves. Read that section even if your build is green.
 
 ### 1. `Widget` — new cases, and existing cases gained fields
 
-New cases: `RichTextW`, `RestyleW`, `AutoScrollW`, `CanvasW`, `CellTextW`.
+New cases: `RichTextW`, `RestyleW`, `AutoScrollW`, `CanvasW`, `CellTextW`,
+`ClickableCellW`.
 
 Existing cases whose arity changed:
 
@@ -68,7 +69,45 @@ Vertical alignment is the separate `VAlign` type (`VAlignTop` /
 `VAlignMiddle` / `VAlignBottom`), not new cases on `Align`. Existing matches
 over `Align` still compile.
 
-### 6. `DataTable.Offset` changed meaning
+### 6. `Cmd` — a new case
+
+`PrintCmd(Lines Array[string])` joined `NoCmd` / `QuitCmd` / `MsgCmd` /
+`BatchCmd` / `FutureCmd`. It puts lines into the terminal's scrollback above
+an inline viewport — see `PrintAbove` — and any exhaustive match over `Cmd`
+needs the arm. If you only ever construct commands, nothing changes.
+
+### 7. `Shape` — a new case
+
+`ShapeFilledLine(X1, Y1, X2, Y2, YRef, Style)` joined the canvas shapes: a
+line plus the band between it and a reference coordinate, i.e. an area
+chart. `FilledSeriesOf(xs, ys, yRef, style)` builds a whole series of them.
+
+### 8. `FormField` — two new fields
+
+`Masked bool` and `MaskChar rune` draw a field's value as bullets — a
+password. `Masked` composes with every existing constructor:
+`NewFieldRequired(...).Copy(Masked = true)`. `FormValue` and the field's
+validator still see what the user typed.
+
+A zero `MaskChar` reads as the default glyph, so a `FormField(...)` literal
+written before these fields existed still masks correctly.
+
+### 9. `Backend` — a new field
+
+`InsertBefore func(Array[string]) bool` is how `PrintAbove` reaches the
+terminal. It is the seam's one *optional* field: nil means "this backend
+cannot insert", which is what a `Backend` literal written before 0.12 will
+carry, and prints there are dropped rather than crashing.
+
+### 10. `HitEntry.Payload` changed type
+
+`any` became `func(int, int) any` — the click's position local to the hit
+rect. Every hit now computes its payload from where the click landed, which
+is what lets a text widget answer "which character". Registering through
+`HitRegistry.Register` / `RegisterDouble` / `RegisterDrag` is unchanged; only
+direct `HitEntry` construction breaks.
+
+### 11. `DataTable.Offset` changed meaning
 
 `0` used to mean "top". It now follows `ListW.Offset`: **`-1` means "track
 the cursor"**, and any other value is an explicit first-visible row.
@@ -258,8 +297,30 @@ every `Progress` already in a `Row`.
 
 ---
 
+### Clicking a `TextArea` moves the caret to the character, not the line
+
+`TextAreaViewClick`'s `onClick(row, col)` used to report `col = 0` for every
+click — the caret jumped to the start of the clicked line. It now reports the
+real column, as a **rune index** ready to hand straight back as
+`TaClickAt(row, col)`, with wide glyphs and the cursor row's horizontal
+scroll accounted for.
+
+If your handler ignored `col` because it was always 0, it now carries a
+value. If you worked around this by computing a column yourself, delete that
+code — it will now double-count.
+
+### Canvas lines clip before they walk
+
+A `ShapeLine` or `ShapeRect` running far off-canvas used to walk millions of
+Bresenham steps to light a handful of dots; the segment is clipped to the
+grid first now. The drawn result is the same. What changes is that a shape
+placed far outside its bounds no longer stalls the frame.
+
+---
+
 ## What did not change
 
-The Elm core — `Program`, `Cmd`, `Sub`, `Run` / `RunRich` / `RunFull` — is
-untouched, as are the `state/` helpers, the `harness/` testing API, and
-every widget constructor's signature.
+`Program`, `Sub`, and `Run` / `RunRich` / `RunFull` are untouched, as are
+the `state/` helpers, the `harness/` testing API, and every widget
+constructor's signature. `Cmd` gained a case (see above) but no existing one
+changed.
