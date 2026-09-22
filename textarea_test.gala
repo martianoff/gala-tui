@@ -319,3 +319,29 @@ func TestTextAreaClickAccountsForTheCursorRowsScroll(t T) T {
     val t1 = Eq(t, clickedCell(clickCellAt(w, 6, 2, 0, 0)).Col, 0)
     return Eq(t1, clickedCell(clickCellAt(w, 6, 2, 2, 1)).Col, 2)
 }
+
+func TestClickableTextAreaStillRestyles(t T) T {
+    // The regression this closes: wrapping the editor in a CustomW put it
+    // behind a leaf restyleLeaves does not recurse into, so `.WithFg(...)`
+    // on a clickable editor silently did nothing — where the same call on
+    // a plain TextAreaView worked.
+    val plain = TextAreaView(typedLines("hi", "x"), true, "").WithFg(BrightRed())
+    val clickable = TextAreaViewClick[TaClick](typedLines("hi", "x"), true, "",
+        (row, col) => TaClick(Row = row, Col = col)).WithFg(BrightRed())
+    val a = NewBuffer(6, 2)
+    RenderTo(plain, Rect(X = 0, Y = 0, Width = 6, Height = 2), a)
+    val b = NewBuffer(6, 2)
+    RenderTo(clickable, Rect(X = 0, Y = 0, Width = 6, Height = 2), b)
+    return IsTrue(t, ColorEq(a.StyleAt(0, 0).Fg, b.StyleAt(0, 0).Fg))
+}
+
+func TestClickableInputClaimsOnlyItsOwnRow(t T) T {
+    // A single-line field in a taller slot must let clicks through to
+    // whatever the layout put beneath it, rather than swallowing them.
+    val buf = NewBuffer(8, 3)
+    val hits = NewHitRegistry()
+    RenderToWithHits(InputClick[int]("ab", 2, "", (i) => i, true),
+                     Rect(X = 0, Y = 0, Width = 8, Height = 3), buf, hits)
+    val t1 = IsTrue(t, hits.HitAt(1, 0).IsDefined())
+    return IsTrue(t1, !hits.HitAt(1, 2).IsDefined())
+}

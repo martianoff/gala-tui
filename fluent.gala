@@ -145,8 +145,8 @@ func (w Widget) OnDragPickRowH[T any](count int, rowH int, msgFor func(int, Drag
 func (w Widget) OnPickCell[T any](msgFor func(int, int) T) Widget {
     // Erased to `any` for the same reason every other payload is: the
     // Widget tree is one non-generic sealed type.
-    val erased = (col int, row int) => any(msgFor(col, row))
-    return ClickableCellW(Inner = w, Payload = erased)
+    val erased = (_ Rect, col int, row int) => any(msgFor(col, row))
+    return ClickableCellW(Inner = w, Rows = 0, Payload = erased)
 }
 
 // Padded wraps the widget in equal-margin Padding.
@@ -354,8 +354,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ClickableRowsW(inner, n, h, p)    =>
             ClickableRowsW(Inner = restyleLeaves(inner, f),
                            Count = n, RowH = h, Payloads = p)
-        case ClickableCellW(inner, payload)    =>
-            ClickableCellW(Inner = restyleLeaves(inner, f), Payload = payload)
+        case ClickableCellW(inner, rows, payload) =>
+            ClickableCellW(Inner = restyleLeaves(inner, f),
+                           Rows = rows, Payload = payload)
         case DblClickableW(inner, payload)     =>
             DblClickableW(Inner = restyleLeaves(inner, f), Payload = payload)
         case DblClickableRowsW(inner, n, h, p) =>

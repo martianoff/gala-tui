@@ -173,12 +173,20 @@ sealed type Widget {
     // `Payloads(i)` producing row `i`'s `func(DragPhase) any`.
     // Used by list / log widgets that want every row drag-selectable.
     case DraggableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
-    // ClickableCellW registers its whole rendered area as one hit whose
-    // payload is computed from the clicked CELL — `Payload(col, row)` in
-    // coordinates local to the widget. `ClickableW` answers "was this
-    // clicked"; this answers "where". A text field needs the second
-    // question, and it cannot be answered at render time.
-    case ClickableCellW(Inner Widget, Payload func(int, int) any)
+    // ClickableCellW registers a hit whose payload is computed from the
+    // clicked CELL — `Payload(area, col, row)`, with col/row local to the
+    // widget. `ClickableW` answers "was this clicked"; this answers
+    // "where", which is the question a text widget has to ask.
+    //
+    // The payload gets the rendered `area` because a text widget cannot
+    // map a column to a character without it: a field scrolls
+    // horizontally by an amount that depends on its width, and the width
+    // is not known until layout runs.
+    //
+    // `Rows` bounds the hit to the widget's top `Rows` rows; 0 means the
+    // whole area. A single-line field claims one row, so clicks in a
+    // taller slot fall through to whatever is laid out beneath it.
+    case ClickableCellW(Inner Widget, Rows int, Payload func(Rect, int, int) any)
     // CustomW is the escape hatch for user-authored widgets that need
     // pixel-level control. The framework hands the closure the rendered
     // area, the target Buffer, and the live HitRegistry — the user can
@@ -1326,9 +1334,11 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
-        case ClickableCellW(inner, payload) => {
+        case ClickableCellW(inner, rows, payload) => {
             if hits != nil {
-                hits.RegisterAt(area, payload)
+                val h = if (rows <= 0) area.Height else MinInt(rows, area.Height)
+                val hitArea = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = h)
+                hits.RegisterAt(hitArea, (col, row) => payload(area, col, row))
             }
             renderToInternal(inner, area, buf, hits)
         }
@@ -1784,25 +1794,27 @@ func InputClick[T any](
     placeholder string,
     onIndex func(int) T,
     focused bool = false,
-) Widget {
-    val inner = Input(value, cursor, placeholder, focused)
-    return CustomW(
-        MinW = MaxInt(RuneCount(value), RuneCount(placeholder)),
-        MinH = 1,
-        Render = (area, buf, hits) => {
-            if hits != nil {
-                val rs = ToRunes(value)
-                val start = inputWindowStart(rs, clampInt(cursor, 0, rs.Size()), area.Width)
-                // One row: the field paints its top row only, and claiming
-                // the rest would swallow clicks meant for whatever the
-                // layout put below it.
-                hits.RegisterAt(
-                    Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
-                    (col, _) => any(onIndex(inputIndexAtColumn(rs, start, col))))
-            }
-            renderToInternal(inner, area, buf, hits)
-        },
-    )
+) Widget = ClickableCellW(
+    Inner = Input(value, cursor, placeholder, focused),
+    // One row: the field paints its top row only, and claiming the rest
+    // would swallow clicks meant for whatever the layout put below it.
+    Rows = 1,
+    Payload = (area Rect, col int, _ int) =>
+        inputClickPayload(value, cursor, onIndex, area, col),
+)
+
+// inputClickPayload resolves one click into a rune index, folding in the
+// horizontal scroll the field's width implies.
+func inputClickPayload[T any](
+    value string,
+    cursor int,
+    onIndex func(int) T,
+    area Rect,
+    col int,
+) any {
+    val rs = ToRunes(value)
+    val start = inputWindowStart(rs, clampInt(cursor, 0, rs.Size()), area.Width)
+    return any(onIndex(inputIndexAtColumn(rs, start, col)))
 }
 
 // drawInputCaret inverts one cell in place, keeping whatever glyph is there
@@ -2328,7 +2340,7 @@ func defaultRenderWidth(w Widget) int {
         case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderWidth(inner)
-        case ClickableCellW(inner, _)          => defaultRenderWidth(inner)
+        case ClickableCellW(inner, _, _)       => defaultRenderWidth(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
         case DblClickableW(inner, _)           => defaultRenderWidth(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderWidth(inner)
@@ -2370,7 +2382,7 @@ func defaultRenderHeight(w Widget) int {
         case ViewportW(_, _, _)                => 1
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderHeight(inner)
-        case ClickableCellW(inner, _)          => defaultRenderHeight(inner)
+        case ClickableCellW(inner, _, _)       => defaultRenderHeight(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
         case DblClickableW(inner, _)           => defaultRenderHeight(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderHeight(inner)
@@ -2439,7 +2451,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case ViewportW(_, _, contentHeight)    => contentHeight
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => IntrinsicHeightAt(inner, width)
-        case ClickableCellW(inner, _)          => IntrinsicHeightAt(inner, width)
+        case ClickableCellW(inner, _, _)       => IntrinsicHeightAt(inner, width)
         case ClickableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
         case DblClickableW(inner, _)           => IntrinsicHeightAt(inner, width)
         case DblClickableRowsW(inner, _, _, _) => IntrinsicHeightAt(inner, width)

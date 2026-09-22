@@ -357,19 +357,31 @@ func TextAreaViewClick[T any](
     focused bool,
     placeholder string,
     onClick func(int, int) T,
-) Widget {
-    val view = TextAreaView(t, focused, placeholder)
-    return CustomW(
-        MinW = defaultRenderWidth(view),
-        MinH = defaultRenderHeight(view),
-        Render = (area, buf, hits) => {
-            if hits != nil {
-                hits.RegisterAt(area, (col, row) =>
-                    any(onClick(row, taIndexAtColumn(t, row, col, area.Width, focused))))
-            }
-            renderToInternal(view, area, buf, hits)
-        },
-    )
+) Widget = ClickableCellW(
+    Inner = TextAreaView(t, focused, placeholder),
+    // The whole slot: a click below the last line is a click in the
+    // editor, and lands on the last line — which is what an editor does
+    // with the empty space under its text.
+    Rows = 0,
+    Payload = (area Rect, col int, row int) =>
+        taClickPayload(t, focused, onClick, area, col, row),
+)
+
+// taClickPayload resolves one click into the editor's own coordinates.
+//
+// The row is clamped once and the column resolved against that same
+// clamped row, so the pair handed to the caller can be used together —
+// an out-of-range row beside an in-range column is a pair that cannot.
+func taClickPayload[T any](
+    t TextArea,
+    focused bool,
+    onClick func(int, int) T,
+    area Rect,
+    col int,
+    row int,
+) any {
+    val r = clampInt(row, 0, MaxInt(0, t.Lines.Length() - 1))
+    return any(onClick(r, taIndexAtColumn(t, r, col, area.Width, focused)))
 }
 
 // taIndexAtColumn maps a clicked cell column on `row` to a rune index into
