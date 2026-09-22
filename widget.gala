@@ -652,8 +652,11 @@ func SelectListOfPick[T any](
 ) Widget = SelectListOf(labels, selected, focused)
     .OnPickRow(labels.Length(), onPick)
 
-// Input renders a single-line text input. `cursor` is the 0-based column of
-// the insertion point. Empty value shows `placeholder` in a dimmed style.
+// Input renders a single-line text input. `cursor` is the 0-based *rune
+// index* of the insertion point, clamped to the value's length — not a
+// column: the two diverge the moment the value holds a wide glyph, where
+// the end of "同期中" is rune index 3 and column 6. Empty value shows
+// `placeholder` in a dimmed style.
 //
 // `focused` (default false) brightens the typed text when this input is
 // the keyboard target.
@@ -680,6 +683,16 @@ func MaskRune() rune = '•'
 
 // MaskValue replaces every code point of `v` with `MaskRune`.
 func MaskValue(v string) string = MaskValueWith(v, MaskRune())
+
+// ResolvedMaskRune reads the zero rune as "the default".
+//
+// Not defensive padding: a GALA struct literal may omit any field, and an
+// omitted field is the zero value — a declared default does not fill it.
+// So a mask glyph threaded out of a caller's own config or theme struct
+// arrives as NUL whenever that struct was built without it, and NUL has
+// cell width 0. Masking with it draws a field that looks empty while
+// holding a secret, which is worse than any glyph.
+func ResolvedMaskRune(mask rune) rune = if (mask == rune(0)) MaskRune() else mask
 
 // MaskValueWith replaces every code point of `v` with `mask`.
 //
@@ -732,7 +745,7 @@ func InputMaskedWith(
     mask rune,
     focused bool = false,
 ) Widget {
-    val masked = MaskValueWith(value, mask)
+    val masked = MaskValueWith(value, ResolvedMaskRune(mask))
     return Input(masked, clampInt(cursor, 0, RuneCount(masked)), placeholder, focused)
 }
 
