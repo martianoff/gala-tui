@@ -651,8 +651,11 @@ func SelectListOfPick[T any](
 ) Widget = SelectListOf(labels, selected, focused)
     .OnPickRow(labels.Length(), onPick)
 
-// Input renders a single-line text input. `cursor` is the 0-based column of
-// the insertion point. Empty value shows `placeholder` in a dimmed style.
+// Input renders a single-line text input. `cursor` is the 0-based *rune
+// index* of the insertion point, clamped to the value's length — not a
+// column: the two diverge the moment the value holds a wide glyph, where
+// the end of "同期中" is rune index 3 and column 6. Empty value shows
+// `placeholder` in a dimmed style.
 //
 // `focused` (default false) brightens the typed text when this input is
 // the keyboard target.
@@ -664,6 +667,73 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
                   PlaceholderStyle = DefaultStyle().WithDim(),
                   Focused = focused)
 }
+
+// MaskRune is the default glyph a masked field shows per code point.
+//
+// U+2022, not `*`: a bullet reads as "hidden" rather than as a character
+// someone might have typed, and it is what every GUI password field a user
+// has seen uses. Its one hazard is that U+2022 is East Asian *Ambiguous* —
+// this library renders it one cell wide (see `runewidth.gala`), matching
+// xterm, iTerm2 and Alacritty, but a terminal configured ambiguous-wide
+// draws it in two. One column of error in a toast is nothing; twenty-four
+// on a password smears the frame. Pass `*` — unambiguously narrow — as the
+// `mask` argument where that matters.
+func MaskRune() rune = '•'
+
+// MaskValue replaces every code point of `v` with `mask`.
+//
+// The zero rune means `MaskRune()`, and the resolution lives here rather
+// than in a helper each caller remembers to apply, because a GALA struct
+// literal may omit any field and an omitted field is the zero value. A mask
+// glyph threaded out of a caller's own config or theme struct therefore
+// arrives as NUL whenever that struct was built without it, and NUL has
+// cell width 0 — masking with it draws a field that looks empty while
+// holding a secret. Every masking path in the library goes through this
+// function, so that outcome is unreachable rather than merely documented.
+//
+// Per code point, not per cell and not per grapheme. A mask that matched
+// the display width would publish which characters were wide; a decomposed
+// é draws two bullets, as does each half of a flag emoji. Within a field
+// that stays self-consistent — one keystroke is one code point is one
+// backspace — but a pasted secret can show more bullets than the user
+// expects.
+//
+// The count itself is published, visually and to the layout. Every password
+// field does this, and per-keystroke feedback is what makes backspace
+// usable. For a constant-width mask: `Input(MaskValue("········"), …)`.
+func MaskValue(v string, mask rune = MaskRune()) string =
+    repeatRune(if (mask == rune(0)) MaskRune() else mask, v.Size())
+
+// InputMasked is `Input` for a secret — a password, a token, an API key.
+//
+// The masking happens here, before the value reaches the widget tree,
+// rather than in the renderer. The security half of that is narrower than
+// it sounds and worth stating precisely: every sink in this library —
+// `Render`, `Snapshot`, `SnapshotStyled`, the harness — goes through a
+// `Buffer`, so renderer-time masking would keep the plaintext out of those
+// too, and the caller's own model holds it either way. What build-time
+// masking additionally protects is a dump of the view itself.
+//
+// The reason it belongs here is cost. A `Mask` field on the `InputW` case
+// would have to be threaded through every positional destructure of it —
+// five sites across widget.gala and fluent.gala — to encode a decision one
+// widget makes at one call site. This composes instead, and reuses `Input`
+// verbatim.
+//
+// For a different glyph, compose: `Input(MaskValue(v, '*'), cursor, ph,
+// focused)`. That is also how a reveal toggle is written — `if (reveal)
+// Input(v, …) else InputMasked(v, …)` — free here, and one more field on
+// `FormField`.
+//
+// `placeholder` is drawn verbatim, because an empty field holds no secret.
+// Make it a hint ("at least 12 characters") rather than anything that could
+// be mistaken for the value.
+func InputMasked(
+    value string,
+    cursor int,
+    placeholder string,
+    focused bool = false,
+) Widget = Input(MaskValue(value), cursor, placeholder, focused)
 
 // Progress renders a horizontal progress bar `[████░░░░]` — bar only.
 //
