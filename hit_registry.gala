@@ -66,11 +66,7 @@ func NewHitRegistry() *HitRegistry {
 // Out-of-area or zero-sized rects are ignored — they could never be
 // hit anyway and pruning early keeps lookup fast.
 func (h *HitRegistry) Register(r Rect, payload any) {
-    if r.Zero() {
-        return
-    }
-    h.entries = SliceAppend(h.entries, HitEntry(
-        R = r, Payload = (_ int, _ int) => payload, IsDouble = false, IsDrag = false))
+    h.RegisterAt(r, (_ int, _ int) => payload)
 }
 
 // RegisterAt adds a single-click region whose payload depends on WHERE
@@ -155,7 +151,7 @@ func (h *HitRegistry) lastPayloadAt(
         if kindMatches(e) && e.R.Contains(x, y) {
             // Local coordinates, so a caller reasons in "column 3 of this
             // field" rather than in screen space it never chose.
-            return Some[any](e.Payload(x - e.R.X, y - e.R.Y))
+            return Some(e.Payload(x - e.R.X, y - e.R.Y))
         }
         i = i - 1
     }

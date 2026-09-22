@@ -362,7 +362,7 @@ func TextAreaViewClick[T any](
     // The whole slot: a click below the last line is a click in the
     // editor, and lands on the last line — which is what an editor does
     // with the empty space under its text.
-    HitRows = 0,
+    HitRows = None[int](),
     Payload = (area Rect, col int, row int) =>
         taClickPayload(t, focused, onClick, area, col, row),
 )

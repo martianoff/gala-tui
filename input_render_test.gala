@@ -287,7 +287,7 @@ func TestInputMaskedEmptyStillShowsThePlaceholder(t T) T {
 // clickIndex renders a clickable input `width` wide and returns the rune
 // index a click at column `col` reports, or -1 if nothing registered.
 func clickIndex(value string, cursor int, width int, col int) int =
-    clickCellAt(InputClick[int](value, cursor, "", (i) => i, true), width, 1, col, 0)
+    clickCellAt(InputClick[int](value, cursor, "", (i) => i, focused = true), width, 1, col, 0)
         .Map((p) => castInt(p))
         .GetOrElse(-1)
 
@@ -331,7 +331,7 @@ func TestClickableInputClaimsOnlyItsOwnRow(t T) T {
     // whatever the layout put beneath it, rather than swallowing them.
     val buf = NewBuffer(8, 3)
     val hits = NewHitRegistry()
-    RenderToWithHits(InputClick[int]("ab", 2, "", (i) => i, true),
+    RenderToWithHits(InputClick[int]("ab", 2, "", (i) => i, focused = true),
                      Rect(X = 0, Y = 0, Width = 8, Height = 3), buf, hits)
     val t1 = IsTrue(t, hits.HitAt(1, 0).IsDefined())
     return IsTrue(t1, !hits.HitAt(1, 2).IsDefined())

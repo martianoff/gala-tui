@@ -242,13 +242,8 @@ func typedLines(first string, second string) TextArea {
     return typeInto(TextAreaUpdate(withFirst, TaInsertNewline()), second)
 }
 
-func typeInto(ta TextArea, text string) TextArea {
-    var acc = ta
-    for _, c := range text {
-        acc = TextAreaUpdate(acc, TaInsert(C = c))
-    }
-    return acc
-}
+func typeInto(ta TextArea, text string) TextArea =
+    stringRunes(text).FoldLeft(ta, (acc, c) => TextAreaUpdate(acc, TaInsert(C = c)))
 
 func TestTextAreaClickDeliversTheClickedCell(t T) T {
     // The defect this closes: the wrapper used OnPickRow, which carries a
@@ -331,4 +326,3 @@ func TestClickableTextAreaStillRestyles(t T) T {
     RenderTo(clickable, Rect(X = 0, Y = 0, Width = 6, Height = 2), b)
     return IsTrue(t, ColorEq(a.StyleAt(0, 0).Fg, b.StyleAt(0, 0).Fg))
 }
-

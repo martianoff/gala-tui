@@ -183,12 +183,16 @@ sealed type Widget {
     // horizontally by an amount that depends on its width, and the width
     // is not known until layout runs.
     //
-    // `HitRows` caps the hit at the widget's top `HitRows` rows; 0 means
-    // the whole area. Not `ClickableRowsW`'s `Count`, which slices an
-    // area into N separate hits — this bounds one. A single-line field
-    // claims one row, so clicks in a taller slot fall through to whatever
-    // the layout put beneath it.
-    case ClickableCellW(Inner Widget, HitRows int, Payload func(Rect, int, int) any)
+    // `HitRows` caps the hit at the widget's top N rows; None claims the
+    // whole area. Not `ClickableRowsW`'s `Count`, which slices an area
+    // into N separate hits — this bounds one. A single-line field claims
+    // one row, so clicks in a taller slot fall through to whatever the
+    // layout put beneath it.
+    //
+    // An Option rather than 0-means-unbounded: a row count is data, and a
+    // marker value hidden in it is the shape `HitEntry` was just cleaned
+    // of.
+    case ClickableCellW(Inner Widget, HitRows Option[int], Payload func(Rect, int, int) any)
     // CustomW is the escape hatch for user-authored widgets that need
     // pixel-level control. The framework hands the closure the rendered
     // area, the target Buffer, and the live HitRegistry — the user can
@@ -1338,7 +1342,7 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         }
         case ClickableCellW(inner, hitRows, payload) => {
             if hits != nil {
-                val h = if (hitRows <= 0) area.Height else MinInt(hitRows, area.Height)
+                val h = hitRows.Map((n) => MinInt(n, area.Height)).GetOrElse(area.Height)
                 val hitArea = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = h)
                 hits.RegisterAt(hitArea, (col, row) => payload(area, col, row))
             }
@@ -1806,7 +1810,7 @@ func InputClick[T any](
     Inner = Input(value, cursor, placeholder, focused),
     // One row: the field paints its top row only, and claiming the rest
     // would swallow clicks meant for whatever the layout put below it.
-    HitRows = 1,
+    HitRows = Some(1),
     Payload = (area Rect, col int, _ int) =>
         inputClickPayload(value, cursor, onIndex, area, col),
 )
