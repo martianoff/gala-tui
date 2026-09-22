@@ -70,6 +70,10 @@ The bundled demo is a build-server dashboard that exercises every widget on
 screen at once — sortable DataTable, collapsible Tree, command palette,
 confirm modal, line/bar/sparkline charts, themes, and the log drawer.
 
+The GIF above is recorded from a committed script — keystrokes *and* mouse
+clicks — so it can be regenerated after a UI change rather than re-shot by
+hand. See [demo/record/README.md](demo/record/README.md).
+
 ### Keys
 
 | Key | Action |
