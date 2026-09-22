@@ -666,19 +666,37 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
                   Focused = focused)
 }
 
-// maskRune is the glyph a masked field shows in place of each character.
+// MaskRune is the default glyph a masked field shows per code point.
 //
 // U+2022, not `*`: a bullet reads as "hidden" rather than as a character
-// someone might have typed, and it is what every terminal password prompt a
-// user has seen uses.
-func maskRune() rune = '•'
+// someone might have typed, and it is what every GUI password field a user
+// has seen uses. Its one hazard is that U+2022 is East Asian *Ambiguous* —
+// this library renders it one cell wide (see `runewidth.gala`), matching
+// xterm, iTerm2 and Alacritty, but a terminal configured ambiguous-wide
+// draws it in two. One column of error in a toast is nothing; twenty-four
+// on a password smears the frame. That is what `MaskValueWith` is for: `*`
+// is unambiguously narrow everywhere.
+func MaskRune() rune = '•'
 
-// MaskValue replaces every character of `v` with the mask glyph.
+// MaskValue replaces every code point of `v` with `MaskRune`.
+func MaskValue(v string) string = MaskValueWith(v, MaskRune())
+
+// MaskValueWith replaces every code point of `v` with `mask`.
 //
-// Per character, not per cell. A masked CJK password comes out narrower
-// than the text it hides, which is the point: matching the width would
-// publish which characters were wide.
-func MaskValue(v string) string = strings.Repeat(string(maskRune()), RuneCount(v))
+// Per code point, not per cell — a masked CJK password comes out narrower
+// than the text it hides, and that is deliberate: a mask that matched the
+// display width would publish which characters were wide. It is also not
+// per *grapheme*: a decomposed é is two code points and draws two bullets,
+// as does each half of a flag emoji. Within a field that is self-consistent
+// — one keystroke is one bullet is one backspace — but a pasted secret can
+// show more bullets than the user thinks they pasted.
+//
+// The count itself is published, visually and to the layout. Every password
+// field does this, and per-keystroke feedback is what makes backspace
+// usable. A caller who wants a constant-width mask has this function:
+// `Input(MaskValue("········"), …)`.
+func MaskValueWith(v string, mask rune) string =
+    strings.Repeat(string(mask), RuneCount(v))
 
 // InputMasked is `Input` for a secret — a password, a token, an API key.
 //
@@ -687,18 +705,34 @@ func MaskValue(v string) string = strings.Repeat(string(maskRune()), RuneCount(v
 // value this library encourages callers to snapshot, diff and log, and a
 // tree that carried the real password would put it in every one of those.
 // What the caller hands over is what could leak, so nothing downstream ever
-// holds it.
+// holds it. The cost of that choice is that a reveal toggle cannot be a
+// free addition later — showing the secret means putting it back in the
+// tree, which is the thing being prevented.
 //
-// The caret sits at `cursor` characters in, clamped to the value's length —
-// a caller threading a cursor from an editor cannot push it past the end of
-// what is drawn.
+// `placeholder` is drawn verbatim, because an empty field holds no secret.
+// Make it a hint ("at least 12 characters") rather than anything that could
+// be mistaken for the value.
+//
+// The caret sits at `cursor` code points in, clamped to the value's length,
+// so a caller threading a cursor from its own editor cannot push it past
+// the end of what is drawn.
 func InputMasked(
     value string,
     cursor int,
     placeholder string,
     focused bool = false,
+) Widget = InputMaskedWith(value, cursor, placeholder, MaskRune(), focused)
+
+// InputMaskedWith is `InputMasked` with the mask glyph spelled out — see
+// `MaskRune` for when the default is the wrong one.
+func InputMaskedWith(
+    value string,
+    cursor int,
+    placeholder string,
+    mask rune,
+    focused bool = false,
 ) Widget {
-    val masked = MaskValue(value)
+    val masked = MaskValueWith(value, mask)
     return Input(masked, clampInt(cursor, 0, RuneCount(masked)), placeholder, focused)
 }
 

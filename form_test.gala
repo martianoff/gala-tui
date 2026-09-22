@@ -184,7 +184,7 @@ func runeArr(s string) Array[rune] {
 
 func maskedForm() FormState = NewForm(ArrayOf[FormField](
     NewFieldRequired("user", "User", "who"),
-    NewFieldRequired("pass", "Password", "secret").Copy(Masked = true),
+    NewFieldRequired("pass", "Password", "at least 12 chars").Copy(Masked = true),
 ))
 
 func TestMaskedFieldRendersBulletsNotTheValue(t T) T {
@@ -233,6 +233,69 @@ func TestUnmaskedFieldsAreUnaffected(t T) T {
                  "a plain field stopped rendering its value")
 }
 
+func TestAMaskedFieldsPlaceholderIsDrawnVerbatim(t T) T {
+    // Not a defect — an empty field holds no secret, and a form that hid its
+    // own prompt would be unusable. Pinned because it is the trap: a
+    // placeholder that looks like a sample password reads as the value.
+    val out = Render(FormView(maskedForm(), true))
+    return EqMsg(t, strings.Contains(out, "at least 12 chars"), true,
+                 "a masked field stopped showing its placeholder")
+}
+
+func TestAValidatorThatQuotesTheValueLeaksIt(t T) T {
+    // The one hole in "the tree never holds the secret", pinned so it is a
+    // documented contract rather than a surprise. The validator is handed
+    // the plaintext — it has to be, that is what it validates — and its
+    // message is drawn as given. A validator that echoes its input puts the
+    // secret back on screen, and masking cannot stop it.
+    val echoing = (v string) => if (v == "") None[string]() else Some[string]("bad: " + v)
+    val f0 = NewForm(ArrayOf[FormField](
+        NewFieldValidated("pass", "Password", "", echoing).Copy(Masked = true),
+    ))
+    var f = f0
+    f = FormUpdate(f, FEChar(C = 'x'))
+    f = FormUpdate(f, FEChar(C = 'y'))
+    val out = Render(FormView(f, true))
+    val t1 = EqMsg(t, strings.Contains(out, "••"), true, "the value was not masked")
+    return EqMsg(t1, strings.Contains(out, "bad: xy"), true,
+                 "the contract changed: validator messages are no longer verbatim")
+}
+
+func TestMaskedFieldDrawsTheCallersMaskChar(t T) T {
+    // A terminal configured East-Asian-ambiguous-wide draws the default
+    // bullet in two cells, which smears a frame across a long password.
+    val f0 = NewForm(ArrayOf[FormField](
+        NewFieldRequired("pass", "Password", "").Copy(Masked = true, MaskChar = '*'),
+    ))
+    var f = f0
+    f = FormUpdate(f, FEChar(C = 'a'))
+    f = FormUpdate(f, FEChar(C = 'b'))
+    val out = Render(FormView(f, true))
+    val t1 = EqMsg(t, strings.Contains(out, "**"), true, "the mask glyph was ignored")
+    return EqMsg(t1, strings.Contains(out, "••"), false, "the default mask was drawn anyway")
+}
+
+func TestMaskedFormFieldMasksInTheBufferNotJustTheString(t T) T {
+    // Render() is a string; the buffer is what a terminal receives. Assert
+    // the cells directly so a renderer change cannot quietly unmask.
+    var f = maskedForm()
+    f = FormUpdate(f, FENext())
+    f = FormUpdate(f, FEChar(C = 'q'))
+    f = FormUpdate(f, FEChar(C = 'w'))
+    val buf = NewBuffer(24, 8)
+    RenderTo(FormView(f, true), Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
+    var found = false
+    var y = 0
+    for y < 8 {
+        if strings.Contains(BufferText(buf, y), "••") { found = true }
+        if strings.Contains(BufferText(buf, y), "qw") {
+            return EqMsg(t, "plaintext in the buffer", "bullets", "row " + string(rune(48 + y)))
+        }
+        y = y + 1
+    }
+    return EqMsg(t, found, true, "no masked row was painted")
+}
+
 func TestMaskingComposesWithEveryFieldConstructor(t T) T {
     // The reason Masked is a field rather than a constructor: it has to
     // compose with required and validated fields, which is most of what a
@@ -244,4 +307,25 @@ func TestMaskingComposesWithEveryFieldConstructor(t T) T {
     val t1 = IsTrue(t, plain.Masked)
     val t2 = IsTrue(t1, required.Masked)
     return IsTrue(t2, validated.Masked)
+}
+
+func TestAFieldLiteralWithoutMaskCharStillMasks(t T) T {
+    // A struct-field default does not apply to a literal that omits the
+    // field, so every FormField written before MaskChar existed carries the
+    // zero rune. Without the fallback, switching such a field to Masked
+    // would draw the password as a run of NULs — an invisible field that
+    // looks empty while holding a secret.
+    val legacy = FormField(
+        Name        = "pass",
+        Label       = "Password",
+        Value       = "",
+        Placeholder = "",
+        Validator   = (_) => None[string](),
+    ).Copy(Masked = true)
+    var f = NewForm(ArrayOf[FormField](legacy))
+    f = FormUpdate(f, FEChar(C = 'a'))
+    f = FormUpdate(f, FEChar(C = 'b'))
+    val out = Render(FormView(f, true))
+    return EqMsg(t, strings.Contains(out, "••"), true,
+                 "a field built without MaskChar drew no visible mask")
 }

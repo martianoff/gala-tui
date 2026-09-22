@@ -204,3 +204,35 @@ func TestInputMaskedEmptyStillShowsThePlaceholder(t T) T {
     return EqMsg(t, strings.HasPrefix(BufferText(buf, 0), "password"), true,
                  "an empty masked field hid its placeholder")
 }
+
+func TestInputMaskedWithDrawsTheCallersGlyph(t T) T {
+    val buf = NewBuffer(8, 1)
+    RenderTo(InputMaskedWith("abc", 3, "", '*', true),
+             Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
+    return Eq(t, BufferText(buf, 0), "***     ")
+}
+
+func TestInputMaskedCaretSitsWhereTheCursorPoints(t T) T {
+    // A caller with arrow keys puts the caret mid-secret; bullets either
+    // side, caret on the bullet it names.
+    val buf = NewBuffer(10, 1)
+    RenderTo(InputMasked("abcdef", 2, "", true),
+             Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
+    val t1 = IsTrue(t, buf.StyleAt(2, 0).Reverse)
+    return IsTrue(t1, !buf.StyleAt(3, 0).Reverse)
+}
+
+func TestInputMaskedClampsANegativeCursor(t T) T {
+    val buf = NewBuffer(8, 1)
+    RenderTo(InputMasked("ab", -5, "", true),
+             Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
+    return IsTrue(t, buf.StyleAt(0, 0).Reverse)
+}
+
+func TestMaskValueCountsCodePointsNotGraphemes(t T) T {
+    // A decomposed é is two code points and draws two bullets. Documented
+    // rather than fixed: within a field it stays self-consistent, because
+    // one keystroke is one code point is one backspace.
+    val t1 = Eq(t, MaskValue("é"), "••")
+    return Eq(t1, MaskValue("é"), "•")
+}

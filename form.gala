@@ -31,7 +31,27 @@ struct FormField(
     // `NewFieldRequired(...).Copy(Masked = true)` is the password case, and
     // a validated one is the same move. `Value` and `FormValue` still hand
     // back what the user typed; only the drawing changes.
+    //
+    // Two things a masked field does NOT hide, both by design and both
+    // worth knowing before writing one:
+    //
+    //   - `Placeholder` is drawn verbatim. An empty field holds no secret,
+    //     so the hint is shown — make it a hint, not a sample value.
+    //   - `Validator` receives the plaintext, and its message is drawn as
+    //     given. A validator that quotes what it rejected ("'hunter2' is
+    //     too short") puts the secret straight back into the widget tree,
+    //     undoing everything masking is for. Describe the rule, never the
+    //     value.
     Masked    bool = false,
+    // MaskChar is the glyph `Masked` draws. See `MaskRune` for why a CJK
+    // locale may want `*` instead of the default bullet.
+    //
+    // The zero rune means `MaskRune()`. That is not belt and braces: a
+    // struct-field default does NOT apply to a literal that omits the
+    // field, so any `FormField(...)` written before this field existed
+    // carries NUL here — and without the fallback, turning on `Masked`
+    // would draw a password as nothing at all.
+    MaskChar  rune = '•',
 )
 
 // NewField builds a field with no validator — always valid.
@@ -43,6 +63,7 @@ func NewField(name string, label string, placeholder string) FormField =
         Placeholder = placeholder,
         Validator   = (_) => None[string](),
         Masked      = false,
+        MaskChar    = MaskRune(),
     )
 
 // NewFieldRequired marks the field as "non-empty required".
@@ -54,6 +75,7 @@ func NewFieldRequired(name string, label string, placeholder string) FormField =
         Placeholder = placeholder,
         Validator   = requiredValidator,
         Masked      = false,
+        MaskChar    = MaskRune(),
     )
 
 func requiredValidator(v string) Option[string] {
@@ -76,6 +98,8 @@ func NewFieldValidated(
         Value       = "",
         Placeholder = placeholder,
         Validator   = validator,
+        Masked      = false,
+        MaskChar    = MaskRune(),
     )
 
 // ----------------------------------------------------------------------------
@@ -231,6 +255,11 @@ func FormView(f FormState, formFocused bool = false) Widget {
     return Column(children)
 }
 
+// fieldMaskChar resolves a field's mask glyph, reading the zero rune as
+// "the default" — see `FormField.MaskChar`.
+func fieldMaskChar(fld FormField) rune =
+    if (fld.MaskChar == rune(0)) MaskRune() else fld.MaskChar
+
 // formInput renders a single input widget. `active` = "this is the current
 // field within the form". `formFocused` = "the form itself owns the keyboard".
 // When both are true, the field is rendered with the bright-cursor accent.
@@ -245,7 +274,7 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
     // Masked here rather than in the renderer, for the reason InputMasked
     // gives: the widget tree is a value callers snapshot and log, so the
     // secret must not reach it.
-    val shown = if (fld.Masked) MaskValue(fld.Value) else fld.Value
+    val shown = if (fld.Masked) MaskValueWith(fld.Value, fieldMaskChar(fld)) else fld.Value
     return InputW(
         Value            = shown,
         Cursor           = RuneCount(shown),
