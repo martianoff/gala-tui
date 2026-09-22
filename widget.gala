@@ -1769,6 +1769,15 @@ func inputIndexAtColumn(rs []rune, start int, col int) int {
 // it, which nothing knows when the widget is built. `CustomW` is the seam
 // for that — it is handed the area AND the hit registry, so the closure it
 // registers already has the scroll folded in.
+//
+// Known limitation, in a scrolled field: the reported index is right, but
+// the view moves under the pointer. `inputWindowStart` derives the window
+// from the cursor alone and returns the smallest start that fits, pinning
+// the caret to the right edge — so setting the cursor to the clicked rune
+// re-renders with a different window, and a second click at the same
+// coordinate is a different character. Fixing it means making the scroll
+// offset caller state rather than deriving it, which is a change to
+// `Input` itself.
 func InputClick[T any](
     value string,
     cursor int,
@@ -1784,8 +1793,12 @@ func InputClick[T any](
             if hits != nil {
                 val rs = ToRunes(value)
                 val start = inputWindowStart(rs, clampInt(cursor, 0, rs.Size()), area.Width)
-                hits.RegisterAt(area, (col, _) =>
-                    any(onIndex(inputIndexAtColumn(rs, start, col))))
+                // One row: the field paints its top row only, and claiming
+                // the rest would swallow clicks meant for whatever the
+                // layout put below it.
+                hits.RegisterAt(
+                    Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1),
+                    (col, _) => any(onIndex(inputIndexAtColumn(rs, start, col))))
             }
             renderToInternal(inner, area, buf, hits)
         },

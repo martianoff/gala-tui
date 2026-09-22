@@ -57,6 +57,11 @@ struct HitEntry(
     IsDrag   bool,
 )
 
+// cellHitMarker fills the unread `Payload` of a position-aware entry. A
+// private zero-field type: it cannot be confused with an app's Msg, and
+// `castPayloadOrSkip` drops it rather than dispatching it.
+struct cellHitMarker()
+
 // HitRegistry is the mutable accumulator.
 type HitRegistry struct {
     var entries []HitEntry
@@ -82,8 +87,14 @@ func (h *HitRegistry) Register(r Rect, payload any) {
 // RegisterAt adds a single-click region whose payload depends on WHERE
 // inside it the click landed — `atPoint(col, row)` in coordinates local
 // to `r`. Everything else about dispatch is unchanged: same ordering,
-// same last-registered-wins, and the three HitAt* lookups share one
-// scan, so cells work for double-click and drag at no extra cost.
+// same last-registered-wins.
+//
+// Single-click only, for now. `lastPayloadAt` applies `AtPoint` whatever
+// the entry's kind, so the mechanism generalises — but there is no
+// `RegisterDoubleAt` or `RegisterDragAt` yet, and a double-click or drag
+// entry therefore still carries a fixed payload. Those belong with
+// selection (drag-to-select, double-click-to-select-word), which needs a
+// selection anchor in the model first.
 func (h *HitRegistry) RegisterAt(r Rect, atPoint func(int, int) any) {
     if r.Zero() {
         return
@@ -91,9 +102,11 @@ func (h *HitRegistry) RegisterAt(r Rect, atPoint func(int, int) any) {
     h.entries = SliceAppend(h.entries, HitEntry(
         // `Payload` is never read for a cell entry — `AtPoint` takes
         // precedence in `lastPayloadAt` — but the field cannot be nil, so
-        // it carries the same closure rather than a stand-in value that
-        // would read as meaningful.
-        R = r, Payload = any(atPoint), AtPoint = atPoint,
+        // it carries a marker no app could mistake for its own message.
+        // The closure itself used to sit here, which would have cast
+        // cleanly into a `func` -typed Msg for the next reader that
+        // forgot to check `AtPoint` first.
+        R = r, Payload = any(cellHitMarker()), AtPoint = atPoint,
         IsDouble = false, IsDrag = false))
 }
 

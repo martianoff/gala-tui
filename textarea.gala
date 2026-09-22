@@ -3,6 +3,7 @@ package gala_tui
 import (
     "strings"
     . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
     . "martianoff/gala/std"
 )
 
@@ -358,12 +359,41 @@ func TextAreaViewClick[T any](
     onClick func(int, int) T,
 ) Widget {
     val view = TextAreaView(t, focused, placeholder)
-    // Column-precise: `OnPickCell` resolves the clicked cell at dispatch
-    // time, which is the only time it is knowable. The column is a cell
-    // offset into the rendered row, so `taClickAt` clamps it against the
-    // line's own length — clicking past the end of a short line puts the
-    // caret at its end, which is what every editor does.
-    return view.OnPickCell[T]((col, row) => onClick(row, col))
+    return CustomW(
+        MinW = defaultRenderWidth(view),
+        MinH = defaultRenderHeight(view),
+        Render = (area, buf, hits) => {
+            if hits != nil {
+                hits.RegisterAt(area, (col, row) =>
+                    any(onClick(row, taIndexAtColumn(t, row, col, area.Width, focused))))
+            }
+            renderToInternal(view, area, buf, hits)
+        },
+    )
+}
+
+// taIndexAtColumn maps a clicked cell column on `row` to a rune index into
+// that line.
+//
+// `Col` is a rune index everywhere else in this model — `taLinesWith`
+// clamps against `RuneCount`, and the renderer converts back to cells — so
+// handing a raw column to `TaClickAt` is only correct while every glyph is
+// one cell wide. On a line of CJK it puts the caret two characters along
+// for every one clicked, and the last glyph becomes unreachable.
+//
+// The scroll is per row and not uniform: `taRowWidget` renders the cursor
+// row through `InputW`, which slides its window to keep the caret visible,
+// while every other row is plain text starting at rune 0. So only that row
+// takes a window offset. (That rows scroll inconsistently is a pre-existing
+// oddity of the widget, not something this mapping introduces — it just has
+// to agree with it.)
+func taIndexAtColumn(t TextArea, row int, col int, width int, focused bool) int {
+    val r = clampInt(row, 0, MaxInt(0, t.Lines.Length() - 1))
+    val rs = ToRunes(t.Lines.Get(r))
+    val start = if (focused && r == t.Row)
+                    inputWindowStart(rs, clampInt(t.Col, 0, rs.Size()), width)
+                else 0
+    return inputIndexAtColumn(rs, start, col)
 }
 
 func taIsEmpty(t TextArea) bool =

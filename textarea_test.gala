@@ -279,3 +279,43 @@ func TestClickPastAShortLineEndsAtItsEnd(t T) T {
     val t1 = Eq(t, moved.Row, 0)
     return Eq(t1, moved.Col, 2)
 }
+
+func TestTextAreaClickMapsCellsToRunesOnWideGlyphs(t T) T {
+    // `Col` is a rune index everywhere in this model, so handing it a raw
+    // cell column is only correct while every glyph is one cell wide. On a
+    // CJK line it put the caret two characters along for every one clicked,
+    // and the last glyph could not be reached at all.
+    val ta = typedLines("同期中", "x")
+    val w = TextAreaViewClick[TaClick](ta, true, "",
+        (row, col) => TaClick(Row = row, Col = col))
+    // Cells 0-1 are the first glyph, 2-3 the second, 4-5 the third.
+    val t1 = Eq(t, clickedCell(clickCellAt(w, 10, 2, 1, 0)).Col, 0)
+    val t2 = Eq(t1, clickedCell(clickCellAt(w, 10, 2, 2, 0)).Col, 1)
+    val t3 = Eq(t2, clickedCell(clickCellAt(w, 10, 2, 4, 0)).Col, 2)
+    // Past the text: the end, not a clamp onto the last glyph.
+    return Eq(t3, clickedCell(clickCellAt(w, 10, 2, 7, 0)).Col, 3)
+}
+
+func TestTextAreaClickKeepsTheCaretOutOfAGraphemeCluster(t T) T {
+    // A decomposed é is two runes in one cell. Clicking the visible
+    // character must not land between the base and its accent, where
+    // typing would insert inside the cluster.
+    val ta = typedLines("e" + string(rune(0x0301)) + "s", "x")
+    val w = TextAreaViewClick[TaClick](ta, true, "",
+        (row, col) => TaClick(Row = row, Col = col))
+    // Cell 0 is the cluster (runes 0-1); cell 1 is `s`, rune 2.
+    val t1 = Eq(t, clickedCell(clickCellAt(w, 10, 2, 0, 0)).Col, 0)
+    return Eq(t1, clickedCell(clickCellAt(w, 10, 2, 1, 0)).Col, 2)
+}
+
+func TestTextAreaClickAccountsForTheCursorRowsScroll(t T) T {
+    // The cursor row renders through InputW, which slides its window to
+    // keep the caret visible; every other row starts at rune 0. A click on
+    // the scrolled row must read through that window.
+    val ta = typedLines("abcdefghij", "short")
+    val w = TextAreaViewClick[TaClick](ta, true, "",
+        (row, col) => TaClick(Row = row, Col = col))
+    // Row 1 holds the caret (typed last), so row 0 does not scroll.
+    val t1 = Eq(t, clickedCell(clickCellAt(w, 6, 2, 0, 0)).Col, 0)
+    return Eq(t1, clickedCell(clickCellAt(w, 6, 2, 2, 1)).Col, 2)
+}
