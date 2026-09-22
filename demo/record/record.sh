@@ -28,7 +28,7 @@ python3 tools/record/drive.py \
     --cast "$CAST" --cols "$COLS" --rows "$ROWS" \
     -- ./gala-tui
 
-echo "rendering $GIF…"
+echo "rendering ${GIF}…"
 agg --font-size 16 --fps-cap 20 --theme asciinema "$CAST" "$GIF"
 
 ls -lh "$GIF"

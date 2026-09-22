@@ -28,6 +28,7 @@ Script lines, one action each, `#` for comments:
 """
 
 import argparse
+import codecs
 import fcntl
 import json
 import os
@@ -133,6 +134,13 @@ def main() -> int:
                    "env": {"TERM": "xterm-256color"}}, cast)
         cast.write("\n")
     started = time.time()
+    # One decoder for the whole session, not one per read. A pty read splits
+    # wherever the kernel had bytes ready, which lands mid-glyph often enough
+    # to matter: decoding each chunk on its own turns every straddled box-
+    # drawing or braille character into U+FFFD, and those replacement glyphs
+    # are then baked into the cast. An incremental decoder holds the partial
+    # sequence back until the rest of it arrives.
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
     def pump(seconds: float) -> None:
         """Forward the app's output for `seconds` — to the cast, or onward."""
@@ -151,8 +159,11 @@ def main() -> int:
             if not chunk:
                 return
             if cast:
+                text = decoder.decode(chunk)
+                if not text:
+                    continue
                 cast.write(json.dumps([round(time.time() - started, 6), "o",
-                                       chunk.decode("utf-8", "replace")]) + "\n")
+                                       text]) + "\n")
             else:
                 sys.stdout.buffer.write(chunk)
                 sys.stdout.buffer.flush()

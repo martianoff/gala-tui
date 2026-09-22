@@ -322,9 +322,9 @@ func (b *Buffer) DiffString(prev *Buffer) string {
 
 // String renders the buffer to a single ANSI-escaped string that, when written
 // to a terminal, draws the buffer starting at the cursor's current position.
-// Rows are separated by "\x1b[0m\n"; within a row, consecutive cells with the
-// same style share a single SGR emission. A trailing reset is always emitted
-// so the terminal is left in a clean state.
+// Rows are separated by "\x1b[0m\r\n"; within a row, consecutive cells with
+// the same style share a single SGR emission. A trailing reset is always
+// emitted so the terminal is left in a clean state.
 //
 // This is the "full redraw" renderer. The differential renderer (`DiffString`)
 // layers on top — it falls back to String() on the first frame and on resize.
@@ -362,7 +362,15 @@ func (b *Buffer) String() string {
         openLink = writeLinkTransition(&sb, openLink, "")
         sb.WriteString(ResetSgr())
         if y < b.Height-1 {
-            sb.WriteString("\n")
+            // "\r\n", never a bare "\n". A row that fills the terminal's
+            // full width leaves the cursor in the deferred-wrap state at the
+            // last column, and LF there moves down *without* returning the
+            // carriage — so the next row's first glyph lands in the last
+            // column of the row above and the rest of that row is painted one
+            // column left. Later differential frames repaint at absolute
+            // columns and the shifted glyphs survive in the cells the diff
+            // had no reason to touch, which reads as doubled text.
+            sb.WriteString("\r\n")
         }
         y = y + 1
     }

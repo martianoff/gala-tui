@@ -138,6 +138,7 @@ gala_test(
         "flex_align_scroll_test.gala",
         "fluent_test.gala",
         "form_test.gala",
+        "fullwidth_wrap_test.gala",
         "help_test.gala",
         "input_protocols_test.gala",
         "input_render_test.gala",
