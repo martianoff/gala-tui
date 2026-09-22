@@ -109,6 +109,7 @@ Shapes in your own coordinate space, at sub-cell resolution. Braille packs
 | `CanvasOf(x, y, shapes)` | `(Bounds, Bounds, Array[Shape]) Widget` | Braille, the usual choice. |
 | `XBounds(min, max)` / `YBounds(min, max)` | `(float64, float64) Bounds` | The caller's coordinate range per axis. |
 | `PointsOf(xs, ys, style)` | `(Array[float64], Array[float64], Style) Shape` | Build a series from parallel arrays. |
+| `FilledSeriesOf(xs, ys, yRef, style)` | `(Array[float64], Array[float64], float64, Style) Array[Shape]` | An area series: one `ShapeFilledLine` per adjacent pair, filled to `yRef`. |
 
 Shapes: `ShapeLine`, `ShapeFilledLine`, `ShapeRect` (outline), `ShapeCircle`,
 `ShapePoints`, `ShapeLabel`. Each carries its own `Style`, so one canvas holds
@@ -123,20 +124,18 @@ same way above and below. Reach for it when the area reads as a quantity
 (throughput, bytes, requests) and for a plain `ShapeLine` when it does not (a
 temperature, a percentage).
 
-Chain one segment per pair of points and the shared endpoints meet without a
-seam:
+For a whole series, `FilledSeriesOf(xs, ys, yRef, style)` builds the chain —
+one segment per adjacent pair, meeting at their shared endpoints with no seam.
+It is `PointsOf`'s sibling and takes the shorter of the two arrays for the same
+reason:
 
 ```gala
-ArrayTabulate(MinInt(xs.Length(), ys.Length()) - 1, (i) => ShapeFilledLine(
-    X1 = xs.Get(i),     Y1 = ys.Get(i),
-    X2 = xs.Get(i + 1), Y2 = ys.Get(i + 1),
-    YRef = 0.0, Style = dim,
-))
+CanvasOf(XBounds(0.0, 60.0), YBounds(0.0, maxRps),
+         FilledSeriesOf(seconds, rps, 0.0, dim))
 ```
 
-(`MinInt` for the same reason `PointsOf` uses it: two parallel arrays are one
-refactor away from disagreeing about their length, and the shorter one is the
-honest bound.)
+The `Chart` API has no filled dataset yet — an area series means reaching for
+the canvas directly, as above.
 
 Two notes on fills specifically. **Pick a marker that tiles**: braille,
 half-block and block all render a fill as solid; `DotMarker` turns one into a

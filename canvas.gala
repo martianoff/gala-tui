@@ -101,6 +101,30 @@ func Canvas(x Bounds, y Bounds, marker CanvasMarker, shapes Array[Shape]) Widget
 func CanvasOf(x Bounds, y Bounds, shapes Array[Shape]) Widget =
     Canvas(x, y, BrailleMarker(), shapes)
 
+// FilledSeriesOf builds the chain of filled segments for a series held as
+// parallel x / y arrays — an area chart, from the shape a caller has.
+//
+// One segment per adjacent pair, so the shared endpoints meet without a
+// seam. Like `PointsOf` it takes the shorter of the two arrays: parallel
+// arrays are one refactor away from disagreeing about their length, and the
+// shorter one is the only honest bound.
+func FilledSeriesOf(
+    xs Array[float64],
+    ys Array[float64],
+    yRef float64,
+    style Style,
+) Array[Shape] {
+    val n = MinInt(xs.Length(), ys.Length())
+    return ArrayTabulate(MaxInt(0, n - 1), (i) => ShapeFilledLine(
+        X1 = xs.Get(i),
+        Y1 = ys.Get(i),
+        X2 = xs.Get(i + 1),
+        Y2 = ys.Get(i + 1),
+        YRef = yRef,
+        Style = style,
+    ))
+}
+
 // PointsOf builds a ShapePoints from parallel x / y arrays — the shape a
 // caller usually has when plotting a series.
 func PointsOf(xs Array[float64], ys Array[float64], style Style) Shape {
@@ -320,24 +344,28 @@ func plotFilledLine(
     yRef int,
     style Style,
 ) {
+    // A vertical segment has no columns to interpolate across, and the
+    // general path below would divide by zero — `int(NaN)` is whatever the
+    // platform makes of it, which then becomes a loop bound. It also draws
+    // something the general path cannot: the segment's own extent inside one
+    // column, which is what keeps a chained series unbroken wherever two
+    // adjacent points land in the same column.
     if x1 == x2 {
-        fillColumn(g, x1, MinInt(MinInt(y1, y2), yRef),
-                   MaxInt(MaxInt(y1, y2), yRef), style)
+        fillColumn(g, x1, MinInt(y1, y2), MaxInt(MaxInt(y1, y2), yRef), style)
         return
     }
-    // Clipped for the walk, but the interpolation below still runs against
-    // the segment's true endpoints, so the visible part keeps the slope the
-    // caller asked for rather than one fitted to the clipped span.
-    val lo = MaxInt(0, MinInt(x1, x2))
-    val hi = MinInt(g.W - 1, MaxInt(x1, x2))
+    // The walk is clipped; the slope is not. It is taken from the segment's
+    // true endpoints, so the visible part of a line that starts off-canvas
+    // keeps the angle the caller asked for rather than one refitted to
+    // whatever survived.
+    val (lo, hi) = gridSpan(x1, x2, g.W)
+    // Float, and hoisted: both operands are unbounded projections, so the
+    // integer form would multiply before dividing and wrap two large
+    // coordinates into a garbage row.
+    val slope = float64(y2 - y1) / float64(x2 - x1)
     var gx = lo
     for gx <= hi {
-        // Float, because both operands are unbounded projections: the
-        // integer form multiplies before it divides, and two large
-        // coordinates wrap into a garbage row that then becomes a loop
-        // bound.
-        val t = float64(gx - x1) / float64(x2 - x1)
-        val gy = y1 + int(float64(y2 - y1) * t)
+        val gy = y1 + int(slope * float64(gx - x1))
         fillColumn(g, gx, MinInt(gy, yRef), MaxInt(gy, yRef), style)
         gx = gx + 1
     }
@@ -347,29 +375,103 @@ func plotFilledLine(
 // to the grid — see `plotFilledLine` for why this one clips rather than
 // leaving it to `plot`.
 func fillColumn(g *canvasGrid, gx int, top int, bottom int, style Style) {
-    var gy = MaxInt(0, top)
-    val last = MinInt(g.H - 1, bottom)
+    val (first, last) = gridSpan(top, bottom, g.H)
+    var gy = first
     for gy <= last {
         g.plot(gx, gy, style)
         gy = gy + 1
     }
 }
 
+// gridSpan clips the unordered span [a, b] to [0, n-1]. A span that misses
+// the grid entirely comes back with lo > hi, which every caller reads as
+// "walk nothing" — the asymmetry is the point, and is why `clampInt` cannot
+// stand in here: clamping both ends of a span that sits past the right edge
+// would fold it onto the last column and paint an edge that is not there.
+func gridSpan(a int, b int, n int) Tuple[int, int] =
+    (MaxInt(0, MinInt(a, b)), MinInt(n - 1, MaxInt(a, b)))
+
+// clipSegment trims a segment to the grid, parametrically, leaving its line
+// alone: the returned endpoints sit on the same infinite line as the
+// originals, so a shape that runs off the canvas keeps the slope the caller
+// asked for and merely starts and stops at the edge.
+//
+// Liang-Barsky, in floats because the inputs are projections of the caller's
+// own units and have no bound on their magnitude.
+struct clippedSegment(X1 int, Y1 int, X2 int, Y2 int, Visible bool)
+
+func clipSegment(g *canvasGrid, x1 int, y1 int, x2 int, y2 int) clippedSegment {
+    val dx = float64(x2 - x1)
+    val dy = float64(y2 - y1)
+    var t0 = 0.0
+    var t1 = 1.0
+    var ok = true
+    // Each edge narrows the surviving parameter range: p < 0 enters the
+    // half-plane, p > 0 leaves it, p == 0 is parallel and only survives if
+    // the segment is already inside.
+    val ps = ArrayOf[float64](-dx, dx, -dy, dy)
+    val qs = ArrayOf[float64](
+        float64(x1), float64(g.W - 1 - x1),
+        float64(y1), float64(g.H - 1 - y1),
+    )
+    var i = 0
+    for i < 4 {
+        val p = ps.Get(i)
+        val q = qs.Get(i)
+        if p == 0.0 {
+            if q < 0.0 {
+                ok = false
+            }
+        } else {
+            val r = q / p
+            if p < 0.0 {
+                if r > t1 { ok = false } else if r > t0 { t0 = r }
+            } else {
+                if r < t0 { ok = false } else if r < t1 { t1 = r }
+            }
+        }
+        i = i + 1
+    }
+    if !ok {
+        return clippedSegment(X1 = 0, Y1 = 0, X2 = 0, Y2 = 0, Visible = false)
+    }
+    return clippedSegment(
+        X1 = x1 + int(t0 * dx),
+        Y1 = y1 + int(t0 * dy),
+        X2 = x1 + int(t1 * dx),
+        Y2 = y1 + int(t1 * dy),
+        Visible = true,
+    )
+}
+
 // plotLine is Bresenham in grid space. Integer-only, so it neither
 // accumulates float error along a long line nor needs a sqrt per step.
+//
+// Clipped to the grid before the walk starts. `plot` discards an off-grid
+// dot, but a Bresenham walk visits one dot per step, and the coordinates
+// arriving here are projections with no bound on their magnitude — a line
+// from a million units off-canvas onto it would step sixteen million times
+// to light a handful of dots, and `ShapeRect` pays that four times over.
+// The `limit` below is a termination guard sized by the walk itself; it
+// stops a malformed walk from running forever, but it is not a clamp to the
+// canvas and never was.
 func plotLine(g *canvasGrid, x1 int, y1 int, x2 int, y2 int, style Style) {
-    var x = x1
-    var y = y1
-    val dx = AbsInt(x2 - x1)
-    val dy = -AbsInt(y2 - y1)
-    val sx = if (x1 < x2) 1 else -1
-    val sy = if (y1 < y2) 1 else -1
+    val seg = clipSegment(g, x1, y1, x2, y2)
+    if !seg.Visible {
+        return
+    }
+    var x = seg.X1
+    var y = seg.Y1
+    val dx = AbsInt(seg.X2 - seg.X1)
+    val dy = -AbsInt(seg.Y2 - seg.Y1)
+    val sx = if (seg.X1 < seg.X2) 1 else -1
+    val sy = if (seg.Y1 < seg.Y2) 1 else -1
     var err = dx + dy
     var guard = 0
     val limit = (dx - dy) + 2
     for guard <= limit {
         g.plot(x, y, style)
-        if x == x2 && y == y2 {
+        if x == seg.X2 && y == seg.Y2 {
             return
         }
         val e2 = 2 * err

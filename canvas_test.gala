@@ -24,13 +24,16 @@ func canvasBuf(w Widget, width int, height int) *Buffer {
     return buf
 }
 
-// litCells counts cells carrying a non-space glyph.
-func litCells(buf *Buffer, width int, height int) int {
+// litCellsIn counts cells carrying a non-space glyph in columns [x0, x1),
+// down to `height` rows. The column range is what lets a test ask "did this
+// shape put more ink on the right than the left" without hand-rolling the
+// walk each time.
+func litCellsIn(buf *Buffer, x0 int, x1 int, height int) int {
     var n = 0
     var y = 0
     for y < height {
-        var x = 0
-        for x < width {
+        var x = x0
+        for x < x1 {
             if buf.CharAt(x, y) != ' ' { n = n + 1 }
             x = x + 1
         }
@@ -38,6 +41,13 @@ func litCells(buf *Buffer, width int, height int) int {
     }
     return n
 }
+
+// litCells counts cells carrying a non-space glyph.
+func litCells(buf *Buffer, width int, height int) int = litCellsIn(buf, 0, width, height)
+
+// shapeCanvas renders one shape over `w` x `h` cells of unit bounds.
+func shapeCanvas(s Shape, w int, h int) *Buffer =
+    canvasBuf(CanvasOf(unitBounds(), unitBounds(), ArrayOf[Shape](s)), w, h)
 
 // ----------------------------------------------------------------------------
 // Projection — a point lands in the cell its coordinates name
@@ -317,15 +327,11 @@ func TestLabelLeftOfTheBoundsDoesNotPaintOutsideTheCanvas(t T) T {
 // ShapeFilledLine — the band between a series and a reference
 // ============================================================================
 
-// filledCanvas renders one shape over `w` x `h` cells of unit bounds.
-func filledCanvas(s Shape, w int, h int) *Buffer =
-    canvasBuf(CanvasOf(unitBounds(), unitBounds(), ArrayOf[Shape](s)), w, h)
-
 func TestFilledLineFillsBetweenTheLineAndTheReference(t T) T {
     // A flat line at y = 0.5 filled down to 0.0 lights the bottom half of
     // every column and leaves the top half dark. Counting lit cells per row
     // is the claim: an unfilled line would light one row, not half of them.
-    val buf = filledCanvas(
+    val buf = shapeCanvas(
         ShapeFilledLine(X1 = 0.0, Y1 = 0.5, X2 = 1.0, Y2 = 0.5, YRef = 0.0,
                         Style = DefaultStyle()),
         8, 4)
@@ -338,7 +344,7 @@ func TestFilledLineFillsBetweenTheLineAndTheReference(t T) T {
 func TestFilledLineFillsUpwardsWhenTheReferenceIsAbove(t T) T {
     // The band is between the line and the reference, whichever is higher —
     // a series below a budget line fills up to it.
-    val buf = filledCanvas(
+    val buf = shapeCanvas(
         ShapeFilledLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, YRef = 1.0,
                         Style = DefaultStyle()),
         8, 4)
@@ -349,11 +355,11 @@ func TestFilledLineFillsUpwardsWhenTheReferenceIsAbove(t T) T {
 func TestFilledLineAtItsReferenceDrawsOnlyTheLine(t T) T {
     // Degenerate band: the line and the reference coincide, so the shape is
     // its own outline and nothing more.
-    val flat = filledCanvas(
+    val flat = shapeCanvas(
         ShapeFilledLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, YRef = 0.0,
                         Style = DefaultStyle()),
         8, 4)
-    val plain = filledCanvas(
+    val plain = shapeCanvas(
         ShapeLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 0.0, Style = DefaultStyle()),
         8, 4)
     return Eq(t, litCells(flat, 8, 4), litCells(plain, 8, 4))
@@ -362,35 +368,24 @@ func TestFilledLineAtItsReferenceDrawsOnlyTheLine(t T) T {
 func TestFilledLineFollowsASlope(t T) T {
     // A rising series must light more of the right of the canvas than the
     // left — the test that a fill interpolates rather than filling a box.
-    val buf = filledCanvas(
+    val buf = shapeCanvas(
         ShapeFilledLine(X1 = 0.0, Y1 = 0.0, X2 = 1.0, Y2 = 1.0, YRef = 0.0,
                         Style = DefaultStyle()),
         8, 4)
-    var left = 0
-    var right = 0
-    var y = 0
-    for y < 4 {
-        var x = 0
-        for x < 8 {
-            if buf.CharAt(x, y) != ' ' {
-                if x < 4 { left = left + 1 } else { right = right + 1 }
-            }
-            x = x + 1
-        }
-        y = y + 1
-    }
-    return EqMsg(t, right > left, true, "the fill did not follow the slope")
+    return EqMsg(t, litCellsIn(buf, 4, 8, 4) > litCellsIn(buf, 0, 4, 4), true,
+                 "the fill did not follow the slope")
 }
 
 func TestVerticalFilledLineFillsItsOwnColumn(t T) T {
     // No columns to walk: the degenerate case that an interpolation would
     // divide by zero on.
-    val buf = filledCanvas(
+    val buf = shapeCanvas(
         ShapeFilledLine(X1 = 0.5, Y1 = 1.0, X2 = 0.5, Y2 = 0.5, YRef = 0.0,
                         Style = DefaultStyle()),
         8, 4)
-    return EqMsg(t, litCells(buf, 8, 4) > 0, true,
-                 "a vertical filled line drew nothing")
+    // One braille column of a full-height band: four cells, and no more —
+    // "something was drawn" would also pass for a fill that leaked sideways.
+    return Eq(t, litCells(buf, 8, 4), 4)
 }
 
 func TestFilledLineFarOffCanvasCostsNothing(t T) T {
@@ -399,7 +394,7 @@ func TestFilledLineFarOffCanvasCostsNothing(t T) T {
     // spans ~16 million grid columns — walking them to discard all but the
     // last few took long enough to read as a hang. The assertion is that
     // this test returns at all; what it paints is the visible tail.
-    val buf = filledCanvas(
+    val buf = shapeCanvas(
         ShapeFilledLine(X1 = -1000000.0, Y1 = 0.5, X2 = 1.0, Y2 = 0.5,
                         YRef = 0.0, Style = DefaultStyle()),
         8, 4)
@@ -412,7 +407,7 @@ func TestFilledLineReferenceFarBelowTheBoundsFillsToTheEdge(t T) T {
     // `YRef = 0.0` against bounds auto-scaled to a byte count puts the
     // reference tens of thousands of rows below the canvas. The band must
     // stop at the bottom edge, in time proportional to what is visible.
-    val buf = filledCanvas(
+    val buf = shapeCanvas(
         ShapeFilledLine(X1 = 0.0, Y1 = 1.0, X2 = 1.0, Y2 = 1.0,
                         YRef = -50000.0, Style = DefaultStyle()),
         8, 4)
@@ -424,27 +419,42 @@ func TestFilledLineKeepsItsSlopeWhenPartlyOffCanvas(t T) T {
     // The clip is on the walk, not on the geometry: the visible half of a
     // segment that starts off-canvas must keep the slope the caller asked
     // for, not one refitted to the part that survived.
-    val whole = filledCanvas(
+    val whole = shapeCanvas(
         ShapeFilledLine(X1 = -1.0, Y1 = -1.0, X2 = 1.0, Y2 = 1.0, YRef = 0.0,
                         Style = DefaultStyle()),
         8, 4)
     // Same line, clipped by the canvas rather than by the caller: the right
     // half rises from the middle of the canvas to its top-right corner.
-    var left = 0
-    var right = 0
-    var y = 0
-    for y < 4 {
-        var x = 0
-        for x < 8 {
-            if whole.CharAt(x, y) != ' ' {
-                if x < 4 { left = left + 1 } else { right = right + 1 }
-            }
-            x = x + 1
-        }
-        y = y + 1
-    }
-    return EqMsg(t, right > left, true,
+    return EqMsg(t, litCellsIn(whole, 4, 8, 4) > litCellsIn(whole, 0, 4, 4), true,
                  "the visible span was refitted instead of clipped")
+}
+
+func TestPlainLineFarOffCanvasCostsNothingEither(t T) T {
+    // The same hazard, in the shape that has been shipping for longer.
+    // `plotLine`'s `limit` is a termination guard sized by the walk, not a
+    // clamp to the canvas: before the segment was clipped, these endpoints
+    // made Bresenham step sixteen million times to light one column, and
+    // ShapeRect paid it four times over. The assertion is that this returns.
+    val buf = shapeCanvas(
+        ShapeLine(X1 = -1000000.0, Y1 = 0.5, X2 = 1.0, Y2 = 0.5,
+                  Style = DefaultStyle()),
+        8, 4)
+    return EqMsg(t, litCells(buf, 8, 4) > 0, true,
+                 "the visible tail of a far-off-canvas line was dropped")
+}
+
+func TestClippingALineKeepsItOnItsOriginalPath(t T) T {
+    // Clipping trims the walk, not the geometry. A diagonal that starts one
+    // canvas-width off the left must still arrive at the corner it was aimed
+    // at, rather than being refitted between the edge and the endpoint.
+    val buf = shapeCanvas(
+        ShapeLine(X1 = -1.0, Y1 = 1.5, X2 = 1.0, Y2 = 0.0, Style = DefaultStyle()),
+        8, 4)
+    // The aimed-at corner is the bottom right. The top right is off a path
+    // that descends left to right — a slope refitted to the clipped span
+    // would be shallower and would light it.
+    val t1 = IsTrue(t, buf.CharAt(7, 3) != ' ')
+    return IsTrue(t1, buf.CharAt(7, 0) == ' ')
 }
 
 func TestFilledLineOutsideTheBoundsClips(t T) T {
