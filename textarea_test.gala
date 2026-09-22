@@ -209,3 +209,120 @@ func TestScrollPaneHome(t T) T {
 // ============================================================================
 
 func _suppressUnusedArrayOf() Array[string] = ArrayOf[string]("ok")
+
+// ============================================================================
+// Click-to-position — the column reaches the model
+// ============================================================================
+
+// clickCellAt renders `w` and returns the payload a click at (x, y)
+// dispatches, or None when nothing is registered there.
+func clickCellAt(w Widget, width int, height int, x int, y int) Option[any] {
+    val buf = NewBuffer(width, height)
+    val hits = NewHitRegistry()
+    RenderToWithHits(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf, hits)
+    return hits.HitAt(x, y)
+}
+
+struct TaClick(Row int, Col int)
+
+// clickedCell unwraps the erased payload a hit carries. (-1, -1) means
+// nothing was registered where the test clicked, which fails the
+// assertions that follow rather than passing quietly.
+func clickedCell(hit Option[any]) TaClick =
+    hit.Map((p) => p match {
+        case c: TaClick => c
+        case _          => TaClick(Row = -1, Col = -1)
+    }).GetOrElse(TaClick(Row = -1, Col = -1))
+
+// typedLines builds an editor holding `lines`, by typing them — the model
+// has no lines-in constructor, and going through the events keeps the test
+// honest about the state a real editor reaches.
+func typedLines(first string, second string) TextArea {
+    val withFirst = typeInto(NewTextArea(), first)
+    return typeInto(TextAreaUpdate(withFirst, TaInsertNewline()), second)
+}
+
+func typeInto(ta TextArea, text string) TextArea =
+    stringRunes(text).FoldLeft(ta, (acc, c) => TextAreaUpdate(acc, TaInsert(C = c)))
+
+func TestTextAreaClickDeliversTheClickedCell(t T) T {
+    // The defect this closes: the wrapper used OnPickRow, which carries a
+    // row index and nothing else, so every click reported column 0 and the
+    // caret jumped to the start of the line.
+    val w = TextAreaViewClick[TaClick](typedLines("hello world", "second"), true, "",
+        (row, col) => TaClick(Row = row, Col = col))
+    val first = clickedCell(clickCellAt(w, 20, 2, 6, 0))
+    val t1 = Eq(t, first.Row, 0)
+    val t2 = Eq(t1, first.Col, 6)
+    val second = clickedCell(clickCellAt(w, 20, 2, 3, 1))
+    val t3 = Eq(t2, second.Row, 1)
+    return Eq(t3, second.Col, 3)
+}
+
+func TestClickPastAShortLineEndsAtItsEnd(t T) T {
+    // A click in the dead space right of a short line is a click on that
+    // line — every editor puts the caret at its end rather than ignoring it.
+    val ta = typedLines("hi", "a longer second line")
+    val moved = TextAreaUpdate(ta, TaClickAt(Row = 0, Col = 15))
+    val t1 = Eq(t, moved.Row, 0)
+    return Eq(t1, moved.Col, 2)
+}
+
+func TestTextAreaClickMapsCellsToRunesOnWideGlyphs(t T) T {
+    // `Col` is a rune index everywhere in this model, so handing it a raw
+    // cell column is only correct while every glyph is one cell wide. On a
+    // CJK line it put the caret two characters along for every one clicked,
+    // and the last glyph could not be reached at all.
+    //
+    // Deliberately an integration test: the mapping itself is pinned
+    // against Input in input_render_test.gala. What this adds is that the
+    // editor reaches it at all — the defect was that it did not.
+    val ta = typedLines("同期中", "x")
+    val w = TextAreaViewClick[TaClick](ta, true, "",
+        (row, col) => TaClick(Row = row, Col = col))
+    // Cells 0-1 are the first glyph, 2-3 the second, 4-5 the third.
+    val t1 = Eq(t, clickedCell(clickCellAt(w, 10, 2, 1, 0)).Col, 0)
+    val t2 = Eq(t1, clickedCell(clickCellAt(w, 10, 2, 2, 0)).Col, 1)
+    val t3 = Eq(t2, clickedCell(clickCellAt(w, 10, 2, 4, 0)).Col, 2)
+    // Past the text: the end, not a clamp onto the last glyph.
+    return Eq(t3, clickedCell(clickCellAt(w, 10, 2, 7, 0)).Col, 3)
+}
+
+func TestTextAreaClickKeepsTheCaretOutOfAGraphemeCluster(t T) T {
+    // A decomposed é is two runes in one cell. Clicking the visible
+    // character must not land between the base and its accent, where
+    // typing would insert inside the cluster.
+    val ta = typedLines("e" + string(rune(0x0301)) + "s", "x")
+    val w = TextAreaViewClick[TaClick](ta, true, "",
+        (row, col) => TaClick(Row = row, Col = col))
+    // Cell 0 is the cluster (runes 0-1); cell 1 is `s`, rune 2.
+    val t1 = Eq(t, clickedCell(clickCellAt(w, 10, 2, 0, 0)).Col, 0)
+    return Eq(t1, clickedCell(clickCellAt(w, 10, 2, 1, 0)).Col, 2)
+}
+
+func TestTextAreaClickAccountsForTheCursorRowsScroll(t T) T {
+    // The cursor row renders through InputW, which slides its window to
+    // keep the caret visible; every other row starts at rune 0. A click on
+    // the scrolled row must read through that window.
+    val ta = typedLines("abcdefghij", "short")
+    val w = TextAreaViewClick[TaClick](ta, true, "",
+        (row, col) => TaClick(Row = row, Col = col))
+    // Row 1 holds the caret (typed last), so row 0 does not scroll.
+    val t1 = Eq(t, clickedCell(clickCellAt(w, 6, 2, 0, 0)).Col, 0)
+    return Eq(t1, clickedCell(clickCellAt(w, 6, 2, 2, 1)).Col, 2)
+}
+
+func TestClickableTextAreaStillRestyles(t T) T {
+    // The regression this closes: wrapping the editor in a CustomW put it
+    // behind a leaf restyleLeaves does not recurse into, so `.WithFg(...)`
+    // on a clickable editor silently did nothing — where the same call on
+    // a plain TextAreaView worked.
+    val plain = TextAreaView(typedLines("hi", "x"), true, "").WithFg(BrightRed())
+    val clickable = TextAreaViewClick[TaClick](typedLines("hi", "x"), true, "",
+        (row, col) => TaClick(Row = row, Col = col)).WithFg(BrightRed())
+    val a = NewBuffer(6, 2)
+    RenderTo(plain, Rect(X = 0, Y = 0, Width = 6, Height = 2), a)
+    val b = NewBuffer(6, 2)
+    RenderTo(clickable, Rect(X = 0, Y = 0, Width = 6, Height = 2), b)
+    return IsTrue(t, ColorEq(a.StyleAt(0, 0).Fg, b.StyleAt(0, 0).Fg))
+}

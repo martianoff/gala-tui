@@ -40,7 +40,16 @@ import (
 // type is sealed and adding a new HitEntry case rippled into many
 // match sites; the runtime only switches on these two flags so the
 // dispatch paths stay simple.
-struct HitEntry(R Rect, Payload any, IsDouble bool, IsDrag bool)
+// `Payload` is a function of the click's position *within* the entry's
+// rectangle — local (col, row), origin at the rect's top-left. Most hits
+// ignore both arguments and hand back the value they were registered
+// with; a text widget cannot, because "which character did they click"
+// is not answerable when the widget renders, only when the click lands.
+//
+// One field rather than a value plus an optional override: there is no
+// rule about which of the two wins, no unrepresentable nil, and no
+// marker value sitting in a slot nobody reads.
+struct HitEntry(R Rect, Payload func(int, int) any, IsDouble bool, IsDrag bool)
 
 // HitRegistry is the mutable accumulator.
 type HitRegistry struct {
@@ -57,10 +66,26 @@ func NewHitRegistry() *HitRegistry {
 // Out-of-area or zero-sized rects are ignored — they could never be
 // hit anyway and pruning early keeps lookup fast.
 func (h *HitRegistry) Register(r Rect, payload any) {
+    h.RegisterAt(r, (_ int, _ int) => payload)
+}
+
+// RegisterAt adds a single-click region whose payload depends on WHERE
+// inside it the click landed — `atPoint(col, row)` in coordinates local
+// to `r`. Everything else about dispatch is unchanged: same ordering,
+// same last-registered-wins.
+//
+// Single-click only, for now. `lastPayloadAt` applies `AtPoint` whatever
+// the entry's kind, so the mechanism generalises — but there is no
+// `RegisterDoubleAt` or `RegisterDragAt` yet, and a double-click or drag
+// entry therefore still carries a fixed payload. Those belong with
+// selection (drag-to-select, double-click-to-select-word), which needs a
+// selection anchor in the model first.
+func (h *HitRegistry) RegisterAt(r Rect, atPoint func(int, int) any) {
     if r.Zero() {
         return
     }
-    h.entries = SliceAppend(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false, IsDrag = false))
+    h.entries = SliceAppend(h.entries, HitEntry(
+        R = r, Payload = atPoint, IsDouble = false, IsDrag = false))
 }
 
 // RegisterDouble adds a double-click `(rect, payload)` to the registry.
@@ -72,7 +97,8 @@ func (h *HitRegistry) RegisterDouble(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = SliceAppend(h.entries, HitEntry(R = r, Payload = payload, IsDouble = true, IsDrag = false))
+    h.entries = SliceAppend(h.entries, HitEntry(
+        R = r, Payload = (_ int, _ int) => payload, IsDouble = true, IsDrag = false))
 }
 
 // RegisterDrag adds a drag `(rect, payload)` to the registry. The
@@ -89,7 +115,8 @@ func (h *HitRegistry) RegisterDrag(r Rect, payload any) {
     if r.Zero() {
         return
     }
-    h.entries = SliceAppend(h.entries, HitEntry(R = r, Payload = payload, IsDouble = false, IsDrag = true))
+    h.entries = SliceAppend(h.entries, HitEntry(
+        R = r, Payload = (_ int, _ int) => payload, IsDouble = false, IsDrag = true))
 }
 
 // HitAt returns the payload of the LAST-registered single-click entry
@@ -122,7 +149,9 @@ func (h *HitRegistry) lastPayloadAt(
     for i >= 0 {
         val e = h.entries[i]
         if kindMatches(e) && e.R.Contains(x, y) {
-            return Some[any](e.Payload)
+            // Local coordinates, so a caller reasons in "column 3 of this
+            // field" rather than in screen space it never chose.
+            return Some(e.Payload(x - e.R.X, y - e.R.Y))
         }
         i = i - 1
     }

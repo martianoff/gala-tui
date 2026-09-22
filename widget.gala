@@ -173,6 +173,26 @@ sealed type Widget {
     // `Payloads(i)` producing row `i`'s `func(DragPhase) any`.
     // Used by list / log widgets that want every row drag-selectable.
     case DraggableRowsW(Inner Widget, Count int, RowH int, Payloads func(int) any)
+    // ClickableCellW registers a hit whose payload is computed from the
+    // clicked CELL — `Payload(area, col, row)`, with col/row local to the
+    // widget. `ClickableW` answers "was this clicked"; this answers
+    // "where", which is the question a text widget has to ask.
+    //
+    // The payload gets the rendered `area` because a text widget cannot
+    // map a column to a character without it: a field scrolls
+    // horizontally by an amount that depends on its width, and the width
+    // is not known until layout runs.
+    //
+    // `HitRows` caps the hit at the widget's top N rows; None claims the
+    // whole area. Not `ClickableRowsW`'s `Count`, which slices an area
+    // into N separate hits — this bounds one. A single-line field claims
+    // one row, so clicks in a taller slot fall through to whatever the
+    // layout put beneath it.
+    //
+    // An Option rather than 0-means-unbounded: a row count is data, and a
+    // marker value hidden in it is the shape `HitEntry` was just cleaned
+    // of.
+    case ClickableCellW(Inner Widget, HitRows Option[int], Payload func(Rect, int, int) any)
     // CustomW is the escape hatch for user-authored widgets that need
     // pixel-level control. The framework hands the closure the rendered
     // area, the target Buffer, and the live HitRegistry — the user can
@@ -1320,6 +1340,14 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
+        case ClickableCellW(inner, hitRows, payload) => {
+            if hits != nil {
+                val h = hitRows.Map((n) => MinInt(n, area.Height)).GetOrElse(area.Height)
+                val hitArea = Rect(X = area.X, Y = area.Y, Width = area.Width, Height = h)
+                hits.RegisterAt(hitArea, (col, row) => payload(area, col, row))
+            }
+            renderToInternal(inner, area, buf, hits)
+        }
         case DblClickableW(inner, payload) => {
             if hits != nil {
                 hits.RegisterDouble(area, payload)
@@ -1717,6 +1745,85 @@ func runesCellWidth(rs []rune, from int, to int) int {
     }
     return w
 }
+
+// inputIndexAtColumn maps a clicked column back to a rune index.
+//
+// Two things stand between the two. The field scrolls horizontally, so
+// column 0 is `start` runes in rather than the value's beginning; and a
+// rune is not a column — a CJK glyph occupies two, so the mapping has to
+// walk cell widths rather than divide.
+//
+// A click past the last glyph returns the end index, which puts the caret
+// after the text. That is what a click in the empty tail of a field means
+// in every editor, and it is also what makes click-then-type work.
+func inputIndexAtColumn(rs []rune, start int, col int) int {
+    var i = MaxInt(0, start)
+    var x = 0
+    val n = rs.Size()
+    for i < n {
+        val w = RuneCellWidth(rs[i])
+        // `col < x + w` rather than `col == x`: a click on the RIGHT half
+        // of a wide glyph still selects that glyph, not the next one.
+        if col < x + w {
+            return i
+        }
+        x = x + w
+        i = i + 1
+    }
+    return n
+}
+
+// inputRuneIndexAt maps a clicked column to a rune index for a field of
+// `width` cells holding `rs` with its caret at `cursor` — the window the
+// renderer would scroll to, then the cell walk.
+func inputRuneIndexAt(rs []rune, cursor int, width int, col int) int =
+    inputIndexAtColumn(rs, inputWindowStart(rs, clampInt(cursor, 0, rs.Size()), width), col)
+
+// InputClick is `Input` that reports where it was clicked, as a rune index
+// into `value` — feed it back as the field's new cursor to put the caret
+// under the pointer.
+//
+//     Fixed(1, InputClick[Msg](m.Query, m.Cursor, "search",
+//                              (idx) => CaretTo(Idx = idx), true))
+//
+// The mapping resolves at render time rather than at dispatch, and it has
+// to: the field's horizontal scroll depends on the width the layout gave
+// it, which nothing knows when the widget is built. That is why a cell
+// hit's payload takes the rendered `Rect` — the scroll is folded in where
+// the width is finally known.
+//
+// Known limitation, in a scrolled field: the reported index is right, but
+// the view moves under the pointer. `inputWindowStart` derives the window
+// from the cursor alone and returns the smallest start that fits, pinning
+// the caret to the right edge — so setting the cursor to the clicked rune
+// re-renders with a different window, and a second click at the same
+// coordinate is a different character. Fixing it means making the scroll
+// offset caller state rather than deriving it, which is a change to
+// `Input` itself.
+func InputClick[T any](
+    value string,
+    cursor int,
+    placeholder string,
+    onIndex func(int) T,
+    focused bool = false,
+) Widget = ClickableCellW(
+    Inner = Input(value, cursor, placeholder, focused),
+    // One row: the field paints its top row only, and claiming the rest
+    // would swallow clicks meant for whatever the layout put below it.
+    HitRows = Some(1),
+    Payload = (area Rect, col int, _ int) =>
+        inputClickPayload(value, cursor, onIndex, area, col),
+)
+
+// inputClickPayload resolves one click into a rune index, folding in the
+// horizontal scroll the field's width implies.
+func inputClickPayload[T any](
+    value string,
+    cursor int,
+    onIndex func(int) T,
+    area Rect,
+    col int,
+) any = any(onIndex(inputRuneIndexAt(ToRunes(value), cursor, area.Width, col)))
 
 // drawInputCaret inverts one cell in place, keeping whatever glyph is there
 // so the caret reads as sitting on the character rather than replacing it.
@@ -2241,6 +2348,7 @@ func defaultRenderWidth(w Widget) int {
         case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderWidth(inner)
+        case ClickableCellW(inner, _, _)       => defaultRenderWidth(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
         case DblClickableW(inner, _)           => defaultRenderWidth(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderWidth(inner)
@@ -2282,6 +2390,7 @@ func defaultRenderHeight(w Widget) int {
         case ViewportW(_, _, _)                => 1
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderHeight(inner)
+        case ClickableCellW(inner, _, _)       => defaultRenderHeight(inner)
         case ClickableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
         case DblClickableW(inner, _)           => defaultRenderHeight(inner)
         case DblClickableRowsW(inner, _, _, _) => defaultRenderHeight(inner)
@@ -2350,6 +2459,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case ViewportW(_, _, contentHeight)    => contentHeight
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => IntrinsicHeightAt(inner, width)
+        case ClickableCellW(inner, _, _)       => IntrinsicHeightAt(inner, width)
         case ClickableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
         case DblClickableW(inner, _)           => IntrinsicHeightAt(inner, width)
         case DblClickableRowsW(inner, _, _, _) => IntrinsicHeightAt(inner, width)

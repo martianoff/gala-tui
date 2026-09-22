@@ -336,6 +336,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ClickableRowsW(inner, n, h, p)    =>
             ClickableRowsW(Inner = restyleLeaves(inner, f),
                            Count = n, RowH = h, Payloads = p)
+        case ClickableCellW(inner, hitRows, payload) =>
+            ClickableCellW(Inner = restyleLeaves(inner, f),
+                           HitRows = hitRows, Payload = payload)
         case DblClickableW(inner, payload)     =>
             DblClickableW(Inner = restyleLeaves(inner, f), Payload = payload)
         case DblClickableRowsW(inner, n, h, p) =>

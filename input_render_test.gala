@@ -279,3 +279,60 @@ func TestInputMaskedEmptyStillShowsThePlaceholder(t T) T {
     return EqMsg(t, strings.HasPrefix(row, "password"), true,
                  "an empty masked field hid its placeholder")
 }
+
+// ============================================================================
+// InputClick — a click reports the rune it landed on
+// ============================================================================
+
+// clickIndex renders a clickable input `width` wide and returns the rune
+// index a click at column `col` reports, or -1 if nothing registered.
+func clickIndex(value string, cursor int, width int, col int) int =
+    clickCellAt(InputClick[int](value, cursor, "", (i) => i, focused = true), width, 1, col, 0)
+        .Map((p) => castInt(p))
+        .GetOrElse(-1)
+
+func TestInputClickReportsTheRuneUnderThePointer(t T) T {
+    val t1 = Eq(t, clickIndex("hello", 5, 12, 0), 0)
+    val t2 = Eq(t1, clickIndex("hello", 5, 12, 3), 3)
+    return Eq(t2, clickIndex("hello", 5, 12, 4), 4)
+}
+
+func TestInputClickPastTheTextLandsAfterIt(t T) T {
+    // The empty tail of a field belongs to the text: clicking there puts
+    // the caret at the end, which is what makes click-then-type work.
+    return Eq(t, clickIndex("hello", 5, 12, 9), 5)
+}
+
+func TestInputClickCountsCellsNotRunes(t T) T {
+    // Each CJK glyph is two columns wide, so column 2 is the SECOND
+    // character — a mapping that divided by one would report the third.
+    val t1 = Eq(t, clickIndex("同期中", 3, 12, 0), 0)
+    val t2 = Eq(t1, clickIndex("同期中", 3, 12, 2), 1)
+    return Eq(t2, clickIndex("同期中", 3, 12, 4), 2)
+}
+
+func TestInputClickSelectsAWideGlyphFromEitherHalf(t T) T {
+    // Column 3 is the right half of the second glyph. Clicking it selects
+    // that glyph rather than skipping to the next.
+    return Eq(t, clickIndex("同期中", 3, 12, 3), 1)
+}
+
+func TestInputClickAccountsForHorizontalScroll(t T) T {
+    // A value wider than the field scrolls, so column 0 is not rune 0.
+    // The field is 6 wide with the caret at the end of 10 runes, so the
+    // window starts at rune 5 and column 0 must report rune 5 — not 0,
+    // which is what a mapping that ignored the scroll would say.
+    val t1 = Eq(t, clickIndex("abcdefghij", 10, 6, 0), 5)
+    return Eq(t1, clickIndex("abcdefghij", 10, 6, 2), 7)
+}
+
+func TestClickableInputClaimsOnlyItsOwnRow(t T) T {
+    // A single-line field in a taller slot must let clicks through to
+    // whatever the layout put beneath it, rather than swallowing them.
+    val buf = NewBuffer(8, 3)
+    val hits = NewHitRegistry()
+    RenderToWithHits(InputClick[int]("ab", 2, "", (i) => i, focused = true),
+                     Rect(X = 0, Y = 0, Width = 8, Height = 3), buf, hits)
+    val t1 = IsTrue(t, hits.HitAt(1, 0).IsDefined())
+    return IsTrue(t1, !hits.HitAt(1, 2).IsDefined())
+}
