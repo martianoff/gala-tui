@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="170.00" viewBox="0 0 537.60 170.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<rect x="8.40" y="51.00" width="495.60" height="17.00" fill="#ddaf3c"/>
+<text x="0.00" y="13.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">home</text>
+<text x="42.00" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">›</text>
+<text x="58.80" y="13.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">builds</text>
+<text x="117.60" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">›</text>
+<text x="134.40" y="13.00" fill="#54e1b9" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">#4211</text>
+<text x="0.00" y="47.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">┌</text>
+<text x="16.80" y="47.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs">MenuView</text>
+<text x="92.40" y="47.00" fill="#cccccc" textLength="420.00" lengthAdjust="spacingAndGlyphs">─────────────────────────────────────────────────┐</text>
+<text x="529.20" y="47.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">│</text>
+<text x="0.00" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="16.80" y="64.00" fill="#121314" textLength="58.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">staging</text>
+<text x="462.00" y="64.00" fill="#121314" textLength="33.60" lengthAdjust="spacingAndGlyphs" font-weight="bold">auto</text>
+<text x="504.00" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="529.20" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">█</text>
+<text x="0.00" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="16.80" y="81.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">canary</text>
+<text x="470.40" y="81.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs">10%</text>
+<text x="504.00" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="529.20" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">│</text>
+<text x="0.00" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="16.80" y="98.00" fill="#cccccc" textLength="84.00" lengthAdjust="spacingAndGlyphs">production</text>
+<text x="504.00" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="529.20" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">│</text>
+<text x="0.00" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="16.80" y="115.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">archived</text>
+<text x="504.00" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="529.20" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">│</text>
+<text x="0.00" y="132.00" fill="#cccccc" textLength="512.40" lengthAdjust="spacingAndGlyphs">└───────────────────────────────────────────────────────────┘</text>
+<text x="529.20" y="132.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">│</text>
+</svg>

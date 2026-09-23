@@ -158,11 +158,20 @@ func LineChartAutoBounds(values Array[int]) LineChartBounds {
 // MultiLineChart — overlay several series on a shared y-axis.
 //
 // Because our chart is a plain glyph matrix, two series overlapping on the
-// same cell collide: only one glyph can live there. We resolve by painting
-// series in order — later series win the collision, so it's idiomatic to
-// draw the primary series last. Each series gets its own style; callers
+// same cell collide: only one glyph can live there. We resolve per cell —
+// the last series that actually puts a glyph there wins, so it's idiomatic
+// to pass the primary series last. Each series gets its own style; callers
 // that want the same style across all series can pass an Array with one
 // repeated style.
+//
+// Per *cell*, not per layer, and the distinction is the whole implementation.
+// Stacking one chart widget per series looks equivalent and is not: a chart
+// row is a string, its empty cells are spaces, and a space is an opaque cell
+// like any other. The topmost layer therefore blanked every series beneath
+// it everywhere it was empty — which is everywhere above its own curve — so
+// a two-series chart rendered exactly one series and the feature had never
+// worked. Composing the glyph matrix first and styling the runs afterwards
+// is what makes "overlay" mean overlay.
 // ----------------------------------------------------------------------------
 
 // MultiLineChart overlays several series on a shared y-axis. `styles` must
@@ -175,15 +184,79 @@ func MultiLineChart(series Array[Array[int]], styles Array[Style]) Widget =
 func MultiLineChartAtHeight(series Array[Array[int]], styles Array[Style], rows int) Widget {
     if series.IsEmpty() || rows <= 0 { return Empty() }
     val bounds = multiBounds(series)
-    // Build each layer as its own LineChart and stack them. StackWidget
-    // draws layers in order; last-drawn wins. The effect: every series is
-    // visible except where one overwrites another.
-    val layers = series.ZipWithIndex().Map((p) => {
-        val style = if (p.V2 < styles.Length()) styles.Get(p.V2) else defaultSeriesStyle(p.V2)
-        return LineChartAtHeight(p.V1, style, bounds, rows)
-    })
-    return Stack(layers)
+    val layers = series.Map((s) => chartRowRunes(LineChartRows(s, bounds, rows)))
+    val width = series.FoldLeft(0, (acc, s) => MaxInt(acc, s.Length()))
+    val lines = ArrayTabulate(rows, (y) =>
+        LineOf(multiRowSpans(layers, styles, y, width)))
+    return RichTextView(RichTextOf(lines))
 }
+
+// multiRowSpans resolves one row of the overlay into styled runs: for each
+// column the last layer holding a glyph wins, and adjacent columns won by the
+// same layer share a Span.
+func multiRowSpans(
+    layers Array[Array[Array[rune]]],
+    styles Array[Style],
+    y int,
+    width int,
+) Array[Span] {
+    var spans = EmptyArray[Span]()
+    var run = ""
+    var runOwner = -1
+    var x = 0
+    for x < width {
+        val owner = multiCellOwner(layers, y, x)
+        if owner != runOwner && run != "" {
+            spans = spans.Append(SpanStyled(run, multiStyle(styles, runOwner)))
+            run = ""
+        }
+        runOwner = owner
+        run = run + string(multiCellGlyph(layers, y, x, owner))
+        x = x + 1
+    }
+    if run != "" {
+        spans = spans.Append(SpanStyled(run, multiStyle(styles, runOwner)))
+    }
+    return spans
+}
+
+// multiCellOwner is the highest-indexed layer with a glyph at (x, y), or -1
+// when every layer is blank there.
+func multiCellOwner(layers Array[Array[Array[rune]]], y int, x int) int {
+    var owner = -1
+    var i = 0
+    for i < layers.Length() {
+        if chartCellAt(layers.Get(i), y, x) != ' ' { owner = i }
+        i = i + 1
+    }
+    return owner
+}
+
+func multiCellGlyph(layers Array[Array[Array[rune]]], y int, x int, owner int) rune =
+    if (owner < 0) ' ' else chartCellAt(layers.Get(owner), y, x)
+
+func multiStyle(styles Array[Style], owner int) Style =
+    if (owner < 0) DefaultStyle()
+    else if (owner < styles.Length()) styles.Get(owner)
+    else defaultSeriesStyle(owner)
+
+func chartCellAt(rows Array[Array[rune]], y int, x int) rune {
+    if y < 0 || y >= rows.Length() { return ' ' }
+    val row = rows.Get(y)
+    if x < 0 || x >= row.Length() { return ' ' }
+    return row.Get(x)
+}
+
+// chartRowRunes indexes each row by code point. The glyphs are block
+// characters, so a byte index would land inside one.
+func chartRowRunes(rows Array[string]) Array[Array[rune]] =
+    rows.Map((line) => {
+        var out = EmptyArray[rune]()
+        for _, c := range line {
+            out = out.Append(c)
+        }
+        return out
+    })
 
 func multiBounds(series Array[Array[int]]) LineChartBounds {
     var lo = 0

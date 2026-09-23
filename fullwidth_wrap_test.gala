@@ -1,0 +1,191 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Deferred-wrap tests
+//
+// A buffer whose rows fill the terminal's full width is the case where a
+// renderer can disagree with the terminal about where the cursor is. Printing
+// into the last column does not move the cursor past it — the terminal instead
+// arms a "wrap pending" flag, and the next glyph is what wraps. A control that
+// moves the cursor clears that flag without acting on it, so LF alone moves
+// down a row and leaves the column where it was.
+//
+// These tests replay the renderer's own output through a terminal that models
+// that flag, which is what makes them able to fail. Comparing the output
+// against an expected string could not: the bytes are correct in isolation,
+// and only the cursor's state makes them land wrong.
+// ============================================================================
+
+// vt is a terminal reduced to the parts that decide where a glyph lands:
+// the cursor, the deferred-wrap flag, CR, LF, `ESC[row;colH`, and the cell
+// width of a printed rune. SGR and every other escape is consumed and
+// ignored — none of them move the cursor.
+type vt struct {
+    Screen *Buffer
+    var Cx      int
+    var Cy      int
+    var Pending bool
+}
+
+func newTerm(w int, h int) *vt =
+    &vt{Screen: NewBuffer(w, h), Cx: 0, Cy: 0, Pending: false}
+
+func (tm *vt) put(c rune) {
+    if tm.Pending {
+        tm.Cx = 0
+        tm.Cy = tm.Cy + 1
+        tm.Pending = false
+    }
+    tm.Screen.Set(tm.Cx, tm.Cy, Cell(Ch = c, St = DefaultStyle()))
+    val w = MaxInt(1, RuneCellWidth(c))
+    if w == 2 {
+        tm.Screen.Set(tm.Cx+1, tm.Cy, Cell(Ch = ' ', St = DefaultStyle()))
+    }
+    if tm.Cx + w >= tm.Screen.Width {
+        // At the right margin the cursor stays put and the wrap is deferred.
+        tm.Cx = tm.Screen.Width - 1
+        tm.Pending = true
+    } else {
+        tm.Cx = tm.Cx + w
+    }
+}
+
+// feed writes `s` to the terminal, interpreting the controls that move the
+// cursor and discarding the escape sequences that do not.
+func (tm *vt) feed(s string) {
+    val rs = ToRunes(s)
+    val n = rs.Size()
+    var i = 0
+    for i < n {
+        val c = rs[i]
+        if c == rune(27) && i + 1 < n && rs[i+1] == '[' {
+            var j = i + 2
+            var body = ""
+            for j < n {
+                val f = rs[j]
+                if isFinalByte(f) {
+                    if f == 'H' { tm.cursorTo(body) }
+                    j = j + 1
+                    break
+                }
+                body = body + string(f)
+                j = j + 1
+            }
+            i = j
+            continue
+        }
+        if c == rune(27) {
+            // A lone ESC introduces a sequence this model does not need;
+            // skip its introducer and let the rest fall through as text.
+            i = i + 1
+            continue
+        }
+        if c == '\r' {
+            tm.Cx = 0
+            tm.Pending = false
+            i = i + 1
+            continue
+        }
+        if c == '\n' {
+            // LF clears the pending wrap without acting on it, and does not
+            // return the carriage. This is the whole bug in one line.
+            tm.Pending = false
+            tm.Cy = tm.Cy + 1
+            i = i + 1
+            continue
+        }
+        tm.put(c)
+        i = i + 1
+    }
+}
+
+func isFinalByte(f rune) bool = (f >= 'A' && f <= 'Z') || (f >= 'a' && f <= 'z')
+
+// cursorTo applies `ESC[row;colH`, whose parameters are 1-based.
+func (tm *vt) cursorTo(body string) {
+    val rs = ToRunes(body)
+    var semi = -1
+    var k = 0
+    for k < rs.Size() {
+        if rs[k] == ';' { semi = k }
+        k = k + 1
+    }
+    if semi > 0 {
+        tm.Cy = decodeInt(body, 0, semi) - 1
+        tm.Cx = decodeInt(body, semi+1, rs.Size()) - 1
+        tm.Pending = false
+    }
+}
+
+func decodeInt(body string, from int, to int) int {
+    val rs = ToRunes(body)
+    var v = 0
+    var i = from
+    for i < to {
+        v = v*10 + (int(rs[i]) - int('0'))
+        i = i + 1
+    }
+    return v
+}
+
+// screenText renders the terminal's screen as one string per row, joined by
+// "/", so a failure shows every row at once.
+func screenText(tm *vt) string {
+    var out = ""
+    var y = 0
+    for y < tm.Screen.Height {
+        if y > 0 { out = out + "/" }
+        out = out + BufferText(tm.Screen, y)
+        y = y + 1
+    }
+    return out
+}
+
+// fullWidthRows paints `h` rows that each fill the buffer's full width, so
+// every row ends with the cursor at the right margin.
+func fullWidthRows(w int, h int) *Buffer {
+    val buf = NewBuffer(w, h)
+    var y = 0
+    for y < h {
+        var x = 0
+        for x < w {
+            buf.Set(x, y, Cell(Ch = rune(int('a') + y), St = DefaultStyle()))
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return buf
+}
+
+func TestFullPaintOfFullWidthRowsLandsOneRowPerRow(t T) T {
+    val buf = fullWidthRows(6, 3)
+    val tm = newTerm(6, 3)
+    tm.feed(buf.String())
+    // With a bare LF between rows the second row would start in the last
+    // column of the first, and every row after it would be one column left.
+    return Eq(t, screenText(tm), "aaaaaa/bbbbbb/cccccc")
+}
+
+func TestDiffAfterFullPaintLeavesNoStaleGlyphs(t T) T {
+    // The reported symptom: a full-width first frame, then a differential
+    // frame that blanks part of a row. The diff only repaints cells that
+    // changed, so any glyph the full paint put in the wrong column survives
+    // and reads as doubled text beside the correctly placed one.
+    val first = NewBuffer(12, 2)
+    first.DrawText(0, 0, "............", DefaultStyle())
+    first.DrawText(0, 1, "ab cd ef gh", DefaultStyle())
+
+    val second = first.Clone()
+    second.DrawText(0, 1, "           ", DefaultStyle())
+
+    val tm = newTerm(12, 2)
+    tm.feed(first.String())
+    tm.feed(second.DiffString(first))
+    return Eq(t, screenText(tm), "............/            ")
+}

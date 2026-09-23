@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/test"
 )
 
@@ -97,4 +98,54 @@ func TestDrawTextCombiningMarkAdvancesByOne(t T) T {
     val buf = NewBuffer(5, 1)
     val advanced = buf.DrawText(0, 0, combined, DefaultStyle())
     return Eq(t, advanced, 1)
+}
+
+// ============================================================================
+// A wide glyph covers two cells on the wire, not two writes
+// ============================================================================
+
+// printedCells is what the terminal would show: the buffer's output with the
+// escape sequences removed.
+func printedCells(s string) string {
+    var out = ""
+    var skip = false
+    for _, c := range s {
+        if c == rune(27) { skip = true }
+        if !skip { out = out + string(c) }
+        if skip && (c == 'm' || c == 'H') { skip = false }
+    }
+    return out
+}
+
+func TestFullPaintDoesNotWriteTheHalfCellSentinel(t T) T {
+    // DrawText parks a space beside a wide glyph so a differential update
+    // touching only the second column has something to write. Printing it is
+    // a different matter: the terminal's cursor already moved two columns,
+    // so writing it pushes the rest of the row right — one column of drift
+    // per wide glyph, compounding across a line of CJK.
+    val buf = NewBuffer(6, 1)
+    buf.DrawText(0, 0, "日本", DefaultStyle())
+    return Eq(t, printedCells(buf.String()), "日本  ")
+}
+
+func TestFullPaintKeepsTextAfterAWideGlyphInItsColumn(t T) T {
+    // The symptom the drift causes: everything after the glyph lands one
+    // column late, so a framed row loses its right border.
+    val buf = NewBuffer(8, 1)
+    buf.DrawText(0, 0, "日ab", DefaultStyle())
+    return Eq(t, printedCells(buf.String()), "日ab    ")
+}
+
+func TestDiffDoesNotWriteTheHalfCellSentinel(t T) T {
+    // Same rule on the differential path, which is where it actually bit:
+    // a full repaint happens once, diffs happen every frame, so the drift
+    // accumulated as the app ran.
+    val prev = NewBuffer(6, 1)
+    prev.DrawText(0, 0, "日本", DefaultStyle())
+    val cur = NewBuffer(6, 1)
+    cur.DrawText(0, 0, "日月", DefaultStyle())
+    val diff = printedCells(cur.DiffString(prev))
+    val t1 = EqMsg(t, strings.Contains(diff, "月"), true, "the changed glyph was not written")
+    return EqMsg(t1, strings.Contains(diff, "月 "), false,
+                 "the half-cell sentinel was written after the glyph")
 }

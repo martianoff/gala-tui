@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="238.00" viewBox="0 0 537.60 238.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<text x="0.00" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">┌</text>
+<text x="16.80" y="13.00" fill="#cccccc" textLength="75.60" lengthAdjust="spacingAndGlyphs">LineChart</text>
+<text x="100.80" y="13.00" fill="#cccccc" textLength="436.80" lengthAdjust="spacingAndGlyphs">───────────────────────────────────────────────────┐</text>
+<text x="0.00" y="30.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="126.00" y="30.00" fill="#4ebf22" textLength="8.40" lengthAdjust="spacingAndGlyphs">▁</text>
+<text x="142.80" y="30.00" fill="#4ebf22" textLength="16.80" lengthAdjust="spacingAndGlyphs">▅▃</text>
+<text x="201.60" y="30.00" fill="#4ebf22" textLength="25.20" lengthAdjust="spacingAndGlyphs">▄█▃</text>
+<text x="529.20" y="30.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="47.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="109.20" y="47.00" fill="#4ebf22" textLength="58.80" lengthAdjust="spacingAndGlyphs">▄▂█▇██▄</text>
+<text x="193.20" y="47.00" fill="#4ebf22" textLength="50.40" lengthAdjust="spacingAndGlyphs">▆███▇▂</text>
+<text x="529.20" y="47.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="67.20" y="64.00" fill="#4ebf22" textLength="25.20" lengthAdjust="spacingAndGlyphs">▂█▄</text>
+<text x="100.80" y="64.00" fill="#4ebf22" textLength="159.60" lengthAdjust="spacingAndGlyphs">▆████████▄███████▆▂</text>
+<text x="529.20" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="42.00" y="81.00" fill="#4ebf22" textLength="218.40" lengthAdjust="spacingAndGlyphs">▂▆▄███████████████████████</text>
+<text x="529.20" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="98.00" fill="#4ebf22" textLength="252.00" lengthAdjust="spacingAndGlyphs">▁▂▆▄██████████████████████████</text>
+<text x="529.20" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="115.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">└──────────────────────────────────────────────────────────────┘</text>
+<text x="8.40" y="132.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs">64%</text>
+<text x="42.00" y="132.00" fill="#cccccc" textLength="319.20" lengthAdjust="spacingAndGlyphs">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╾</text>
+<text x="361.20" y="132.00" fill="#cccccc" textLength="176.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">─────────────────────</text>
+<text x="8.40" y="149.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">deploy</text>
+<text x="75.60" y="149.00" fill="#cccccc" textLength="294.00" lengthAdjust="spacingAndGlyphs">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</text>
+<text x="369.60" y="149.00" fill="#cccccc" textLength="168.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">────────────────────</text>
+<text x="0.00" y="166.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">████████████████████████████████████████▉░░░░░░░░░░░░░░░░░░░░░░░</text>
+<text x="0.00" y="183.00" fill="#cccccc" textLength="252.00" lengthAdjust="spacingAndGlyphs">▁▁▁▁▂▃▂▃▄▄▃▄▅▅▆▆▇▇▅▅▄▄▆▇█▇▆▅▄▃</text>
+<text x="0.00" y="200.00" fill="#cccccc" textLength="58.80" lengthAdjust="spacingAndGlyphs">backend</text>
+<text x="75.60" y="200.00" fill="#cccccc" textLength="462.00" lengthAdjust="spacingAndGlyphs">███████████████████████████████████████████████████████</text>
+<text x="0.00" y="217.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs">frontend</text>
+<text x="75.60" y="217.00" fill="#cccccc" textLength="462.00" lengthAdjust="spacingAndGlyphs">████████████████████████████████████▎░░░░░░░░░░░░░░░░░░</text>
+<text x="0.00" y="234.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs">infra</text>
+<text x="75.60" y="234.00" fill="#cccccc" textLength="462.00" lengthAdjust="spacingAndGlyphs">███████████████████▎░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</text>
+</svg>

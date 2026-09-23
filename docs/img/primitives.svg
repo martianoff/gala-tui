@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="119.00" viewBox="0 0 537.60 119.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<rect x="0.00" y="68.00" width="184.80" height="17.00" fill="#cccccc"/>
+<text x="0.00" y="13.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs">Text</text>
+<text x="42.00" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">—</text>
+<text x="58.80" y="13.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">plain,</text>
+<text x="117.60" y="13.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs">unstyled</text>
+<text x="0.00" y="30.00" fill="#cccccc" textLength="84.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">TextStyled</text>
+<text x="92.40" y="30.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">—</text>
+<text x="109.20" y="30.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" font-weight="bold">bold</text>
+<text x="0.00" y="47.00" fill="#cccccc" textLength="84.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">TextStyled</text>
+<text x="92.40" y="47.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">—</text>
+<text x="109.20" y="47.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">dim</text>
+<text x="0.00" y="64.00" fill="#54e1b9" textLength="84.00" lengthAdjust="spacingAndGlyphs">TextStyled</text>
+<text x="92.40" y="64.00" fill="#54e1b9" textLength="8.40" lengthAdjust="spacingAndGlyphs">—</text>
+<text x="109.20" y="64.00" fill="#54e1b9" textLength="50.40" lengthAdjust="spacingAndGlyphs">colour</text>
+<text x="8.40" y="81.00" fill="#121314" textLength="84.00" lengthAdjust="spacingAndGlyphs">TextStyled</text>
+<text x="100.80" y="81.00" fill="#121314" textLength="8.40" lengthAdjust="spacingAndGlyphs">—</text>
+<text x="117.60" y="81.00" fill="#121314" textLength="58.80" lengthAdjust="spacingAndGlyphs">reverse</text>
+<text x="0.00" y="98.00" fill="#cccccc" textLength="75.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">Paragraph</text>
+<text x="84.00" y="98.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">wraps</text>
+<text x="134.40" y="98.00" fill="#cccccc" textLength="16.80" lengthAdjust="spacingAndGlyphs" opacity="0.65">on</text>
+<text x="159.60" y="98.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">word</text>
+<text x="201.60" y="98.00" fill="#cccccc" textLength="84.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">boundaries</text>
+<text x="294.00" y="98.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">when</text>
+<text x="336.00" y="98.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">the</text>
+<text x="369.60" y="98.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">line</text>
+<text x="411.60" y="98.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">runs</text>
+<text x="453.60" y="98.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">past</text>
+<text x="495.60" y="98.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">the</text>
+</svg>

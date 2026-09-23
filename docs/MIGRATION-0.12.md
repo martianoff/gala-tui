@@ -318,6 +318,34 @@ placed far outside its bounds no longer stalls the frame.
 
 ---
 
+### `MultiLineChart` shows every series it is given
+
+It showed one. A chart row is a string and its empty cells are spaces, so
+stacking one chart widget per series let the topmost layer blank every series
+beneath it everywhere it was empty — which is everywhere above its own curve.
+Nothing to change at a call site: charts that passed several series were
+already asking for this and getting one line back.
+
+### A modal can keep the screen it is asking about
+
+`Modal`'s backdrop is a fill of dim *spaces*, and a fill of spaces erases, so
+the documented `Stack(background, Modal(...))` threw away the screen behind the
+dialog. `Modal` is unchanged — it is still the right thing when there is
+nothing behind worth keeping — but a widget cannot dim content it was never
+given, so the fix is a constructor that takes the layer beneath:
+
+```gala
+// before — the dialog floats on black
+Stack(ArrayOf[Widget](background, Modal(40, 8, dialog)))
+
+// after — the screen stays, dimmed
+ModalOver(background, 40, 8, dialog)
+```
+
+`ModalOverStyled(below, w, h, body, border)` is the same with a chosen border.
+
+---
+
 ## What did not change
 
 `Program`, `Sub`, and `Run` / `RunRich` / `RunFull` are untouched, as are

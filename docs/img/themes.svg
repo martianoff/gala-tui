@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="136.00" viewBox="0 0 537.60 136.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<text x="8.40" y="13.00" fill="#cccccc" textLength="100.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">DefaultTheme</text>
+<text x="176.40" y="13.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">accent</text>
+<text x="252.00" y="13.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">muted</text>
+<text x="327.60" y="13.00" fill="#cccccc" textLength="58.80" lengthAdjust="spacingAndGlyphs">success</text>
+<text x="403.20" y="13.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">error</text>
+<text x="8.40" y="47.00" fill="#54e1b9" textLength="75.60" lengthAdjust="spacingAndGlyphs" font-weight="bold">DarkTheme</text>
+<text x="176.40" y="47.00" fill="#b954e1" textLength="50.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">accent</text>
+<text x="252.00" y="47.00" fill="#4d4d4d" textLength="42.00" lengthAdjust="spacingAndGlyphs">muted</text>
+<text x="327.60" y="47.00" fill="#4ebf22" textLength="58.80" lengthAdjust="spacingAndGlyphs">success</text>
+<text x="403.20" y="47.00" fill="#dd3c69" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">error</text>
+<text x="8.40" y="81.00" fill="#26b0d7" textLength="84.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">LightTheme</text>
+<text x="176.40" y="81.00" fill="#b954e1" textLength="50.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">accent</text>
+<text x="252.00" y="81.00" fill="#4d4d4d" textLength="42.00" lengthAdjust="spacingAndGlyphs">muted</text>
+<text x="327.60" y="81.00" fill="#4ebf22" textLength="58.80" lengthAdjust="spacingAndGlyphs">success</text>
+<text x="403.20" y="81.00" fill="#dd3c69" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">error</text>
+<text x="8.40" y="115.00" fill="#ffffff" textLength="142.80" lengthAdjust="spacingAndGlyphs" font-weight="bold" text-decoration="underline">HighContrastTheme</text>
+<text x="176.40" y="115.00" fill="#ddaf3c" textLength="50.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">accent</text>
+<text x="252.00" y="115.00" fill="#d9d9d9" textLength="42.00" lengthAdjust="spacingAndGlyphs">muted</text>
+<text x="327.60" y="115.00" fill="#4ebf22" textLength="58.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">success</text>
+<text x="403.20" y="115.00" fill="#dd3c69" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold" text-decoration="underline">error</text>
+</svg>

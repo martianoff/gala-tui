@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="170.00" viewBox="0 0 537.60 170.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<text x="0.00" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">┌</text>
+<text x="16.80" y="13.00" fill="#cccccc" textLength="109.20" lengthAdjust="spacingAndGlyphs">DiffViewStats</text>
+<text x="134.40" y="13.00" fill="#cccccc" textLength="403.20" lengthAdjust="spacingAndGlyphs">───────────────────────────────────────────────┐</text>
+<text x="0.00" y="30.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="30.00" fill="#4ebf22" textLength="16.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">+1</text>
+<text x="33.60" y="30.00" fill="#dd3c69" textLength="16.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">-1</text>
+<text x="58.80" y="30.00" fill="#cccccc" textLength="16.80" lengthAdjust="spacingAndGlyphs" opacity="0.65">~2</text>
+<text x="529.20" y="30.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="47.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">│──────────────────────────────────────────────────────────────│</text>
+<text x="0.00" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="25.20" y="64.00" fill="#cccccc" textLength="16.80" lengthAdjust="spacingAndGlyphs" opacity="0.65">if</text>
+<text x="50.40" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">y</text>
+<text x="67.20" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">&lt;</text>
+<text x="84.00" y="64.00" fill="#cccccc" textLength="84.00" lengthAdjust="spacingAndGlyphs" opacity="0.65">b.Height-1</text>
+<text x="176.40" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">{</text>
+<text x="529.20" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="81.00" fill="#dd3c69" textLength="8.40" lengthAdjust="spacingAndGlyphs">-</text>
+<text x="58.80" y="81.00" fill="#dd3c69" textLength="168.00" lengthAdjust="spacingAndGlyphs">sb.WriteString("\n")</text>
+<text x="529.20" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="98.00" fill="#4ebf22" textLength="8.40" lengthAdjust="spacingAndGlyphs">+</text>
+<text x="58.80" y="98.00" fill="#4ebf22" textLength="184.80" lengthAdjust="spacingAndGlyphs">sb.WriteString("\r\n")</text>
+<text x="529.20" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="25.20" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">}</text>
+<text x="529.20" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="132.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="529.20" y="132.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="149.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="529.20" y="149.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="166.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">└──────────────────────────────────────────────────────────────┘</text>
+</svg>

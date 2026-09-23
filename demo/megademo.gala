@@ -72,6 +72,13 @@ sealed type MegaMsg {
     case MegaToggleTreeNode(Idx int)   // double-click → expand / collapse
     case MegaPalRowClick(Idx int)      // left-click on a palette result row
     case MegaSortColumn(Col int)       // left-click on a builds-table header → sort
+    case MegaFormCaret(Field int, Idx int)  // click inside a text field → focus it, caret to the clicked rune
+    case MegaFormType(C rune)          // printable key into the focused field
+    case MegaFormBackspace()
+    case MegaFormSubmit()
+    case MegaSelectPick(Idx int)       // click a SelectList row
+    case MegaDropToggle()
+    case MegaDropPick(Idx int)
     case MegaNoOp()
 }
 
@@ -107,6 +114,18 @@ struct MegaModel(
     Progress       state.Animation,
     BuildTab       int,                 // 0 = Running, 1 = Succeeded, 2 = Failed
     Now            Instant,
+    // Showcase screens (see megascreens.gala).
+    FormUser       string,
+    FormUserCur    int,                 // caret as a rune index into FormUser
+    FormPass       string,
+    FormPassCur    int,
+    FormField      int,                 // 0 = user, 1 = password, 2 = submit
+    FormSubmitted  bool,
+    SearchQuery    string,
+    SelectIdx      int,
+    DropOpen       bool,
+    DropSel        int,
+    DataScroll     int,
 )
 
 // ----------------------------------------------------------------------------
@@ -136,6 +155,17 @@ func NewMegaModel() MegaModel {
         Progress       = state.SmoothTween(0, 100, now, Seconds(int64(10))),
         BuildTab       = 0,
         Now            = now,
+        FormUser       = "",
+        FormUserCur    = 0,
+        FormPass       = "",
+        FormPassCur    = 0,
+        FormField      = 0,
+        FormSubmitted  = false,
+        SearchQuery    = "",
+        SelectIdx      = 0,
+        DropOpen       = false,
+        DropSel        = 0,
+        DataScroll     = 0,
     )
 }
 
@@ -216,7 +246,9 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaQuit()                => (m, QuitCmd[MegaMsg]())
         case MegaTick()                => (megaTick(m), NoCmd[MegaMsg]())
         case MegaPalTogglePalette()    => (megaTogglePalette(m), NoCmd[MegaMsg]())
-        case MegaPalChar(c)            => (m.Copy(Palette = PaletteUpdate(m.Palette, PalChar(C = c))), NoCmd[MegaMsg]())
+        case MegaPalChar(c)            => megaRouteChar(m, c)
+        case MegaPalBackspace()        if m.Screens.Current() == "forms" && !m.PaletteOpen =>
+                                          (megaFormBackspace(m), NoCmd[MegaMsg]())
         case MegaPalBackspace()        => (m.Copy(Palette = PaletteUpdate(m.Palette, PalBackspace())), NoCmd[MegaMsg]())
         case MegaPalNext()             => (m.Copy(Palette = PaletteUpdate(m.Palette, PalNext())), NoCmd[MegaMsg]())
         case MegaPalPrev()             => (m.Copy(Palette = PaletteUpdate(m.Palette, PalPrev())), NoCmd[MegaMsg]())
@@ -250,8 +282,122 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaSortColumn(col)       => (m.Copy(BuildsTable =
                                               DataTableUpdate(m.BuildsTable, DTSort(Col = col))),
                                               NoCmd[MegaMsg]())
+        case MegaFormCaret(f, i)       => (megaFormCaret(m, f, i), NoCmd[MegaMsg]())
+        case MegaFormType(c)           => (megaFormType(m, c), NoCmd[MegaMsg]())
+        case MegaFormBackspace()       => (megaFormBackspace(m), NoCmd[MegaMsg]())
+        case MegaFormSubmit()          => (megaFormSubmit(m), NoCmd[MegaMsg]())
+        case MegaSelectPick(idx)       => (megaSelectPick(m, idx), NoCmd[MegaMsg]())
+        case MegaDropToggle()          => (m.Copy(DropOpen = !m.DropOpen), NoCmd[MegaMsg]())
+        case MegaDropPick(idx)         => (m.Copy(DropSel = idx, DropOpen = false), NoCmd[MegaMsg]())
         case MegaNoOp()                => (m, NoCmd[MegaMsg]())
     }
+}
+
+// ----------------------------------------------------------------------------
+// Showcase-screen updates (see megascreens.gala)
+// ----------------------------------------------------------------------------
+
+// megaFormCaret is what a click inside a text field means: focus that field
+// *and* put the caret on the character under the pointer. Doing only the
+// first is the behaviour people complain about.
+func megaFormCaret(m MegaModel, field int, idx int) MegaModel =
+    if (field == 0) m.Copy(FormField = 0, FormUserCur = idx)
+    else m.Copy(FormField = 1, FormPassCur = idx)
+
+// megaFormType inserts at the caret rather than appending, so a click that
+// moved the caret into the middle of the value is visibly honoured.
+func megaFormType(m MegaModel, c rune) MegaModel {
+    if m.FormField == 0 {
+        return m.Copy(
+            FormUser    = insertAtRune(m.FormUser, m.FormUserCur, c),
+            FormUserCur = m.FormUserCur + 1,
+            FormSubmitted = false)
+    }
+    if m.FormField == 1 {
+        return m.Copy(
+            FormPass    = insertAtRune(m.FormPass, m.FormPassCur, c),
+            FormPassCur = m.FormPassCur + 1,
+            FormSubmitted = false)
+    }
+    return m
+}
+
+func megaFormBackspace(m MegaModel) MegaModel {
+    if m.FormField == 0 && m.FormUserCur > 0 {
+        return m.Copy(
+            FormUser    = deleteBeforeRune(m.FormUser, m.FormUserCur),
+            FormUserCur = m.FormUserCur - 1)
+    }
+    if m.FormField == 1 && m.FormPassCur > 0 {
+        return m.Copy(
+            FormPass    = deleteBeforeRune(m.FormPass, m.FormPassCur),
+            FormPassCur = m.FormPassCur - 1)
+    }
+    return m
+}
+
+func megaFormSubmit(m MegaModel) MegaModel =
+    if (RuneCount(m.FormPass) == 0) m.Copy(FormField = 1)
+    else m.Copy(FormField = 2, FormSubmitted = true)
+
+// megaSelectPick keeps the list selection and the table's scroll window in
+// step, which is what makes the Scrollbar beside the table mean anything.
+func megaSelectPick(m MegaModel, idx int) MegaModel {
+    val visible = megaQuotaVisible()
+    var scroll = m.DataScroll
+    if idx < scroll                { scroll = idx }
+    if idx >= scroll + visible     { scroll = idx - visible + 1 }
+    return m.Copy(SelectIdx = idx, DataScroll = scroll)
+}
+
+// insertAtRune / deleteBeforeRune index by code point, not byte, because the
+// caret a click produced is a rune index. Both split the way textarea.gala
+// does — by walking the runes — rather than slicing a byte string, which
+// would cut a multi-byte character in half.
+func insertAtRune(s string, at int, c rune) string {
+    var out = ""
+    var i = 0
+    for _, r := range s {
+        if i == at { out = out + string(c) }
+        out = out + string(r)
+        i = i + 1
+    }
+    if at >= i { out = out + string(c) }
+    return out
+}
+
+func deleteBeforeRune(s string, at int) string {
+    if at <= 0 { return s }
+    var out = ""
+    var i = 0
+    for _, r := range s {
+        if i != at - 1 { out = out + string(r) }
+        i = i + 1
+    }
+    return out
+}
+
+// megaRouteChar sends a printable character where the screen says it belongs.
+// Text entry wins over shortcuts: a screen with a focused field is a screen
+// where the letters are content.
+func megaRouteChar(m MegaModel, c rune) Tuple[MegaModel, Cmd[MegaMsg]] {
+    if m.PaletteOpen {
+        return (m.Copy(Palette = PaletteUpdate(m.Palette, PalChar(C = c))), NoCmd[MegaMsg]())
+    }
+    if m.Screens.Current() == "forms" {
+        return (megaFormType(m, c), NoCmd[MegaMsg]())
+    }
+    return megaShortcut(m, c)
+}
+
+func megaShortcut(m MegaModel, c rune) Tuple[MegaModel, Cmd[MegaMsg]] {
+    if c == 'q' { return MegaUpdate(m, MegaQuit()) }
+    if c == '?' { return MegaUpdate(m, MegaToggleHelp()) }
+    if c == 't' { return MegaUpdate(m, MegaCycleTheme()) }
+    if c == '/' { return MegaUpdate(m, MegaToggleLogs()) }
+    if c == 'c' { return MegaUpdate(m, MegaCopySelected()) }
+    if c == 'd' { return MegaUpdate(m, MegaShowConfirm(Action = "Deploy to Prod")) }
+    return (m, NoCmd[MegaMsg]())
 }
 
 func megaTick(m MegaModel) MegaModel {
@@ -344,11 +490,26 @@ func megaArrowOnPane(m MegaModel, delta int) MegaModel {
     if m.Screens.Current() == "logs" {
         return megaLogScroll(m, -delta)
     }
+    if m.Screens.Current() == "data" {
+        return megaDataMove(m, -delta)
+    }
     return m
 }
 
+// megaDataMove moves the one selection the data screen has. The wheel arrives
+// here as the same up/down the arrow keys produce — which is the point: the
+// list highlight, the table's window and the scrollbar thumb all answer to
+// either input, because all three read the same field.
+func megaDataMove(m MegaModel, delta int) MegaModel {
+    val n = megaQuotaRowCount()
+    var next = m.SelectIdx + delta
+    if next < 0  { next = n - 1 }
+    if next >= n { next = 0 }
+    return megaSelectPick(m, next)
+}
+
 func megaMoveSidebarSel(m MegaModel, delta int) MegaModel {
-    val n = 4   // overview, builds, pipelines, logs
+    val n = 8   // the sidebar's routes, in megaJumpToSidebar order
     var next = m.SidebarSel + delta
     if next < 0  { next = n - 1 }
     if next >= n { next = 0 }
@@ -361,6 +522,11 @@ func megaMoveSidebarSel(m MegaModel, delta int) MegaModel {
 // match the new tab's status — keeping the filter on the *model* (not
 // re-applying it at render time, which would reset the cursor to row 0
 // every paint).
+// megaFormTab cycles the form's three stops. Tab means "next field" on a
+// screen made of fields, not "next pane".
+func megaFormTab(m MegaModel) MegaModel =
+    m.Copy(FormField = (m.FormField + 1) % 3)
+
 func megaTabNextFiltered(m MegaModel) MegaModel {
     val nextTab = (m.BuildTab + 1) % 3
     val statuses = ArrayOf[string]("Running", "Succeeded", "Failed")
@@ -369,7 +535,9 @@ func megaTabNextFiltered(m MegaModel) MegaModel {
 }
 
 func megaJumpToSidebar(m MegaModel) MegaModel {
-    val screens = ArrayOf[string]("overview", "builds", "pipelines", "logs")
+    val screens = ArrayOf[string](
+        "overview", "builds", "pipelines", "logs",
+        "charts", "forms", "data", "review")
     val route = screens.Get(m.SidebarSel)
     // Shift focus to the main pane so arrows work immediately on the
     // newly-active screen (no extra Tab needed).
@@ -380,12 +548,18 @@ func megaJumpToSidebar(m MegaModel) MegaModel {
 }
 
 func megaEnter(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
+    // Layers before screens, outermost first: a modal is on top of the screen
+    // that opened it, so it answers Enter first. Putting the forms screen's
+    // submit ahead of this made Enter re-submit the sign-in form while the
+    // deploy confirmation sat on top of it, and the modal could never be
+    // dismissed from the keyboard at all.
     if m.PaletteOpen { return megaConfirmPalette(m) }
     if m.ConfirmAction != "" {
         // Honor the focused button: Yes commits, No just dismisses.
         if m.ConfirmYes { return (megaConfirmYes(m), NoCmd[MegaMsg]()) }
         return (m.Copy(ConfirmAction = ""), NoCmd[MegaMsg]())
     }
+    if m.Screens.Current() == "forms" { return (megaFormSubmit(m), NoCmd[MegaMsg]()) }
     return m.Focus.Route[Tuple[MegaModel, Cmd[MegaMsg]]](
         ArrayOf[state.FocusedCase[Tuple[MegaModel, Cmd[MegaMsg]]]](
             state.OnPane[Tuple[MegaModel, Cmd[MegaMsg]]](
@@ -420,6 +594,9 @@ func megaEnterOnPane(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
 func megaTabRouted(m MegaModel) MegaModel {
     if m.ConfirmAction != "" {
         return m.Copy(ConfirmYes = !m.ConfirmYes)
+    }
+    if m.Screens.Current() == "forms" && !m.PaletteOpen {
+        return megaFormTab(m)
     }
     val nextFocus = m.Focus.Next()
     val nextFocusName = nextFocus.Current()
@@ -608,6 +785,10 @@ func megaBody(m MegaModel, th Theme) Widget {
         case "builds"    => megaBuildsBody(m, th)
         case "pipelines" => megaPipelinesBody(m, th)
         case "logs"      => LogPanelView(m.Logs).Bordered()
+        case "charts"    => megaChartsBody(m, th)
+        case "forms"     => megaFormsBody(m, th)
+        case "data"      => megaDataBody(m, th)
+        case "review"    => megaReviewBody(m, th)
         case _           => megaOverviewBody(m, th)
     }
 }
@@ -637,13 +818,15 @@ func megaSidebar(m MegaModel, th Theme) Widget {
     // clicks don't fire. No `ClickableRows` wrap visible at the call site.
     val menu = ui.SelectListOfPick[MegaMsg](
         "sidebar",
-        ArrayOf[string]("  Overview", "  Builds", "  Pipelines", "  Logs"),
+        ArrayOf[string](
+            "  Overview", "  Builds", "  Pipelines", "  Logs",
+            "  Charts", "  Forms", "  Data", "  Review"),
         menuSel,
         (i) => MegaClickSidebar(Idx = i),
     )
     val inside = Column(ArrayOf[LayoutChild](
         Fixed(1, TextStyled(titleLabel, titleStyle)),
-        Fixed(4, menu),
+        Fixed(8, menu),
         Fixed(1, Text("")),
         Fixed(1, TextStyled(" Throughput (7d)", th.Heading)),
         Fixed(5, BarChart(ArrayOf[BarChartDatum](
@@ -794,33 +977,30 @@ func megaLogLine(line LogLine) Widget {
     ))
 }
 
-// Each modal layer wraps Modal(...) in `.OnClick(MegaNoOp())` so the
+// Each modal layer wraps ModalOver(...) in `.OnClick(MegaNoOp())` so the
 // dim backdrop absorbs clicks instead of letting them through to the
 // sidebar / table behind. The palette body itself registers its own
 // per-row hits *after* the backdrop wrap, so they win on last-wins
 // lookup.
+//
+// ModalOver rather than Stack(below, Modal(...)): a modal is a question about
+// the screen that raised it, and `Modal`'s backdrop is a fill of spaces, so
+// stacking it erased the thing being asked about. "Deploy to Prod?" floated
+// on black with the build it referred to nowhere on screen.
 
-func megaLayerConfirm(below Widget, m MegaModel) Widget {
-    val dialog = Modal(50, 7, ConfirmDialog(
+func megaLayerConfirm(below Widget, m MegaModel) Widget =
+    ModalOver(below, 50, 7, ConfirmDialog(
         "Confirm action",
         m.ConfirmAction + "? Tab to switch, Enter to commit, Esc to cancel.",
         m.ConfirmYes,
     )).OnClick(MegaNoOp())
-    return Stack(ArrayOf[Widget](below, dialog))
-}
 
-func megaLayerHelp(below Widget, m MegaModel) Widget {
-    val panel = MarkdownView(megaHelpMarkdown())
-    val masked = Modal(70, 18, panel).OnClick(MegaNoOp())
-    return Stack(ArrayOf[Widget](below, masked))
-}
+func megaLayerHelp(below Widget, m MegaModel) Widget =
+    ModalOver(below, 70, 18, MarkdownView(megaHelpMarkdown())).OnClick(MegaNoOp())
 
-func megaLayerPalette(below Widget, m MegaModel) Widget {
-    val palette = PaletteViewClick[MegaMsg](m.Palette, true,
-        (i) => MegaPalRowClick(Idx = i))
-    val masked = Modal(60, 12, palette).OnClick(MegaNoOp())
-    return Stack(ArrayOf[Widget](below, masked))
-}
+func megaLayerPalette(below Widget, m MegaModel) Widget =
+    ModalOver(below, 60, 12, PaletteViewClick[MegaMsg](m.Palette, true,
+        (i) => MegaPalRowClick(Idx = i))).OnClick(MegaNoOp())
 
 func megaToastLayer(q ToastQueue) Widget =
     Column(ArrayOf[LayoutChild](
@@ -837,7 +1017,11 @@ func megaScreenIndex(route string) int {
     if route == "builds"    { return 1 }
     if route == "pipelines" { return 2 }
     if route == "logs"      { return 3 }
-    if route == "help"      { return 4 }
+    if route == "charts"    { return 4 }
+    if route == "forms"     { return 5 }
+    if route == "data"      { return 6 }
+    if route == "review"    { return 7 }
+    if route == "help"      { return 8 }
     return 0
 }
 
@@ -947,16 +1131,13 @@ func MegaKeyToMsg(ev KeyEvent) MegaMsg {
     }
 }
 
-func megaPlainChar(c rune) MegaMsg {
-    if c == 'q' { return MegaQuit() }
-    if c == '?' { return MegaToggleHelp() }
-    if c == 't' { return MegaCycleTheme() }
-    if c == '/' { return MegaToggleLogs() }
-    if c == 'c' { return MegaCopySelected() }
-    if c == 'd' { return MegaShowConfirm(Action = "Deploy to Prod") }
-    // When the palette is open the char goes into it — update() routes it.
-    return MegaPalChar(C = c)
-}
+// megaPlainChar reports a printable key and nothing more. Which of the three
+// things a letter can mean — a palette query, text in a field, or a global
+// shortcut — depends on what is on screen, and this adapter has no model to
+// ask. It used to decide anyway, which meant typing a password containing `d`
+// opened the deploy confirmation and one containing `q` quit the program.
+// `megaRouteChar` decides instead, where the model is in hand.
+func megaPlainChar(c rune) MegaMsg = MegaPalChar(C = c)
 
 // ----------------------------------------------------------------------------
 // Entry point.

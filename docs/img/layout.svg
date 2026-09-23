@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="153.00" viewBox="0 0 537.60 153.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<text x="0.00" y="13.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">╭────────────────╮┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓</text>
+<text x="0.00" y="30.00" fill="#cccccc" textLength="16.80" lengthAdjust="spacingAndGlyphs">│┌</text>
+<text x="25.20" y="30.00" fill="#cccccc" textLength="58.80" lengthAdjust="spacingAndGlyphs">rounded</text>
+<text x="92.40" y="30.00" fill="#cccccc" textLength="75.60" lengthAdjust="spacingAndGlyphs">─────┐│┃┌</text>
+<text x="176.40" y="30.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs">thick</text>
+<text x="226.80" y="30.00" fill="#cccccc" textLength="310.80" lengthAdjust="spacingAndGlyphs">───────────────────────────────────┐┃</text>
+<text x="0.00" y="47.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">│└──────────────┘│┃└──────────────────────────────────────────┘┃</text>
+<text x="0.00" y="64.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">╰────────────────╯┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛</text>
+<text x="0.00" y="81.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">┌───────────────────┐╔═════════════════════════════════════════╗</text>
+<text x="0.00" y="98.00" fill="#cccccc" textLength="16.80" lengthAdjust="spacingAndGlyphs">│┌</text>
+<text x="25.20" y="98.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">single</text>
+<text x="84.00" y="98.00" fill="#cccccc" textLength="109.20" lengthAdjust="spacingAndGlyphs">─────────┐│║┌</text>
+<text x="201.60" y="98.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">double</text>
+<text x="260.40" y="98.00" fill="#cccccc" textLength="277.20" lengthAdjust="spacingAndGlyphs">───────────────────────────────┐║</text>
+<text x="0.00" y="115.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">│└─────────────────┘│║└───────────────────────────────────────┘║</text>
+<text x="0.00" y="132.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">└───────────────────┘╚═════════════════════════════════════════╝</text>
+</svg>

@@ -25,6 +25,9 @@ exports_files(
 # gazelle:exclude demo
 # gazelle:exclude examples
 # gazelle:exclude harness
+# tools/ holds the documentation image generator, which is a main package that
+# builds with `gala build` and has no place in the published library.
+# gazelle:exclude tools
 gazelle_binary(
     name = "gazelle_bin",
     languages = ["@gala_gazelle//gala"],
@@ -138,6 +141,7 @@ gala_test(
         "flex_align_scroll_test.gala",
         "fluent_test.gala",
         "form_test.gala",
+        "fullwidth_wrap_test.gala",
         "help_test.gala",
         "input_protocols_test.gala",
         "input_render_test.gala",

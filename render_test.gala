@@ -200,8 +200,9 @@ func TestBufferStringMultilineSeparator(t T) T {
     b.DrawText(0, 0, "ab", DefaultStyle())
     b.DrawText(0, 1, "cd", DefaultStyle())
     val out = b.String()
-    // Two logical lines => one embedded newline.
-    return Eq(t, strings.Count(out, "\n"), 1)
+    // Two logical lines => one embedded row separator, which must carry the
+    // carriage return; see fullwidth_wrap_test.gala for why a bare LF breaks.
+    return Eq(t, strings.Count(out, "\r\n"), 1)
 }
 
 // ============================================================================

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="153.00" viewBox="0 0 537.60 153.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<rect width="100%" height="100%" fill="#121314"/>
+<rect x="42.00" y="17.00" width="8.40" height="17.00" fill="#ddaf3c"/>
+<rect x="0.00" y="85.00" width="109.20" height="17.00" fill="#cccccc"/>
+<text x="8.40" y="13.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">user</text>
+<text x="0.00" y="30.00" fill="#ddaf3c" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">admin</text>
+<text x="8.40" y="47.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">password</text>
+<text x="0.00" y="64.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">••••••</text>
+<text x="0.00" y="98.00" fill="#121314" textLength="8.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">[</text>
+<text x="25.20" y="98.00" fill="#121314" textLength="33.60" lengthAdjust="spacingAndGlyphs" font-weight="bold">Sign</text>
+<text x="67.20" y="98.00" fill="#121314" textLength="16.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">in</text>
+<text x="100.80" y="98.00" fill="#121314" textLength="8.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">]</text>
+<text x="134.40" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">[</text>
+<text x="159.60" y="98.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">Cancel</text>
+<text x="226.80" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">]</text>
+<text x="8.40" y="132.00" fill="#54e1b9" textLength="8.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">/</text>
+<text x="33.60" y="132.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">depl▎</text>
+<text x="487.20" y="132.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">(3/24)</text>
+</svg>

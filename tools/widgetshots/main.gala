@@ -1,0 +1,200 @@
+package main
+
+import (
+    "fmt"
+    . "github.com/martianoff/gala-tui"
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// widgetshots — renders the documentation's widget examples to SVG.
+//
+// The docs described every widget in prose and showed none of them. The
+// obstacle was never the writing: it was that a screenshot of a terminal is a
+// photograph, and a photograph goes stale the moment a widget changes and
+// nobody notices.
+//
+// So these are not screenshots. Each image is produced by rendering the widget
+// into a Buffer — the same Buffer the terminal gets — and serialising those
+// cells to SVG. The picture is therefore generated from the library, by the
+// library, and regenerating it after a change is one command. An image that
+// stops matching the widget is a diff in the repository rather than a thing a
+// reader notices before the maintainer does.
+//
+// SVG rather than PNG or GIF for three reasons: it is text, so it diffs and
+// compresses; it stays sharp at any zoom, which matters for box-drawing glyphs
+// and braille; and it needs no font on the build machine, only on the reader's.
+//
+//   gala build ./tools/widgetshots
+//   ./gala-tui | python3 tools/widgetshots/split.py
+//
+// Output goes to docs/img/<name>.svg, one per section of docs/WIDGETS.md.
+//
+// Note that `gala build` names its output after the module, so building this
+// replaces the `gala-tui` binary the demo also builds to. Run
+// `gala build ./demo` afterwards, or just let `demo/record/record.sh` do it —
+// it builds the demo itself before recording.
+// ============================================================================
+
+func main() {
+    shots().ForEach((s) => {
+        fmt.Println(s"===FILE ${s.Name}===")
+        fmt.Println(renderSvg(s.W, s.Cols, s.Rows))
+    })
+}
+
+struct Shot(
+    Name string,
+    Cols int,
+    Rows int,
+    W    Widget,
+)
+
+// ----------------------------------------------------------------------------
+// SVG serialisation
+// ----------------------------------------------------------------------------
+
+// Cell metrics, in px. 8.4 x 17 is the aspect a monospace face actually has,
+// so box-drawing characters meet at the corners instead of leaving hairlines.
+func cellW() float64 = 8.4
+func cellH() float64 = 17.0
+
+// renderSvg paints `w` into a Cols x Rows buffer and serialises the result.
+//
+// Two passes, because SVG paints in document order: every background rect
+// first, then every glyph. Interleaving them lets a wide glyph's neighbour
+// paint its background over the tail of the glyph beside it.
+func renderSvg(w Widget, cols int, rows int) string {
+    val buf = NewBuffer(cols, rows)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = cols, Height = rows), buf)
+
+    val pxW = float64(cols) * cellW()
+    val pxH = float64(rows) * cellH()
+    var sb = ""
+    sb = sb + s"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${fmtF(pxW)}\" height=\"${fmtF(pxH)}\" viewBox=\"0 0 ${fmtF(pxW)} ${fmtF(pxH)}\" font-family=\"ui-monospace, SFMono-Regular, Menlo, Consolas, monospace\" font-size=\"13.5\">\n"
+    sb = sb + s"<rect width=\"100%\" height=\"100%\" fill=\"${bgHex()}\"/>\n"
+    sb = sb + svgBackgrounds(buf, cols, rows)
+    sb = sb + svgGlyphs(buf, cols, rows)
+    return sb + "</svg>"
+}
+
+// svgBackgrounds emits one rect per *run* of cells sharing a background, not
+// one per cell. A cell is 8.4px wide, so per-cell rects land on fractional
+// boundaries and the renderer leaves a hairline seam between them — visible
+// as vertical stripes straight through a selection highlight. A run is one
+// rect with one pair of edges, so there is nothing to seam.
+func svgBackgrounds(buf *Buffer, cols int, rows int) string {
+    var sb = ""
+    var y = 0
+    for y < rows {
+        var x = 0
+        for x < cols {
+            val bg = effectiveBg(buf.StyleAt(x, y))
+            if bg == bgHex() {
+                x = x + 1
+                continue
+            }
+            val startX = x
+            for x < cols && effectiveBg(buf.StyleAt(x, y)) == bg {
+                x = x + 1
+            }
+            val px = float64(startX) * cellW()
+            val py = float64(y) * cellH()
+            val w = float64(x - startX) * cellW()
+            sb = sb + s"<rect x=\"${fmtF(px)}\" y=\"${fmtF(py)}\" width=\"${fmtF(w)}\" height=\"${fmtF(cellH())}\" fill=\"$bg\"/>\n"
+        }
+        y = y + 1
+    }
+    return sb
+}
+
+// svgGlyphs emits one <text> per run of adjacent cells sharing a style, which
+// keeps the file to a few hundred elements instead of one per cell — and keeps
+// the text selectable when a reader opens the image on its own.
+func svgGlyphs(buf *Buffer, cols int, rows int) string {
+    var sb = ""
+    var y = 0
+    for y < rows {
+        var x = 0
+        for x < cols {
+            if buf.CharAt(x, y) == ' ' {
+                x = x + 1
+                continue
+            }
+            // Extend the run while the style holds and the glyphs keep coming.
+            // CharAt / StyleAt rather than Get().Ch: a field read through a
+            // returned struct comes back wrapped in Immutable, which will not
+            // unify with `rune` or `Style` (see buffer.gala).
+            var run = ""
+            val st = buf.StyleAt(x, y)
+            val startX = x
+            for x < cols {
+                val ch = buf.CharAt(x, y)
+                if ch == ' ' || !StyleEqual(buf.StyleAt(x, y), st) { break }
+                run = run + string(ch)
+                x = x + 1
+            }
+            sb = sb + svgText(run, startX, y, st)
+        }
+        y = y + 1
+    }
+    return sb
+}
+
+func svgText(run string, x int, y int, st Style) string {
+    val px = float64(x) * cellW()
+    // Baseline sits ~78% down the cell for a 13.5px face in a 17px box.
+    val py = float64(y) * cellH() + 13.0
+    var attrs = s"x=\"${fmtF(px)}\" y=\"${fmtF(py)}\" fill=\"${effectiveFg(st)}\""
+    attrs = attrs + s" textLength=\"${fmtF(float64(RuneCount(run)) * cellW())}\" lengthAdjust=\"spacingAndGlyphs\""
+    if st.Bold      { attrs = attrs + " font-weight=\"bold\"" }
+    if st.Italic    { attrs = attrs + " font-style=\"italic\"" }
+    if st.Underline { attrs = attrs + " text-decoration=\"underline\"" }
+    if st.Dim       { attrs = attrs + " opacity=\"0.65\"" }
+    return s"<text $attrs>${xmlEscape(run)}</text>\n"
+}
+
+// effectiveFg / effectiveBg fold Reverse in here rather than at every call
+// site: reverse video is a swap of the two, and a widget that uses it for a
+// selection highlight would otherwise come out invisible.
+func effectiveFg(st Style) string =
+    if (st.Reverse) colorHex(st.Bg, bgHex()) else colorHex(st.Fg, fgHex())
+
+func effectiveBg(st Style) string =
+    if (st.Reverse) colorHex(st.Fg, fgHex()) else colorHex(st.Bg, bgHex())
+
+func bgHex() string = "#121314"
+func fgHex() string = "#cccccc"
+
+func colorHex(c Color, fallback string) string =
+    c match {
+        case DefaultColor()  => fallback
+        case NamedColor(i)   => ansiHex(i)
+        case Indexed(i)      => ansiHex(i)
+        case RGB(r, g, b)    => s"rgb($r,$g,$b)"
+    }
+
+// The asciinema palette, so an SVG here and a frame of the demo GIF are the
+// same colours.
+func ansiHex(i int) string {
+    val base = ArrayOf[string](
+        "#000000", "#dd3c69", "#4ebf22", "#ddaf3c", "#26b0d7", "#b954e1", "#54e1b9", "#d9d9d9",
+        "#4d4d4d", "#dd3c69", "#4ebf22", "#ddaf3c", "#26b0d7", "#b954e1", "#54e1b9", "#ffffff")
+    if i >= 0 && i < base.Length() { return base.Get(i) }
+    return fgHex()
+}
+
+func xmlEscape(s string) string {
+    var out = ""
+    for _, c := range s {
+        if c == '&'      { out = out + "&amp;" }
+        else if c == '<' { out = out + "&lt;" }
+        else if c == '>' { out = out + "&gt;" }
+        else             { out = out + string(c) }
+    }
+    return out
+}
+
+// fmtF trims a float to two decimals without dragging in a format verb per
+// call site.
+func fmtF(v float64) string = fmt.Sprintf("%.2f", v)
