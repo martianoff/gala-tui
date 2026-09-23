@@ -2,161 +2,148 @@
 # Columns/rows are 1-based, as a terminal reports them. Coordinates were read
 # off recorded frames at 120x36; re-check them if the layout changes.
 #
-# The tour visits every screen, because a widget the tour never reaches is a
-# widget nobody can see working. Each screen is driven with both a click and a
-# keystroke where both mean something — the point is not that gala-tui has a
-# mouse, it is that the same widget answers to either.
+# The tour is a story, not an inventory. An operator notices a failed build,
+# finds out what broke, checks whether it is a trend, picks the target, reads
+# the fix, signs in, ships it, and watches it land. Every screen appears
+# because that sequence needs it — which is also what makes the recording
+# worth watching twice, once for the app and once for the widgets.
 #
-# Order matters. A sidebar click navigates, and the sidebar is only rendered on
-# the screens that include it: overview, charts, forms, data, review. Builds
-# and pipelines give the main pane the whole width, so they are reached through
-# the command palette and left with Esc — clicking where the nav *would* be on
-# those screens hits nothing at all, which is the hit registry behaving.
+# Ten beats, ~4.5s each. Even pacing is deliberate: an early beat that runs
+# long reads as the demo being stuck, and a viewer who has already decided the
+# demo is slow will not reach the part that sells it. If you add to a beat,
+# take the time out of the same beat rather than letting it grow.
+#
+# Order is constrained by the app, not by taste. A sidebar click navigates,
+# and the sidebar is only rendered on the screens that include it: overview,
+# charts, forms, data, review. Builds is reached through the command palette.
+# And on the forms screen a letter is text, so `t`, `?` and `q` only do their
+# global jobs once the tour has left it.
 #
 # Sidebar nav rows, at column 14:
 #   6 Overview   7 Builds   8 Pipelines   9 Logs
 #  10 Charts    11 Forms   12 Data       13 Review
 
-wait 1.6
+wait 1.2
 
-# --- Overview: click the pipelines tree, collapse and expand a branch.
+# =============================================================== 1. the board
+# Where things stand: pipelines on the left, recent builds on the right.
+# A branch collapses and expands under the mouse.
 click 14 22
-wait 0.7
+wait 0.9
 click 14 26
-wait 0.8
-click 14 26
-wait 0.8
-
-# --- Click a row in the Recent Builds table, then scroll it under the pointer.
+wait 0.9
 click 52 19
-wait 0.7
-click 52 21
-wait 0.7
+wait 0.9
 scroll down 60 21
-wait 0.4
+wait 0.5
 scroll up 60 21
 wait 0.6
 
-# --- A modal: 'd' asks before deploying. Dismissed with Esc.
-key d
-wait 1.3
-key esc
+# ============================================================ 2. what broke
+# The log drawer, over whatever screen is up: #4207 failed, exit code 1.
+key /
+wait 1.6
+key pageup
+wait 1.2
+key end
+wait 1.0
+key /
 wait 0.6
 
-# --- Charts: every plotting widget against one series — line, filled-area
-#     canvas, the three gauges, sparkline. The gauges animate on their own,
-#     so this screen only needs to be held on camera.
+# =========================================================== 3. is it a trend
+# Charts: the same series through every plotting widget, and two gauges that
+# move on their own while the screen is held.
 click 14 10
-wait 4.0
+wait 4.4
 
-# --- Forms: the input path end to end, which is the part that needs a mouse
-#     to show at all.
-click 14 11
-wait 0.9
-
-# Click into the empty field to focus it, then type.
-click 33 7
-wait 0.5
-text admin
-wait 0.9
-
-# Click back into the middle of the value — the caret lands on the character
-# under the pointer, so the next keystroke is an insertion, not an append.
-# ('d' is also the deploy shortcut everywhere else; here it is just a letter.)
-click 33 7
-wait 0.8
-text 1
-wait 1.0
-
-# Tab to the password field and type a secret.
-key tab
-wait 0.5
-text s3cr3t
-wait 0.9
-
-# A click inside the mask still resolves to a rune of the real value.
-click 34 10
-wait 0.8
-
-# Submit by clicking the button rather than pressing Enter.
-click 33 12
-wait 1.3
-
-# --- Data: selection widgets, driven both ways.
+# ======================================================== 4. where it lands
+# Data: pick a region, and the list, the table's window and the scrollbar
+# thumb all move together — under the mouse and under the arrow keys alike.
 click 14 12
-wait 0.9
-
-# Click a row in the SelectList…
-click 40 8
 wait 0.7
-# …then move the same selection with the keyboard.
+click 40 8
+wait 0.6
+key down
+wait 0.35
 key down
 wait 0.5
-key down
-wait 0.8
-
-# Wheel over the table: the scrollbar thumb tracks it.
 scroll down 60 22
-wait 0.5
-scroll down 60 22
-wait 0.5
-scroll up 60 22
-wait 0.8
-
-# Open the dropdown and pick from it with the mouse.
+wait 0.45
+# Choose the environment to deploy into.
 click 80 6
-wait 0.9
+wait 0.7
 click 80 9
-wait 1.1
+wait 0.8
 
-# --- Review: diff with stats, rendered markdown, an OSC 8 link and tags.
+# ============================================================== 5. the fix
+# Review: the one-line diff that closes it, and the release note beside it.
 click 14 13
-wait 2.2
+wait 4.4
 
-# --- Back to the overview, then into the screens that take the full width.
-click 14 6
-wait 1.0
+# ============================================================= 6. authorize
+# Forms: shipping to production needs a sign-in. Click into the field, type,
+# click back into the middle of the value — the caret lands on the character
+# under the pointer, so the next keystroke inserts rather than appends.
+click 14 11
+wait 0.6
+click 33 7
+wait 0.35
+text admin
+wait 0.6
+click 33 7
+wait 0.5
+text 1
+wait 0.6
+key tab
+wait 0.35
+text s3cr3t
+wait 0.6
+# The same click inside the mask resolves to a rune of the real value.
+click 34 10
+wait 0.5
+click 33 12
+wait 0.8
 
-# --- The command palette: fuzzy search, confirm with the keyboard.
+# ============================================================== 7. ship it
+# The command palette, fuzzy-matched: the deploy action, not a menu dive.
 keys Ctrl+P
 wait 0.8
-text builds
+text prod
+wait 1.4
+key enter
+wait 1.6
+
+# ============================================================= 8. confirm
+# Production asks first. Tab moves between the answers; Enter commits, and
+# the toast and the log line are both written by the same update.
+key tab
+wait 1.0
+key tab
 wait 1.0
 key enter
-wait 1.2
-
-# Builds: the tab bar and a sortable header, both clicked.
-key tab
-wait 0.6
-click 52 6
-wait 1.0
-key esc
-wait 0.9
-
-# Pipelines through the palette, this time picking the row with the mouse.
-keys Ctrl+P
-wait 0.8
-text pipe
-wait 1.0
-click 45 12
-wait 1.2
-key esc
-wait 0.9
-
-# --- Themes, the log drawer and the help overlay — keyboard only, and safely
-#     off the forms screen, where these letters would be text.
-key t
-wait 0.8
-key t
-wait 0.8
-key /
-wait 1.4
-key /
-wait 0.6
-key ?
 wait 1.8
-key ?
+
+# ============================================================== 9. it lands
+# Builds: the table the deploy shows up in, sorted by clicking a header.
+keys Ctrl+P
 wait 0.7
+text builds
+wait 0.9
+key enter
+wait 1.0
+click 52 6
+wait 1.4
+
+# ============================================================ 10. the chrome
+# What is left: four themes and the help overlay.
+key t
+wait 1.0
+key t
+wait 1.0
+key ?
+wait 1.5
+key ?
+wait 0.5
 
 key q
-wait 0.5
+wait 0.4
