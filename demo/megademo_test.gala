@@ -1570,6 +1570,26 @@ func megaTestRunes(s string) Array[rune] {
     return acc
 }
 
+// A modal sits on top of the screen that opened it, so it answers Enter
+// first. The forms screen's submit was checked ahead of it, so Enter
+// re-submitted the sign-in form while the deploy confirmation sat on top —
+// and the modal could not be dismissed from the keyboard at all.
+func TestMegaConfirmModalAnswersEnterBeforeTheScreenUnderIt(t T) T {
+    val (m1, _) = MegaUpdate(megaOnForms(), MegaShowConfirm(Action = "Deploy to Prod"))
+    val (m2, _) = MegaUpdate(m1, MegaKeyEnter())
+    val t1 = Eq(t, m2.ConfirmAction, "")
+    // …and it committed, rather than merely closing.
+    return IsTrue(t1, m2.Toasts.Length() > 0)
+}
+
+// Tab belongs to the modal too, for the same reason.
+func TestMegaConfirmModalTakesTabFromTheFormUnderIt(t T) T {
+    val (m1, _) = MegaUpdate(megaOnForms(), MegaShowConfirm(Action = "Deploy to Prod"))
+    val (m2, _) = MegaUpdate(m1, MegaFocusNext())
+    val t1 = Eq(t, m2.FormField, m1.FormField)
+    return IsTrue(t1, m2.ConfirmYes != m1.ConfirmYes)
+}
+
 // megaPressChar puts a printable key through the whole path the runtime uses
 // — adapter then update — because that is where the meaning of a letter is
 // now decided.
