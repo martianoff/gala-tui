@@ -11,6 +11,11 @@ gala_tui.exe
 # The committed copies serve downstream Bazel consumers that clone
 # gala-tui in CI without running `gala build` first; locally,
 # `gala build` overwrites them as before.
+# The demo binary. `gala build` names its output after the module, so this is
+# whatever was built last — ./demo, or a tool under tools/ — and it is 17 MB a
+# copy. demo/record/record.sh rebuilds it before recording; nothing needs the
+# committed bytes.
+gala-tui
 MODULE.bazel.lock
 bazel-*/
 .bazelbsp/
