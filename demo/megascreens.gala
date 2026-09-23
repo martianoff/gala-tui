@@ -283,14 +283,20 @@ func megaEnvDropdown(m MegaModel) Widget {
         Open    = m.DropOpen,
         Width   = 24)
     if !m.DropOpen {
-        return PaddingHV(1, 1, DropdownView(drop, true))
+        return PaddingHV(1, 1, DropdownView(drop, false))
     }
     // Only the open menu's rows are clickable — a closed dropdown has no rows
     // on screen, and registering hits for them would swallow clicks meant for
     // whatever the layout put underneath.
     return PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
         Fixed(1, Button(label, true).OnClick(MegaDropToggle())),
-        Flex(1, MenuView(menu, true)
+        // focused = false: the arrow keys drive the region list on this
+        // screen, not this menu. The focus accent means "the keyboard is
+        // here", so two widgets wearing it at once is a claim one of them
+        // cannot honour — and on a screen where a selection legitimately
+        // moves in several panels at once, the extra bright row reads as
+        // part of that movement instead of as a separate control.
+        Flex(1, MenuView(menu, false)
             .OnPickRow(menu.Items.Length(), (i) => MegaDropPick(Idx = i))
             .Bordered()),
     )))
