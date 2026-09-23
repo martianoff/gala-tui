@@ -25,8 +25,13 @@ import (
 //     } else { mainView(m) }
 // ============================================================================
 
-// Modal centers `body` inside a `width × height` area with a dim backdrop
-// fill. Picks the default single border and default heading style.
+// Modal centers `body` inside a `width × height` area over a backdrop of dim
+// *spaces*. The spaces are the point and the limitation: the backdrop is an
+// opaque fill, so whatever was on screen is gone while the modal is up.
+//
+// That is what you want when there is nothing behind worth keeping. When
+// there is — the usual case, a dialog over the screen that raised it — use
+// `ModalOver`, which dims the layer beneath instead of erasing it.
 func Modal(width int, height int, body Widget) Widget =
     ModalStyled(width, height, body, DefaultStyle().WithDim(), SingleBorder())
 
@@ -37,6 +42,39 @@ func ModalStyled(width int, height int, body Widget, backdrop Style, border Bord
     val panel = centerPanel(width, height, BorderOf(body, border))
     return Overlay(dim, panel)
 }
+
+// ModalOver centers `body` over `below`, dimming what is underneath rather
+// than painting it out.
+//
+// This is what "dimmed backdrop" is supposed to mean and what `Modal` cannot
+// do: a widget cannot dim content it was never given, so `Modal`'s backdrop
+// is a fill of spaces, and a fill of spaces erases. Stacking it over the
+// screen — the composition the docs showed — therefore produced a dialog
+// floating on black, losing the context the dialog is asking about.
+//
+// The backdrop still covers the whole area, so a click anywhere outside the
+// panel lands on this widget rather than on what it is covering.
+func ModalOver(below Widget, width int, height int, body Widget) Widget =
+    ModalOverStyled(below, width, height, body, SingleBorder())
+
+// opaquePanel gives the panel its own floor. Dimming the layer beneath leaves
+// it *visible*, which is the point — and means a dialog whose body does not
+// paint every cell of its box has the screen showing through the gaps between
+// its own lines. Filling the panel's area first costs one pass and makes the
+// panel a panel rather than a frame.
+func opaquePanel(inner Widget) Widget =
+    Overlay(FillChStyled(' ', DefaultStyle()), inner)
+
+// ModalOverStyled is `ModalOver` with a caller-chosen border.
+func ModalOverStyled(
+    below Widget,
+    width int,
+    height int,
+    body Widget,
+    border BorderKind,
+) Widget = Overlay(
+    Restyled(below, (st) => st.WithDim()),
+    centerPanel(width, height, opaquePanel(BorderOf(body, border))))
 
 // centerPanel wraps `body` in an AlignWidget that centers it horizontally
 // and vertically within whatever area the renderer gives us. We compose

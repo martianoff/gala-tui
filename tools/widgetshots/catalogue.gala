@@ -138,14 +138,21 @@ func shotForms() Widget =
         Fixed(1, SearchInput("depl", 3, 24)),
     ))
 
+// ModalOver, not Modal: the picture should show what a modal actually looks
+// like over a screen, which is the whole difference between the two.
 func shotModals() Widget =
-    Overlay(
-        Column(ArrayOf[LayoutChild](
-            Fixed(1, TextStyled("the screen underneath", DefaultStyle().WithDim())),
-            Flex(1, Empty()),
-        )),
-        Modal(46, 7, ConfirmDialog("Deploy to prod?",
-            "This promotes #4211 to production.", true)))
+    ModalOver(shotModalBackground(), 46, 7,
+        ConfirmDialog("Deploy to prod?",
+            "This promotes #4211 to production.", true))
+
+func shotModalBackground() Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, TextStyled(" Recent Builds", DefaultStyle().WithBold())),
+        Fixed(1, Text(" #4211  feat/async   running   00:02:14")),
+        Fixed(1, Text(" #4210  fix/race     passed    00:01:47")),
+        Fixed(1, Text(" #4209  main         passed    00:03:22")),
+        Flex(1, Empty()),
+    ))
 
 func shotStatus() Widget =
     Column(ArrayOf[LayoutChild](

@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -88,3 +89,48 @@ func toRuneArr(s string) Array[rune] {
     }
     return acc
 }
+
+// ----------------------------------------------------------------------------
+// ModalOver
+// ----------------------------------------------------------------------------
+
+// The defect ModalOver exists for: `Modal`'s backdrop is a fill of spaces, so
+// stacking it over the screen — the composition the docs showed — erased the
+// context the dialog was asking about, and the dialog floated on black.
+func TestModalOverKeepsTheScreenBehindIt(t T) T {
+    val below = Text("context that must survive")
+    val w = ModalOver(below, 10, 3, Text("hi"))
+    val buf = NewBuffer(40, 11)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 40, Height = 11), buf)
+    // Row 0 is well clear of a 3-row panel centred in 11 rows.
+    return Eq(t, strings.TrimSpace(BufferText(buf, 0)), "context that must survive")
+}
+
+func TestModalOverDimsWhatItCovers(t T) T {
+    val w = ModalOver(Text("behind"), 10, 3, Text("hi"))
+    val buf = NewBuffer(40, 11)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 40, Height = 11), buf)
+    return Eq(t, buf.StyleAt(0, 0).Dim, true)
+}
+
+// Dimming leaves the layer beneath visible, so the panel needs its own floor:
+// without one, the screen shows through the gaps between the dialog's lines.
+func TestModalOverPanelIsOpaque(t T) T {
+    val w = ModalOver(FillCh('x'), 20, 5, Text("hi"))
+    val buf = NewBuffer(40, 11)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 40, Height = 11), buf)
+    // Inside the panel, below the body's single line of text: the backdrop
+    // must not show through.
+    val t1 = Eq(t, buf.CharAt(20, 6), ' ')
+    // …while outside it the layer beneath is still there.
+    return Eq(t1, buf.CharAt(0, 0), 'x')
+}
+
+// Modal still erases, deliberately — it has nothing to dim.
+func TestModalWithoutALayerBeneathStillFills(t T) T {
+    val buf = NewBuffer(40, 11)
+    RenderTo(Stack(ArrayOf[Widget](Text("gone"), Modal(10, 3, Text("hi")))),
+        Rect(X = 0, Y = 0, Width = 40, Height = 11), buf)
+    return Eq(t, strings.TrimSpace(BufferText(buf, 0)), "")
+}
+

@@ -334,18 +334,24 @@ is unambiguously narrow.
 
 | Widget | Signature | Notes |
 |---|---|---|
-| `Modal(w, h, body)` | `(int, int, Widget) Widget` | Centered panel with dimmed backdrop. |
-| `ModalStyled(w, h, body, backdrop, border)` | | Theme-friendly variant. |
+| `ModalOver(below, w, h, body)` | `(Widget, int, int, Widget) Widget` | Centered panel that **dims the layer beneath** instead of erasing it. The usual choice. |
+| `ModalOverStyled(below, w, h, body, border)` | | …with a caller-chosen border. |
+| `Modal(w, h, body)` | `(int, int, Widget) Widget` | Centered panel over a backdrop of dim *spaces* — an opaque fill, so whatever was on screen is gone. Use when there is nothing behind worth keeping. |
+| `ModalStyled(w, h, body, backdrop, border)` | | Theme-friendly variant of `Modal`. |
 | `ConfirmDialog(title, message, yesFocused)` | `(string, string, bool) Widget` | Yes/No prompt. |
 | `AlertDialog(title, message)` | `(string, string) Widget` | OK-only prompt. |
 | `Dropdown(d)` | `(Dropdown) Widget` | Trigger + open menu. |
 
 ```gala
-Stack(ArrayOf[Widget](
-    background,
-    Modal(40, 8, ConfirmDialog("Deploy?", "This pushes to prod.", true)),
-))
+ModalOver(background, 40, 8,
+    ConfirmDialog("Deploy?", "This pushes to prod.", true))
 ```
+
+A modal is a question about the screen that raised it, so the screen should
+still be there to look at. `Stack(background, Modal(...))` does not do that: a
+widget cannot dim content it was never given, so `Modal`'s backdrop is a fill
+of spaces, and a fill of spaces erases. `ModalOver` takes the layer beneath and
+restyles it, which is what "dimmed backdrop" was always supposed to mean.
 
 ## Status & notifications
 
