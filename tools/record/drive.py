@@ -78,8 +78,19 @@ def parse_action(line: str):
     if verb == "key":
         named = {"enter": b"\r", "space": b" ", "tab": b"\t", "esc": b"\x1b",
                  "backspace": b"\x7f", "up": b"\x1b[A", "down": b"\x1b[B",
-                 "left": b"\x1b[D", "right": b"\x1b[C"}
-        return ("send", named.get(args[0], args[0].encode()))
+                 "left": b"\x1b[D", "right": b"\x1b[C",
+                 "home": b"\x1b[H", "end": b"\x1b[F",
+                 "pageup": b"\x1b[5~", "pagedown": b"\x1b[6~"}
+        name = args[0]
+        if len(name) > 1 and name not in named:
+            # A one-character key is a literal; a word is a name, and a name
+            # that isn't in the table is a typo. Sending it as text instead
+            # would type "pageup" into whatever has focus and record that as
+            # if it were the tour working.
+            raise SystemExit(
+                f"drive: unknown key {name!r}; known names: "
+                + ", ".join(sorted(named)))
+        return ("send", named.get(name, name.encode()))
     if verb == "keys":
         chord = args[0]
         if chord.startswith("Ctrl+") and len(chord) == 6:
