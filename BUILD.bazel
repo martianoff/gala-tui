@@ -159,6 +159,7 @@ gala_test(
         "palette_test.gala",
         "popup_link_test.gala",
         "progress_filter_test.gala",
+        "rect_test.gala",
         "render_test.gala",
         "restyle_region_test.gala",
         "runewidth_test.gala",
