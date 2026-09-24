@@ -64,6 +64,23 @@ Replay the renderer's own output through a terminal model instead — see
 `fullwidth_wrap_test.gala`, which models the deferred-wrap flag. Before
 committing, revert the fix and confirm the new test actually fails.
 
+## A new widget is not done until it is in the demo and the docs
+
+Adding a widget means three commits' worth of work, not one:
+
+1. **The widget**, with tests.
+2. **The demo** — a screen in `demo/megascreens.gala` that uses it, a beat in
+   `demo/record/tour.txt` that reaches it, and a re-record
+   (`demo/record/record.sh`). A widget the tour never reaches is one nobody can
+   watch working, and it is also the only place a rendering defect shows up.
+3. **The docs** — an entry in `docs/WIDGETS.md` *and* the example in
+   `tools/widgetshots/catalogue.gala` so the section's picture includes it.
+   If it is not in the catalogue it has no picture.
+
+Do not merge a widget with any of the three missing. The demo is how the last
+release's rendering bugs were found; the catalogue is what keeps the docs'
+pictures from going stale.
+
 ## Other conventions
 
 - `gala build` names its output after the module, so `./demo` and anything

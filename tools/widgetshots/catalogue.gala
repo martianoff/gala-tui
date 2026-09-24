@@ -19,7 +19,7 @@ func shots() Array[Shot] = ArrayOf[Shot](
     Shot(Name = "layout",       Cols = 64, Rows = 9,  W = shotLayout()),
     Shot(Name = "richtext",     Cols = 64, Rows = 6,  W = shotRichText()),
     Shot(Name = "canvas",       Cols = 64, Rows = 9,  W = shotCanvas()),
-    Shot(Name = "charts",       Cols = 64, Rows = 14, W = shotCharts()),
+    Shot(Name = "charts",       Cols = 64, Rows = 17, W = shotCharts()),
     Shot(Name = "lists",        Cols = 64, Rows = 11, W = shotLists()),
     Shot(Name = "forms",        Cols = 64, Rows = 9,  W = shotForms()),
     Shot(Name = "modals",       Cols = 64, Rows = 9,  W = shotModals()),
@@ -99,12 +99,22 @@ func shotCharts() Widget =
         Fixed(1, LineGaugeLabeled(" deploy ", 64)),
         Fixed(1, Gauge(64)),
         Fixed(1, Sparkline(demoSeries())),
+        // Direction and gaps, side by side with the plain form above: the
+        // blank column is an absent sample, which a zero would not draw.
+        Fixed(1, SparklineStyled(demoSeries(), DefaultStyle(), SparkRightToLeft())),
+        Fixed(1, SparklineOf(demoGappedSeries(), DefaultStyle())),
         Fixed(3, BarChart(ArrayOf[BarChartDatum](
             BarChartDatum(Label = "backend",  Value = 42),
             BarChartDatum(Label = "frontend", Value = 28),
             BarChartDatum(Label = "infra",    Value = 15),
         ))),
     ))
+
+// demoGappedSeries is the same shape with two dropped readings, so the
+// picture shows a gap beside a baseline rather than only in prose.
+func demoGappedSeries() Array[Option[int]] =
+    demoSeries().ZipWithIndex().Map((p) =>
+        if (p.V2 == 9 || p.V2 == 10) None[int]() else Some(p.V1))
 
 func shotLists() Widget =
     Row(ArrayOf[LayoutChild](

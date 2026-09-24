@@ -92,7 +92,7 @@ func megaChartsMain(m MegaModel, th Theme) Widget {
     return Column(ArrayOf[LayoutChild](
         Fixed(9, Titled(LineChart(series), " LineChart ")),
         Fixed(9, Titled(megaAreaChart(series), " Canvas — live filled area, braille 2x4 ")),
-        Fixed(7, Titled(megaGaugeStack(series, pct), " Gauges ")),
+        Fixed(8, Titled(megaGaugeStack(series, pct), " Gauges ")),
         Flex(1, Titled(megaMultiChart(series), " MultiLineChart ")),
     ))
 }
@@ -120,7 +120,17 @@ func megaGaugeStack(series Array[int], pct int) Widget =
         Fixed(1, Text("")),
         Fixed(1, Gauge(pct)),
         Fixed(1, Sparkline(series)),
+        // The same window with two readings dropped: a blank column is a
+        // sample that does not exist, which a zero would paint as a baseline.
+        Fixed(1, SparklineOf(megaGappedSeries(series), DefaultStyle())),
     ))
+
+// megaGappedSeries drops two samples so the screen shows an absent value
+// beside a present one. Fixed indices rather than random, so a re-record
+// stays a clean diff.
+func megaGappedSeries(series Array[int]) Array[Option[int]] =
+    series.ZipWithIndex().Map((p) =>
+        if (p.V2 == 30 || p.V2 == 31) None[int]() else Some(p.V1))
 
 // megaMultiChart overlays two series. The chart is a filled glyph matrix, so
 // the second one painted wins every cell they share — which means two series

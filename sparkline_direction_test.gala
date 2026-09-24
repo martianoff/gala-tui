@@ -1,0 +1,65 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Sparkline direction + absent values
+// ============================================================================
+
+func sparkText(w Widget, width int) string {
+    val buf = NewBuffer(width, 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = 1), buf)
+    return BufferText(buf, 0)
+}
+
+// Right-to-left puts the FIRST sample at the right edge, so a feed that is
+// appended to scrolls older data off the left the way a monitor does.
+func TestSparklineRightToLeftReversesTheSeries(t T) T {
+    val vals = ArrayOf[int](1, 8)
+    val ltr = sparkText(SparklineStyled(vals, DefaultStyle()), 2)
+    val rtl = sparkText(SparklineStyled(vals, DefaultStyle(), SparkRightToLeft()), 2)
+    val t1 = Eq(t, ltr, "▁█")
+    return Eq(t1, rtl, "█▁")
+}
+
+// The default is unchanged, so existing call sites keep their layout.
+func TestSparklineDefaultsToLeftToRight(t T) T {
+    val vals = ArrayOf[int](1, 8)
+    return Eq(t, sparkText(SparklineStyled(vals, DefaultStyle()), 2),
+                 sparkText(SparklineStyled(vals, DefaultStyle(), SparkLeftToRight()), 2))
+}
+
+// An absent sample is a blank column. A present zero is not: it floors to the
+// smallest block, because "0 errors this minute" is a measurement and "no
+// scrape this minute" is not, and a sparkline that drew them alike was the
+// reason the floor exists.
+func TestSparklineAbsentSampleBlanksWhileZeroPaints(t T) T {
+    val withGap = ArrayOf[Option[int]](Some(4), None[int](), Some(4))
+    val withZero = ArrayOf[Option[int]](Some(4), Some(0), Some(4))
+    val t1 = Eq(t, sparkText(SparklineOf(withGap, DefaultStyle()), 3), "█ █")
+    return Eq(t1, sparkText(SparklineOf(withZero, DefaultStyle()), 3), "█▁█")
+}
+
+// A gap must not rescale the rest: the maximum comes from present samples
+// only, so one dropped reading does not flatten the series around it.
+func TestSparklineAbsentSampleIsExcludedFromTheMaximum(t T) T {
+    val a = ArrayOf[Option[int]](Some(1), Some(8))
+    val b = ArrayOf[Option[int]](Some(1), None[int](), Some(8))
+    val t1 = Eq(t, sparkText(SparklineOf(a, DefaultStyle()), 2), "▁█")
+    return Eq(t1, sparkText(SparklineOf(b, DefaultStyle()), 3), "▁ █")
+}
+
+// Direction applies to a gapped series too.
+func TestSparklineOfHonoursDirection(t T) T {
+    val vals = ArrayOf[Option[int]](Some(1), None[int](), Some(8))
+    return Eq(t, sparkText(SparklineOf(vals, DefaultStyle(), SparkRightToLeft()), 3), "█ ▁")
+}
+
+// A series that is entirely absent renders blank rather than a baseline —
+// which is the "no telemetry at all" case the floor deliberately cannot draw.
+func TestSparklineAllAbsentRendersBlank(t T) T =
+    Eq(t, sparkText(SparklineOf(ArrayOf[Option[int]](None[int](), None[int]()),
+        DefaultStyle()), 2), "  ")
