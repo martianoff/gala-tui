@@ -64,6 +64,15 @@ func TestRectInnerLargerThanTheRectIsEmptyNotNegative(t T) T {
     return IsTrue(t2, got.Zero())
 }
 
+// An empty result still has its origin read for positioning, so it must land
+// inside the parent — advancing X by the full margin put it past the right
+// edge, which the doc claim ("at the centre") did not match.
+func TestRectInnerKeepsAnEmptyResultInsideTheParent(t T) T =
+    rectEq(t, rect(0, 0, 4, 4).Inner(5), rect(2, 2, 0, 0))
+
+func TestRectInnerHVOversizedMarginCentresPerAxis(t T) T =
+    rectEq(t, rect(2, 3, 4, 6).InnerHV(10, 10), rect(4, 6, 0, 0))
+
 // ----------------------------------------------------------------------------
 // Offset
 // ----------------------------------------------------------------------------
@@ -145,6 +154,14 @@ func TestRectCentered(t T) T =
 // from this lands on the same column as one the layout centres.
 func TestRectCenteredRoundsTowardsTheFarEdge(t T) T =
     rectEq(t, rect(0, 0, 10, 10).Centered(5, 5), rect(2, 2, 5, 5))
+
+// The size is caller arithmetic, so it can arrive negative — and a negative
+// extent read as an unsigned length is the crash this block exists to avoid.
+func TestRectCenteredFloorsANegativeSizeAtZero(t T) T {
+    val got = rect(0, 0, 10, 10).Centered(-4, 2)
+    val t1 = Eq(t, got.Width, 0)
+    return IsTrue(t1, got.Zero())
+}
 
 // Asking for more room than there is clamps instead of overflowing.
 func TestRectCenteredLargerThanTheParentIsClamped(t T) T =

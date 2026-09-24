@@ -150,7 +150,8 @@ extent read as a huge unsigned one is how a clip turns into a crash.
 
 ```gala
 val body = area.Inner(1)                      // inside the border
-val popup = area.Centered(40, 8).Clamp(area)  // centred, never off-screen
+val popup = area.Centered(40, 8)              // centred, clamped to area
+val near  = anchor.Clamp(screen)              // slide a popup back into view
 if hit.Intersects(viewport) { ... }           // only if a cell is shared
 ```
 

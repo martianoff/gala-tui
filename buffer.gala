@@ -72,9 +72,13 @@ func (r Rect) Inner(margin int) Rect = r.InnerHV(margin, margin)
 
 // InnerHV shrinks by `horizontal` on the left and right and `vertical` on the
 // top and bottom.
+// The origin is clamped to the middle, not advanced by the full margin: a
+// margin of 5 on a 4-wide rect would otherwise put X two cells past the
+// parent's right edge, and an empty rect's origin is still read for
+// positioning — `Intersection` promises the same thing.
 func (r Rect) InnerHV(horizontal int, vertical int) Rect = Rect(
-    X      = r.X + horizontal,
-    Y      = r.Y + vertical,
+    X      = r.X + MinInt(horizontal, r.Width / 2),
+    Y      = r.Y + MinInt(vertical, r.Height / 2),
     Width  = MaxInt(0, r.Width - 2 * horizontal),
     Height = MaxInt(0, r.Height - 2 * vertical),
 )
@@ -116,8 +120,8 @@ func (r Rect) Union(o Rect) Rect {
 // is too big to fit. This is what a popup wants near a screen edge: slide it
 // back into view rather than truncate it.
 func (r Rect) Clamp(bounds Rect) Rect {
-    val w = MinInt(r.Width, bounds.Width)
-    val h = MinInt(r.Height, bounds.Height)
+    val w = MaxInt(0, MinInt(r.Width, bounds.Width))
+    val h = MaxInt(0, MinInt(r.Height, bounds.Height))
     val x = MinInt(MaxInt(r.X, bounds.X), bounds.Right() - w)
     val y = MinInt(MaxInt(r.Y, bounds.Y), bounds.Bottom() - h)
     return Rect(X = x, Y = y, Width = w, Height = h)
@@ -128,8 +132,11 @@ func (r Rect) Clamp(bounds Rect) Rect {
 // bottom, matching how `AlignCenter` places a child, so a modal built with
 // this lands on the same column as its own title.
 func (r Rect) Centered(width int, height int) Rect {
-    val w = MinInt(width, r.Width)
-    val h = MinInt(height, r.Height)
+    // Floored at zero: the size is caller arithmetic — `Centered(w - 2*pad, n)`
+    // goes negative on a narrow parent — and a negative extent is the one
+    // thing this block promises never to produce.
+    val w = MaxInt(0, MinInt(width, r.Width))
+    val h = MaxInt(0, MinInt(height, r.Height))
     return Rect(X = r.X + (r.Width - w) / 2, Y = r.Y + (r.Height - h) / 2,
                 Width = w, Height = h)
 }
