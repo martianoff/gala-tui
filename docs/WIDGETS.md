@@ -139,8 +139,9 @@ extent read as a huge unsigned one is how a clip turns into a crash.
 | `Left()` / `Top()` | `() int` | First cell. |
 | `Right()` / `Bottom()` | `() int` | One **past** the last cell. |
 | `Area()` | `() int` | Cell count. |
+| `Inset(top, right, bottom, left)` | `(int, int, int, int) Rect` | Shrink each side separately, CSS order. A negative side grows that edge. This is what a border (only the edges it draws) and padding (four numbers) actually need. |
 | `Inner(margin)` | `(int) Rect` | Shrink every side — the border inset. Too large a margin gives an empty rect, not a negative one. |
-| `InnerHV(h, v)` | `(int, int) Rect` | …with separate axes. |
+| `InnerHV(h, v)` | `(int, int) Rect` | …with separate axes. Both are `Inset` with the sides repeated. |
 | `Offset(dx, dy)` | `(int, int) Rect` | Move without resizing. |
 | `Intersection(o)` | `(Rect) Rect` | Region covered by both; empty when they only touch. |
 | `Intersects(o)` | `(Rect) bool` | Do they share a cell? Touching edges do not count. |
@@ -150,6 +151,7 @@ extent read as a huge unsigned one is how a clip turns into a crash.
 
 ```gala
 val body = area.Inner(1)                      // inside the border
+val pad  = area.Inset(1, 2, 1, 2)             // top, right, bottom, left
 val popup = area.Centered(40, 8)              // centred, clamped to area
 val near  = anchor.Clamp(screen)              // slide a popup back into view
 if hit.Intersects(viewport) { ... }           // only if a cell is shared

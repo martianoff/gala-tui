@@ -2112,17 +2112,14 @@ func renderBorder(
     renderBlockTitles(titles, sides, area, buf)
 
     // Inner area — inset by whichever edges were actually drawn.
-    val dx = if (sides.Left) 1 else 0
-    val dy = if (sides.Top) 1 else 0
-    val iw = MaxInt(0, area.Width - borderWidthOverhead(sides))
-    val ih = MaxInt(0, area.Height - borderHeightOverhead(sides))
-    if iw > 0 && ih > 0 {
-        renderToInternal(inner, Rect(
-            X      = area.X + dx,
-            Y      = area.Y + dy,
-            Width  = iw,
-            Height = ih,
-        ), buf, hits)
+    val innerArea = area.Inset(
+        top    = if (sides.Top) 1 else 0,
+        right  = if (sides.Right) 1 else 0,
+        bottom = if (sides.Bottom) 1 else 0,
+        left   = if (sides.Left) 1 else 0,
+    )
+    if !innerArea.Zero() {
+        renderToInternal(inner, innerArea, buf, hits)
     }
 }
 
@@ -2267,14 +2264,7 @@ func renderRichText(text RichText, area Rect, buf *Buffer) {
 // renderPadding reduces the area by the padding values and recurses.
 func renderPadding(top int, right int, bottom int, left int, inner Widget,
                    area Rect, buf *Buffer, hits *HitRegistry) {
-    val newW = MaxInt(0, area.Width - left - right)
-    val newH = MaxInt(0, area.Height - top - bottom)
-    renderToInternal(inner, Rect(
-        X      = area.X + left,
-        Y      = area.Y + top,
-        Width  = newW,
-        Height = newH,
-    ), buf, hits)
+    renderToInternal(inner, area.Inset(top, right, bottom, left), buf, hits)
 }
 
 // renderAlign picks the horizontal position of an inner widget.
