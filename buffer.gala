@@ -65,6 +65,37 @@ func (r Rect) Bottom() int = r.Y + r.Height
 // Area is the cell count.
 func (r Rect) Area() int = r.Width * r.Height
 
+// Inset shrinks the rectangle by a separate amount on each side, in CSS
+// order. This is the shape the renderers actually need: a border draws only
+// the edges it was asked for, and padding is four independent numbers, so
+// both were computing `X + left` and `Width - left - right` by hand.
+//
+// A side may be negative, which grows the rectangle on that edge.
+func (r Rect) Inset(top int, right int, bottom int, left int) Rect = Rect(
+    X      = r.X + insetOrigin(left, right, r.Width),
+    Y      = r.Y + insetOrigin(top, bottom, r.Height),
+    Width  = MaxInt(0, r.Width - left - right),
+    Height = MaxInt(0, r.Height - top - bottom),
+)
+
+// insetOrigin is how far the near edge actually moves along one axis.
+//
+// Normally that is the whole of `near`. It is less only when the two insets
+// together exceed the extent: they then meet *inside* the rectangle rather
+// than crossing past its far edge, and the meeting point is split between
+// them in proportion. Advancing by the full `near` instead would put the
+// origin outside the parent — a 5-cell inset on a 4-wide rect landing two
+// columns past its right edge — and an empty rectangle's origin is still
+// read for positioning, which is the same promise `Intersection` makes.
+//
+// The symmetric case falls out as the midpoint, which is what this was
+// before it learned about sides: `near == far` gives `near * e / 2near`.
+func insetOrigin(near int, far int, extent int) int {
+    val total = near + far
+    if total <= 0 || total <= extent { return near }
+    return near * extent / total
+}
+
 // Inner shrinks the rectangle by `margin` on every side — the border-inset
 // every container widget computes. A margin that would consume the rectangle
 // yields an empty one at the centre rather than a negative extent.
@@ -72,16 +103,8 @@ func (r Rect) Inner(margin int) Rect = r.InnerHV(margin, margin)
 
 // InnerHV shrinks by `horizontal` on the left and right and `vertical` on the
 // top and bottom.
-// The origin is clamped to the middle, not advanced by the full margin: a
-// margin of 5 on a 4-wide rect would otherwise put X two cells past the
-// parent's right edge, and an empty rect's origin is still read for
-// positioning — `Intersection` promises the same thing.
-func (r Rect) InnerHV(horizontal int, vertical int) Rect = Rect(
-    X      = r.X + MinInt(horizontal, r.Width / 2),
-    Y      = r.Y + MinInt(vertical, r.Height / 2),
-    Width  = MaxInt(0, r.Width - 2 * horizontal),
-    Height = MaxInt(0, r.Height - 2 * vertical),
-)
+func (r Rect) InnerHV(horizontal int, vertical int) Rect =
+    r.Inset(vertical, horizontal, vertical, horizontal)
 
 // Offset moves the rectangle without resizing it.
 func (r Rect) Offset(dx int, dy int) Rect =

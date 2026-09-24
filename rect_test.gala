@@ -74,6 +74,83 @@ func TestRectInnerHVOversizedMarginCentresPerAxis(t T) T =
     rectEq(t, rect(2, 3, 4, 6).InnerHV(10, 10), rect(4, 6, 0, 0))
 
 // ----------------------------------------------------------------------------
+// Inset
+//
+// The four-sided form is what the renderers needed; `Inner` and `InnerHV` are
+// now the symmetric special cases of it. These pin the asymmetry, which
+// neither of those could express.
+// ----------------------------------------------------------------------------
+
+// CSS order — top, right, bottom, left — and each side moves only its own
+// edge. Transposing two sides here is the kind of error that renders as a
+// widget nudged one column, so it is spelled out with four distinct values.
+func TestRectInsetTakesEachSideSeparately(t T) T =
+    rectEq(t, rect(10, 20, 30, 40).Inset(1, 2, 3, 4), rect(14, 21, 24, 36))
+
+// A side may be negative, which grows that edge outwards.
+func TestRectInsetNegativeSideGrowsThatEdge(t T) T =
+    rectEq(t, rect(5, 5, 10, 10).Inset(0, 0, 0, -3), rect(2, 5, 13, 10))
+
+// When two opposing insets together exceed the extent they meet *inside* the
+// rectangle, and the meeting point is split between them in proportion. A
+// left-heavy pair therefore lands nearer the right edge than an even one
+// would — and, crucially, still inside the parent.
+//
+// left=9 right=3 on a width of 4: the pair wants 12 columns of a 4-column
+// rect, so the origin advances 9*4/12 = 3 rather than the full 9, which would
+// have put it 8 columns past the parent's right edge.
+func TestRectInsetCollapsesInProportionNotAtTheMidpoint(t T) T {
+    val got = rect(0, 0, 4, 4).Inset(0, 3, 0, 9)
+    val t1 = rectEq(t, got, rect(3, 0, 0, 4))
+    // The invariant the whole clamp exists for.
+    return IsTrue(t1, got.X >= 0 && got.X <= 4)
+}
+
+// An even collapse is the midpoint, which is what `Inner` always relied on.
+func TestRectInsetEvenCollapseIsTheMidpoint(t T) T =
+    rectEq(t, rect(0, 0, 5, 5).Inset(4, 4, 4, 4), rect(2, 2, 0, 0))
+
+// Inner and InnerHV are now defined through Inset, so this pins that the
+// translation did not transpose an axis: InnerHV's first argument is the
+// HORIZONTAL one, which maps to right and left.
+func TestRectInnerHVIsInsetWithAxesSwapped(t T) T {
+    val r = rect(7, 11, 20, 14)
+    return rectEq(t, r.InnerHV(3, 5), r.Inset(5, 3, 5, 3))
+}
+
+func TestRectInnerIsInsetOnEverySide(t T) T {
+    val r = rect(7, 11, 20, 14)
+    return rectEq(t, r.Inner(2), r.Inset(2, 2, 2, 2))
+}
+
+// The clamp can only ever engage on an EMPTY result. It fires exactly when
+// the two insets together exceed the extent, which is exactly when the extent
+// floors to zero — so no rectangle a widget actually draws into can be
+// shifted by it. That is what makes converting `renderBorder` and
+// `renderPadding` to `Inset` a no-op for every non-degenerate layout, and it
+// is worth pinning because the proportional split looks like it could move a
+// live origin and must not.
+func TestRectInsetClampNeverMovesANonEmptyRect(t T) T {
+    val r = rect(0, 0, 9, 9)
+    var acc = t
+    var left = 0
+    for left <= 12 {
+        var right = 0
+        for right <= 12 {
+            val got = r.Inset(0, right, 0, left)
+            // Either the origin advanced by the full left inset, or the
+            // rectangle came out empty. Never both false.
+            acc = IsTrue(acc, got.X == left || got.Width == 0)
+            // And the origin is inside the parent either way.
+            acc = IsTrue(acc, got.X >= 0 && got.X <= 9)
+            right = right + 1
+        }
+        left = left + 1
+    }
+    return acc
+}
+
+// ----------------------------------------------------------------------------
 // Offset
 // ----------------------------------------------------------------------------
 
