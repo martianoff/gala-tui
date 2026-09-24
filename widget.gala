@@ -203,6 +203,15 @@ sealed type Widget {
     // and `Render()` (the no-area entrypoint). Pass 0 for "no preferred
     // size" — the widget will expand to whatever its container gives it.
     case CustomW(MinW int, MinH int, Render func(Rect, *Buffer, *HitRegistry))
+
+    // SparklineW is a one-row block chart. It is a first-class case rather
+    // than a `CustomW` for the reason `chart.gala` states: `restyleLeaves`
+    // passes `CustomW` through untouched, so a sparkline built that way
+    // would ignore `.WithFg()` and stay at full brightness on a dimmed
+    // pane. It cannot be composed from `Text` either — the glyph run has to
+    // be placed against a known width so that `SparkRightToLeft` clips its
+    // far end rather than the end it pins. See `renderSparkline`.
+    case SparklineW(Values Array[Option[int]], Style Style, Dir SparkDirection)
 }
 
 // LayoutChild binds a widget to the Constraint Row/Column use when
@@ -1401,6 +1410,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             }
             renderToInternal(inner, area, buf, hits)
         }
+        case SparklineW(values, style, dir) =>
+            renderSparkline(values, style, dir, area, buf)
         case CustomW(_, _, render) =>
             render(area, buf, hits)
     }
@@ -2357,6 +2368,7 @@ func defaultRenderWidth(w Widget) int {
         case DblClickableRowsW(inner, _, _, _) => defaultRenderWidth(inner)
         case DraggableW(inner, _)              => defaultRenderWidth(inner)
         case DraggableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
+        case SparklineW(values, _, _)           => values.Length()
         case CustomW(minW, _, _)               => minW
     }
 }
@@ -2399,6 +2411,7 @@ func defaultRenderHeight(w Widget) int {
         case DblClickableRowsW(inner, _, _, _) => defaultRenderHeight(inner)
         case DraggableW(inner, _)              => defaultRenderHeight(inner)
         case DraggableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
+        case SparklineW(_, _, _)               => 1
         case CustomW(_, minH, _)               => minH
     }
 }
@@ -2468,6 +2481,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case DblClickableRowsW(inner, _, _, _) => IntrinsicHeightAt(inner, width)
         case DraggableW(inner, _)              => IntrinsicHeightAt(inner, width)
         case DraggableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
+        case SparklineW(_, _, _)               => 1
         case CustomW(_, minH, _)               => minH
     }
 }

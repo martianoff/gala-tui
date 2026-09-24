@@ -165,6 +165,7 @@ gala_test(
         "runewidth_test.gala",
         "search_input_test.gala",
         "snapshot_test.gala",
+        "sparkline_direction_test.gala",
         "status_widgets_test.gala",
         "subs_test.gala",
         "syntax_test.gala",

@@ -145,46 +145,124 @@ func NewTableWithHeaders(
 // (U+2581..U+2588) give us 8 distinguishable "heights" per cell, enough to
 // show a meaningful trend in a 40-cell wide space.
 
+// SparkDirection is which end of the widget the *first* sample sits at.
+//
+// Left-to-right is the default and matches a chart axis: sample 0 on the
+// left, the series running rightwards. Right-to-left puts sample 0 on the
+// *right* edge and runs leftwards, which is what a monitor strip wants —
+// but only for a feed that is **prepended** to, so that sample 0 is the
+// newest reading. A feed that is appended to already puts its newest sample
+// on the right under the default; reversing that one shows time running
+// backwards.
+//
+// The choice also decides what survives a series wider than its area: the
+// first `width` samples are drawn, anchored at the direction's own edge, and
+// it is the far end that is dropped. So the end a direction pins is the end
+// guaranteed to be on screen — `renderSparkline`.
+sealed type SparkDirection {
+    case SparkLeftToRight()
+    case SparkRightToLeft()
+}
+
 func Sparkline(values Array[int]) Widget = SparklineStyled(values, DefaultStyle())
 
 // SparklineStyled renders with a caller-chosen style (e.g., green for rising,
-// red for anomalous).
-func SparklineStyled(values Array[int], style Style) Widget {
-    if values.IsEmpty() {
-        return Empty()
-    }
-    val maxV = values.FoldLeft(0, (acc, v) => MaxInt(acc, v))
-    if maxV == 0 {
-        return Text(sparklineBarString(values, 1))
-    }
-    return TextStyled(sparklineBarString(values, maxV), style)
+// red for anomalous). A series without gaps is one whose every sample is
+// present, so this is `SparklineOf` over `Some` values and nothing else.
+func SparklineStyled(
+    values Array[int],
+    style Style,
+    dir SparkDirection = SparkLeftToRight(),
+) Widget = SparklineOf(values.Map((v) => Some(v)), style, dir)
+
+// SparklineOf plots a series that can have gaps. `None` is a sample that does
+// not exist — no reading, a dropped scrape — and renders as a blank column.
+//
+// This is the distinction a plain series cannot draw. Every *present* sample
+// floors to `▁`, the smallest visible block, so a column carrying a value
+// always paints one: letting the arithmetic reach a blank put a hole in the
+// baseline wherever a sample was small against the maximum, and blanked the
+// line entirely when every sample was the same low number — "0 errors in each
+// of the last 40 minutes" drew exactly what "no telemetry at all" drew. Only
+// an absent sample blanks, which is what makes the two readable apart, and
+// passing 0 for a missing reading claims a measurement nobody took.
+func SparklineOf(
+    values Array[Option[int]],
+    style Style,
+    dir SparkDirection = SparkLeftToRight(),
+) Widget {
+    if values.IsEmpty() { return Empty() }
+    return SparklineW(Values = values, Style = style, Dir = dir)
 }
 
-// sparklineBarString converts a series of values into a single string where
-// each rune is the block glyph whose height represents value/max (in eighths).
+// sparklineMax is the series maximum over the samples that exist, floored at
+// 1. An absent sample is excluded, so one gap does not rescale the series
+// around it, and the maximum covers the whole series — samples a narrow area
+// will not draw included — so resizing the widget does not restate the same
+// data at a different scale.
 //
-// Every sample floors to `▁`, the smallest visible block, so a column that
-// carries a value always paints one. Letting the arithmetic reach index 0
-// (a space) put a hole in the baseline wherever a sample was small relative
-// to the maximum, and blanked the whole line when every sample was the same
-// low number — "0 errors in each of the last 40 minutes" drew exactly what
-// "no telemetry at all" drew. An empty series is the only thing that
-// renders as nothing, and `SparklineStyled` returns `Empty()` for it before
-// this is reached.
-func sparklineBarString(values Array[int], maxV int) string {
-    val glyphs = ArrayOf[rune](' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
-    var sb = ""
+// The floor is not a special case dodged elsewhere: an all-zero, all-absent
+// or all-negative series would divide by zero without it, and all three clamp
+// to the same baseline glyph anyway.
+func sparklineMax(values Array[Option[int]]) int =
+    MaxInt(1, values.FoldLeft(0, (acc, o) => o match {
+        case Some(v) => MaxInt(acc, v)
+        case None()  => acc
+    }))
+
+// renderSparkline paints the one row of blocks.
+//
+// A series wider than its area keeps its first `area.Width` samples — the
+// tail is dropped, never the head — so the sample the direction pins to its
+// edge is always the one drawn there. Doing this at render time is why the
+// widget is its own `Widget` case rather than a pre-built string: a string
+// gets clipped by `renderText` from the right, which under `SparkRightToLeft`
+// would discard precisely the samples the direction exists to pin.
+//
+// Absent samples paint a styled space rather than leaving the cell alone, so
+// a gap carries the caller's background and a strip on a coloured panel stays
+// one strip.
+func renderSparkline(values Array[Option[int]], style Style,
+                     dir SparkDirection, area Rect, buf *Buffer) {
+    if area.Height <= 0 { return }
+    // `cols` already floors at zero for an empty area, so the width needs no
+    // guard of its own.
+    val cols = MinInt(values.Length(), area.Width)
+    val maxV = sparklineMax(values)
+    val reversed = sparkReversed(dir)
+    val rightEdge = area.Right() - 1
     var i = 0
-    val n = values.Length()
-    for i < n {
-        val v = values.Get(i)
-        var idx = v * 8 / maxV
-        if idx < 1 { idx = 1 }
-        if idx > 8 { idx = 8 }
-        sb = sb + string(glyphs.Get(idx))
+    for i < cols {
+        val x = if (reversed) rightEdge - i else area.X + i
+        buf.Set(x, area.Y, Cell(Ch = sparklineGlyph(values.Get(i), maxV), St = style))
         i = i + 1
     }
-    return sb
+}
+
+// sparkReversed folds the direction down to the one question the renderer
+// asks, once per render rather than once per column. A sealed type rather
+// than a bool at the call site, because `SparklineStyled(v, st, true)` says
+// nothing about which way true is.
+func sparkReversed(dir SparkDirection) bool = dir match {
+    case SparkLeftToRight() => false
+    case SparkRightToLeft() => true
+}
+
+// sparklineRamp is the eight block heights, `▁` (one eighth) to `█` (full).
+// There is deliberately no blank at the head of it: a blank is what an absent
+// sample draws, and giving the ramp one would let a present sample reach it.
+val sparklineRamp = ArrayOf[rune]('▁', '▂', '▃', '▄', '▅', '▆', '▇', '█')
+
+// sparklineGlyph is the column for one sample: a block sized in eighths of
+// the series maximum, or a blank for a sample that does not exist.
+//
+// The `v >= maxV` arm is not just a clamp: it keeps the one value guaranteed
+// to reach the top of the ramp away from the multiplication, so a maximum
+// large enough to overflow `v * 8` still draws full height instead of
+// wrapping to the lowest block.
+func sparklineGlyph(o Option[int], maxV int) rune = o match {
+    case Some(v) => sparklineRamp.Get(if (v >= maxV) 7 else MaxInt(0, v * 8 / maxV - 1))
+    case None()  => ' '
 }
 
 // ----------------------------------------------------------------------------

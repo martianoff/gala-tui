@@ -224,7 +224,8 @@ on one edge. Shapes outside the bounds clip; they do not wrap.
 | Widget | Signature | Notes |
 |---|---|---|
 | `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. A value at the series minimum floors to the smallest visible block; an *empty* series still renders blank. |
-| `SparklineStyled(values, style)` | `(Array[int], Style) Widget` | …with custom fg/bg. |
+| `SparklineStyled(values, style, dir?)` | `(Array[int], Style, SparkDirection) Widget` | …with custom fg/bg, and which end sample 0 sits at. |
+| `SparklineOf(values, style, dir?)` | `(Array[Option[int]], Style, SparkDirection) Widget` | …where `None` is a sample that does not exist, drawn as a blank column. |
 | `BarChart(data)` | `(Array[BarChartDatum]) Widget` | Labeled horizontal bars. |
 | `LineChart(values)` | `(Array[int]) Widget` | Auto-bounded, sub-cell resolution. |
 | `LineChartStyled(values, style)` | `(Array[int], Style) Widget` | Default bounds, explicit style. |
@@ -264,6 +265,25 @@ and drops the caption for the rule when the caption would have to be cut. A
 *clip* is always signalled (`StringCellEllipsis`'s `…`, `OverflowRow`'s `›`),
 because a clipped value can be misread as a shorter one; a *drop* needs no
 marker, because an absent rule cannot be mistaken for a short rule.
+
+### Sparkline direction and gaps
+
+`dir` is `SparkLeftToRight()` (default, matches a chart axis) or
+`SparkRightToLeft()`, which pins the *first* sample to the right edge so a
+fixed-width strip scrolls older data off the left the way a monitor does.
+
+`SparklineOf(values, style, dir?)` takes `Array[Option[int]]`, where `None` is
+a sample that does not exist — a dropped scrape, no reading — and renders as a
+blank column. That is the one thing `Sparkline` cannot draw: every present
+sample floors to `▁` so a run of zeroes still paints a baseline, because
+"0 errors in each of the last 40 minutes" is a measurement. Passing `0` for a
+missing reading claims one nobody took. An absent sample is also excluded from
+the maximum, so a single gap does not rescale the rest of the series.
+
+```gala
+SparklineOf(ArrayOf[Option[int]](Some(4), None[int](), Some(4)), style)  // █ █
+SparklineOf(ArrayOf[Option[int]](Some(4), Some(0),      Some(4)), style)  // █▁█
+```
 
 ## Lists & tables
 

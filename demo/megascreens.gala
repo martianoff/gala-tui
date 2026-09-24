@@ -5,6 +5,7 @@ import (
     "github.com/martianoff/gala-tui/state"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
+    . "martianoff/gala/std"
 )
 
 // ============================================================================
@@ -33,7 +34,12 @@ import (
 
 // megaChartWidth is how many samples a chart panel shows at once — one column
 // per sample, so it is also the panel's width in cells.
-func megaChartWidth() int = 86
+func megaChartWidth() int = 90
+
+// megaChartFeedLen is the sample count, named rather than left inline so that
+// megaChartOffset can work out the window's span without building the feed
+// merely to ask its length — which it did, five times per frame.
+func megaChartFeedLen() int = 420
 
 // megaChartFeed is the whole signal: far longer than a panel, so a window onto
 // it can scroll without ever running out.
@@ -48,7 +54,7 @@ func megaChartFeed() Array[int] {
     var v = 28
     var out = EmptyArray[int]()
     var i = 0
-    for i < 420 {
+    for i < megaChartFeedLen() {
         seed = (seed * 1103515245 + 12345) % 2147483648
         val step = (seed / 65536) % 19 - 9
         // Pull back towards the middle. A plain random walk has no reason to
@@ -70,11 +76,15 @@ func megaChartFeed() Array[int] {
 //
 // The window wraps rather than stopping at the end of the feed, so the screen
 // can be held for as long as the tour wants without the charts freezing.
-func megaChartSeries(tick int) Array[int] {
-    val feed = megaChartFeed()
-    val span = feed.Length() - megaChartWidth()
-    val offset = ((tick % span) + span) % span
-    return feed.Drop(offset).Take(megaChartWidth())
+func megaChartSeries(tick int) Array[int] =
+    megaChartFeed().Drop(megaChartOffset(tick)).Take(megaChartWidth())
+
+// megaChartOffset is where the window starts in the feed. Shared with
+// megaGappedSeries, which needs feed coordinates rather than window ones to
+// keep a gap attached to the sample it belongs to.
+func megaChartOffset(tick int) int {
+    val span = megaChartFeedLen() - megaChartWidth()
+    return ((tick % span) + span) % span
 }
 
 func megaChartsBody(m MegaModel, th Theme) Widget =
@@ -87,12 +97,22 @@ func megaChartsMain(m MegaModel, th Theme) Widget {
     // Both sources of motion on this screen come from the model, so the
     // charts stream and the gauges sweep without the tour pressing anything:
     // the window advances one sample per tick, the gauges follow the tween.
+    // The window origin is taken once and passed down: the gapped sparkline
+    // needs feed coordinates, and re-deriving them from the tick made every
+    // level rebuild the 420-sample feed for itself.
+    val offset = megaChartOffset(m.Tick)
     val series = megaChartSeries(m.Tick)
     val pct = state.TweenAt(m.Progress, m.Now)
     return Column(ArrayOf[LayoutChild](
-        Fixed(9, Titled(LineChart(series), " LineChart ")),
-        Fixed(9, Titled(megaAreaChart(series), " Canvas — live filled area, braille 2x4 ")),
-        Fixed(7, Titled(megaGaugeStack(series, pct), " Gauges ")),
+        // The sparkline panel is new height on a screen that was already full,
+        // so it is paid for a row at a time from the panels above rather than
+        // out of MultiLineChart's flex — which absorbed all of it and came
+        // out one row tall, a chart showing nothing.
+        Fixed(8, Titled(LineChart(series), " LineChart ")),
+        Fixed(7, Titled(megaAreaChart(series), " Canvas — live filled area, braille 2x4 ")),
+        Fixed(6, Titled(megaGaugeStack(pct), " Gauges ")),
+        Fixed(5, Titled(megaSparklines(series, offset),
+                        " Sparkline — left-to-right, right-to-left, and gaps ")),
         Flex(1, Titled(megaMultiChart(series), " MultiLineChart ")),
     ))
 }
@@ -113,14 +133,41 @@ func megaAreaChart(series Array[int]) Widget {
 // megaGaugeStack shows the three gauge shapes against one value, which is the
 // comparison a reader actually wants: they differ in how much room they take,
 // not in what they mean.
-func megaGaugeStack(series Array[int], pct int) Widget =
+func megaGaugeStack(pct int) Widget =
     Column(ArrayOf[LayoutChild](
         Fixed(1, LineGauge(pct)),
         Fixed(1, LineGaugeLabeled(" deploy ", pct)),
         Fixed(1, Text("")),
         Fixed(1, Gauge(pct)),
-        Fixed(1, Sparkline(series)),
     ))
+
+// megaSparklines is the same window three ways, in a panel of its own.
+//
+// It used to be two rows tacked onto the gauge stack, which cost more than
+// tidiness: against a full-width Gauge directly above them, with no border
+// between, the notches read as a segmented progress bar rather than as
+// missing samples. A titled panel gives the reader the frame to read them in
+// — and gives the right-to-left row an edge to be anchored to, without which
+// "flush right" is indistinguishable from "placed wrong".
+func megaSparklines(series Array[int], offset int) Widget =
+    Column(ArrayOf[LayoutChild](
+        Fixed(1, Sparkline(series)),
+        Fixed(1, SparklineStyled(series, DefaultStyle(), SparkRightToLeft())),
+        Fixed(1, SparklineOf(megaGappedSeries(series, offset), DefaultStyle())),
+    ))
+
+// megaGappedSeries is the same window with readings dropped, so the screen
+// shows an absent sample beside a present one.
+//
+// The gaps are positions in the FEED, not in the window, so a hole travels
+// leftwards with its own data as the window slides. Pinned to window columns
+// instead, the blank pair stood still while the whole signal scrolled past
+// it — which reads as a dead spot in the renderer, the opposite of what the
+// row is on screen to show. Periodic rather than one-off so the window
+// always contains a couple, and derived rather than random so a re-record
+// stays a clean diff.
+func megaGappedSeries(series Array[int], offset int) Array[Option[int]] =
+    ArrayTabulate(series.Length(), (i) => Unless((offset + i) % 37 < 2, series.Get(i)))
 
 // megaMultiChart overlays two series. The chart is a filled glyph matrix, so
 // the second one painted wins every cell they share — which means two series

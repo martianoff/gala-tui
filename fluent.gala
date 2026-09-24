@@ -349,6 +349,10 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case DraggableRowsW(inner, n, h, p)    =>
             DraggableRowsW(Inner = restyleLeaves(inner, f),
                            Count = n, RowH = h, Payloads = p)
+        // A sparkline carries its style as a field, so it restyles like any
+        // other leaf — which is the whole reason it is not a CustomW.
+        case SparklineW(values, style, dir)    =>
+            SparklineW(Values = values, Style = f(style), Dir = dir)
         // CustomW renders by user-supplied closure — restyleLeaves has
         // no way to inspect or rewrite styles inside it. Pass through.
         case CustomW(_, _, _)                  => w
