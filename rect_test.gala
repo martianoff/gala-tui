@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
 
@@ -91,6 +92,19 @@ func TestRectInsetTakesEachSideSeparately(t T) T =
 func TestRectInsetNegativeSideGrowsThatEdge(t T) T =
     rectEq(t, rect(5, 5, 10, 10).Inset(0, 0, 0, -3), rect(2, 5, 13, 10))
 
+// An outset is never clamped, even when the opposite side collapses the rect.
+// Clamping it proportionally gave X = -1 here: neither the -3 the caller asked
+// for nor anywhere inside the parent, so it satisfied nobody.
+func TestRectInsetOutsetIsNotClampedByTheOppositeSide(t T) T =
+    rectEq(t, rect(0, 0, 4, 4).Inset(0, 10, 0, -3), rect(-3, 0, 0, 4))
+
+// The mirror: a positive inset paired with an outset on the far side. The
+// proportional split only lands inside the extent while the far side is
+// non-negative — here it reaches 8 on a 4-wide rect, so the origin is capped
+// at the far edge.
+func TestRectInsetPositiveSideStaysInsideWhenTheFarSideGrows(t T) T =
+    rectEq(t, rect(0, 0, 4, 4).Inset(0, -5, 0, 10), rect(4, 0, 0, 4))
+
 // When two opposing insets together exceed the extent they meet *inside* the
 // rectangle, and the meeting point is split between them in proportion. A
 // left-heavy pair therefore lands nearer the right edge than an even one
@@ -132,22 +146,16 @@ func TestRectInnerIsInsetOnEverySide(t T) T {
 // live origin and must not.
 func TestRectInsetClampNeverMovesANonEmptyRect(t T) T {
     val r = rect(0, 0, 9, 9)
-    var acc = t
-    var left = 0
-    for left <= 12 {
-        var right = 0
-        for right <= 12 {
+    val sides = ArrayTabulate(13, (i) => i)
+    return sides.FoldLeft(t, (acc, left) =>
+        sides.FoldLeft(acc, (inner, right) => {
             val got = r.Inset(0, right, 0, left)
             // Either the origin advanced by the full left inset, or the
             // rectangle came out empty. Never both false.
-            acc = IsTrue(acc, got.X == left || got.Width == 0)
-            // And the origin is inside the parent either way.
-            acc = IsTrue(acc, got.X >= 0 && got.X <= 9)
-            right = right + 1
-        }
-        left = left + 1
-    }
-    return acc
+            val moved = IsTrue(inner, got.X == left || got.Width == 0)
+            // And the origin lands inside the parent either way.
+            return IsTrue(moved, got.X >= 0 && got.X <= r.Width)
+        }))
 }
 
 // ----------------------------------------------------------------------------
