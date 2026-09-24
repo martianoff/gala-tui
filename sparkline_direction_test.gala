@@ -9,11 +9,11 @@ import (
 // Sparkline direction + absent values
 // ============================================================================
 
-func sparkText(w Widget, width int) string {
-    val buf = NewBuffer(width, 1)
-    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = 1), buf)
-    return BufferText(buf, 0)
-}
+// Both helpers go through `renderAt` (restyle_region_test.gala) rather than
+// respelling NewBuffer + RenderTo, which this file did three times over.
+func sparkText(w Widget, width int) string = BufferText(renderAt(w, width, 1), 0)
+
+func sparkBg(w Widget, width int, x int) Color = renderAt(w, width, 1).StyleAt(x, 0).Bg
 
 // Right-to-left puts the FIRST sample at the right edge, so a feed that is
 // appended to scrolls older data off the left the way a monitor does.
@@ -25,41 +25,85 @@ func TestSparklineRightToLeftReversesTheSeries(t T) T {
     return Eq(t1, rtl, "█▁")
 }
 
-// The default is unchanged, so existing call sites keep their layout.
-func TestSparklineDefaultsToLeftToRight(t T) T {
-    val vals = ArrayOf[int](1, 8)
-    return Eq(t, sparkText(SparklineStyled(vals, DefaultStyle()), 2),
-                 sparkText(SparklineStyled(vals, DefaultStyle(), SparkLeftToRight()), 2))
-}
-
 // An absent sample is a blank column. A present zero is not: it floors to the
 // smallest block, because "0 errors this minute" is a measurement and "no
 // scrape this minute" is not, and a sparkline that drew them alike was the
 // reason the floor exists.
 func TestSparklineAbsentSampleBlanksWhileZeroPaints(t T) T {
-    val withGap = ArrayOf[Option[int]](Some(4), None[int](), Some(4))
+    val withGap = ArrayOf[Option[int]](Some(4), None(), Some(4))
     val withZero = ArrayOf[Option[int]](Some(4), Some(0), Some(4))
     val t1 = Eq(t, sparkText(SparklineOf(withGap, DefaultStyle()), 3), "█ █")
     return Eq(t1, sparkText(SparklineOf(withZero, DefaultStyle()), 3), "█▁█")
 }
 
-// A gap must not rescale the rest: the maximum comes from present samples
-// only, so one dropped reading does not flatten the series around it.
-func TestSparklineAbsentSampleIsExcludedFromTheMaximum(t T) T {
+// A gap occupies a column of its own and leaves its neighbours' heights
+// exactly as they were. (This is the testable half of "absent is excluded
+// from the maximum": an absent sample carries no value, so no implementation
+// could raise the maximum with it — but one that *dropped* absent samples
+// rather than drawing them would close the gap up, and that this catches.)
+func TestSparklineAbsentSampleKeepsItsOwnColumn(t T) T {
     val a = ArrayOf[Option[int]](Some(1), Some(8))
-    val b = ArrayOf[Option[int]](Some(1), None[int](), Some(8))
+    val b = ArrayOf[Option[int]](Some(1), None(), Some(8))
     val t1 = Eq(t, sparkText(SparklineOf(a, DefaultStyle()), 2), "▁█")
     return Eq(t1, sparkText(SparklineOf(b, DefaultStyle()), 3), "▁ █")
 }
 
 // Direction applies to a gapped series too.
 func TestSparklineOfHonoursDirection(t T) T {
-    val vals = ArrayOf[Option[int]](Some(1), None[int](), Some(8))
+    val vals = ArrayOf[Option[int]](Some(1), None(), Some(8))
     return Eq(t, sparkText(SparklineOf(vals, DefaultStyle(), SparkRightToLeft()), 3), "█ ▁")
 }
 
 // A series that is entirely absent renders blank rather than a baseline —
 // which is the "no telemetry at all" case the floor deliberately cannot draw.
 func TestSparklineAllAbsentRendersBlank(t T) T =
-    Eq(t, sparkText(SparklineOf(ArrayOf[Option[int]](None[int](), None[int]()),
+    Eq(t, sparkText(SparklineOf(ArrayOf[Option[int]](None(), None()),
         DefaultStyle()), 2), "  ")
+
+// A series wider than its area keeps its FIRST samples, and the direction's
+// own edge is where sample 0 lands. This is the guarantee `SparkRightToLeft`
+// exists to give: the end it pins is the end that survives the clip.
+//
+// Built as a string and clipped by `renderText` instead, right-to-left dropped
+// precisely the samples it promised to pin — a 40-sample feed in a 20-column
+// strip rendered the *oldest* 20, newest-first. Hence `renderSparkline`.
+func TestSparklineRightToLeftClipsTheFarEndNotThePinnedOne(t T) T {
+    val vals = ArrayOf[int](8, 1, 4, 2)
+    return Eq(t, sparkText(SparklineStyled(vals, DefaultStyle(), SparkRightToLeft()), 2), "▁█")
+}
+
+// The left-to-right pair: sample 0 at the left edge, the tail dropped. This
+// half was always true, and is here so the two read as one rule.
+func TestSparklineLeftToRightClipsTheTail(t T) T {
+    val vals = ArrayOf[int](8, 1, 4, 2)
+    return Eq(t, sparkText(SparklineStyled(vals, DefaultStyle(), SparkLeftToRight()), 2), "█▁")
+}
+
+// A gap paints a *styled* space, not an untouched cell, so a strip on a
+// coloured panel stays one strip. The all-absent series is the case that got
+// this wrong: with nothing present to style, it fell back to unstyled text
+// and punched a default-background hole in the panel it sat on.
+func TestSparklineAllAbsentStillCarriesTheCallersStyle(t T) T {
+    val w = SparklineOf(ArrayOf[Option[int]](None(), None()),
+                        DefaultStyle().WithBg(Blue()))
+    return IsTrue(t, ColorEq(sparkBg(w, 2, 0), Blue()))
+}
+
+// And a gap inside a present series carries it too.
+func TestSparklineGapCarriesTheCallersStyle(t T) T {
+    val w = SparklineOf(ArrayOf[Option[int]](Some(4), None(), Some(4)),
+                        DefaultStyle().WithBg(Blue()))
+    return IsTrue(t, ColorEq(sparkBg(w, 3, 1), Blue()))
+}
+
+// A sparkline restyles with the tree around it. This is why it is a Widget
+// case and not a `CustomW`: `restyleLeaves` passes CustomW through untouched
+// (fluent.gala), so a sparkline built that way would ignore `.WithFg()` and
+// sit at full brightness on a dimmed pane — the same trap `chart.gala` names
+// and `TestChartRestylesWithItsPane` pins for charts.
+func TestSparklineRestylesThroughTheFluentPath(t T) T {
+    val w = Sparkline(ArrayOf[int](1, 8)).WithFg(BrightMagenta())
+    val buf = renderAt(w, 2, 1)
+    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightMagenta()))
+    return IsTrue(t1, ColorEq(buf.StyleAt(1, 0).Fg, BrightMagenta()))
+}

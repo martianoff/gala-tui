@@ -224,7 +224,8 @@ on one edge. Shapes outside the bounds clip; they do not wrap.
 | Widget | Signature | Notes |
 |---|---|---|
 | `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. A value at the series minimum floors to the smallest visible block; an *empty* series still renders blank. |
-| `SparklineStyled(values, style, dir?)` | `(Array[int], Style) Widget` | …with custom fg/bg. |
+| `SparklineStyled(values, style, dir?)` | `(Array[int], Style, SparkDirection) Widget` | …with custom fg/bg, and which end sample 0 sits at. |
+| `SparklineOf(values, style, dir?)` | `(Array[Option[int]], Style, SparkDirection) Widget` | …where `None` is a sample that does not exist, drawn as a blank column. |
 | `BarChart(data)` | `(Array[BarChartDatum]) Widget` | Labeled horizontal bars. |
 | `LineChart(values)` | `(Array[int]) Widget` | Auto-bounded, sub-cell resolution. |
 | `LineChartStyled(values, style)` | `(Array[int], Style) Widget` | Default bounds, explicit style. |
