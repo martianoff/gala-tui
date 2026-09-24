@@ -37,6 +37,103 @@ func (r Rect) Zero() bool = r.Width == 0 || r.Height == 0
 func (r Rect) Contains(x int, y int) bool =
     x >= r.X && x < r.X + r.Width && y >= r.Y && y < r.Y + r.Height
 
+// ----------------------------------------------------------------------------
+// Rect arithmetic
+//
+// Every widget that positions something inside its own area does this maths,
+// and until now did it inline: subtract the border, clamp to the parent, check
+// whether two regions touch. The inline versions differ in their edge cases —
+// what a margin wider than the area means, whether an empty rectangle keeps
+// its origin — and each one is a place for an off-by-one to live.
+//
+// The rules, once, here:
+//   * a rectangle is half-open: it covers X .. X+Width-1, so Right() and
+//     Bottom() are one past the last cell and `a.Right() == b.X` means the
+//     two are adjacent, not overlapping;
+//   * width and height never go negative — an operation that would shrink
+//     past nothing yields an empty rectangle instead, because a negative
+//     extent read as a huge unsigned one is how a clip turns into a crash.
+// ----------------------------------------------------------------------------
+
+// Left / Top are the first cell; Right / Bottom are one *past* the last, the
+// way a half-open interval works. `r.Right()` is therefore not a cell in `r`.
+func (r Rect) Left() int   = r.X
+func (r Rect) Top() int    = r.Y
+func (r Rect) Right() int  = r.X + r.Width
+func (r Rect) Bottom() int = r.Y + r.Height
+
+// Area is the cell count.
+func (r Rect) Area() int = r.Width * r.Height
+
+// Inner shrinks the rectangle by `margin` on every side — the border-inset
+// every container widget computes. A margin that would consume the rectangle
+// yields an empty one at the centre rather than a negative extent.
+func (r Rect) Inner(margin int) Rect = r.InnerHV(margin, margin)
+
+// InnerHV shrinks by `horizontal` on the left and right and `vertical` on the
+// top and bottom.
+func (r Rect) InnerHV(horizontal int, vertical int) Rect = Rect(
+    X      = r.X + horizontal,
+    Y      = r.Y + vertical,
+    Width  = MaxInt(0, r.Width - 2 * horizontal),
+    Height = MaxInt(0, r.Height - 2 * vertical),
+)
+
+// Offset moves the rectangle without resizing it.
+func (r Rect) Offset(dx int, dy int) Rect =
+    Rect(X = r.X + dx, Y = r.Y + dy, Width = r.Width, Height = r.Height)
+
+// Intersection is the region covered by both rectangles, empty when they do
+// not overlap. An empty result keeps the near corner as its origin, so
+// `Intersection(...).X` is still meaningful for positioning.
+func (r Rect) Intersection(o Rect) Rect {
+    val x1 = MaxInt(r.X, o.X)
+    val y1 = MaxInt(r.Y, o.Y)
+    val x2 = MinInt(r.Right(), o.Right())
+    val y2 = MinInt(r.Bottom(), o.Bottom())
+    return Rect(X = x1, Y = y1, Width = MaxInt(0, x2 - x1), Height = MaxInt(0, y2 - y1))
+}
+
+// Intersects reports whether the two rectangles share at least one cell.
+// Touching edges do not count: a rectangle ending at column 10 and one
+// starting there are adjacent.
+func (r Rect) Intersects(o Rect) bool = !r.Intersection(o).Zero()
+
+// Union is the smallest rectangle covering both. An empty operand would drag
+// the result to its origin, so it is ignored — the union of something and
+// nothing is that something.
+func (r Rect) Union(o Rect) Rect {
+    if r.Zero() { return o }
+    if o.Zero() { return r }
+    val x1 = MinInt(r.X, o.X)
+    val y1 = MinInt(r.Y, o.Y)
+    val x2 = MaxInt(r.Right(), o.Right())
+    val y2 = MaxInt(r.Bottom(), o.Bottom())
+    return Rect(X = x1, Y = y1, Width = x2 - x1, Height = y2 - y1)
+}
+
+// Clamp moves the rectangle to sit inside `bounds`, shrinking it only if it
+// is too big to fit. This is what a popup wants near a screen edge: slide it
+// back into view rather than truncate it.
+func (r Rect) Clamp(bounds Rect) Rect {
+    val w = MinInt(r.Width, bounds.Width)
+    val h = MinInt(r.Height, bounds.Height)
+    val x = MinInt(MaxInt(r.X, bounds.X), bounds.Right() - w)
+    val y = MinInt(MaxInt(r.Y, bounds.Y), bounds.Bottom() - h)
+    return Rect(X = x, Y = y, Width = w, Height = h)
+}
+
+// Centered returns a `width × height` rectangle centred inside `r`, clamped
+// to it. The rounding is deliberate: odd leftovers go to the right and
+// bottom, matching how `AlignCenter` places a child, so a modal built with
+// this lands on the same column as its own title.
+func (r Rect) Centered(width int, height int) Rect {
+    val w = MinInt(width, r.Width)
+    val h = MinInt(height, r.Height)
+    return Rect(X = r.X + (r.Width - w) / 2, Y = r.Y + (r.Height - h) / 2,
+                Width = w, Height = h)
+}
+
 // Buffer is a 2D grid of cells, row-major: cell at (x, y) lives at index
 // y*Width + x. Buffers are mutable — DrawText, Set, Fill modify in place —
 // because a TUI redraw can touch tens of thousands of cells per frame and we

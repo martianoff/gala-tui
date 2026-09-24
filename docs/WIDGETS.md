@@ -124,6 +124,36 @@ Column(ArrayOf[LayoutChild](
 `LayoutChild` is built with `Fixed(n, w)`, `Flex(weight, w)`, or
 `Pct(n, w)`.
 
+## Rect arithmetic
+
+`Rect` is half-open: it covers `X .. X+Width-1`, so `Right()` and `Bottom()`
+are one *past* the last cell and `a.Right() == b.X` means the two are
+adjacent, not overlapping. Width and height never go negative — an operation
+that would shrink past nothing yields an empty rectangle, because a negative
+extent read as a huge unsigned one is how a clip turns into a crash.
+
+| Method | Signature | Notes |
+|---|---|---|
+| `Zero()` | `() bool` | Empty — zero area. |
+| `Contains(x, y)` | `(int, int) bool` | Is the cell inside? |
+| `Left()` / `Top()` | `() int` | First cell. |
+| `Right()` / `Bottom()` | `() int` | One **past** the last cell. |
+| `Area()` | `() int` | Cell count. |
+| `Inner(margin)` | `(int) Rect` | Shrink every side — the border inset. Too large a margin gives an empty rect, not a negative one. |
+| `InnerHV(h, v)` | `(int, int) Rect` | …with separate axes. |
+| `Offset(dx, dy)` | `(int, int) Rect` | Move without resizing. |
+| `Intersection(o)` | `(Rect) Rect` | Region covered by both; empty when they only touch. |
+| `Intersects(o)` | `(Rect) bool` | Do they share a cell? Touching edges do not count. |
+| `Union(o)` | `(Rect) Rect` | Smallest rect covering both. An empty operand is ignored rather than dragging the result to its origin. |
+| `Clamp(bounds)` | `(Rect) Rect` | Slide inside `bounds`, shrinking only if it cannot fit — what a popup wants near a screen edge. |
+| `Centered(w, h)` | `(int, int) Rect` | Centre a `w × h` rect inside, clamped. Odd leftovers go right and down, matching `AlignCenter`. |
+
+```gala
+val body = area.Inner(1)                      // inside the border
+val popup = area.Centered(40, 8).Clamp(area)  // centred, never off-screen
+if hit.Intersects(viewport) { ... }           // only if a cell is shared
+```
+
 ## Canvas
 
 ![Canvas widgets](img/canvas.svg)

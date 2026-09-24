@@ -1,0 +1,151 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Rect arithmetic
+//
+// The interesting cases are all degenerate ones: a margin wider than the
+// rectangle, operands that merely touch, an empty operand in a union, a
+// rectangle that does not fit where it is being clamped. Those are where the
+// inline versions of this maths disagreed with each other, so those are what
+// these pin.
+// ============================================================================
+
+func rect(x int, y int, w int, h int) Rect =
+    Rect(X = x, Y = y, Width = w, Height = h)
+
+func rectEq(t T, got Rect, want Rect) T =
+    Eq(t, s"${got.X},${got.Y} ${got.Width}x${got.Height}",
+          s"${want.X},${want.Y} ${want.Width}x${want.Height}")
+
+// ----------------------------------------------------------------------------
+// Edges
+// ----------------------------------------------------------------------------
+
+// Right and Bottom are one past the last cell, so the last cell a rectangle
+// covers is Right()-1. Getting this backwards is an off-by-one in every
+// clipping test that uses it.
+func TestRectEdgesAreHalfOpen(t T) T {
+    val r = rect(3, 4, 10, 5)
+    val t1 = Eq(t, r.Left(), 3)
+    val t2 = Eq(t1, r.Top(), 4)
+    val t3 = Eq(t2, r.Right(), 13)
+    val t4 = Eq(t3, r.Bottom(), 9)
+    return IsTrue(t4, r.Contains(r.Right() - 1, r.Bottom() - 1))
+}
+
+func TestRectRightIsNotACellOfTheRect(t T) T {
+    val r = rect(0, 0, 4, 4)
+    return IsFalse(t, r.Contains(r.Right(), 0))
+}
+
+func TestRectArea(t T) T = Eq(t, rect(2, 2, 6, 3).Area(), 18)
+
+// ----------------------------------------------------------------------------
+// Inner
+// ----------------------------------------------------------------------------
+
+func TestRectInnerShrinksBothSides(t T) T =
+    rectEq(t, rect(0, 0, 10, 6).Inner(1), rect(1, 1, 8, 4))
+
+func TestRectInnerHVTakesDifferentAxes(t T) T =
+    rectEq(t, rect(0, 0, 10, 6).InnerHV(2, 1), rect(2, 1, 6, 4))
+
+// A margin that would consume the rectangle yields an empty one rather than a
+// negative extent — a negative width read as an unsigned length is how a clip
+// becomes a crash.
+func TestRectInnerLargerThanTheRectIsEmptyNotNegative(t T) T {
+    val got = rect(0, 0, 4, 4).Inner(5)
+    val t1 = Eq(t, got.Width, 0)
+    val t2 = Eq(t1, got.Height, 0)
+    return IsTrue(t2, got.Zero())
+}
+
+// ----------------------------------------------------------------------------
+// Offset
+// ----------------------------------------------------------------------------
+
+func TestRectOffsetMovesWithoutResizing(t T) T =
+    rectEq(t, rect(1, 1, 4, 3).Offset(5, -1), rect(6, 0, 4, 3))
+
+// ----------------------------------------------------------------------------
+// Intersection
+// ----------------------------------------------------------------------------
+
+func TestRectIntersectionOverlap(t T) T =
+    rectEq(t, rect(0, 0, 6, 6).Intersection(rect(4, 4, 6, 6)), rect(4, 4, 2, 2))
+
+// Touching edges share no cell. `a` covers columns 0..3 and `b` starts at 4,
+// so they are adjacent — a widget that treated this as an overlap would
+// refuse to place two panels side by side.
+func TestRectIntersectionOfTouchingRectsIsEmpty(t T) T {
+    val a = rect(0, 0, 4, 4)
+    val b = rect(4, 0, 4, 4)
+    val t1 = IsTrue(t, a.Intersection(b).Zero())
+    return IsFalse(t1, a.Intersects(b))
+}
+
+func TestRectIntersectionOfDisjointRectsIsEmpty(t T) T =
+    IsTrue(t, rect(0, 0, 2, 2).Intersection(rect(10, 10, 2, 2)).Zero())
+
+func TestRectIntersectsWhenTheyShareACell(t T) T =
+    IsTrue(t, rect(0, 0, 5, 5).Intersects(rect(4, 4, 5, 5)))
+
+// Containment is intersection with one operand unchanged.
+func TestRectIntersectionOfNestedRectsIsTheInnerOne(t T) T =
+    rectEq(t, rect(0, 0, 10, 10).Intersection(rect(2, 2, 3, 3)), rect(2, 2, 3, 3))
+
+// ----------------------------------------------------------------------------
+// Union
+// ----------------------------------------------------------------------------
+
+func TestRectUnionCoversBoth(t T) T =
+    rectEq(t, rect(0, 0, 2, 2).Union(rect(8, 5, 2, 2)), rect(0, 0, 10, 7))
+
+// An empty operand has an origin, and honouring it would drag the union to
+// 0,0 — so the union of something and nothing is that something.
+func TestRectUnionIgnoresAnEmptyOperand(t T) T {
+    val r = rect(4, 4, 3, 3)
+    val t1 = rectEq(t, r.Union(rect(0, 0, 0, 0)), r)
+    return rectEq(t1, rect(0, 0, 0, 0).Union(r), r)
+}
+
+// ----------------------------------------------------------------------------
+// Clamp
+// ----------------------------------------------------------------------------
+
+// The popup-near-an-edge case: slide it back into view rather than truncate.
+func TestRectClampSlidesBackInsideWithoutShrinking(t T) T =
+    rectEq(t, rect(8, 8, 4, 4).Clamp(rect(0, 0, 10, 10)), rect(6, 6, 4, 4))
+
+// Only shrink when it genuinely cannot fit.
+func TestRectClampShrinksOnlyWhenTooBig(t T) T =
+    rectEq(t, rect(0, 0, 20, 3).Clamp(rect(0, 0, 10, 10)), rect(0, 0, 10, 3))
+
+func TestRectClampLeavesAContainedRectAlone(t T) T {
+    val r = rect(2, 2, 3, 3)
+    return rectEq(t, r.Clamp(rect(0, 0, 10, 10)), r)
+}
+
+// Clamping against a smaller origin moves rather than just resizes.
+func TestRectClampRespectsBoundsOrigin(t T) T =
+    rectEq(t, rect(0, 0, 4, 4).Clamp(rect(5, 5, 10, 10)), rect(5, 5, 4, 4))
+
+// ----------------------------------------------------------------------------
+// Centered
+// ----------------------------------------------------------------------------
+
+func TestRectCentered(t T) T =
+    rectEq(t, rect(0, 0, 10, 10).Centered(4, 2), rect(3, 4, 4, 2))
+
+// An odd leftover goes right and down, matching AlignCenter, so a panel built
+// from this lands on the same column as one the layout centres.
+func TestRectCenteredRoundsTowardsTheFarEdge(t T) T =
+    rectEq(t, rect(0, 0, 10, 10).Centered(5, 5), rect(2, 2, 5, 5))
+
+// Asking for more room than there is clamps instead of overflowing.
+func TestRectCenteredLargerThanTheParentIsClamped(t T) T =
+    rectEq(t, rect(0, 0, 6, 6).Centered(20, 20), rect(0, 0, 6, 6))
