@@ -11,7 +11,7 @@ import (
 
 // Both helpers go through `renderAt` (restyle_region_test.gala) rather than
 // respelling NewBuffer + RenderTo, which this file did three times over.
-func sparkText(w Widget, width int) string = BufferText(renderAt(w, width, 1), 0)
+func sparkText(w Widget, width int) string = RowText(renderAt(w, width, 1), 0)
 
 func sparkBg(w Widget, width int, x int) Color = renderAt(w, width, 1).StyleAt(x, 0).Bg
 

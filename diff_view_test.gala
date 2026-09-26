@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -13,7 +14,7 @@ func TestDiffViewEmptyShowsPlaceholder(t T) T {
     val buf = NewBuffer(30, 1)
     RenderTo(DiffView(EmptyArray[DiffLine]()),
         Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
-    return IsTrue(t, megaContains(BufferText(buf, 0), "(no changes)"))
+    return IsTrue(t, strings.Contains(RowText(buf, 0), "(no changes)"))
 }
 
 func TestDiffViewAddedLineIsBrightGreen(t T) T {
@@ -22,8 +23,8 @@ func TestDiffViewAddedLineIsBrightGreen(t T) T {
         DiffAdded(Text = "added line"),
     )),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = IsTrue(t, megaContains(row, "+ added line"))
+    val row = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(row, "+ added line"))
     return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightGreen()))
 }
 
@@ -33,8 +34,8 @@ func TestDiffViewRemovedLineIsBrightRed(t T) T {
         DiffRemoved(Text = "removed line"),
     )),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = IsTrue(t, megaContains(row, "- removed line"))
+    val row = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(row, "- removed line"))
     return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightRed()))
 }
 
@@ -44,7 +45,7 @@ func TestDiffViewContextIsDim(t T) T {
         DiffContext(Text = "context line"),
     )),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
-    val t1 = IsTrue(t, megaContains(BufferText(buf, 0), "  context line"))
+    val t1 = IsTrue(t, strings.Contains(RowText(buf, 0), "  context line"))
     // Dim attribute on the prefix cell.
     return IsTrue(t1, buf.StyleAt(2, 0).Dim)
 }
@@ -58,10 +59,10 @@ func TestDiffViewMixedRendersAllLines(t T) T {
         DiffContext(Text = "after"),
     )),
         Rect(X = 0, Y = 0, Width = 40, Height = 4), buf)
-    val t1 = IsTrue(t, megaContains(BufferText(buf, 0), "before"))
-    val t2 = IsTrue(t1, megaContains(BufferText(buf, 1), "old"))
-    val t3 = IsTrue(t2, megaContains(BufferText(buf, 2), "new"))
-    return IsTrue(t3, megaContains(BufferText(buf, 3), "after"))
+    val t1 = IsTrue(t, strings.Contains(RowText(buf, 0), "before"))
+    val t2 = IsTrue(t1, strings.Contains(RowText(buf, 1), "old"))
+    val t3 = IsTrue(t2, strings.Contains(RowText(buf, 2), "new"))
+    return IsTrue(t3, strings.Contains(RowText(buf, 3), "after"))
 }
 
 // ----------------------------------------------------------------------------
@@ -77,10 +78,10 @@ func TestDiffViewStatsRendersCounts(t T) T {
         DiffRemoved(Text = "r1"),
     )),
         Rect(X = 0, Y = 0, Width = 40, Height = 6), buf)
-    val summary = BufferText(buf, 0)
-    val t1 = IsTrue(t, megaContains(summary, "+2"))
-    val t2 = IsTrue(t1, megaContains(summary, "-1"))
-    return IsTrue(t2, megaContains(summary, "~1"))
+    val summary = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(summary, "+2"))
+    val t2 = IsTrue(t1, strings.Contains(summary, "-1"))
+    return IsTrue(t2, strings.Contains(summary, "~1"))
 }
 
 func TestDiffViewStatsAddedCountIsGreen(t T) T {

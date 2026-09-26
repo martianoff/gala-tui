@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -13,7 +14,7 @@ func TestSearchInputEmptyShowsPlaceholder(t T) T {
     val buf = NewBuffer(40, 1)
     RenderTo(SearchInput("", 0, 100),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
-    return IsTrue(t, megaContains(BufferText(buf, 0), "Type to search…"))
+    return IsTrue(t, strings.Contains(RowText(buf, 0), "Type to search…"))
 }
 
 func TestSearchInputEmptyHidesBadge(t T) T {
@@ -21,16 +22,16 @@ func TestSearchInputEmptyHidesBadge(t T) T {
     RenderTo(SearchInput("", 0, 100),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     // No "(N/M)" badge when query is empty.
-    return IsFalse(t, megaContains(BufferText(buf, 0), "(0/100)"))
+    return IsFalse(t, strings.Contains(RowText(buf, 0), "(0/100)"))
 }
 
 func TestSearchInputWithQueryShowsBadge(t T) T {
     val buf = NewBuffer(40, 1)
     RenderTo(SearchInput("alice", 3, 25),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = IsTrue(t, megaContains(row, "alice"))
-    return IsTrue(t1, megaContains(row, "(3/25)"))
+    val row = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(row, "alice"))
+    return IsTrue(t1, strings.Contains(row, "(3/25)"))
 }
 
 func TestSearchInputIconIsBrightCyan(t T) T {

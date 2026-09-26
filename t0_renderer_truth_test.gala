@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "martianoff/gala/stream"
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
@@ -89,15 +90,11 @@ func TestListBottomToTopKeepsCursorZeroOnScreen(t T) T {
 func TestListBottomToTopViewportIsMonotonicInSelection(t T) T {
     // Stepping the cursor forward must never move the viewport backwards.
     // The `sel > 0` discriminator made sel 0 -> 1 leap from tail to head.
-    var acc = t
-    var sel = 0
-    for sel <= 4 {
+    return stream.Range(0, 5).Fold(t, (acc, sel) => {
         val first = SnapshotLines(SelectListReversed(listItems(5), sel), 7, 3).Get(0)
         val want = if (sel < 3) "item0  " else s"item${sel - 2}  "
-        acc = Eq(acc, first, want)
-        sel = sel + 1
-    }
-    return acc
+        return Eq(acc, first, want)
+    })
 }
 
 func TestListBottomToTopUnderflowStillPinsToBottom(t T) T {
@@ -161,22 +158,9 @@ func TestSpaceAroundEdgeGapsAreHalfTheInnerGaps(t T) T {
 }
 
 // leadingGap / trailingGap count the blank columns at each end of a row.
-func leadingGap(s string) int {
-    var n = 0
-    for _, c := range s {
-        if c != ' ' { return n }
-        n = n + 1
-    }
-    return n
-}
+func leadingGap(s string) int = s.Size() - strings.TrimLeft(s, " ").Size()
 
-func trailingGap(s string) int {
-    var run = 0
-    for _, c := range s {
-        if c == ' ' { run = run + 1 } else { run = 0 }
-    }
-    return run
-}
+func trailingGap(s string) int = s.Size() - strings.TrimRight(s, " ").Size()
 
 func TestSpaceAroundIsSymmetricWhereverSymmetryIsPossible(t T) T {
     // Sweeping matters here: width 20 is one of the widths where the split
@@ -187,17 +171,10 @@ func TestSpaceAroundIsSymmetricWhereverSymmetryIsPossible(t T) T {
     // edge's ideal share is a half-integer and NO integer split is
     // symmetric. Everywhere else the two edges must match.
     val w = RowFlex(threeBoxes(), FlexSpaceAround(), 0)
-    var acc = t
-    var width = 13
-    for width <= 40 {
+    return stream.Range(13, 41).Filter((width) => (width - 12) % 6 != 3).Fold(t, (acc, width) => {
         val out = Snapshot(w, width, 1)
-        val slack = width - 12
-        if slack % 6 != 3 {
-            acc = Eq(acc, leadingGap(out), trailingGap(out))
-        }
-        width = width + 1
-    }
-    return acc
+        return Eq(acc, leadingGap(out), trailingGap(out))
+    })
 }
 
 func TestSpaceAroundTieBreakFavoursTheLeadingEdge(t T) T {
@@ -225,15 +202,10 @@ func TestFlexDistributionsAlwaysConsumeTheFullWidth(t T) T {
     // tautology: Snapshot walks 0..buf.Width, so it returns exactly `width`
     // characters at every width, whatever the renderer did.)
     val w = RowFlex(threeBoxes(), FlexSpaceBetween(), 0)
-    var acc = t
-    var width = 13
-    for width <= 30 {
+    return stream.Range(13, 31).Fold(t, (acc, width) => {
         val out = Snapshot(w, width, 1)
-        acc = IsTrue(acc, strings.HasPrefix(out, "aaaa"))
-        acc = IsTrue(acc, strings.HasSuffix(out, "cccc"))
-        width = width + 1
-    }
-    return acc
+        return IsTrue(IsTrue(acc, strings.HasPrefix(out, "aaaa")), strings.HasSuffix(out, "cccc"))
+    })
 }
 
 func TestFlexLegacyUnchangedByTheRemainderFix(t T) T {

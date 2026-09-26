@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -81,12 +82,12 @@ func TestMenuVerticalViewRendersOneItemPerRow(t T) T {
     val buf = NewBuffer(12, 3)
     RenderTo(MenuView(threeItemMenu()),
         Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
-    val r0 = BufferText(buf, 0)
-    val r1 = BufferText(buf, 1)
-    val r2 = BufferText(buf, 2)
-    val t1 = IsTrue(t, menuRowHas(r0, "Open"))
-    val t2 = IsTrue(t1, menuRowHas(r1, "Save"))
-    return IsTrue(t2, menuRowHas(r2, "Quit"))
+    val r0 = RowText(buf, 0)
+    val r1 = RowText(buf, 1)
+    val r2 = RowText(buf, 2)
+    val t1 = IsTrue(t, strings.Contains(r0, "Open"))
+    val t2 = IsTrue(t1, strings.Contains(r1, "Save"))
+    return IsTrue(t2, strings.Contains(r2, "Quit"))
 }
 
 func TestMenuSelectedRowIsReverse(t T) T {
@@ -113,10 +114,10 @@ func TestMenuHorizontalRendersInline(t T) T {
     ))
     val buf = NewBuffer(20, 1)
     RenderTo(MenuView(m), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = IsTrue(t, menuRowHas(row, "A"))
-    val t2 = IsTrue(t1, menuRowHas(row, "B"))
-    return IsTrue(t2, menuRowHas(row, "C"))
+    val row = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(row, "A"))
+    val t2 = IsTrue(t1, strings.Contains(row, "B"))
+    return IsTrue(t2, strings.Contains(row, "C"))
 }
 
 func TestMenuItemHintRendersRightAligned(t T) T {
@@ -125,9 +126,9 @@ func TestMenuItemHintRendersRightAligned(t T) T {
     ))
     val buf = NewBuffer(20, 1)
     RenderTo(MenuView(m), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = IsTrue(t, menuRowHas(row, "Save"))
-    return IsTrue(t1, menuRowHas(row, "Ctrl+S"))
+    val row = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(row, "Save"))
+    return IsTrue(t1, strings.Contains(row, "Ctrl+S"))
 }
 
 // ----------------------------------------------------------------------------
@@ -144,7 +145,7 @@ func TestDropdownClosedShowsTriggerOnly(t T) T {
     val buf = NewBuffer(12, 4)
     RenderTo(DropdownView(d), Rect(X = 0, Y = 0, Width = 12, Height = 4), buf)
     // Only the trigger renders — row 1 should be blank.
-    val row1 = BufferText(buf, 1)
+    val row1 = RowText(buf, 1)
     return Eq(t, row1, "            ")
 }
 
@@ -157,54 +158,7 @@ func TestDropdownOpenShowsMenuBelowTrigger(t T) T {
     )
     val buf = NewBuffer(15, 8)
     RenderTo(DropdownView(d), Rect(X = 0, Y = 0, Width = 15, Height = 8), buf)
-    val joined = allMenuRows(buf)
-    val t1 = IsTrue(t, menuRowHas(joined, "Pick"))
-    return IsTrue(t1, menuRowHas(joined, "Save"))
-}
-
-// ----------------------------------------------------------------------------
-// Helpers.
-// ----------------------------------------------------------------------------
-
-func allMenuRows(buf *Buffer) string {
-    var s = ""
-    var y = 0
-    for y < buf.Height {
-        s = s + BufferText(buf, y) + "\n"
-        y = y + 1
-    }
-    return s
-}
-
-func menuRowHas(hay string, needle string) bool {
-    val h = menuRuneArr(hay)
-    val n = menuRuneArr(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if h.Get(i + j) != n.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
-}
-
-func menuRuneArr(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
+    val joined = allRows(buf)
+    val t1 = IsTrue(t, strings.Contains(joined, "Pick"))
+    return IsTrue(t1, strings.Contains(joined, "Save"))
 }

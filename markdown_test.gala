@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "martianoff/gala/stream"
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
@@ -198,22 +199,22 @@ func TestMarkdownViewAtRendersWrappedParagraph(t T) T {
     val rows = SnapshotLines(w, 20, n)
     // Last visible row matches the last wrapped line.
     val wrapped = WrapParagraph(src, 20)
-    return Eq(t, mdTrim(rows.Get(n - 1)), wrapped.Get(wrapped.Length() - 1))
+    return Eq(t, strings.TrimRight(rows.Get(n - 1), " "), wrapped.Get(wrapped.Length() - 1))
 }
 
 func TestMarkdownViewAtBlanksBetweenParagraphs(t T) T {
     val src = "First.\n\nSecond."
     val w = MarkdownViewAt(src, 20)
     val rows = SnapshotLines(w, 20, 3)
-    val t1 = Eq(t, mdTrim(rows.Get(0)), "First.")
-    val t2 = Eq(t1, mdTrim(rows.Get(1)), "")
-    return Eq(t2, mdTrim(rows.Get(2)), "Second.")
+    val t1 = Eq(t, strings.TrimRight(rows.Get(0), " "), "First.")
+    val t2 = Eq(t1, strings.TrimRight(rows.Get(1), " "), "")
+    return Eq(t2, strings.TrimRight(rows.Get(2), " "), "Second.")
 }
 
 func TestMarkdownViewAtRendersHeadingAtAnyWidth(t T) T {
     val w = MarkdownViewAt("# Big Title", 80)
     val rows = SnapshotLines(w, 80, 1)
-    return IsTrue(t, RuneCount(mdTrim(rows.Get(0))) >= RuneCount("Big Title"))
+    return IsTrue(t, RuneCount(strings.TrimRight(rows.Get(0), " ")) >= RuneCount("Big Title"))
 }
 
 // IntrinsicHeightAt round-trip: the width-aware Markdown view's
@@ -226,83 +227,35 @@ func TestMarkdownViewAtIntrinsicHeightMatchesLineCount(t T) T {
     return Eq(t, IntrinsicHeightAt(w, 30), n)
 }
 
-func mdTrim(s string) string {
-    var end = RuneCount(s)
-    for end > 0 {
-        var i = 0
-        var r = rune(0)
-        for _, c := range s {
-            if i == end - 1 { r = c; i = end }
-            else { i = i + 1 }
-        }
-        if r != ' ' {
-            var out = ""
-            var j = 0
-            for _, c := range s {
-                if j < end { out = out + string(c) }
-                j = j + 1
-            }
-            return out
-        }
-        end = end - 1
-    }
-    return ""
-}
-
 // ----------------------------------------------------------------------------
 // Helpers
 // ----------------------------------------------------------------------------
 
-func blocksOfKind(blocks Array[MdBlock], kind string) int {
-    var count = 0
-    var i = 0
-    val n = blocks.Length()
-    for i < n {
-        val matched = blocks.Get(i) match {
-            case MdHeading(_, _)        => kind == "heading"
-            case MdParagraph(_)         => kind == "paragraph"
-            case MdBullet(_)            => kind == "bullet"
-            case MdNumbered(_, _)       => kind == "numbered"
-            case MdCodeBlock(_, _)      => kind == "code"
-            case MdRule()               => kind == "rule"
-            case MdBlank()              => kind == "blank"
-        }
-        if matched { count = count + 1 }
-        i = i + 1
-    }
-    return count
-}
+func blocksOfKind(blocks Array[MdBlock], kind string) int =
+    blocks.Count((b) => b match {
+        case MdHeading(_, _)        => kind == "heading"
+        case MdParagraph(_)         => kind == "paragraph"
+        case MdBullet(_)            => kind == "bullet"
+        case MdNumbered(_, _)       => kind == "numbered"
+        case MdCodeBlock(_, _)      => kind == "code"
+        case MdRule()               => kind == "rule"
+        case MdBlank()              => kind == "blank"
+    })
 
-func anyInlineOfKind(inlines Array[MdInline], kind string) bool {
-    var i = 0
-    val n = inlines.Length()
-    for i < n {
-        val matches = inlines.Get(i) match {
-            case MdText(_)      => kind == "text"
-            case MdBold(_)      => kind == "bold"
-            case MdItalic(_)    => kind == "italic"
-            case MdCode(_)      => kind == "code"
-            case MdLink(_, _)   => kind == "link"
-        }
-        if matches { return true }
-        i = i + 1
-    }
-    return false
-}
+func anyInlineOfKind(inlines Array[MdInline], kind string) bool =
+    inlines.Exists((i) => i match {
+        case MdText(_)      => kind == "text"
+        case MdBold(_)      => kind == "bold"
+        case MdItalic(_)    => kind == "italic"
+        case MdCode(_)      => kind == "code"
+        case MdLink(_, _)   => kind == "link"
+    })
 
-func allInlinesText(inlines Array[MdInline]) bool {
-    var i = 0
-    val n = inlines.Length()
-    for i < n {
-        val isText = inlines.Get(i) match {
-            case MdText(_) => true
-            case _         => false
-        }
-        if !isText { return false }
-        i = i + 1
-    }
-    return true
-}
+func allInlinesText(inlines Array[MdInline]) bool =
+    inlines.ForAll((i) => i match {
+        case MdText(_) => true
+        case _         => false
+    })
 
 // ----------------------------------------------------------------------------
 // Inline styling survives wrapping (T1)
@@ -324,18 +277,10 @@ func TestBoldSurvivesAWrapOntoTheSecondRow(t T) T {
     RenderTo(MarkdownViewAt(t1WrapSource(), 24),
              Rect(X = 0, Y = 0, Width = 24, Height = 4), buf)
     // Find "golf" anywhere in the rendered block and assert it is bold.
-    var found = false
-    var bold = false
-    var y = 0
-    for y < 4 {
-        val row = BufferText(buf, y)
-        val idx = strings.Index(row, "golf")
-        if idx >= 0 && !found {
-            found = true
-            bold = buf.StyleAt(idx, y).Bold
-        }
-        y = y + 1
-    }
+    val hit = stream.Range(0, 4).Find((y) => strings.Index(RowText(buf, y), "golf") >= 0)
+    val found = hit.IsDefined()
+    val bold = hit.Map((y) => buf.StyleAt(strings.Index(RowText(buf, y), "golf"), y).Bold)
+                  .GetOrElse(false)
     return IsTrue(IsTrue(t, found), bold)
 }
 
@@ -361,18 +306,14 @@ func TestWrappedRowCountStillMatchesTheHeightOracle(t T) T {
     // renderer uses. If they drift, every variable-height container that
     // asked for an exact height is mis-sized.
     val src = t1WrapSource()
-    var w = 12
-    var acc = t
-    for w <= 40 {
+    return stream.RangeStep(12, 41, 4).Fold(t, (acc, w) => {
         val want = MarkdownLineCountAt(src, w)
         val buf = NewBuffer(w, want + 3)
         RenderTo(MarkdownViewAt(src, w), Rect(X = 0, Y = 0, Width = w, Height = want + 3), buf)
         // Every row the oracle promised has content; the one after it does not.
-        acc = EqMsg(acc, strings.TrimSpace(BufferText(buf, want - 1)) != "", true, s"width $w: last promised row is empty")
-        acc = EqMsg(acc, strings.TrimSpace(BufferText(buf, want)) == "", true, s"width $w: row past the promised height has content")
-        w = w + 4
-    }
-    return acc
+        val a1 = EqMsg(acc, strings.TrimSpace(RowText(buf, want - 1)) != "", true, s"width $w: last promised row is empty")
+        return EqMsg(a1, strings.TrimSpace(RowText(buf, want)) == "", true, s"width $w: row past the promised height has content")
+    })
 }
 
 func TestWrapSpansKeepsStylePerCharacterAcrossABreak(t T) T {
@@ -400,20 +341,15 @@ func TestWrapSpansCountsCellsNotRunes(t T) T {
     // Six CJK glyphs are twelve columns. Counting runes let them overflow a
     // ten-column budget and run into whatever sat beside them.
     val lines = WrapSpans(ArrayOf[Span](SpanOf("一二三四五六")), 10)
-    var acc = t
-    var i = 0
-    for i < lines.Length() {
-        acc = EqMsg(acc, lines.Get(i).CellWidth() <= 10, true, s"row $i is ${lines.Get(i).CellWidth()} cells, budget 10")
-        i = i + 1
-    }
-    return acc
+    return lines.ZipWithIndex().FoldLeft(t, (acc, l) =>
+        EqMsg(acc, l.V1.CellWidth() <= 10, true, s"row ${l.V2} is ${l.V1.CellWidth()} cells, budget 10"))
 }
 
 func TestMarkdownLinkCarriesItsUrlAsAHyperlink(t T) T {
     val buf = NewBuffer(40, 2)
     RenderTo(MarkdownViewAt("see [docs](https://example.com/x) now", 40),
              Rect(X = 0, Y = 0, Width = 40, Height = 2), buf)
-    val idx = strings.Index(BufferText(buf, 0), "docs")
+    val idx = strings.Index(RowText(buf, 0), "docs")
     val t1 = IsTrue(t, idx >= 0)
     return Eq(t1, LinkUrl(buf.StyleAt(idx, 0)), "https://example.com/x")
 }
