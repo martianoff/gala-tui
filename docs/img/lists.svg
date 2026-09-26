@@ -5,8 +5,8 @@
 <rect x="8.40" y="187.00" width="277.20" height="17.00" fill="#cccccc"/>
 <rect x="285.60" y="187.00" width="243.60" height="17.00" fill="#ddaf3c"/>
 <text x="0.00" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">┌</text>
-<text x="16.80" y="13.00" fill="#cccccc" textLength="84.00" lengthAdjust="spacingAndGlyphs">SelectList</text>
-<text x="109.20" y="13.00" fill="#cccccc" textLength="168.00" lengthAdjust="spacingAndGlyphs">──────────────────┐┌</text>
+<text x="16.80" y="13.00" fill="#cccccc" textLength="117.60" lengthAdjust="spacingAndGlyphs">SelectListView</text>
+<text x="142.80" y="13.00" fill="#cccccc" textLength="134.40" lengthAdjust="spacingAndGlyphs">──────────────┐┌</text>
 <text x="285.60" y="13.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs">Table</text>
 <text x="336.00" y="13.00" fill="#cccccc" textLength="201.60" lengthAdjust="spacingAndGlyphs">───────────────────────┐</text>
 <text x="0.00" y="30.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
@@ -16,6 +16,7 @@
 <text x="411.60" y="30.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">state</text>
 <text x="529.20" y="30.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0.00" y="47.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="47.00" fill="#121314" textLength="8.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">▶</text>
 <text x="25.20" y="47.00" fill="#121314" textLength="50.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">builds</text>
 <text x="260.40" y="47.00" fill="#cccccc" textLength="277.20" lengthAdjust="spacingAndGlyphs">││──────────────────────────────│</text>
 <text x="0.00" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>

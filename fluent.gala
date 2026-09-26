@@ -316,12 +316,13 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
             )), Flex = flex, Spacing = sp)
         case StackWidget(layers)               =>
             StackWidget(Layers = layers.Map((l) => restyleLeaves(l, f)))
-        case ListW(items, sel, ss, off, dir)   =>
+        case ListW(items, sel, ss, off, dir, sym, sp, pad) =>
             ListW(Items = items, Selected = sel, SelStyle = f(ss),
-                  Offset = off, Direction = dir)
-        case AutoScrollW(build, sel, off, hs)  =>
+                  Offset = off, Direction = dir,
+                  HighlightSymbol = sym, HighlightSpacing = sp, ScrollPadding = pad)
+        case AutoScrollW(build, sel, off, hs, pad) =>
             AutoScrollW(Build = (i) => restyleLeaves(build(i), f),
-                        Heights = hs, Selected = sel, Offset = off)
+                        Heights = hs, Selected = sel, Offset = off, Padding = pad)
         case InputW(v, cu, p, s, ps, fo)       =>
             InputW(Value = v, Cursor = cu, Placeholder = p,
                    Style = f(s), PlaceholderStyle = f(ps), Focused = fo)

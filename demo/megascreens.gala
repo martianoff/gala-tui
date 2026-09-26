@@ -310,21 +310,24 @@ func megaDataBody(m MegaModel, th Theme) Widget =
 func megaDataMain(m MegaModel, th Theme) Widget =
     Column(ArrayOf[LayoutChild](
         Fixed(12, Row(ArrayOf[LayoutChild](
-            Flex(1, Titled(megaRegionList(m), " SelectList ")),
+            Flex(1, Titled(megaRegionList(m), " SelectListView ")),
             Flex(1, Titled(megaEnvDropdown(m), " Dropdown ")),
         ))),
         Flex(1, Titled(megaQuotaTable(m), " TableView + Scrollbar ")),
     ))
 
-// megaRegionList is a clickable SelectList — the rows dispatch on click, and
+// megaRegionList is a clickable SelectListView — the rows dispatch on click, and
 // the same selection moves with the arrow keys, so the tour can show that a
 // widget is not "mouse-driven" or "keyboard-driven" but simply driven.
 func megaRegionList(m MegaModel) Widget =
-    SelectListOf(megaRegions(), m.SelectIdx, true)
+    // The ▶ marks the cursor without colour, and the padding scrolls a row
+    // early so the region below the cursor is always in view.
+    SelectListView(ListSpecOfLabels(megaRegions(), m.SelectIdx).Focus(true)
+        .WithHighlightSymbol("▶ ", HighlightAlways()).WithScrollPadding(1))
         .OnPickRow(megaRegions().Length(), (i) => MegaSelectPick(Idx = i))
 
 func megaRegions() Array[string] =
-    megaQuotaRows().Map((r) => s"  ${r.Get(0)}")
+    megaQuotaRows().Map((r) => r.Get(0))
 
 func megaEnvDropdown(m MegaModel) Widget {
     val menu = NewMenu(ArrayOf[MenuItem](

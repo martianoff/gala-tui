@@ -1,0 +1,28 @@
+package gala_tui
+
+// ----------------------------------------------------------------------------
+// Highlight symbol spacing — shared by SelectListView and TableView
+// ----------------------------------------------------------------------------
+
+// HighlightSpacing is when the highlight symbol's column is reserved.
+//
+// `HighlightWhenSelected` — ratatui's default — shifts every column sideways
+// the moment a selection appears and back when it clears, which is right for
+// a widget that is only sometimes interactive and jarring for one that always
+// has a cursor. `HighlightAlways` keeps the column still.
+sealed type HighlightSpacing {
+    case HighlightWhenSelected()
+    case HighlightAlways()
+    case HighlightNever()
+}
+
+// highlightSymbolWidth is the width of the symbol's column: the symbol's own
+// width when the spacing reserves it, otherwise nothing. `hasSelection` must
+// mean a selection that is actually ON a row — a cursor left past the end by
+// a shrinking list reserves nothing, since there is no row to mark.
+func highlightSymbolWidth(symbol string, spacing HighlightSpacing, hasSelection bool) int =
+    spacing match {
+        case HighlightAlways()       => StringCellWidth(symbol)
+        case HighlightWhenSelected() => if (hasSelection) StringCellWidth(symbol) else 0
+        case HighlightNever()        => 0
+    }

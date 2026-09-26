@@ -1716,3 +1716,14 @@ func TestMegaFormsNoteWrapsToItsPane(t T) T {
     val t2 = IsTrue(t1, ArrayTabulate(10, (y) => y + 1).ForAll((y) => narrow.CharAt(39, y) == '│'))
     return IsTrue(t2, megaStringHas(megaStitchRows(narrow), "InputClick"))
 }
+
+// The Data screen's region list marks its cursor with ▶ — visible without
+// colour — in a column every row is indented by.
+func TestMegaRegionListMarksTheCursorWithASymbol(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "data"))
+    val buf = NewBuffer(120, 36)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 36), buf)
+    val list = megaColumns(buf, 28, 74)
+    val t1 = IsTrue(t, megaStringHas(list, "▶ us-east-1"))
+    return IsTrue(t1, megaStringHas(list, "  us-west-2"))
+}
