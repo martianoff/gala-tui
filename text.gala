@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/collection_immutable"
+    "strings"
 )
 
 // ============================================================================
@@ -293,4 +294,34 @@ func SpansEllipsis(spans Array[Span], width int) Array[Span] {
     val markStyle = if (cut.IsEmpty()) rs.Get(0).St else cut.Get(cut.Length() - 1).St
     val hole = ArrayTabulate(width - 1 - styledRunesWidth(cut), (_) => styledRune(Ch = ' ', St = markStyle))
     return coalesceSpans(cut.AppendAll(hole).Append(styledRune(Ch = '…', St = markStyle)))
+}
+
+// SpansDropCells removes the first `n` cells of a styled line — a horizontal
+// scroll, the left-side counterpart of `SpansEllipsis`. A full-width
+// character cut in half by the scroll becomes a blank in its style rather
+// than shifting the rest of the line by a column.
+func SpansDropCells(spans Array[Span], n int) Array[Span] {
+    if n <= 0 { return spans }
+    return coalesceSpans(spanRunes(spans).FoldLeft((EmptyArray[styledRune](), 0), (acc, r) => {
+        val start = acc.V2
+        val end = start + RuneCellWidth(r.Ch)
+        val kept = if (end <= n) acc.V1
+                   else if (start < n) acc.V1.Append(styledRune(Ch = ' ', St = r.St))
+                   else acc.V1.Append(r)
+        return (kept, end)
+    }).V1)
+}
+
+// LineSplitNewlines splits a line at every "\n" inside its spans, keeping
+// each run's style and the line's alignment on every piece. A line with no
+// newline — the common case — comes back as itself without being touched.
+func LineSplitNewlines(l Line) Array[Line] {
+    if !l.Spans.Exists((s) => strings.Contains(s.Content, "\n")) { return ArrayOf(l) }
+    val parts = l.Spans.FoldLeft(ArrayOf(EmptyArray[Span]()), (acc, s) => {
+        val pieces = ArrayOf(strings.Split(s.Content, "\n")...)
+        val first = acc.Get(acc.Length() - 1).Append(Span(Content = pieces.Get(0), Style = s.Style))
+        return acc.Take(acc.Length() - 1).Append(first).AppendAll(
+            pieces.Drop(1).Map((p) => ArrayOf(Span(Content = p, Style = s.Style))))
+    })
+    return parts.Map((spans) => Line(Spans = spans.Filter((s) => s.Content != ""), Align = l.Align))
 }

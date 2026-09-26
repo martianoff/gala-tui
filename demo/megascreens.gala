@@ -197,7 +197,7 @@ func megaFormsMain(m MegaModel, th Theme) Widget =
     Column(ArrayOf[LayoutChild](
         Fixed(12, Titled(megaCredentialsForm(m), " Sign in ")),
         Fixed(7, Titled(megaSearchRow(m), " SearchInput ")),
-        Flex(1, Titled(megaFormNotes(m), " What the tour is doing ")),
+        Flex(1, Titled(megaFormNotes(), " What the tour is doing ")),
     ))
 
 // megaCredentialsForm is the whole input story on one screen: a plain field,
@@ -275,18 +275,27 @@ func megaSearchMatches(q string) Array[string] =
     if (RuneCount(q) == 0) EmptyArray[string]()
     else megaSearchCorpus().Filter((c) => MatchSubstring(c, q))
 
-func megaFormNotes(m MegaModel) Widget =
-    PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
-        Fixed(1, TextStyled("Both fields are built with InputClick:",
-            DefaultStyle().WithBold())),
-        Fixed(1, TextStyled("a click lands the caret on the character under",
-            DefaultStyle().WithDim())),
-        Fixed(1, TextStyled("the pointer — including inside the mask, where",
-            DefaultStyle().WithDim())),
-        Fixed(1, TextStyled("every glyph looks the same.",
-            DefaultStyle().WithDim())),
-        Flex(1, Empty()),
-    )))
+// megaFormNotes is one ParagraphView: styled runs that wrap to whatever width
+// the pane has. It used to be four hand-broken `Text` rows sized for one
+// terminal, which cut mid-sentence in a narrower one and left a ragged gap
+// in a wider one.
+func megaFormNotes() Widget {
+    val dim = DefaultStyle().WithDim()
+    val code = DefaultStyle().WithFg(BrightCyan())
+    val bold = DefaultStyle().WithBold()
+    return PaddingHV(1, 1, ParagraphView(ParagraphOf(RichTextOfLines(
+        LineOfSpans(
+            SpanStyled("Both fields are built with ", bold),
+            SpanStyled("InputClick", code),
+            SpanStyled(": ", bold),
+            SpanStyled("a click lands the caret on the character under the pointer — " +
+                       "including inside the mask, where every glyph looks the same.", dim)),
+        LineOf(EmptyArray[Span]()),
+        LineOfSpans(
+            SpanStyled("This note is a ", dim), SpanStyled("ParagraphView", code),
+            SpanStyled(": it wraps to the pane and keeps every run's style across the break.", dim)),
+    ))))
+}
 
 // ----------------------------------------------------------------------------
 // Data

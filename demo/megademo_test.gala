@@ -5,6 +5,7 @@ import (
     . "github.com/martianoff/gala-tui/harness"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
+    "strings"
 )
 
 // ============================================================================
@@ -1696,4 +1697,22 @@ func TestMegaDataScreenTableHasCursorAndTotals(t T) T {
     val t1 = IsTrue(t, megaStringHas(table, "▶ us-east-1"))
     val t2 = IsTrue(t1, megaStringHas(table, "total"))
     return IsTrue(t2, megaStringHas(table, "2250"))
+}
+
+// The Forms screen's note is a ParagraphView that reflows to its pane: at 40
+// columns the sentence takes more rows than at 80, and every row fits — the
+// right border of the box it sits in is intact on every row.
+func TestMegaFormsNoteWrapsToItsPane(t T) T {
+    val boxed = (w int) => {
+        val buf = NewBuffer(w, 12)
+        RenderTo(Border(megaFormNotes()), Rect(X = 0, Y = 0, Width = w, Height = 12), buf)
+        return buf
+    }
+    val narrow = boxed(40)
+    val wide = boxed(80)
+    val rowsUsed = (b *Buffer) => ArrayTabulate(b.Height - 2, (y) => y + 1)
+        .Filter((y) => strings.Trim(RowText(b, y), " │") != "").Length()
+    val t1 = IsTrue(t, rowsUsed(narrow) > rowsUsed(wide))
+    val t2 = IsTrue(t1, ArrayTabulate(10, (y) => y + 1).ForAll((y) => narrow.CharAt(39, y) == '│'))
+    return IsTrue(t2, megaStringHas(megaStitchRows(narrow), "InputClick"))
 }

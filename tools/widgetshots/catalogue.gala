@@ -18,7 +18,7 @@ import (
 func shots() Array[Shot] = ArrayOf[Shot](
     Shot(Name = "primitives",   Cols = 64, Rows = 7,  W = shotPrimitives()),
     Shot(Name = "layout",       Cols = 64, Rows = 9,  W = shotLayout()),
-    Shot(Name = "richtext",     Cols = 64, Rows = 6,  W = shotRichText()),
+    Shot(Name = "richtext",     Cols = 64, Rows = 12, W = shotRichText()),
     Shot(Name = "canvas",       Cols = 64, Rows = 9,  W = shotCanvas()),
     Shot(Name = "charts",       Cols = 64, Rows = 32, W = shotCharts()),
     Shot(Name = "lists",        Cols = 64, Rows = 15, W = shotLists()),
@@ -80,6 +80,19 @@ func shotRichText() Widget =
                 SpanStyled("one line, ", DefaultStyle().WithDim()),
                 SpanStyled("many styles", DefaultStyle().WithFg(BrightMagenta()))),
         )))),
+        Fixed(1, Text("")),
+        // ParagraphView: the same kind of styled runs, wrapped to the box and
+        // centred — each run keeps its style on whichever row it lands.
+        Fixed(5, Titled(ParagraphView(ParagraphOf(RichTextOfLines(LineOfSpans(
+            SpanStyled("Deploy blocked. ", DefaultStyle().WithBold()),
+            SpanOf("Two checks are failing on "),
+            SpanStyled("main", DefaultStyle().WithFg(BrightCyan())),
+            SpanOf(" — "),
+            SpanStyled("lint", DefaultStyle().WithFg(BrightRed())),
+            SpanOf(" and "),
+            SpanStyled("integration-tests", DefaultStyle().WithFg(BrightRed())),
+            SpanOf(". Re-run them or merge with admin."),
+        ))).Aligned(AlignCenter())), " ParagraphView — wrapped, centred ")),
     ))
 
 func shotCanvas() Widget {
