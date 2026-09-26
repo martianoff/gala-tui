@@ -1,0 +1,157 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    "strings"
+)
+
+// ----------------------------------------------------------------------------
+// ParagraphView — styled, aligned, scrollable text
+// ----------------------------------------------------------------------------
+//
+// `Paragraph` wraps one string in one style from the top-left, and a caller
+// that wanted anything else hand-wrapped its text into `Fixed(1, Text(...))`
+// rows sized for one terminal width. ratatui's Paragraph is the general
+// block of text: styled runs that keep their styles across the wrap, an
+// alignment, wrapping that can be turned off for text whose lines matter
+// (code, a log, a table rendered as text), and a scroll offset in both
+// directions so a long body can live in a short pane.
+//
+//     ParagraphView(ParagraphOf(RichTextOfLines(
+//         LineOfSpans(SpanStyled("Deploy blocked. ", bold),
+//                     SpanOf("Two checks are failing on "), SpanStyled("main", code)),
+//     )).Aligned(AlignCenter()).ScrollTo(offset))
+//
+// Wrapping happens at render time, against the width the layout actually
+// gives the paragraph, through the same `WrapSpans` engine Markdown uses —
+// `ParagraphLineCount` answers "how many rows at this width" through it too,
+// so a scrollbar sized from it agrees with what is drawn.
+
+// ParagraphSpec is everything a ParagraphView draws. Build it with
+// `ParagraphOf` and the methods below.
+//
+// `Style` fills the whole area and sits under every span. `Align` is None to
+// keep each line's own alignment, or overrides all of them. `ScrollY` is the
+// first row shown — a row AFTER wrapping — and `ScrollX` the first column,
+// which only applies when `Wrap` is false: wrapped text has nothing to
+// scroll sideways to.
+struct ParagraphSpec(
+    Text    RichText,
+    Style   Style,
+    Wrap    bool,
+    Align   ParagraphAlign,
+    ScrollY int,
+    ScrollX int,
+)
+
+// ParagraphAlign is the paragraph-wide alignment, or none to keep each line's
+// own. A sealed type rather than `Option[Align]` for the reason `BarFill`
+// gives: GALA 0.80 lowers an Option of a package type to an undefined one.
+// TODO: when that is fixed, this and `BarFill` both become an `Option`.
+sealed type ParagraphAlign {
+    case LineAligned()
+    case AllAligned(A Align)
+}
+
+func ParagraphOf(text RichText) ParagraphSpec = ParagraphSpec(
+    Text = text, Style = DefaultStyle(), Wrap = true,
+    Align = LineAligned(), ScrollY = 0, ScrollX = 0)
+
+// ParagraphOfString is a plain paragraph; "\n" starts a new line, wrapped
+// or not.
+func ParagraphOfString(content string, style Style = DefaultStyle()) ParagraphSpec =
+    ParagraphOf(RichTextOf(ArrayOf(strings.Split(content, "\n")...).Map((l) =>
+        LineFromString(l, DefaultStyle())))).WithStyle(style)
+
+func (p ParagraphSpec) WithStyle(s Style) ParagraphSpec = p.Copy(Style = s)
+
+// Aligned aligns every line, overriding the lines' own alignment.
+func (p ParagraphSpec) Aligned(a Align) ParagraphSpec = p.Copy(Align = AllAligned(a))
+
+// NoWrap draws each line on one row, clipped at the right edge — for text
+// whose line breaks carry meaning. Pair with `Pan(x)` to scroll sideways.
+func (p ParagraphSpec) NoWrap() ParagraphSpec = p.Copy(Wrap = false)
+
+// ScrollTo shows the text from row `y`, counted after wrapping. It leaves the
+// horizontal pan alone, so a log viewer can move down without jumping back
+// to its first column.
+func (p ParagraphSpec) ScrollTo(y int) ParagraphSpec = p.Copy(ScrollY = MaxInt(0, y))
+
+// Pan shows unwrapped text from column `x`. Wrapped text has nothing to pan
+// to, so it ignores this.
+func (p ParagraphSpec) Pan(x int) ParagraphSpec = p.Copy(ScrollX = MaxInt(0, x))
+
+func ParagraphView(p ParagraphSpec) Widget = ParagraphRichW(Spec = p)
+
+// ParagraphLineCount is how many rows the paragraph takes at `width` — the
+// number a scrollbar next to it needs, computed by the same rows the renderer
+// draws so the two cannot disagree.
+func ParagraphLineCount(p ParagraphSpec, width int) int = paragraphRowsUpTo(p, width, -1).Length()
+
+// ParagraphMaxScroll is the largest `ScrollTo` that still shows a full page
+// at `width` x `height`. The renderer clamps to it; a model that clamps its
+// own offset the same way keeps a scrollbar's thumb on the track.
+func ParagraphMaxScroll(p ParagraphSpec, width int, height int) int =
+    MaxInt(0, ParagraphLineCount(p, width) - height)
+
+// paragraphRowsUpTo is the paragraph's rows at `width`, produced until at
+// least `need` exist (all of them when `need` is negative): a paragraph at
+// the top of a ten-thousand-line log shapes the lines it shows, not the log.
+//
+// A "\n" inside a span starts a new row in both modes. Wrapped, a line that
+// already fits is left exactly as written — the wrap engine collapses runs of
+// spaces and drops leading ones, which is right for prose that reflows and
+// wrong for an indented line that never needed to. This is why it is not
+// `WrapRichText`, which reflows every line.
+func paragraphRowsUpTo(p ParagraphSpec, width int, need int) Array[Line] {
+    var rows = EmptyArray[Line]()
+    var i = 0
+    val n = p.Text.Lines.Length()
+    for i < n && (need < 0 || rows.Length() < need) {
+        LineSplitNewlines(p.Text.Lines.Get(i)).ForEach((l) => {
+            rows = if (!p.Wrap || l.CellWidth() <= width) rows.Append(l)
+                   else rows.AppendAll(WrapSpans(l.Spans, width).Map((w) => w.Aligned(l.Align)))
+        })
+        i = i + 1
+    }
+    return rows
+}
+
+// renderParagraphRich fills the area with the paragraph's style, then draws
+// the visible rows with every span patched over it.
+//
+// Only the visible window is shaped: rows are produced only until the window
+// is full. A scroll past the end is clamped to the last page rather than
+// showing an empty pane that looks like the text vanished.
+func renderParagraphRich(p ParagraphSpec, area Rect, buf *Buffer) {
+    if area.Zero() { return }
+    val rows = paragraphRowsUpTo(p, area.Width, p.ScrollY + area.Height)
+    val top = MinInt(p.ScrollY, MaxInt(0, rows.Length() - area.Height))
+    val visible = rows.Drop(top).Take(area.Height).Map((l) => p.Align match {
+        case LineAligned()  => l
+        case AllAligned(a)  => l.Aligned(a)
+    })
+    val panX = if (p.Wrap) 0 else p.ScrollX
+    val shaped = if (panX == 0) visible else visible.Map((l) => paragraphPanned(l, area.Width, panX))
+    renderPatchedLines(shaped, p.Style, DefaultStyle(), (spans, _) => spans, area, buf)
+}
+
+// paragraphPanned pans a line `x` columns from where its alignment put it.
+// Panning the spans and letting the renderer align what is left would
+// re-anchor a right-aligned line to the right edge on every step, so it
+// would never move; the alignment is turned into leading space first, and
+// the pan taken from that.
+func paragraphPanned(l Line, width int, x int) Line {
+    val w = l.CellWidth()
+    val lead = l.Align match {
+        case AlignLeft()   => 0
+        case AlignCenter() => MaxInt(0, (width - w) / 2)
+        case AlignRight()  => MaxInt(0, width - w)
+    }
+    val padded = if (lead == 0) l.Spans else ArrayOf(SpanOf(cellPad(lead))).AppendAll(l.Spans)
+    return Line(Spans = SpansDropCells(padded, x), Align = AlignLeft())
+}
+
+// paragraphRestyle maps the paragraph's style and every span's.
+func paragraphRestyle(p ParagraphSpec, f func(Style) Style) ParagraphSpec =
+    p.Copy(Style = f(p.Style), Text = restyleRichText(p.Text, f))

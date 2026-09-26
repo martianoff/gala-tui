@@ -141,6 +141,9 @@ sealed type Widget {
     case SpinnerW(Kind SpinnerKind, Frame int, Style Style)
     case ButtonW(Label string, Style Style, Focused bool)
     case ParagraphW(Content string, Style Style)
+    // ParagraphRichW is a styled, aligned, scrollable block of text that
+    // wraps against the width it is given. See `paragraph.gala`.
+    case ParagraphRichW(Spec ParagraphSpec)
     case ViewportW(Inner Widget, Offset int, ContentHeight int)
     case ScrollbarW(
         Total       int,
@@ -1367,6 +1370,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             val padded = "[ " + label + " ]"
             renderText(padded, style, area, buf)
         }
+        case ParagraphRichW(spec) =>
+            renderParagraphRich(spec, area, buf)
         case ParagraphW(content, style) =>
             renderParagraph(content, style, area, buf)
         case ViewportW(inner, offset, ch) =>
@@ -2283,11 +2288,29 @@ func joinTitleSpans(group Array[BlockTitle]) Array[Span] =
 // cut entirely, which would otherwise flatten it to styled characters just
 // to measure it.
 func renderCellRich(lines Array[Line], style Style, over Style, area Rect, buf *Buffer) {
-    buf.Fill(area, Cell(Ch = ' ', St = style.Patch(over)))
+    renderPatchedLines(lines, style, over, (spans, w) =>
+        if (spans.FoldLeft(0, (a, s) => a + s.CellWidth()) <= w) spans else SpansEllipsis(spans, w),
+        area, buf)
+}
+
+// renderPatchedLines is the one rule for drawing styled text into a styled
+// area, shared by table cells and paragraphs: fill the area in `base` with
+// `over` on top, patch every span over `base` and `over` over the span, let
+// `fit` shape each row to the width (cut it, pan it), and draw. The patching
+// is skipped when there is nothing to patch, which is the common case.
+func renderPatchedLines(
+    lines Array[Line],
+    base Style,
+    over Style,
+    fit func(Array[Span], int) Array[Span],
+    area Rect,
+    buf *Buffer,
+) {
+    val plain = StyleEqual(base, DefaultStyle()) && StyleEqual(over, DefaultStyle())
+    buf.Fill(area, Cell(Ch = ' ', St = base.Patch(over)))
     renderRichText(RichTextOf(lines.Map((l) => {
-        val patched = l.Spans.Map((s) => s.Styled(style.Patch(s.Style).Patch(over)))
-        val spans = if (l.CellWidth() <= area.Width) patched else SpansEllipsis(patched, area.Width)
-        return Line(Spans = spans, Align = l.Align)
+        val patched = if (plain) l.Spans else l.Spans.Map((s) => s.Styled(base.Patch(s.Style).Patch(over)))
+        return Line(Spans = fit(patched, area.Width), Align = l.Align)
     })), area, buf)
 }
 
@@ -2447,6 +2470,7 @@ func defaultRenderWidth(w Widget) int {
         case SpinnerW(_, _, _)                 => 1
         case ButtonW(label, _, _)              => RuneCount(label) + 4
         case ParagraphW(content, _)            => paragraphIntrinsicWidth(content)
+        case ParagraphRichW(spec)              => spec.Text.CellWidth()
         case ViewportW(inner, _, _)            => defaultRenderWidth(inner)
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderWidth(inner)
@@ -2492,6 +2516,7 @@ func defaultRenderHeight(w Widget) int {
         case SpinnerW(_, _, _)                 => 1
         case ButtonW(_, _, _)                  => 1
         case ParagraphW(content, _)            => paragraphIntrinsicHeight(content)
+        case ParagraphRichW(spec)              => MaxInt(1, spec.Text.LineCount())
         case ViewportW(_, _, _)                => 1
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => defaultRenderHeight(inner)
@@ -2564,6 +2589,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case ButtonW(_, _, _)                  => 1
         case ParagraphW(content, _)            =>
             MaxInt(1, WrapParagraph(content, MaxInt(1, width)).Length())
+        case ParagraphRichW(spec)              => MaxInt(1, ParagraphLineCount(spec, MaxInt(1, width)))
         case ViewportW(_, _, contentHeight)    => contentHeight
         case ScrollbarW(_, _, _, _, _)         => 1
         case ClickableW(inner, _)              => IntrinsicHeightAt(inner, width)

@@ -1,0 +1,122 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// ParagraphView
+// ============================================================================
+
+func pvRows(w Widget, width int, height int) Array[string] {
+    val buf = renderAt(w, width, height)
+    return ArrayTabulate(height, (y) => BufferText(buf, y))
+}
+
+func pvText() RichText = RichTextOfLines(LineOfSpans(
+    SpanStyled("bold", DefaultStyle().WithBold()), SpanOf(" words wrap here")))
+
+// Styled runs wrap against the width the layout gives, and keep their style
+// on the row they land on.
+func TestParagraphViewWrapsAndKeepsStyles(t T) T {
+    val buf = renderAt(ParagraphView(ParagraphOf(pvText())), 10, 3)
+    val t1 = Eq(t, BufferText(buf, 0), "bold words")
+    val t2 = Eq(t1, BufferText(buf, 1), "wrap here ")
+    val t3 = IsTrue(t2, buf.StyleAt(0, 0).Bold)
+    return IsFalse(t3, buf.StyleAt(5, 0).Bold)
+}
+
+// Alignment applies to every wrapped row, overriding the lines' own.
+func TestParagraphViewAlignsEveryRow(t T) T {
+    val out = pvRows(ParagraphView(ParagraphOf(pvText()).Aligned(AlignRight())), 12, 2)
+    val t1 = Eq(t, out.Get(0), "  bold words")
+    return Eq(t1, out.Get(1), "   wrap here")
+}
+
+// ScrollY skips wrapped ROWS, not source lines.
+func TestParagraphViewScrollsByWrappedRows(t T) T =
+    Eq(t, pvRows(ParagraphView(ParagraphOf(pvText()).ScrollTo(1)), 10, 1).Get(0), "wrap here ")
+
+// A scroll past the end shows the last page, not an empty pane.
+func TestParagraphViewClampsAScrollPastTheEnd(t T) T =
+    Eq(t, pvRows(ParagraphView(ParagraphOf(pvText()).ScrollTo(99)), 10, 1).Get(0), "wrap here ")
+
+// NoWrap keeps a line on one row, clipped, and Pan scrolls it sideways.
+func TestParagraphViewNoWrapPansHorizontally(t T) T {
+    val p = ParagraphOfString("0123456789").NoWrap()
+    val t1 = Eq(t, pvRows(ParagraphView(p), 4, 1).Get(0), "0123")
+    return Eq(t1, pvRows(ParagraphView(p.Pan(3)), 4, 1).Get(0), "3456")
+}
+
+// A full-width character cut in half by a horizontal scroll becomes a blank,
+// so the rest of the line does not shift a column.
+func TestHorizontalScrollThroughAFullWidthCharKeepsColumns(t T) T =
+    Eq(t, pvRows(ParagraphView(ParagraphOfString("中ab").NoWrap().Pan(1)), 4, 1).Get(0), " ab ")
+
+// The paragraph's style fills the whole area, under every span.
+func TestParagraphViewStyleFillsTheArea(t T) T {
+    val buf = renderAt(ParagraphView(ParagraphOf(pvText()).WithStyle(DefaultStyle().On(Blue()))), 12, 3)
+    val t1 = IsTrue(t, ColorEq(buf.StyleAt(11, 2).Bg, Blue()))
+    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Bg, Blue()))
+    return IsTrue(t2, buf.StyleAt(0, 0).Bold)
+}
+
+// The line count a scrollbar needs agrees with the rows drawn.
+func TestParagraphLineCountMatchesTheWrap(t T) T {
+    val t1 = Eq(t, ParagraphLineCount(ParagraphOf(pvText()), 10), 2)
+    return Eq(t1, ParagraphLineCount(ParagraphOf(pvText()).NoWrap(), 10), 1)
+}
+
+// A layout asking for the paragraph's height at a width gets the wrapped
+// count.
+func TestParagraphViewIntrinsicHeightIsTheWrappedCount(t T) T =
+    Eq(t, IntrinsicHeightAt(ParagraphView(ParagraphOf(pvText())), 10), 2)
+
+// Dimming a pane reaches the paragraph's spans through the fluent path.
+func TestParagraphViewRestylesWithItsPane(t T) T {
+    val buf = renderAt(ParagraphView(ParagraphOf(pvText())).WithDim(), 10, 1)
+    val t1 = IsTrue(t, buf.StyleAt(0, 0).Dim)
+    return IsTrue(t1, buf.StyleAt(0, 0).Bold)
+}
+
+// "\n" in a plain paragraph starts a new line whether or not it wraps.
+func TestParagraphOfStringSplitsLinesEvenUnwrapped(t T) T {
+    val out = pvRows(ParagraphView(ParagraphOfString("ab\ncd").NoWrap()), 3, 2)
+    val t1 = Eq(t, out.Get(0), "ab ")
+    return Eq(t1, out.Get(1), "cd ")
+}
+
+// A pan scrolls a right-aligned line from where its alignment put it, so it
+// actually moves, rather than being re-anchored to the right edge.
+func TestPanScrollsAnAlignedLineFromItsAlignedPosition(t T) T {
+    val p = ParagraphOfString("abc").NoWrap().Aligned(AlignRight())
+    val t1 = Eq(t, pvRows(ParagraphView(p), 6, 1).Get(0), "   abc")
+    return Eq(t1, pvRows(ParagraphView(p.Pan(1)), 6, 1).Get(0), "  abc ")
+}
+
+// Vertical scrolling leaves the horizontal pan alone.
+func TestScrollToKeepsThePan(t T) T {
+    val p = ParagraphOfString("0123\n4567").NoWrap().Pan(2).ScrollTo(1)
+    return Eq(t, pvRows(ParagraphView(p), 2, 1).Get(0), "67")
+}
+
+// A line that fits is drawn exactly as written — indentation and runs of
+// spaces survive; only lines that need it are reflowed.
+func TestFittingLinesKeepTheirSpacing(t T) T {
+    val out = pvRows(ParagraphView(ParagraphOfString("  indented\na    b")), 12, 2)
+    val t1 = Eq(t, out.Get(0), "  indented  ")
+    return Eq(t1, out.Get(1), "a    b      ")
+}
+
+// A "\n" inside a span is a line break in both modes, and the line count
+// agrees with what is drawn.
+func TestNewlineInASpanBreaksUnwrappedToo(t T) T {
+    val p = ParagraphOf(RichTextOfLines(LineOfSpans(SpanOf("ab\ncd")))).NoWrap()
+    val t1 = Eq(t, pvRows(ParagraphView(p), 3, 2).Get(1), "cd ")
+    return Eq(t1, ParagraphLineCount(p, 3), 2)
+}
+
+// The clamp a scrollbar needs is the clamp the renderer applies.
+func TestParagraphMaxScrollIsTheRenderersClamp(t T) T =
+    Eq(t, ParagraphMaxScroll(ParagraphOf(pvText()), 10, 1), 1)

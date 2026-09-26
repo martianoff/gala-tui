@@ -25,7 +25,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 - Grapheme-aware cell widths (CJK, emoji, combining marks, East-Asian-Ambiguous)
 
 **Widgets**
-- Text · Paragraph (word-wrap) · Input (focus caret + horizontal scroll, **masked** for passwords, **click to position**) · Button · Spinner
+- Text · Paragraph (word-wrap) · **ParagraphView** (styled runs that survive wrapping, alignment, vertical + horizontal scroll) · Input (focus caret + horizontal scroll, **masked** for passwords, **click to position**) · Button · Spinner
 - List · Table · **TableView** (styled cells, footer, multi-line rows, row/column/cell selection) · **DataTable** (sort + filter + frozen header + scrolling) · Tree
 - Progress · ProgressLabeled · Gauge · **LineGauge** (one row: caption + rule) · Sparkline · BarChart · **BarChartOf** / **HBarChartOf** (grouped bars, vertical or horizontal, eighth-cell precision) · **LineChart** (sub-cell resolution)
 - **Canvas** — shapes in your own coordinate space at 2×4 braille resolution, including filled areas
@@ -76,7 +76,7 @@ them they put every widget on screen at least once:
 | Pipelines | the Tree as the main pane, expand/collapse by double-click |
 | Logs | LogPanel, also reachable as a drawer over any screen |
 | Charts | LineChart, MultiLineChart, a Canvas filled-area series, LineGauge, Gauge, Sparkline |
-| Forms | Input and InputMasked with click-to-position, Button, SearchInput |
+| Forms | Input and InputMasked with click-to-position, Button, SearchInput, a wrapping ParagraphView |
 | Data | SelectList, Dropdown, a TableView (coloured states, totals footer, ▶ cursor) and the Scrollbar that tracks it |
 | Review | DiffViewStats, MarkdownView, OSC 8 links, Tags |
 
