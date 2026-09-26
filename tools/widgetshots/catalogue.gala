@@ -157,8 +157,9 @@ func demoGappedSeries() Array[Option[int]] {
 func shotLists() Widget =
     Column(ArrayOf[LayoutChild](
         Fixed(7, Row(ArrayOf[LayoutChild](
-            Flex(1, Titled(SelectListOf(ArrayOf[string](
-                "  overview", "  builds", "  pipelines", "  logs"), 1, true), " SelectList ")),
+            Flex(1, Titled(SelectListView(ListSpecOfLabels(ArrayOf[string](
+                "overview", "builds", "pipelines", "logs"), 1)
+                .Focus(true).WithHighlightSymbol("▶ ", HighlightAlways())), " SelectListView ")),
             Flex(1, Titled(Table(TableData(
                 Headers  = ArrayOf[string]("build", "state"),
                 Widths   = ArrayOf[Constraint](Percent(N = 55), Percent(N = 45)),

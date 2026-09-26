@@ -246,3 +246,32 @@ func TestSpansEllipsisFillsTheHoleAFullWidthCharLeaves(t T) T {
     val out = SpansEllipsis(ArrayOf[Span](SpanOf("ab中文")), 4)
     return Eq(t, out.FoldLeft("", (a, s) => a + s.Content), "ab …")
 }
+
+// TableView scrolls with the same padding rule as a list. In a 3-row body
+// with the cursor on row 2, no padding keeps the view at the top; 1 row of
+// padding scrolls one early so row 3 is already in view.
+func TestTableViewScrollPaddingKeepsTheNextRowInView(t T) T {
+    val rows = ArrayTabulate(5, (i) => TableRowOfStrings(s"r$i", s"$i"))
+    val plain = tvRows(TableView(TableSpecOf(tvWidths(), rows).Select(2)), 7, 3)
+    val padded = tvRows(TableView(TableSpecOf(tvWidths(), rows).Select(2).WithScrollPadding(1)), 7, 3)
+    val t1 = Eq(t, plain.Get(2), "r2  2  ")
+    return Eq(t1, padded.Get(2), "r3  3  ")
+}
+
+// Rows too tall for the full padding still get what fits rather than none:
+// two-cell rows in a six-cell body, padding 2 asked, padding 1 given.
+func TestScrollPaddingDegradesToWhatFits(t T) T {
+    val heights = ArrayOf[int](2, 2, 2, 2, 2, 2)
+    val t1 = Eq(t, scrollOffsetToShow(heights, 2, 6, 2), 1)
+    return Eq(t1, scrollOffsetToShow(heights, 2, 6, 0), 0)
+}
+
+// For uniform rows the shared rule and the list's closed form agree, padding
+// included — one rule, two implementations only for the allocation.
+func TestUniformScrollPaddingMatchesTheListRule(t T) T {
+    val ones = ArrayTabulate(12, (_) => 1)
+    val cases = ArrayOf[Tuple[int, int]]((0, 0), (3, 1), (5, 2), (7, 9), (11, 3), (4, 1))
+    return IsTrue(t, cases.ForAll((c) =>
+        ArrayOf[int](2, 3, 5, 6).ForAll((h) =>
+            scrollOffsetToShow(ones, c.V1, h, c.V2) == listViewportOffset(12, c.V1, h, c.V2))))
+}

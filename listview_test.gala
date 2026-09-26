@@ -1,0 +1,64 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// SelectListView — highlight symbol and scroll padding
+// ============================================================================
+
+func lvItems(n int) Array[ListItem] = ArrayTabulate(n, (i) => NewListItem(s"i$i"))
+
+func lvRows(w Widget, width int, height int) Array[string] {
+    val buf = renderAt(w, width, height)
+    return ArrayTabulate(height, (y) => BufferText(buf, y))
+}
+
+// The symbol marks the selected item; the others are indented to match.
+func TestListHighlightSymbolMarksTheSelection(t T) T {
+    val out = lvRows(SelectListView(ListSpecOf(lvItems(3), 1).WithHighlightSymbol("> ")), 5, 3)
+    val t1 = Eq(t, out.Get(0), "  i0 ")
+    return Eq(t1, out.Get(1), "> i1 ")
+}
+
+// WhenSelected reserves nothing without a selection; Always keeps the
+// labels still whether or not there is one.
+func TestListSymbolSpacing(t T) T {
+    val t1 = Eq(t, lvRows(SelectListView(ListSpecOf(lvItems(1), -1).WithHighlightSymbol("> ")), 4, 1).Get(0), "i0  ")
+    return Eq(t1, lvRows(SelectListView(ListSpecOf(lvItems(1), -1)
+        .WithHighlightSymbol("> ", HighlightAlways())), 4, 1).Get(0), "  i0")
+}
+
+// The selected row's highlight covers the symbol column too — one band.
+func TestListSymbolColumnTakesTheSelectionStyle(t T) T =
+    IsTrue(t, renderAt(SelectListView(ListSpecOf(lvItems(2), 0).WithHighlightSymbol("> ")), 5, 2).StyleAt(0, 0).Reverse)
+
+// Padding scrolls before the cursor reaches the edge: with 2 of padding in a
+// 5-row window, the cursor on item 3 already shows items 4 and 5 below it.
+func TestListScrollPaddingKeepsContextBelowTheCursor(t T) T {
+    val out = lvRows(SelectListView(ListSpecOf(lvItems(10), 3).WithScrollPadding(2)), 3, 5)
+    val t1 = Eq(t, out.Get(0), "i1 ")
+    return Eq(t1, out.Get(4), "i5 ")
+}
+
+// At the end of the list there is nothing past the cursor; the view stops at
+// the last page instead of scrolling into blank rows.
+func TestListScrollPaddingStopsAtTheEnd(t T) T =
+    Eq(t, lvRows(SelectListView(ListSpecOf(lvItems(10), 9).WithScrollPadding(2)), 3, 5).Get(4), "i9 ")
+
+// Padding wider than the window allows is capped, so the cursor stays on
+// screen in a tiny pane.
+func TestListScrollPaddingIsCappedInASmallWindow(t T) T {
+    // A 2-row window has no room for padding: the cursor sits on the bottom
+    // row exactly as it would with none, not pinned to the top.
+    val out = lvRows(SelectListView(ListSpecOf(lvItems(10), 5).WithScrollPadding(9)), 3, 2)
+    val t1 = Eq(t, out.Get(0), "i4 ")
+    return Eq(t1, out.Get(1), "i5 ")
+}
+
+// No padding is exactly the old behaviour: the default constructors did not
+// move.
+func TestListWithoutPaddingScrollsAsBefore(t T) T =
+    Eq(t, lvRows(SelectListOf(ArrayTabulate(10, (i) => s"i$i"), 6), 3, 3).Get(2), "i6 ")
