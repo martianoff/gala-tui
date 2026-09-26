@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/go_interop"
+    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -206,17 +207,10 @@ func parseBracketedPaste(buf []byte, from int) Tuple[InputEvent, int] {
 
 // pasteCloserIndex returns the index of the ESC that begins `ESC [ 201 ~`,
 // searching from `from`, or -1 when the closer is not in `buf` yet.
-func pasteCloserIndex(buf []byte, from int) int {
-    val n = buf.Size()
-    var i = from
-    for i + pasteCloserLen() <= n {
-        if isPasteCloserAt(buf, i) {
-            return i
-        }
-        i = i + 1
-    }
-    return -1
-}
+func pasteCloserIndex(buf []byte, from int) int =
+    stream.Range(from, buf.Size() - pasteCloserLen() + 1)
+        .Find((i) => isPasteCloserAt(buf, i))
+        .GetOrElse(-1)
 
 // isPasteOpenerAt reports whether `ESC [ 200 ~` starts at `i`. The runtime
 // uses it to resync a paste that was opened and never closed.
@@ -248,9 +242,6 @@ func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
     var pressed = true
     var done = false
     for i < n {
-        if done {
-            break
-        }
         val c = int(buf[i])
         if c >= 0x30 && c <= 0x39 {
             val v = c - 0x30
@@ -273,11 +264,13 @@ func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
                     pressed = true
                     done = true
                     i = i + 1
+                    break
                 } else {
                     if c == 0x6D {  // 'm' = release
                         pressed = false
                         done = true
                         i = i + 1
+                        break
                     } else {
                         // Unexpected byte — drop the prefix.
                         return (UnknownInput(), 3)
