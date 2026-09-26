@@ -89,13 +89,8 @@ func (cm ClickMap[T]) AtRows(
     if count <= 0 || rowHeight <= 0 || width <= 0 {
         return cm
     }
-    var out = cm
-    var i = 0
-    for i < count {
-        out = out.At(originX, originY + i * rowHeight, width, rowHeight, msgFor(i))
-        i = i + 1
-    }
-    return out
+    return ArrayTabulate(count, (i int) => i).FoldLeft(cm, (out ClickMap[T], i int) =>
+        out.At(originX, originY + i * rowHeight, width, rowHeight, msgFor(i)))
 }
 
 // When conditionally extends the map: if `cond` is true, the closure

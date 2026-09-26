@@ -6,6 +6,7 @@ import (
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
     . "martianoff/gala/std"
+    "martianoff/gala/stream"
     "strconv"
 )
 
@@ -50,24 +51,23 @@ func megaChartFeedLen() int = 420
 // hand-writing hundreds of numbers is hundreds of chances to make the curve
 // look artificial. Fixed seed because a recorded demo that drifted between
 // runs would make every re-record a diff.
-func megaChartFeed() Array[int] {
-    var seed = 1234567
-    var v = 28
-    var out = EmptyArray[int]()
-    var i = 0
-    for i < megaChartFeedLen() {
-        seed = (seed * 1103515245 + 12345) % 2147483648
-        val step = (seed / 65536) % 19 - 9
-        // Pull back towards the middle. A plain random walk has no reason to
-        // return anywhere, so it wanders into a corner and sits there — and a
-        // chart pinned at its ceiling for forty columns is a filled rectangle,
-        // which is exactly as informative as it looks. The reversion term is
-        // what makes the signal keep having shape.
-        v = MinInt(92, MaxInt(8, v + step - (v - 50) / 9))
-        out = out.Append(v)
-        i = i + 1
-    }
-    return out
+func megaChartFeed() Array[int] =
+    stream.Iterate(megaWalkStep((1234567, 28)), megaWalkStep)
+        .Take(megaChartFeedLen())
+        .Map[int]((st Tuple[int, int]) => st.V2)
+        .ToArray()
+
+// megaWalkStep advances the walk one sample. The state is (LCG seed, value).
+func megaWalkStep(st Tuple[int, int]) Tuple[int, int] {
+    val seed = (st.V1 * 1103515245 + 12345) % 2147483648
+    val step = (seed / 65536) % 19 - 9
+    val v = st.V2
+    // Pull back towards the middle. A plain random walk has no reason to
+    // return anywhere, so it wanders into a corner and sits there — and a
+    // chart pinned at its ceiling for forty columns is a filled rectangle,
+    // which is exactly as informative as it looks. The reversion term is
+    // what makes the signal keep having shape.
+    return (seed, MinInt(92, MaxInt(8, v + step - (v - 50) / 9)))
 }
 
 // megaChartSeries is the window the charts actually plot: `megaChartWidth`

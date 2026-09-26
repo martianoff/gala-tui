@@ -5,6 +5,7 @@ import (
     "github.com/martianoff/gala-tui/state"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
+    gs "martianoff/gala/strings"
     . "martianoff/gala/time_utils"
 )
 
@@ -351,30 +352,18 @@ func megaSelectPick(m MegaModel, idx int) MegaModel {
 }
 
 // insertAtRune / deleteBeforeRune index by code point, not byte, because the
-// caret a click produced is a rune index. Both split the way textarea.gala
-// does — by walking the runes — rather than slicing a byte string, which
-// would cut a multi-byte character in half.
+// caret a click produced is a rune index. Both split on runes rather than
+// slicing a byte string, which would cut a multi-byte character in half.
+// A caret past the end inserts at the end; a negative one inserts nothing.
 func insertAtRune(s string, at int, c rune) string {
-    var out = ""
-    var i = 0
-    for _, r := range s {
-        if i == at { out = out + string(c) }
-        out = out + string(r)
-        i = i + 1
-    }
-    if at >= i { out = out + string(c) }
-    return out
+    if at < 0 { return s }
+    val (before, after) = gs.S(s).SplitAt(at)
+    return before.ToString() + string(c) + after.ToString()
 }
 
 func deleteBeforeRune(s string, at int) string {
     if at <= 0 { return s }
-    var out = ""
-    var i = 0
-    for _, r := range s {
-        if i != at - 1 { out = out + string(r) }
-        i = i + 1
-    }
-    return out
+    return gs.S(s).Take(at - 1).ToString() + gs.S(s).Drop(at).ToString()
 }
 
 // megaRouteChar sends a printable character where the screen says it belongs.
@@ -656,7 +645,7 @@ func megaConfirmYes(m MegaModel) MegaModel {
 func megaCopyRow(m MegaModel) MegaModel {
     val row = SelectedRow(m.BuildsTable)
     if row.IsEmpty() { return m }
-    val txt = megaJoinCells(row, " | ")
+    val txt = row.MkString(" | ")
     val msg = "Copied: " + txt
     val toasts = m.Toasts.PushInfo(msg, m.Now, Seconds(int64(2)))
     val logs = m.Logs.AppendAt(LogInfo(), msg, m.Now)
@@ -685,7 +674,7 @@ func megaOpenRow(m MegaModel, idx int) MegaModel {
     if idx < 0 || idx >= rows { return m }
     val sel = m.BuildsTable.Copy(Selected = idx)
     val row = SelectedRow(sel)
-    val label = if (row.IsEmpty()) s"row #$idx" else megaJoinCells(row, " ")
+    val label = if (row.IsEmpty()) s"row #$idx" else row.MkString(" ")
     val msg = "Opened build: " + label
     val toasts = m.Toasts.PushSuccess(msg, m.Now, Seconds(int64(3)))
     val logs = m.Logs.AppendAt(LogInfo(), msg, m.Now)
@@ -695,18 +684,6 @@ func megaOpenRow(m MegaModel, idx int) MegaModel {
         Toasts      = toasts,
         Logs        = logs,
     )
-}
-
-func megaJoinCells(xs Array[string], sep string) string {
-    if xs.IsEmpty() { return "" }
-    var out = xs.Get(0)
-    var i = 1
-    val n = xs.Length()
-    for i < n {
-        out = out + sep + xs.Get(i)
-        i = i + 1
-    }
-    return out
 }
 
 // ----------------------------------------------------------------------------
@@ -1079,42 +1056,15 @@ func megaResolveTheme(t MegaTheme) Theme {
     }
 }
 
-func megaCountStatus(dt DataTable, status string) int {
-    var n = 0
-    var i = 0
-    val total = dt.Rows.Length()
-    for i < total {
-        val row = dt.Rows.Get(i)
-        if row.Length() > 2 && row.Get(2) == status {
-            n = n + 1
-        }
-        i = i + 1
-    }
-    return n
-}
+func megaCountStatus(dt DataTable, status string) int =
+    dt.Rows.Count((row Array[string]) => row.Length() > 2 && row.Get(2) == status)
 
 // Deterministic sample series — values derived from m.Tick so the UI moves.
-func megaSparklineFeed(m MegaModel) Array[int] {
-    var acc = EmptyArray[int]()
-    var i = 0
-    for i < 40 {
-        val v = 30 + ((m.Tick + i * 7) * 17) % 60
-        acc = acc.Append(v)
-        i = i + 1
-    }
-    return acc
-}
+func megaSparklineFeed(m MegaModel) Array[int] =
+    ArrayTabulate(40, (i int) => 30 + ((m.Tick + i * 7) * 17) % 60)
 
-func megaLineChartFeed(m MegaModel) Array[int] {
-    var acc = EmptyArray[int]()
-    var i = 0
-    for i < 30 {
-        val v = 40 + ((m.Tick + i * 3) * 13) % 50
-        acc = acc.Append(v)
-        i = i + 1
-    }
-    return acc
-}
+func megaLineChartFeed(m MegaModel) Array[int] =
+    ArrayTabulate(30, (i int) => 40 + ((m.Tick + i * 3) * 13) % 50)
 
 // ----------------------------------------------------------------------------
 // Help screen Markdown

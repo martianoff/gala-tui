@@ -39,7 +39,7 @@ func NewFocusManager(panes Array[string]) FocusManager {
 // NewFocusManagerAt builds a manager starting on a chosen pane; useful for
 // restoring state from a persisted snapshot.
 func NewFocusManagerAt(panes Array[string], startId string) FocusManager {
-    val idx = indexOfPane(panes, startId)
+    val idx = panes.IndexOf(startId)
     val resolvedIdx = if (idx >= 0) idx else 0
     return FocusManager(Panes = panes, Idx = resolvedIdx)
 }
@@ -60,7 +60,7 @@ func (f FocusManager) Prev() FocusManager {
 
 // FocusOn moves focus to the named pane if present; returns unchanged on miss.
 func (f FocusManager) FocusOn(id string) FocusManager {
-    val idx = indexOfPane(f.Panes, id)
+    val idx = f.Panes.IndexOf(id)
     if idx < 0 { return f }
     return f.Copy(Idx = idx)
 }
@@ -109,18 +109,4 @@ func (f FocusManager) When[T any](
 ) T {
     if f.IsFocused(pane) { return action() }
     return fallback
-}
-
-// indexOfPane is a small helper — Array[string] doesn't have IndexOf exposed
-// on this battle-tests build, so we implement it directly.
-func indexOfPane(panes Array[string], id string) int {
-    var i = 0
-    val n = panes.Length()
-    for i < n {
-        if panes.Get(i) == id {
-            return i
-        }
-        i = i + 1
-    }
-    return -1
 }

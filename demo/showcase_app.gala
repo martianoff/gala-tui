@@ -3,6 +3,7 @@ package main
 import (
     . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
+    gs "martianoff/gala/strings"
 )
 
 // ============================================================================
@@ -249,7 +250,7 @@ func showcaseBackspacePalette(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[Showcase
     if m.Palette == "" {
         return (m, NoCmd[ShowcaseMsg]())
     }
-    return (m.Copy(Palette = showcaseDropLastRune(m.Palette)), NoCmd[ShowcaseMsg]())
+    return (m.Copy(Palette = gs.S(m.Palette).DropRight(1).ToString()), NoCmd[ShowcaseMsg]())
 }
 
 func showcaseSubmitPalette(m ShowcaseModel) Tuple[ShowcaseModel, Cmd[ShowcaseMsg]] {
@@ -267,22 +268,6 @@ func showcaseAppendRing(xs Array[int], v int, cap int) Array[int] {
         return next
     }
     return next.Slice(next.Length() - cap, next.Length())
-}
-
-func showcaseDropLastRune(s string) string {
-    val total = RuneCount(s)
-    if total == 0 {
-        return s
-    }
-    var kept = ""
-    var seen = 0
-    for _, c := range s {
-        if seen < total - 1 {
-            kept = kept + string(c)
-        }
-        seen = seen + 1
-    }
-    return kept
 }
 
 func showcaseMaxZero(n int) int {
