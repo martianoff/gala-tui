@@ -1,8 +1,10 @@
 package gala_tui
 
 import (
+    "strconv"
     "strings"
     . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
 )
 
 // ============================================================================
@@ -54,44 +56,24 @@ func ParseKeySpec(spec string) KeySpec {
         return KeySpecInvalid()
     }
     val parts = splitPlus(trimmed)
-    var ctrl = false
-    var shift = false
-    var alt = false
-    var keyPart = ""
-    var i = 0
-    val n = parts.Length()
-    for i < n {
-        val p = parts.Get(i)
-        if p == "ctrl" {
-            ctrl = true
-        } else {
-            if p == "shift" {
-                shift = true
-            } else {
-                if p == "alt" {
-                    alt = true
-                } else {
-                    // Anything else must be the terminal key. It must be the
-                    // LAST element of parts — if there's something after a
-                    // non-modifier token, the spec is malformed.
-                    if i != n - 1 {
-                        return KeySpecInvalid()
-                    }
-                    keyPart = p
-                }
-            }
-        }
-        i = i + 1
-    }
-    if keyPart == "" {
+    // The terminal key must be the LAST part and everything before it a
+    // modifier — a non-modifier token followed by anything, or a spec that
+    // is all modifiers, is malformed.
+    val keyPart = parts.LastOption().Filter((p) => !keyIsModifier(p)).GetOrElse("")
+    if keyPart == "" || !parts.Init().ForAll(keyIsModifier) {
         return KeySpecInvalid()
     }
     val parsedKey = parseKeyName(keyPart)
-    val valid = keyIsParsed(parsedKey)
     return KeySpec(
-        Key = parsedKey, Ctrl = ctrl, Shift = shift, Alt = alt, Valid = valid,
+        Key   = parsedKey,
+        Ctrl  = parts.Contains("ctrl"),
+        Shift = parts.Contains("shift"),
+        Alt   = parts.Contains("alt"),
+        Valid = keyIsParsed(parsedKey),
     )
 }
+
+func keyIsModifier(p string) bool = p == "ctrl" || p == "shift" || p == "alt"
 
 // Matches reports whether `ev` satisfies this spec. Invalid specs never match.
 func (ks KeySpec) Matches(ev KeyEvent) bool {
@@ -138,17 +120,8 @@ func KeyMatches(ev KeyEvent, spec string) bool =
 // pattern that comes up whenever a single action has several aliases:
 //
 //     if KeyMatchesAny(ev, "ctrl+c", "q", "esc") { return Quit() }
-func KeyMatchesAny(ev KeyEvent, specs ...string) bool {
-    var i = 0
-    val n = specs.Size()
-    for i < n {
-        if KeyMatches(ev, specs[i]) {
-            return true
-        }
-        i = i + 1
-    }
-    return false
-}
+func KeyMatchesAny(ev KeyEvent, specs ...string) bool =
+    ArrayFromSlice(specs).Exists((s) => KeyMatches(ev, s))
 
 // ----------------------------------------------------------------------------
 // Internals.
@@ -184,14 +157,6 @@ func splitPlus(s string) Array[string] {
     return finalOut
 }
 
-func stringRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
-}
-
 // parseKeyName maps a token to a Key. Unknown tokens return Unknown().
 func parseKeyName(name string) Key {
     if name == "esc" || name == "escape" { return Esc() }
@@ -210,43 +175,22 @@ func parseKeyName(name string) Key {
     if name == "delete" || name == "del" { return Delete() }
     if name == "insert" || name == "ins" { return Insert() }
     // F1..F12
-    if name.Size() >= 2 {
-        val rs = stringRunes(name)
-        if rs.Get(0) == 'f' {
-            val n = parseFNumber(name)
-            if n >= 1 && n <= 12 {
-                return FKey(n)
-            }
+    if name.Size() >= 2 && strings.HasPrefix(name, "f") {
+        // A non-numeric tail parses as 0, which the range check rejects.
+        val n = Try(() => strconv.Atoi(strings.TrimPrefix(name, "f"))).GetOrElse(0)
+        if n >= 1 && n <= 12 {
+            return FKey(n)
         }
     }
     // Single char.
-    val rs = stringRunes(name)
-    if rs.Length() == 1 {
-        return Char(rs.Get(0))
+    if name.Size() == 1 {
+        return Char(stringRunes(name).Head())
     }
     // "+" literal was preserved by splitPlus — surface it as Char.
     if name == "+" {
         return Char('+')
     }
     return Unknown()
-}
-
-// parseFNumber extracts the integer after an 'f' prefix ("f5" → 5).
-// Returns 0 on a non-numeric tail so the caller rejects it.
-func parseFNumber(s string) int {
-    val rs = stringRunes(s)
-    if rs.Length() < 2 { return 0 }
-    var acc = 0
-    var i = 1
-    for i < rs.Length() {
-        val c = rs.Get(i)
-        if c < '0' || c > '9' {
-            return 0
-        }
-        acc = acc * 10 + int(c - '0')
-        i = i + 1
-    }
-    return acc
 }
 
 // keyIsParsed returns false only for Unknown() — every other variant is a
