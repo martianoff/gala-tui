@@ -769,6 +769,36 @@ of the one-row rule, not a signalled one. Measuring is not available here:
 can cut mid-escape. A caller who needs one row per element fits the text
 itself.
 
+
+### Fixed viewport
+
+`FixedBackend(rect)` renders into a fixed rectangle of the normal screen —
+ratatui's `Viewport::Fixed`. The app owns that rectangle and nothing else: the
+cells around it keep whatever the shell or another program drew, and the last
+frame stays where it was when the program exits.
+
+```gala
+// A 30x6 status panel pinned to the top-right of an 80-column terminal.
+val _ = RunWithSub[Model, Msg](program, keyToMsg, sub,
+    FixedBackend(Rect(X = 50, Y = 0, Width = 30, Height = 6)))
+```
+
+| | `TerminalBackend()` | `InlineBackend(n)` | `FixedBackend(rect)` |
+|---|---|---|---|
+| Screen | alternate | normal, below the prompt | normal, at `rect` |
+| Size | whole terminal | terminal width × `n` | `rect`, clipped to the terminal |
+| Repaint | diffed | full | diffed, offset to `rect` |
+| Mouse | hits line up | **not yet**: clicks arrive in screen rows and the block's screen row is unknown, so hits miss | shifted into `rect`, hits line up |
+| On exit | output gone | frame stays in scrollback | frame stays; cursor below `rect` |
+
+Frames are written with `Buffer.DiffStringAt(prev, x, y)`, which positions
+every row absolutely — the `\r\n` a full-screen repaint uses would return to
+column 0 of the screen and draw over whatever lies left of the rectangle.
+Mouse events are shifted into viewport cells through the backend's `Origin`,
+so hit regions line up; a click outside the rectangle reaches the app as a
+click on nothing. `PrintAbove` has nowhere to go and is dropped, as on the
+alternate screen.
+
 ## Testing a run loop without a terminal
 
 `NewTestBackend(width, height, input)` scripts stdin and records everything

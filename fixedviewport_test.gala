@@ -1,0 +1,123 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// FixedBackend — a viewport at a fixed screen rectangle
+//
+// Placement is checked by replaying the renderer's own bytes through `vt`
+// (fullwidth_wrap_test.gala) over a screen already full of someone else's
+// text — the only kind of test that can see a cursor land in the wrong place.
+// ============================================================================
+
+func fvBuf(w int, h int, rows ...string) *Buffer {
+    val b = NewBuffer(w, h)
+    ArrayOf(rows...).ZipWithIndex().ForEach((p) => {
+        val _ = b.DrawText(0, p.V2, p.V1, DefaultStyle())
+    })
+    return b
+}
+
+// fvScreen is a w×h terminal whose every cell already holds '.', the text
+// another program drew, with the cursor parked at `cursor`.
+func fvScreen(w int, h int, cursor Tuple[int, int]) *vt {
+    val tm = newTerm(w, h)
+    ArrayTabulate(h, (y) => y).ForEach((y) => {
+        tm.feed(ansiMoveTo(y + 1, 1))
+        ArrayTabulate(w, (_) => '.').ForEach((c) => tm.put(c))
+    })
+    tm.feed(ansiMoveTo(cursor.V2 + 1, cursor.V1 + 1))
+    return tm
+}
+
+// A full paint lands the rows inside the rectangle and touches nothing
+// around it — no "\r\n" dragging a row back to column 0 of the screen.
+func TestFixedPaintLandsInsideItsRectangleOnly(t T) T {
+    val tm = fvScreen(12, 5, (0, 4))
+    tm.feed(fixedPaintString(fvBuf(4, 2, "ABCD", "EFGH"), nil,
+                             Rect(X = 5, Y = 1, Width = 4, Height = 2), (12, 5)))
+    return Eq(t, screenText(tm), "............/.....ABCD.../.....EFGH.../............/............")
+}
+
+// A diff repaints only the changed cell, at its SCREEN position.
+func TestFixedDiffRepaintsTheChangedCellInPlace(t T) T {
+    val tm = fvScreen(12, 3, (0, 2))
+    val area = Rect(X = 5, Y = 1, Width = 4, Height = 1)
+    val prev = fvBuf(4, 1, "ABCD")
+    tm.feed(fixedPaintString(prev, nil, area, (12, 3)))
+    tm.feed(fixedPaintString(fvBuf(4, 1, "AXCD"), prev, area, (12, 3)))
+    return Eq(t, screenText(tm), "............/.....AXCD.../............")
+}
+
+// The cursor is where the other program left it after every paint: text it
+// writes next lands in its own place, not inside the panel.
+func TestFixedPaintRestoresTheCursor(t T) T {
+    val tm = fvScreen(12, 3, (2, 2))
+    tm.feed(fixedPaintString(fvBuf(4, 1, "ABCD"), nil, Rect(X = 5, Y = 0, Width = 4, Height = 1), (12, 3)))
+    tm.feed("zz")
+    return Eq(t, screenText(tm), ".....ABCD.../............/..zz........")
+}
+
+// A rectangle off the screen draws nothing: the terminal would clamp its
+// moves onto cells the app does not own.
+func TestOffScreenRectangleDrawsNothing(t T) T =
+    Eq(t, fixedPaintString(fvBuf(2, 1, "AB"), nil, Rect(X = 20, Y = 0, Width = 2, Height = 1), (12, 3)), "")
+
+// At the origin the default backend's bytes did not change: a diff is the
+// same whether asked for through DiffString or DiffStringAt(0, 0), and moves
+// to the changed cell's own position.
+func TestDiffAtTheOriginIsTheDefaultBackendsDiff(t T) T {
+    val prev = fvBuf(3, 1, "abc")
+    val next = fvBuf(3, 1, "aXc")
+    val tm = newTerm(3, 1)
+    tm.feed(next.DiffStringAt(nil, 0, 0))
+    tm.feed(prev.DiffString(next))
+    tm.feed(next.DiffString(prev))
+    val t1 = Eq(t, next.DiffString(prev), next.DiffStringAt(prev, 0, 0))
+    return Eq(t1, screenText(tm), "aXc")
+}
+
+// A negative origin is clipped at the screen's edge rather than put on the
+// wire as a malformed move.
+func TestFixedAreaClipsANegativeOrigin(t T) T =
+    Eq(t, fixedArea(Rect(X = -2, Y = -1, Width = 10, Height = 3)), Rect(X = 0, Y = 0, Width = 8, Height = 2))
+
+// The size is the rectangle clipped to the terminal, never below one cell.
+func TestFixedSizeClipsToTheTerminal(t T) T {
+    val t1 = Eq(t, fixedSize(Rect(X = 70, Y = 20, Width = 20, Height = 10), (80, 24)), (10, 4))
+    return Eq(t1, fixedSize(Rect(X = 0, Y = 0, Width = 20, Height = 10), (80, 24)), (20, 10))
+}
+
+// On exit the cursor goes below the frame — and when the frame reaches the
+// bottom of the screen, to the last row plus a newline, so the prompt never
+// lands on the frame's last line.
+func TestFixedExitLeavesTheFrameVisible(t T) T {
+    val t1 = Eq(t, fixedExitString(Rect(X = 0, Y = 2, Width = 5, Height = 3), (80, 24), ""),
+                ResetSgr() + ansiMoveTo(6, 1) + ansiCursorShow())
+    return Eq(t1, fixedExitString(Rect(X = 0, Y = 20, Width = 5, Height = 6), (80, 24), ""),
+              ResetSgr() + ansiMoveTo(24, 1) + "\r\n" + ansiCursorShow())
+}
+
+func fvMouse(x int, y int, pressed bool) InputEvent =
+    MouseInput(MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = pressed, Motion = false))
+
+// Inside the viewport a mouse event moves into viewport cells; outside, a
+// press is dropped and a release is kept, clamped, so a drag still ends.
+func TestMouseEventsAreMappedIntoTheViewport(t T) T {
+    val vp = Rect(X = 10, Y = 3, Width = 5, Height = 2)
+    val t1 = toViewport(fvMouse(12, 4, true), vp) match {
+        case Some(MouseInput(m)) => Eq(Eq(t, m.X, 2), m.Y, 1)
+        case _                   => IsTrue(t, false)
+    }
+    val t2 = IsTrue(t1, toViewport(fvMouse(2, 4, true), vp).IsEmpty())
+    return toViewport(fvMouse(40, 0, false), vp) match {
+        case Some(MouseInput(m)) => Eq(Eq(t2, m.X, 4), m.Y, 0)
+        case _                   => IsTrue(t2, false)
+    }
+}
+
+func TestFixedBackendReportsItsOrigin(t T) T =
+    Eq(t, backendOrigin(FixedBackend(Rect(X = 4, Y = 7, Width = 10, Height = 3))), (4, 7))

@@ -144,6 +144,7 @@ gala_test(
         "diff_test.gala",
         "diff_view_test.gala",
         "filebrowser_test.gala",
+        "fixedviewport_test.gala",
         "flex_align_scroll_test.gala",
         "fluent_test.gala",
         "form_test.gala",
