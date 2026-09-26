@@ -62,7 +62,7 @@ func Solve(total int, cs Array[Constraint]) Array[int] {
     var i = 0
     for i < n {
         val c = cs.Get(i)
-        sizes[i] = fixedSize(c, total)
+        sizes[i] = constraintClaim(c, total)
         fixedTotal = fixedTotal + sizes[i]
         totalWeight = totalWeight + fillWeight(c)
         if isFill(c) { lastFill = i }
@@ -91,9 +91,9 @@ func Solve(total int, cs Array[Constraint]) Array[int] {
     return ArrayFromSlice(sizes)
 }
 
-// fixedSize is what a non-Fill constraint claims of `total` before any Fill
+// constraintClaim is what a non-Fill constraint claims of `total` before any Fill
 // is considered; a Fill claims nothing yet.
-func fixedSize(c Constraint, total int) int = c match {
+func constraintClaim(c Constraint, total int) int = c match {
     case Length(v)  => MaxInt(0, v)
     case Percent(p) => total * clampPct(p) / 100
     case MinLen(v)  => MaxInt(0, v)
