@@ -12,9 +12,7 @@ import (
 // message of type T.
 //
 // Sub variants intentionally mirror Cmd: NoSub (inert), KeySub (source),
-// BatchSub (union), MapSub (transformer). BUG-gala_tui-013 (sealed String()
-// on func-field variants tripping go vet) blocked this entire subsystem in
-// the first battle-test pass; PR #212 fixed it and Sub is re-introduced here.
+// BatchSub (union), MapSub (transformer).
 sealed type Sub[T any] {
     case NoSub()
     case KeySub(Make func(KeyEvent) T)

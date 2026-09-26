@@ -19,11 +19,8 @@ import (
 // this framework?" test — and the honest answer, at 98 tests plus this
 // round-trip, is YES.
 //
-// Lives in a _test.gala because the interactive runtime (raw mode + stdin
-// reader) is pending (Iteration 8+); a runnable example module layout was
-// attempted in examples/dashboard/ but hit BUG-gala_tui-012 where
-// `gala build` ignores the `replace` directive and tries to fetch the
-// local module over HTTPS.
+// Lives in a _test.gala so the whole round-trip runs headlessly under the
+// test runner, with no terminal attached. Runnable apps live in examples/.
 // ============================================================================
 
 sealed type DashMsg {
@@ -232,7 +229,6 @@ func containsAnyRow(buf *Buffer, needle string) bool {
     return false
 }
 
-// stringContains is a trivial substring check. `hay[i:i+n]` slice expressions
-// are rejected by the GALA parser (BUG-gala_tui-003), so we defer to the
-// standard library.
+// stringContains is a trivial substring check. GALA has no slice-expression
+// syntax (`hay[i:i+n]`), so we defer to the standard library.
 func stringContains(hay string, needle string) bool = strings.Contains(hay, needle)

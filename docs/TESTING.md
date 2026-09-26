@@ -110,14 +110,14 @@ keys, mouse, resize, and direct messages all live in the same script.
 
 ```gala
 val steps = ArrayOf[harness.HarnessStep[Msg]](
-    harness.StepKey[Msg](Ev = PlainKey(Char('a'))),
-    harness.StepType[Msg](Text = "lice"),
-    harness.StepKey[Msg](Ev = Ctrl(Char('s'))),
-    harness.StepClick[Msg](X = 40, Y = 10),       // mouse press at (40,10)
-    harness.StepScroll[Msg](X = 40, Y = 10, Up = false),  // wheel down
-    harness.StepResize[Msg](W = 100, H = 30),     // window resize
-    harness.StepWait[Msg](N = 3),                 // tick 3 times
-    harness.StepMsg[Msg](Msg = SaveAll()),        // skip key decoding,
+    harness.StepKey(Ev = PlainKey(Char('a'))),
+    harness.StepType(Text = "lice"),
+    harness.StepKey(Ev = Ctrl(Char('s'))),
+    harness.StepClick(X = 40, Y = 10),            // mouse press at (40,10)
+    harness.StepScroll(X = 40, Y = 10, Up = false),  // wheel down
+    harness.StepResize(W = 100, H = 30),          // window resize
+    harness.StepWait(N = 3),                      // tick 3 times
+    harness.StepMsg(Msg = SaveAll()),             // skip key decoding,
                                                   //   send a Msg directly
 )
 
@@ -130,12 +130,6 @@ val trace = h.Trace(steps)
 IsFalse(t, trace.Get(0).Contains("Saved"))         // before save
 IsTrue(t,  trace.Get(3).Contains("Saved"))         // after Ctrl-S
 ```
-
-> **Why the `[Msg]` everywhere?** `HarnessStep` is generic over the
-> app's Msg type, but the transpiler currently can't infer that
-> parameter from the surrounding `ArrayOf[HarnessStep[Msg]](...)`
-> context. Spell it out on every case constructor; the workaround is
-> mechanical. (Tracked as BUG-12 in the local bug log.)
 
 ### `RunSequence` + `Snapshot`: the golden-file test pattern
 
