@@ -281,18 +281,10 @@ func stringToLines(s string) Array[string] =
 // stringRunes splits `s` into its runes (invalid UTF-8 bytes become
 // U+FFFD, as `range` yields them).
 //
-// This is `S(s).ToChars()` from martianoff/gala/strings, spelled out by
-// hand because that package cannot be imported here: on GALA 0.80 importing
-// it anywhere in this package makes the transpiler treat `strings` as a GALA
-// package and reject buffer.gala's `*strings.Builder` parameter
-// (GALA-E0025). Replace the body with `S(s).ToChars()` once that is fixed.
-func stringRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
-}
+// Not `S(s).ToChars()`: importing martianoff/gala/strings anywhere in this
+// package makes GALA 0.80 reject buffer.gala's `*strings.Builder` parameter
+// (GALA-E0025).
+func stringRunes(s string) Array[rune] = ArrayFromSlice(ToRunes(s))
 
 // runeSplitAt returns (lhs, rhs) such that lhs has `col` runes and rhs has
 // the remainder. Out-of-range cols clamp to the string boundaries.

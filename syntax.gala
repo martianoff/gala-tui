@@ -89,7 +89,7 @@ func tokenStyle(tok SyntaxToken) Style {
 // A lexer with variable stride: each branch decides how far the token it
 // emits advances `i`.
 func tokenize(line string, lang string) Array[SyntaxToken] {
-    val rs = mdRunes(line)
+    val rs = stringRunes(line)
     val n = rs.Length()
     val keywords = keywordsFor(lang)
     val lineCommentPrefix = lineCommentFor(lang)
@@ -240,13 +240,12 @@ func isNumberRune(c rune) bool =
     (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == '_'
 
 // ----------------------------------------------------------------------------
-// Rune-array helpers shared by this tokenizer, markdown.gala and filebrowser.gala.
+// Rune-array helpers shared by this tokenizer, markdown.gala and filebrowser.gala
+// (string-to-runes itself is stringRunes in textarea.gala).
 // ----------------------------------------------------------------------------
 
-func syntaxRunes(s string) Array[rune] = mdRunes(s)
-
 // dropRunes is `s` without its first `k` runes.
-func dropRunes(s string, k int) string = string(mdRunes(s).Drop(k).ToGoSlice())
+func dropRunes(s string, k int) string = string(stringRunes(s).Drop(k).ToGoSlice())
 
 // runeRange is the string of rs[lo:hi].
 func runeRange(rs Array[rune], lo int, hi int) string = string(rs.Slice(lo, hi).ToGoSlice())
@@ -257,4 +256,4 @@ func runeIndexFrom(rs Array[rune], target rune, start int) int =
 
 // syntaxStartsWith reports whether `prefix` occurs in rs at index `at`.
 func syntaxStartsWith(rs Array[rune], at int, prefix string) bool =
-    mdRunes(prefix).ZipWithIndex().ForAll((t) => at + t.V2 < rs.Length() && rs.Get(at + t.V2) == t.V1)
+    stringRunes(prefix).ZipWithIndex().ForAll((t) => at + t.V2 < rs.Length() && rs.Get(at + t.V2) == t.V1)

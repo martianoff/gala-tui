@@ -177,7 +177,7 @@ func joinPath(dir string, name string) string {
 // segment after the last separator. Returns the path unchanged if it's
 // already a root.
 func parentPath(path string) string {
-    val rs = mdRunes(path)
+    val rs = stringRunes(path)
     val lastSep = MaxInt(rs.LastIndexOf('/'), rs.LastIndexOf('\\'))
     if lastSep < 0 { return path }
     if lastSep == 0 { return "/" }

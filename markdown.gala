@@ -141,7 +141,7 @@ func mdNumberedPrefix(line string) int {
 }
 
 func mdStripNumberedPrefix(line string) string {
-    val dot = mdRunes(line).IndexOf('.')
+    val dot = stringRunes(line).IndexOf('.')
     return if (dot < 0) line else dropRunes(line, dot + 2)
 }
 
@@ -167,19 +167,6 @@ func mdSplitLines(s string) Array[string] {
     return if (parts.Last() == "") parts.Init() else parts
 }
 
-// mdRunes is the package's one string-to-runes conversion (syntax.gala's
-// helpers and filebrowser.gala use it too). It stays a loop because the
-// library call, S(s).ToChars(), cannot be used here: importing
-// martianoff/gala/strings into this package makes GALA 0.80 resolve
-// buffer.gala's `*strings.Builder` parameter against it (GALA-E0025).
-func mdRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
-}
-
 // ----------------------------------------------------------------------------
 // Inline parser
 // ----------------------------------------------------------------------------
@@ -192,7 +179,7 @@ func mdRunes(s string) Array[rune] {
 // closer. Literal text is never built rune by rune; it is the run
 // rs[textStart:i], cut once when a delimiter (or the end) closes it.
 func parseInlines(s string) Array[MdInline] {
-    val rs = mdRunes(s)
+    val rs = stringRunes(s)
     val n = rs.Length()
     var out = EmptyArray[MdInline]()
     var textStart = 0

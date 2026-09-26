@@ -106,14 +106,6 @@ func TestCalendarViewSelectedDayIsReverse(t T) T {
     return IsTrue(t, found)
 }
 
-// ----------------------------------------------------------------------------
-// Integer formatting
-// ----------------------------------------------------------------------------
-
-func TestIntToStrZero(t T) T = Eq(t, intToStr(0), "0")
-func TestIntToStrPositive(t T) T = Eq(t, intToStr(2026), "2026")
-func TestIntToStrNegative(t T) T = Eq(t, intToStr(-42), "-42")
-
 func TestDaysInMonthFebLeap(t T) T {
     // 2024 was a leap year, 2026 is not.
     val t1 = Eq(t, daysInMonth(2024, 2), 29)

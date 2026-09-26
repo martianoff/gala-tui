@@ -198,6 +198,3 @@ func monthName(m int) string = m match {
     case 11 => "November"
     case _  => "December"
 }
-
-// intToStr is kept for calendar_test.gala; library code calls strconv.Itoa.
-func intToStr(n int) string = strconv.Itoa(n)
