@@ -19,6 +19,44 @@ Two files come out, and the split is deliberate:
 
 Knobs: `COLS=100 ROWS=30 demo/record/record.sh`, or `GIF=docs/other.gif`.
 
+### On Windows: through WSL
+
+The driver needs a POSIX pty (`pty.fork`, `TIOCSWINSZ`), which Windows does
+not have, so the whole pipeline runs inside WSL against the checkout under
+`/mnt/c`. One-time setup inside WSL (Ubuntu 22.04 shown):
+
+```bash
+mkdir -p ~/.local/bin          # ~/.profile puts it on PATH for login shells
+# gala: the same version as gala.mod asks for
+curl -sSLo ~/.local/bin/gala \
+  https://github.com/martianoff/gala/releases/download/0.80.0/gala-linux-amd64
+# Go, which gala build drives: the version in go.mod
+curl -sSL https://go.dev/dl/go1.25.5.linux-amd64.tar.gz | tar -C ~/.local -xz
+ln -sf ~/.local/go/bin/go ~/.local/bin/go
+# agg: the musl build — the gnu one needs glibc 2.38, newer than 22.04 ships
+curl -sSLo ~/.local/bin/agg \
+  https://github.com/asciinema/agg/releases/download/v1.9.0/agg-x86_64-unknown-linux-musl
+chmod +x ~/.local/bin/gala ~/.local/bin/agg
+# python3 is already there; pyte for replaying casts, ffmpeg for frames
+sudo apt-get install -y python3-pyte ffmpeg
+```
+
+Then, from PowerShell in the repo:
+
+```powershell
+powershell -File demo/record/record.ps1                  # 120x36
+powershell -File demo/record/record.ps1 -Cols 100 -Rows 30
+```
+
+`record.ps1` is `wsl --cd <repo> bash -lc demo/record/record.sh` with the knobs
+passed through. It builds a Linux `./gala-tui` in the checkout (gitignored,
+next to any `gala_tui.exe`). The first build downloads Go modules into WSL and
+takes a couple of minutes; after that a recording is about a minute and a half.
+
+The `.sh` and `.py` files are pinned to LF in `.gitattributes`: with
+`core.autocrlf=true` they would otherwise check out as CRLF, and bash inside
+WSL fails on `set -euo pipefail\r`.
+
 ---
 
 ## How a click gets recorded
@@ -87,7 +125,8 @@ left the form.
 
 ### Finding a coordinate
 
-Record once, pull a frame out, and read the columns off it:
+Record once, pull a frame out, and read the columns off it (on Windows, in a
+`wsl` shell):
 
 ```bash
 python3 tools/record/drive.py --script demo/record/tour.txt \
