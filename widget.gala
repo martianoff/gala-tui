@@ -1,8 +1,10 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
+    "martianoff/gala/stream"
 )
 
 // Widget is the user-facing rendering primitive. A widget is a pure
@@ -1245,23 +1247,15 @@ func renderOverflowRow(
     // One column is held back for the marker only when there is something
     // to mark, so a bar that fits is laid out exactly as it always was.
     val budget = if (fitsAll) area.Width else MaxInt(0, area.Width - 1)
-    val n = cells.Length()
-    var used = 0
-    var drawn = 0
-    var i = 0
-    for i < n {
-        val w = widths.Get(i)
-        if used + w > budget {
-            i = n
-        } else {
-            RenderToWithHits(cells.Get(i).Widget, Rect(
-                X = area.X + used, Y = area.Y, Width = w, Height = 1,
-            ), buf, hits)
-            used = used + w
-            drawn = drawn + 1
-            i = i + 1
-        }
-    }
+    // starts.Get(i) is where cell i begins; starts.Get(i + 1) where it ends.
+    // The drawn cells are the leading run that ends inside the budget — the
+    // first one that would cross it stops the bar, later narrower ones too.
+    val starts = stream.FromArray(widths).Scan(0, (u, w) => u + w).ToArray()
+    val drawn = starts.Drop(1).TakeWhile((end) => end <= budget).Length()
+    cells.Take(drawn).ZipWithIndex().ForEach((t) =>
+        RenderToWithHits(t.V1.Widget, Rect(
+            X = area.X + starts.Get(t.V2), Y = area.Y, Width = widths.Get(t.V2), Height = 1,
+        ), buf, hits))
     if !fitsAll {
         // Nothing fit at all: show as much of the first cell as there is
         // room for rather than a bare marker on an empty row.
@@ -1384,22 +1378,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderToInternal(inner, area, buf, hits)
         }
         case ClickableRowsW(inner, count, rowH, payloads) => {
-            if hits != nil && count > 0 && rowH > 0 {
-                var i = 0
-                for i < count {
-                    val rowY = area.Y + i * rowH
-                    // Clipped to the area: the last row of an
-                    // exact-fit grid can overhang, and a hit
-                    // region past the widget would answer for
-                    // clicks that never touched it. Intersection
-                    // floors at zero, and Register drops an empty
-                    // rect, so the bounds check is implicit.
-                    hits.Register(Rect(
-                        X = area.X, Y = rowY,
-                        Width = area.Width, Height = rowH,
-                    ).Intersection(area), payloads(i))
-                    i = i + 1
-                }
+            if hits != nil {
+                registerRowHits(area, count, rowH, payloads, (r, p) => hits.Register(r, p))
             }
             renderToInternal(inner, area, buf, hits)
         }
@@ -1418,22 +1398,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderToInternal(inner, area, buf, hits)
         }
         case DblClickableRowsW(inner, count, rowH, payloads) => {
-            if hits != nil && count > 0 && rowH > 0 {
-                var i = 0
-                for i < count {
-                    val rowY = area.Y + i * rowH
-                    // Clipped to the area: the last row of an
-                    // exact-fit grid can overhang, and a hit
-                    // region past the widget would answer for
-                    // clicks that never touched it. Intersection
-                    // floors at zero, and Register drops an empty
-                    // rect, so the bounds check is implicit.
-                    hits.RegisterDouble(Rect(
-                        X = area.X, Y = rowY,
-                        Width = area.Width, Height = rowH,
-                    ).Intersection(area), payloads(i))
-                    i = i + 1
-                }
+            if hits != nil {
+                registerRowHits(area, count, rowH, payloads, (r, p) => hits.RegisterDouble(r, p))
             }
             renderToInternal(inner, area, buf, hits)
         }
@@ -1444,22 +1410,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderToInternal(inner, area, buf, hits)
         }
         case DraggableRowsW(inner, count, rowH, payloads) => {
-            if hits != nil && count > 0 && rowH > 0 {
-                var i = 0
-                for i < count {
-                    val rowY = area.Y + i * rowH
-                    // Clipped to the area: the last row of an
-                    // exact-fit grid can overhang, and a hit
-                    // region past the widget would answer for
-                    // clicks that never touched it. Intersection
-                    // floors at zero, and Register drops an empty
-                    // rect, so the bounds check is implicit.
-                    hits.RegisterDrag(Rect(
-                        X = area.X, Y = rowY,
-                        Width = area.Width, Height = rowH,
-                    ).Intersection(area), payloads(i))
-                    i = i + 1
-                }
+            if hits != nil {
+                registerRowHits(area, count, rowH, payloads, (r, p) => hits.RegisterDrag(r, p))
             }
             renderToInternal(inner, area, buf, hits)
         }
@@ -1472,22 +1424,41 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
     }
 }
 
+// registerRowHits slices `area` into `count` rows of `rowH` cells and
+// registers row i's rectangle with `payloads(i)` through `register` — the
+// one walk the click, double-click and drag row widgets share.
+//
+// Each row is clipped to the area: the last row of an exact-fit grid can
+// overhang, and a hit region past the widget would answer for clicks that
+// never touched it. Intersection floors at zero, and the registry drops an
+// empty rect, so the bounds check is implicit.
+func registerRowHits(
+    area Rect,
+    count int,
+    rowH int,
+    payloads func(int) any,
+    register func(Rect, any),
+) {
+    if count > 0 && rowH > 0 {
+        stream.Range(0, count).ForEach((i) =>
+            register(Rect(
+                X = area.X, Y = area.Y + i * rowH,
+                Width = area.Width, Height = rowH,
+            ).Intersection(area), payloads(i)))
+    }
+}
+
 // renderParagraph word-wraps `content` into the area. Words are ASCII-space
 // separated; very long words that exceed area.Width break at rune boundaries.
 func renderParagraph(content string, style Style, area Rect, buf *Buffer) {
     if area.Width <= 0 || area.Height <= 0 {
         return
     }
-    val lines = wrapParagraph(content, area.Width)
-    var y = 0
-    val limit = MinInt(lines.Length(), area.Height)
-    for y < limit {
-        renderText(lines.Get(y), style, Rect(
-            X = area.X, Y = area.Y + y,
+    wrapParagraph(content, area.Width).Take(area.Height).ZipWithIndex().ForEach((t) =>
+        renderText(t.V1, style, Rect(
+            X = area.X, Y = area.Y + t.V2,
             Width = area.Width, Height = 1,
-        ), buf)
-        y = y + 1
-    }
+        ), buf))
 }
 
 
@@ -1516,20 +1487,7 @@ func renderViewport(inner Widget, offset int, contentHeight int, area Rect, buf 
     var hidden = NewBuffer(area.Width, ch)
     RenderTo(inner, Rect(X = 0, Y = 0, Width = area.Width, Height = ch), hidden)
     val clampedOffset = clampInt(offset, 0, MaxInt(0, ch - area.Height))
-    var y = 0
-    for y < area.Height {
-        val srcY = clampedOffset + y
-        if srcY >= ch {
-            y = y + 1
-            continue
-        }
-        var x = 0
-        for x < area.Width {
-            buf.Set(area.X + x, area.Y + y, hidden.Get(x, srcY))
-            x = x + 1
-        }
-        y = y + 1
-    }
+    buf.blit(hidden, 0, clampedOffset, area)
 }
 
 // renderScrollbar paints a vertical track of the given area.Height with a
@@ -1571,12 +1529,12 @@ func renderScrollbar(
     // look like a full thumb regardless of position.
     val vis = if (visible <= 0) span else visible
 
-    var i = 0
-    for i < span {
-        if horizontal { buf.Set(area.X + i, edge, Cell(Ch = trackCh, St = track)) }
-        else          { buf.Set(edge, area.Y + i, Cell(Ch = trackCh, St = track)) }
-        i = i + 1
-    }
+    // A run of `length` cells along the scrolling axis, `from` cells in.
+    val run = (from int, length int) =>
+        if (horizontal) Rect(X = area.X + from, Y = edge, Width = length, Height = 1)
+        else Rect(X = edge, Y = area.Y + from, Width = 1, Height = length)
+
+    buf.Fill(run(0, span), Cell(Ch = trackCh, St = track))
 
     if total <= vis || total <= 0 {
         // Nothing to scroll. Track only — a solid full-length thumb would
@@ -1588,15 +1546,7 @@ func renderScrollbar(
     val maxOffset = total - vis
     val clamped = clampInt(offset, 0, maxOffset)
     val thumbStart = clamped * (span - thumbSize) / maxOffset
-    var yy = 0
-    for yy < thumbSize {
-        if horizontal {
-            buf.Set(area.X + thumbStart + yy, edge, Cell(Ch = '█', St = style))
-        } else {
-            buf.Set(edge, area.Y + thumbStart + yy, Cell(Ch = '█', St = style))
-        }
-        yy = yy + 1
-    }
+    buf.Fill(run(thumbStart, thumbSize), Cell(Ch = '█', St = style))
 }
 
 func clampInt(v int, lo int, hi int) int =
@@ -1645,13 +1595,8 @@ func renderList(
     else
         clampInt(explicitOffset, 0, MaxInt(0, n - MaxInt(1, area.Height)))
     val visibleRows = MinInt(area.Height, MaxInt(0, n - offset))
-    var row = 0
-    for row < area.Height {
+    stream.Range(0, visibleRows).ForEach((row) => {
         val idx = offset + row
-        if idx >= n {
-            row = row + 1
-            continue
-        }
         // Bottom-to-top pins the first visible item to the bottom edge, so
         // a transcript grows upward and short content sits at the foot of
         // the pane instead of floating at the top.
@@ -1660,28 +1605,17 @@ func renderList(
             case ListBottomToTop() => area.Y + area.Height - visibleRows + row
         }
         val item = items.Get(idx)
-        var style = item.Style
-        if idx == sel {
-            style = selStyle
-        }
+        val style = if (idx == sel) selStyle else item.Style
+        val line = Rect(X = area.X, Y = y, Width = area.Width, Height = 1)
         // Clear the row to the area width (with the style) so selected
         // highlighting extends across the whole row.
-        var x = area.X
-        val xEnd = area.X + area.Width
-        for x < xEnd {
-            buf.Set(x, y, Cell(Ch = ' ', St = style))
-            x = x + 1
-        }
+        buf.Fill(line, Cell(Ch = ' ', St = style))
         // Then draw the label, cut with a "…" if it is wider than the
         // pane. A hard clip here made a long entry look like a shorter
         // entry that fit, which in a list of paths or branch names picks
         // out the wrong one.
-        renderText(StringCellEllipsis(item.Label, area.Width), style, Rect(
-            X = area.X, Y = y,
-            Width = area.Width, Height = 1,
-        ), buf)
-        row = row + 1
-    }
+        renderText(StringCellEllipsis(item.Label, area.Width), style, line, buf)
+    })
 }
 
 // renderAutoScroll paints the window of rows that fits, scrolled so the
@@ -1711,18 +1645,17 @@ func renderAutoScroll(
     // its first line as if it were the whole row. The exception is the first
     // row, when it alone is taller than the area — the selection is always
     // that row, and a blank area would hide it entirely.
-    var y = area.Y
-    var i = offset
-    for i < n && (i == offset || y + heights.Get(i) <= area.Bottom()) {
-        renderToInternal(build(i), Rect(
+    // Each row paired with its top edge: the running total of the heights
+    // above it, from the area's top.
+    stream.Range(offset, n)
+        .Zip(stream.FromArray(heights).Drop(offset).Scan(area.Y, (y, h) => y + h))
+        .TakeWhile((t) => t.V1 == offset || t.V2 + heights.Get(t.V1) <= area.Bottom())
+        .ForEach((t) => renderToInternal(build(t.V1), Rect(
             X      = area.X,
-            Y      = y,
+            Y      = t.V2,
             Width  = area.Width,
-            Height = MinInt(heights.Get(i), area.Bottom() - y),
-        ), buf, hits)
-        y = y + heights.Get(i)
-        i = i + 1
-    }
+            Height = MinInt(heights.Get(t.V1), area.Bottom() - t.V2),
+        ), buf, hits))
 }
 
 // scrollOffsetToShow is the first visible row that keeps `sel` on screen in
@@ -1731,15 +1664,15 @@ func renderAutoScroll(
 // heights this is exactly `listViewportOffset`.
 func scrollOffsetToShow(heights Array[int], sel int, height int) int {
     val last = clampInt(sel, 0, heights.Length() - 1)
-    var used = 0
-    var k = last
-    for k >= 0 && used + heights.Get(k) <= height {
-        used = used + heights.Get(k)
-        k = k - 1
-    }
-    // k + 1 is the topmost row that still fits with `last` — or `last` itself
-    // when that row alone is taller than the area.
-    return MinInt(last, k + 1)
+    // How many rows, walking up from `last`, fit in `height` together.
+    val fit = stream.RangeStep(last, -1, -1)
+        .Scan(0, (used, k) => used + heights.Get(k))
+        .Drop(1)
+        .TakeWhile((used) => used <= height)
+        .Count()
+    // last - fit + 1 is the topmost row that still fits with `last` — or
+    // `last` itself when that row alone is taller than the area.
+    return MinInt(last, last - fit + 1)
 }
 
 // lastPageOffset is the largest first-visible row an explicit offset may
@@ -1821,24 +1754,16 @@ func renderInput(
 // itself so an end-of-text caret has somewhere to sit.
 func inputWindowStart(rs []rune, cur int, width int) int {
     val budget = MaxInt(1, width - 1)
-    var start = 0
-    for start < cur && runesCellWidth(rs, start, cur) > budget {
-        start = start + 1
-    }
-    return start
+    return stream.Range(0, cur).Find((start) => runesCellWidth(rs, start, cur) <= budget).GetOrElse(cur)
 }
 
 // runesCellWidth totals the rendered width of rs[from:to) in terminal
-// cells, so CJK and emoji count as the two columns they occupy.
+// cells, so CJK and emoji count as the two columns they occupy. Out-of-range
+// bounds are clamped, and an empty range is 0 cells.
 func runesCellWidth(rs []rune, from int, to int) int {
-    var w = 0
-    var i = MaxInt(0, from)
-    val end = MinInt(rs.Size(), to)
-    for i < end {
-        w = w + RuneCellWidth(rs[i])
-        i = i + 1
-    }
-    return w
+    val lo = MaxInt(0, from)
+    val hi = MinInt(rs.Size(), to)
+    return if (lo >= hi) 0 else StringCellWidth(string(SliceFrom(SliceTo(rs, hi), lo)))
 }
 
 // inputIndexAtColumn maps a clicked column back to a rune index.
@@ -1852,20 +1777,13 @@ func runesCellWidth(rs []rune, from int, to int) int {
 // after the text. That is what a click in the empty tail of a field means
 // in every editor, and it is also what makes click-then-type work.
 func inputIndexAtColumn(rs []rune, start int, col int) int {
-    var i = MaxInt(0, start)
-    var x = 0
+    val from = MaxInt(0, start)
     val n = rs.Size()
-    for i < n {
-        val w = RuneCellWidth(rs[i])
-        // `col < x + w` rather than `col == x`: a click on the RIGHT half
-        // of a wide glyph still selects that glyph, not the next one.
-        if col < x + w {
-            return i
-        }
-        x = x + w
-        i = i + 1
-    }
-    return n
+    // Each rune index paired with the column just past its glyph. Testing
+    // `col < end` rather than `col == x`: a click on the RIGHT half of a
+    // wide glyph still selects that glyph, not the next one.
+    val ends = stream.Range(from, n).Map((i) => RuneCellWidth(rs[i])).Scan(0, (x, w) => x + w).Drop(1)
+    return stream.Range(from, n).Zip(ends).Find((t) => col < t.V2).Map((t) => t.V1).GetOrElse(n)
 }
 
 // inputRuneIndexAt maps a clicked column to a rune index for a field of
@@ -1941,16 +1859,13 @@ func renderRow(
     val gaps = totalGaps(n, spacing)
     val widths = Solve(MaxInt(0, area.Width - gaps), children.Map((c) => c.Constraint))
     val offsets = flexOffsets(flex, area.Width, widths, spacing)
-    var i = 0
-    for i < n {
-        renderToInternal(children.Get(i).Widget, Rect(
-            X      = area.X + offsets.Get(i),
+    children.ZipWithIndex().ForEach((t) =>
+        renderToInternal(t.V1.Widget, Rect(
+            X      = area.X + offsets.Get(t.V2),
             Y      = area.Y,
-            Width  = widths.Get(i),
+            Width  = widths.Get(t.V2),
             Height = area.Height,
-        ), buf, hits)
-        i = i + 1
-    }
+        ), buf, hits))
 }
 
 // renderColumn is the vertical twin of renderRow.
@@ -1966,16 +1881,13 @@ func renderColumn(
     val gaps = totalGaps(n, spacing)
     val heights = Solve(MaxInt(0, area.Height - gaps), children.Map((c) => c.Constraint))
     val offsets = flexOffsets(flex, area.Height, heights, spacing)
-    var i = 0
-    for i < n {
-        renderToInternal(children.Get(i).Widget, Rect(
+    children.ZipWithIndex().ForEach((t) =>
+        renderToInternal(t.V1.Widget, Rect(
             X      = area.X,
-            Y      = area.Y + offsets.Get(i),
+            Y      = area.Y + offsets.Get(t.V2),
             Width  = area.Width,
-            Height = heights.Get(i),
-        ), buf, hits)
-        i = i + 1
-    }
+            Height = heights.Get(t.V2),
+        ), buf, hits))
 }
 
 // totalGaps is the space consumed by inter-child spacing: one gap between
@@ -2017,15 +1929,12 @@ func flexOffsets(
     // SpaceAround lopsided at essentially every width.
     val gaps = flexGaps(flex, n, slack)
 
-    var offsets = EmptyArray[int]()
-    var pos = gaps.Get(0)
-    var i = 0
-    for i < n {
-        offsets = offsets.Append(pos)
-        pos = pos + sizes.Get(i) + gap + gaps.Get(i + 1)
-        i = i + 1
-    }
-    return offsets
+    // A running total from the leading slot: each child starts where the
+    // previous one ended, plus the spacing and the slack slot after it.
+    return stream.FromArray(sizes.Zip(gaps.Drop(1)))
+        .Scan(gaps.Get(0), (pos, t) => pos + t.V1 + gap + t.V2)
+        .Take(n)
+        .ToArray()
 }
 
 // flexGaps sizes the n+1 slots slack can land in: index 0 is the leading
@@ -2090,19 +1999,14 @@ func distributeSlack(total int, weights Array[int]) Array[int] {
         return weights.Map((w) => 0)
     }
     val half = sumW / 2
-    var out = EmptyArray[int]()
-    var acc = 0
-    var given = 0
-    var i = 0
-    val n = weights.Length()
-    for i < n {
-        acc = acc + total * MaxInt(0, weights.Get(i))
-        val upto = (acc + half) / sumW
-        out = out.Append(upto - given)
-        given = upto
-        i = i + 1
-    }
-    return out
+    // The rounded cumulative target after each slot; the seed's target is
+    // 0 because half < sumW. Each slot gets the step between its target and
+    // the one before.
+    val upto = stream.FromArray(weights)
+        .Scan(0, (acc, w) => acc + total * MaxInt(0, w))
+        .Map((acc) => (acc + half) / sumW)
+        .ToArray()
+    return upto.Zip(upto.Drop(1)).Map((t) => t.V2 - t.V1)
 }
 
 // renderText lays out `content` on a single line, clipped to the area width.
@@ -2111,24 +2015,24 @@ func distributeSlack(total int, weights Array[int]) Array[int] {
 // A wide glyph that would only half-fit at the right edge is dropped instead
 // of bleeding past the boundary.
 func renderText(content string, style Style, area Rect, buf *Buffer) {
-    var x = area.X
-    val maxX = area.X + area.Width
-    for _, r := range content {
-        val w = RuneCellWidth(r)
-        if w == 0 {
-            // Combining mark — drop (a future iteration could merge into the
-            // previous cell's glyph; ASCII/Latin paths unaffected).
-            continue
-        }
-        if x + w > maxX {
-            return
-        }
-        buf.Set(x, area.Y, Cell(Ch = r, St = style))
-        if w == 2 {
-            buf.Set(x + 1, area.Y, Cell(Ch = ' ', St = style))
-        }
-        x = x + w
+    drawClipped(content, style, area.X, area.Y, area.X + area.Width, buf)
+}
+
+// drawClipped paints `content` from column `x`, stopping at the first glyph
+// that would cross `maxX` — `DrawText` does the cell writes (wide glyphs and
+// their trailing half-cell, combining marks dropped), `StringCellTruncate`
+// decides where the cut falls. The common case fits, and skips building the
+// truncated copy.
+//
+// Returns the column after the last glyph, or one past `maxX` when the run
+// was cut: `drawSpans` threads that into the next span, which then has no
+// room at all, so a narrower glyph further along cannot slide into the gap.
+func drawClipped(content string, style Style, x int, y int, maxX int, buf *Buffer) int {
+    if stringFitsInCells(content, maxX - x) {
+        return x + buf.DrawText(x, y, content, style)
     }
+    buf.DrawText(x, y, StringCellTruncate(content, maxX - x), style)
+    return maxX + 1
 }
 
 // renderFill paints the whole area with the fill cell.
@@ -2155,34 +2059,12 @@ func renderBorder(
     // Edges. Each runs the full span and lets the corner pass below
     // overwrite the ends, so a partial border (a lone left rule, say) is a
     // clean line rather than a box missing three walls.
-    if sides.Top {
-        var x = area.X
-        for x <= right {
-            buf.Set(x, area.Y, Cell(Ch = g.H, St = style))
-            x = x + 1
-        }
-    }
-    if sides.Bottom {
-        var x = area.X
-        for x <= right {
-            buf.Set(x, bottom, Cell(Ch = g.H, St = style))
-            x = x + 1
-        }
-    }
-    if sides.Left {
-        var y = area.Y
-        for y <= bottom {
-            buf.Set(area.X, y, Cell(Ch = g.V, St = style))
-            y = y + 1
-        }
-    }
-    if sides.Right {
-        var y = area.Y
-        for y <= bottom {
-            buf.Set(right, y, Cell(Ch = g.V, St = style))
-            y = y + 1
-        }
-    }
+    val hEdge = Cell(Ch = g.H, St = style)
+    val vEdge = Cell(Ch = g.V, St = style)
+    if sides.Top    { buf.Fill(Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1), hEdge) }
+    if sides.Bottom { buf.Fill(Rect(X = area.X, Y = bottom, Width = area.Width, Height = 1), hEdge) }
+    if sides.Left   { buf.Fill(Rect(X = area.X, Y = area.Y, Width = 1, Height = area.Height), vEdge) }
+    if sides.Right  { buf.Fill(Rect(X = right,  Y = area.Y, Width = 1, Height = area.Height), vEdge) }
 
     // Corners only exist where two edges actually meet.
     if sides.Top && sides.Left     { buf.Set(area.X, area.Y, Cell(Ch = g.TL, St = style)) }
@@ -2300,26 +2182,7 @@ func renderCellRich(lines Array[Line], style Style, over Style, area Rect, buf *
 // "a". drawSpans backs both RichTextW and block titles, so that applied to
 // every rich-text row and every caption.
 func drawSpans(spans Array[Span], x int, y int, maxX int, buf *Buffer) {
-    var cx = x
-    var i = 0
-    val n = spans.Length()
-    for i < n {
-        val s = spans.Get(i)
-        for _, r := range s.Content {
-            val w = RuneCellWidth(r)
-            if w == 0 {
-                // Combining mark — consumes no columns, same as renderText.
-                continue
-            }
-            if cx + w > maxX {
-                return
-            }
-            buf.Set(cx, y, Cell(Ch = r, St = s.Style))
-            if w == 2 { buf.Set(cx + 1, y, Cell(Ch = ' ', St = s.Style)) }
-            cx = cx + w
-        }
-        i = i + 1
-    }
+    spans.FoldLeft(x, (cx, s) => drawClipped(s.Content, s.Style, cx, y, maxX, buf))
 }
 
 // titlePositionEqual / alignEqual — value comparison on zero-field sealed
@@ -2342,18 +2205,16 @@ func alignEqual(a Align, b Align) bool = a match {
 // ellipsise or scroll).
 func renderRichText(text RichText, area Rect, buf *Buffer) {
     val maxX = area.X + area.Width
-    var row = 0
-    for row < area.Height && row < text.Lines.Length() {
-        val line = text.Lines.Get(row)
+    text.Lines.Take(area.Height).ZipWithIndex().ForEach((t) => {
+        val line = t.V1
         val w = MinInt(area.Width, line.CellWidth())
         val startX = line.Align match {
             case AlignLeft()   => area.X
             case AlignCenter() => area.X + MaxInt(0, (area.Width - w) / 2)
             case AlignRight()  => area.X + MaxInt(0, area.Width - w)
         }
-        drawSpans(line.Spans, startX, area.Y + row, maxX, buf)
-        row = row + 1
-    }
+        drawSpans(line.Spans, startX, area.Y + t.V2, maxX, buf)
+    })
 }
 
 // renderPadding reduces the area by the padding values and recurses.
@@ -2599,41 +2460,16 @@ func intrinsicChildHeight(c LayoutChild, width int) int = c.Constraint match {
 // paragraphIntrinsicWidth returns the widest line in `content` (split on
 // newlines) — what a fully-expanded Paragraph would want as its natural
 // width before any wrap happens.
-func paragraphIntrinsicWidth(content string) int {
-    var width = 0
-    var current = 0
-    for _, c := range content {
-        if c == '\n' {
-            if current > width { width = current }
-            current = 0
-        } else {
-            current = current + 1
-        }
-    }
-    if current > width { width = current }
-    return width
-}
+func paragraphIntrinsicWidth(content string) int =
+    ArrayFromSlice(strings.Split(content, "\n")).Map((l) => l.Size()).FoldLeft(0, MaxInt)
 
-// paragraphIntrinsicHeight counts lines (newlines + 1, with a floor of 1).
-func paragraphIntrinsicHeight(content string) int {
-    if content == "" { return 1 }
-    var n = 1
-    for _, c := range content {
-        if c == '\n' { n = n + 1 }
-    }
-    return n
-}
+// paragraphIntrinsicHeight counts lines: newlines + 1, so "" is one line.
+func paragraphIntrinsicHeight(content string) int = strings.Count(content, "\n") + 1
 
 // RuneCount returns the number of Unicode code points in `s`. Useful for
 // laying out fixed-width text slots — for cell-width math (CJK, emoji,
 // combining marks) prefer `StringCellWidth` from runewidth.gala.
-func RuneCount(s string) int {
-    var n = 0
-    for _ = range s {
-        n = n + 1
-    }
-    return n
-}
+func RuneCount(s string) int = s.Size()
 
 // MaxInt returns the larger of two ints.
 func MaxInt(a int, b int) int = if (a > b) a else b
