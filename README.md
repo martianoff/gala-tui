@@ -39,6 +39,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 - SGR mouse mode (`\x1b[?1006h`) — clicks, scroll, drag
 - **Bracketed paste** — a paste arrives as one event, not N keypresses
 - **`PrintAbove`** — put lines in the scrollback above an inline viewport, where they survive the app
+- **Fixed viewport** — `FixedBackend(rect)` renders into one rectangle of the screen and leaves the rest alone
 - **Focus events** — know when the terminal window gains or loses focus
 - **Kitty keyboard protocol** — tells Ctrl+I from Tab, Ctrl+M from Enter, Esc from an escape sequence
 - OSC 8 hyperlinks · OSC 52 clipboard · OSC 2 terminal title
