@@ -98,6 +98,7 @@ TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan(
 |---|---|---|
 | `SpansLine(spans…)` | `(Span…) Widget` | One row of differently-styled runs. |
 | `RichTextView(text)` | `(RichText) Widget` | A block of `Line`s, each with its own alignment. |
+| `ParagraphView(spec)` | `(ParagraphSpec) Widget` | A block of styled text that wraps to its width (styles survive the break), with alignment and scrolling. Build with `ParagraphOf(richText)` / `ParagraphOfString(s)` — see below. |
 | `Restyled(inner, f)` | `(Widget, func(Style) Style) Widget` | Render, then rewrite every cell's style in the area — keeps glyphs. This is how a region carries a style. |
 | `Highlighted(inner, style)` | `(Widget, Style) Widget` | Flattens the area to `style`. Wins over an outer `.With*`. |
 | `Backdrop(inner, bg)` | `(Widget, Color) Widget` | Fills a background only where a cell has not claimed one. |
@@ -109,6 +110,32 @@ SpansLine(
     SpanOf(" in 2m13s"),
 )
 ```
+
+`ParagraphView` is the general block of text. `Paragraph(string)` is still
+there for one plain string in one style.
+
+```gala
+ParagraphView(ParagraphOf(RichTextOfLines(LineOfSpans(
+        SpanStyled("Deploy blocked. ", bold),
+        SpanOf("Two checks are failing on "), SpanStyled("main", code))))
+    .Aligned(AlignCenter())       // every row; default keeps each Line's own
+    .WithStyle(panel)             // fills the area, under every span
+    .ScrollTo(row))               // rows AFTER wrapping; past the end shows the last page
+```
+
+- `.NoWrap()` keeps each line on one row, clipped — for text whose line
+  breaks matter — and `.Pan(x)` then scrolls it sideways, from wherever the
+  line's alignment put it; `.ScrollTo(y)` leaves the pan alone. A full-width
+  character cut in half by the pan becomes a blank, so columns stay put.
+- `ParagraphLineCount(spec, width)` is the row count at a width, through the
+  same rows the renderer draws: size a `Scrollbar` from it, and clamp your
+  offset to `ParagraphMaxScroll(spec, width, height)` — the renderer shows
+  the last page for anything past it — and the thumb stays on the track.
+- Wrapping reflows only lines that do not fit, so an indented or aligned
+  line that fits is drawn exactly as written. A `"\n"` inside a span starts
+  a new row, wrapped or not.
+- A layout asking for the paragraph's height at a width
+  (`IntrinsicHeightAt`) gets the wrapped count.
 
 ```gala
 Column(ArrayOf[LayoutChild](
@@ -328,8 +355,9 @@ SparklineOf(ArrayOf[Option[int]](Some(4), Some(0),      Some(4)), style)  // █
 |---|---|---|
 | `SelectList(items, selected)` | `(Array[ListItem], int) Widget` | Vertical list. Each item carries label + optional hint via `NewListItem(label)`. |
 | `SelectListOf(labels, selected)` | `(Array[string], int) Widget` | Convenience over `SelectList` when you only need labels. |
+| `SelectListView(spec)` | `(ListSpec) Widget` | Every list option: `ListSpecOf(items, sel)` then `.Focus(b)`, `.ScrollTo(n)`, `.Reversed()`, `.WithHighlightSymbol("▶ ", spacing?)` — the cursor marked in a column of its own, visible without colour — and `.WithScrollPadding(n)`, which scrolls early to keep `n` items of context past the cursor. `SelectList`, `SelectListOf`, `SelectListAt` and `SelectListReversed` are this with the defaults. |
 | `Table(data)` | `(TableData) Widget` | Fixed grid; pre-sized columns. |
-| `TableView(spec)` | `(TableSpec) Widget` | Styled cells, header + footer, multi-line rows, a highlight symbol, and row / column / cell selection. Scrolls to keep the cursor visible. Build the spec with `TableSpecOf(widths, rows)` — see below. |
+| `TableView(spec)` | `(TableSpec) Widget` | Styled cells, header + footer, multi-line rows, a highlight symbol, and row / column / cell selection. Scrolls to keep the cursor visible; `.WithScrollPadding(n)` scrolls early to keep `n` rows past it in view — the same rule as `SelectListView`. Build the spec with `TableSpecOf(widths, rows)` — see below. |
 | `DataTableView(dt)` | `(DataTable) Widget` | Sortable + filterable. State in `DataTable` model — drive with `DataTableUpdate`. |
 | `Tree(root)` | `(TreeNode) Widget` | Static collapsible tree. Build with `NewTreeBranch`/`NewTreeBranchExpanded`/`NewTreeLeaf`. |
 | `TreeFocused(root, cursor, focused = false)` | `(TreeNode, int, bool) Widget` | Interactive variant — cursor highlight + focus accent. Pair with `TreeFlatRowCount` for clamping and `TreeToggleAt` for expand/collapse. |
