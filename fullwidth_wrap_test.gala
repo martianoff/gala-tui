@@ -34,10 +34,13 @@ type vt struct {
     var Cx      int
     var Cy      int
     var Pending bool
+    var SavedX       int
+    var SavedY       int
+    var SavedPending bool
 }
 
 func newTerm(w int, h int) *vt =
-    &vt{Screen: NewBuffer(w, h), Cx: 0, Cy: 0, Pending: false}
+    &vt{Screen: NewBuffer(w, h), Cx: 0, Cy: 0, Pending: false, SavedX: 0, SavedY: 0, SavedPending: false}
 
 func (tm *vt) put(c rune) {
     if tm.Pending {
@@ -76,6 +79,20 @@ func (tm *vt) feed(s string) {
                 tm.cursorTo(runeRange(rs, i + 2, fin))
             }
             i = fin + 1
+            continue
+        }
+        if c == rune(27) && i + 1 < n && (rs[i+1] == '7' || rs[i+1] == '8') {
+            // DECSC / DECRC: save and restore the cursor, wrap flag included.
+            if rs[i+1] == '7' {
+                tm.SavedX = tm.Cx
+                tm.SavedY = tm.Cy
+                tm.SavedPending = tm.Pending
+            } else {
+                tm.Cx = tm.SavedX
+                tm.Cy = tm.SavedY
+                tm.Pending = tm.SavedPending
+            }
+            i = i + 2
             continue
         }
         if c == rune(27) {

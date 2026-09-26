@@ -430,6 +430,13 @@ func FillCh(ch rune) Widget = FillWidget(Ch = ch, Style = DefaultStyle())
 func FillChStyled(ch rune, style Style) Widget =
     FillWidget(Ch = ch, Style = style)
 
+// Clear resets its area to blank cells in the default style — ratatui's
+// `Clear`. Stack it under a popup so whatever the screen drew there does not
+// show through the popup's own blank cells:
+//
+//     PopupOver(screen, Popup(x, y, 40, 8, Stack(ArrayOf[Widget](Clear(), card))))
+func Clear() Widget = FillCh(' ')
+
 // Border draws a single-line box around `inner`. Most common border; the
 // default. For other glyph sets use BorderOf.
 func Border(inner Widget) Widget = BorderOf(inner, SingleBorder())
@@ -1087,8 +1094,14 @@ func Custom(minW int, minH int, render func(Rect, *Buffer, *HitRegistry)) Widget
 //
 // `focused` (default false) brightens the selected tab so the user can
 // see at a glance which tab bar the keyboard is driving.
-func Tabs(titles Array[string], bodies Array[Widget], sel int, focused bool = false) Widget {
-    val header = tabHeaderRow(titles, sel, focused)
+func Tabs(
+    titles Array[string],
+    bodies Array[Widget],
+    sel int,
+    focused bool = false,
+    divider string = "",
+) Widget {
+    val header = tabHeaderRow(titles, sel, focused, divider)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
     return Column(ArrayOf(
         Fixed(1, header),
@@ -1108,8 +1121,9 @@ func TabsClick[T any](
     sel int,
     focused bool,
     onTabClick func(int) T,
+    divider string = "",
 ) Widget {
-    val header = tabHeaderRowClick[T](titles, sel, focused, onTabClick)
+    val header = tabHeaderRowClick[T](titles, sel, focused, onTabClick, divider)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
     return Column(ArrayOf(
         Fixed(1, header),
@@ -1117,10 +1131,10 @@ func TabsClick[T any](
     ))
 }
 
-func tabHeaderRow(titles Array[string], sel int, focused bool) Widget {
+func tabHeaderRow(titles Array[string], sel int, focused bool, divider string) Widget {
     val cells = titles.ZipWithIndex().Map((pair) =>
         tabHeaderCell(pair.V1, pair.V2 == sel, focused))
-    return OverflowRow(cells)
+    return OverflowRow(tabDivided(cells, divider))
 }
 
 // tabHeaderRowClick attaches a click contract to every title cell so
@@ -1132,6 +1146,7 @@ func tabHeaderRowClick[T any](
     sel int,
     focused bool,
     onTabClick func(int) T,
+    divider string,
 ) Widget {
     val cells = titles.ZipWithIndex().Map((pair) => {
         val rawCell = tabHeaderCell(pair.V1, pair.V2 == sel, focused)
@@ -1140,8 +1155,31 @@ func tabHeaderRowClick[T any](
             Widget     = rawCell.Widget.OnClick(onTabClick(pair.V2)),
         )
     })
-    return OverflowRow(cells)
+    return OverflowRow(tabDivided(cells, divider))
 }
+
+// tabDivided puts `divider` — ratatui's `│`, say — before every title but
+// the first, dim so it reads as structure rather than as a tab. Empty, the
+// titles sit side by side as they always have.
+//
+// Each divider travels WITH the title after it, as one cell: the bar is an
+// `OverflowRow`, and a divider laid out on its own could be the last thing
+// that fits, dangling before the `›` with nothing after it.
+func tabDivided(cells Array[LayoutChild], divider string) Array[LayoutChild] {
+    if divider == "" { return cells }
+    val dw = StringCellWidth(divider)
+    val sep = TextStyled(divider, DefaultStyle().WithDim())
+    return cells.Take(1).AppendAll(cells.Drop(1).Map((c) => c.Constraint match {
+        case Length(w) => Fixed(dw + w, Row(ArrayOf[LayoutChild](Fixed(dw, sep), c)))
+        case _         => c
+    }))
+}
+
+// interleave puts `sep` between neighbouring cells — not before the first
+// or after the last. The one rule behind the separated runs: a breadcrumb's
+// arrows and a key-hint row's dots.
+func interleave(cells Array[LayoutChild], sep LayoutChild) Array[LayoutChild] =
+    cells.Take(1).AppendAll(cells.Drop(1).FlatMap((c) => ArrayOf[LayoutChild](sep, c)))
 
 func tabHeaderCell(title string, selected bool, focused bool) LayoutChild {
     val style = if (selected && focused)

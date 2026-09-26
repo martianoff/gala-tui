@@ -25,7 +25,7 @@ func shots() Array[Shot] = ArrayOf[Shot](
     Shot(Name = "forms",        Cols = 64, Rows = 9,  W = shotForms()),
     Shot(Name = "modals",       Cols = 64, Rows = 9,  W = shotModals()),
     Shot(Name = "status",       Cols = 64, Rows = 9,  W = shotStatus()),
-    Shot(Name = "navigation",   Cols = 64, Rows = 10, W = shotNavigation()),
+    Shot(Name = "navigation",   Cols = 64, Rows = 13, W = shotNavigation()),
     Shot(Name = "markdown",     Cols = 64, Rows = 11, W = shotMarkdown()),
     Shot(Name = "chrome",       Cols = 64, Rows = 6,  W = shotChrome()),
     Shot(Name = "indicators",   Cols = 64, Rows = 8,  W = shotIndicators()),
@@ -108,7 +108,14 @@ func shotCanvas() Widget {
 
 func shotCharts() Widget =
     Column(ArrayOf[LayoutChild](
-        Fixed(7, Titled(LineChart(demoSeries()), " LineChart ")),
+        Fixed(7, Row(ArrayOf[LayoutChild](
+            Flex(2, Titled(LineChart(demoSeries()), " LineChart ")),
+            // The same samples as amounts: a Chart dataset drawn as bars.
+            Flex(1, Titled(Chart(ArrayOf[ChartDataset](DatasetBars("", demoSeries().Drop(18)
+                    .ZipWithIndex().Map((p) => CanvasPoint(X = float64(p.V2), Y = float64(p.V1))),
+                    DefaultStyle().WithFg(BrightCyan()))),
+                AxisBare(XBounds(-0.5, 11.5)), AxisBare(YBounds(0.0, 70.0))), " Chart — bars ")),
+        ))),
         Fixed(1, LineGauge(64)),
         Fixed(1, LineGaugeLabeled(" deploy ", 64)),
         Fixed(1, Gauge(64)),
@@ -253,6 +260,10 @@ func shotToasts() ToastQueue {
 func shotNavigation() Widget =
     Column(ArrayOf[LayoutChild](
         Fixed(1, Breadcrumb(ArrayOf[string]("home", "builds", "#4211"))),
+        Fixed(1, Text("")),
+        // Tabs with a divider between the titles; the body is the selected one.
+        Fixed(2, Tabs(ArrayOf[string]("Running", "Succeeded", "Failed"),
+            ArrayOf[Widget](Text(" 3 builds"), Text(" 41 builds"), Text(" 2 builds")), 0, true, "│")),
         Fixed(1, Text("")),
         Fixed(6, Row(ArrayOf[LayoutChild](
             Flex(1, Titled(MenuView(NewMenu(ArrayOf[MenuItem](

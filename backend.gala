@@ -97,6 +97,11 @@ struct Backend(
     Open         func(bool) BackendSession,
     Paint        func(*Buffer, *Buffer),
     InsertBefore func(Array[string]) bool,
+    // Origin is where the viewport's top-left cell sits on the screen, for
+    // a backend that does not start at (0, 0). Mouse events arrive in SCREEN
+    // cells and hit regions are in buffer cells, so the run loop shifts every
+    // mouse event by it. Optional, like InsertBefore: nil is (0, 0).
+    Origin       func() Tuple[int, int],
 )
 
 // ----------------------------------------------------------------------------
@@ -108,16 +113,8 @@ struct Backend(
 func TerminalBackend() Backend = Backend(
     Name  = "terminal",
     Size  = () => TermSize(),
-    Write = (s) => {
-        fmt.Fprint(os.Stdout, s)
-    },
-    Read  = (buf) => {
-        var n, err = os.Stdin.Read(buf)
-        if err != nil {
-            return (0, false)
-        }
-        return (n, true)
-    },
+    Write = (s) => stdoutWrite(s),
+    Read  = (buf) => stdinRead(buf),
     ReadAsync = () => terminalReadFuture(),
     Open  = (mouse) => terminalOpen(mouse),
     Paint = (frame, prev) => {
@@ -135,6 +132,21 @@ func TerminalBackend() Backend = Backend(
     // frame the app is drawing.
     InsertBefore = (lines) => false,
 )
+
+// stdoutWrite / stdinRead are the real terminal's byte I/O, shared by every
+// backend that talks to it. A read error ends the input stream: a closed
+// stdin is not recoverable, and spinning on it burns a core.
+func stdoutWrite(s string) {
+    fmt.Fprint(os.Stdout, s)
+}
+
+func stdinRead(buf []byte) Tuple[int, bool] {
+    var n, err = os.Stdin.Read(buf)
+    if err != nil {
+        return (0, false)
+    }
+    return (n, true)
+}
 
 // terminalOpen puts the terminal into raw mode and enters the alternate
 // screen, returning the session that undoes both.
@@ -403,16 +415,8 @@ func InlineBackend(height int) Backend {
             val (w, _) = TermSize()
             return (w, h)
         },
-        Write = (s) => {
-            fmt.Fprint(os.Stdout, s)
-        },
-        Read  = (buf) => {
-            var n, err = os.Stdin.Read(buf)
-            if err != nil {
-                return (0, false)
-            }
-            return (n, true)
-        },
+        Write = (s) => stdoutWrite(s),
+        Read  = (buf) => stdinRead(buf),
         ReadAsync = () => terminalReadFuture(),
         Open  = (mouse) => inlineOpen(h, mouse),
         Paint = (frame, prev) => {
@@ -521,7 +525,20 @@ func inlineReserveString(height int) string =
 // up leaves the cursor at the top of a block that is now guaranteed to be
 // on screen. Drawing first and scrolling later would push the top of the
 // frame into the scrollback mid-render.
-func inlineOpen(height int, mouse bool) BackendSession {
+func inlineOpen(height int, mouse bool) BackendSession =
+    openRawSession(mouse,
+        (modesOn) => inlineEnterString(height, modesOn),
+        (modesOff) => inlineExitString(height, modesOff))
+
+// openRawSession takes raw mode and the input modes on the NORMAL screen —
+// what every backend but the full-screen one wants — writing `enter` once
+// the modes are known and `exit` when the session closes. A failure to enter
+// raw mode means stdin is not a tty, and the session is a no-op.
+func openRawSession(
+    mouse bool,
+    enter func(string) string,
+    exit func(string) string,
+) BackendSession {
     val fd = int(os.Stdin.Fd())
     var state, err = term.MakeRaw(fd)
     if err != nil {
@@ -533,9 +550,9 @@ func inlineOpen(height int, mouse bool) BackendSession {
     if mouse {
         val _ = EnableVTInput()
     }
-    fmt.Fprint(os.Stdout, inlineEnterString(height, termModesOn(modes)))
+    stdoutWrite(enter(termModesOn(modes)))
     return BackendSession(Close = () => {
-        fmt.Fprint(os.Stdout, inlineExitString(height, modesOff))
+        stdoutWrite(exit(modesOff))
         val _ = term.Restore(fd, state)
     })
 }
@@ -566,4 +583,96 @@ func inlineExitString(height int, modesOff string) string {
     sb.WriteString(modesOff)
     sb.WriteString(ansiCursorShow())
     return sb.String()
+}
+
+// ----------------------------------------------------------------------------
+// Fixed viewport
+// ----------------------------------------------------------------------------
+
+// FixedBackend renders into a fixed rectangle of the normal screen —
+// ratatui's `Viewport::Fixed`. The app owns `area` and nothing else: the
+// terminal around it keeps whatever the shell or another program drew
+// there, and on exit the frame stays where it was drawn.
+//
+// It is the shape for a TUI that is one panel of a larger screen — a status
+// strip pinned to the top rows, a pane beside output another process owns.
+// Unlike `InlineBackend`, whose rows follow the prompt, the rectangle is in
+// absolute screen cells.
+//
+// What sharing the screen asks of it:
+//
+//   - Every paint saves and restores the cursor (DECSC / DECRC), so text
+//     another process writes next still lands where that process left it,
+//     not wherever the last diff run ended inside the panel.
+//   - A terminal resize forces a full repaint even when the clipped
+//     rectangle is the same size: the normal screen reflows or scrolls on
+//     a resize, and the cells a diff would not touch are the damaged ones.
+//   - A rectangle, or the part of one, off the screen is not drawn — the
+//     terminal would clamp those moves onto a cell the app does not own.
+//
+// Mouse events are shifted into the rectangle through `Origin`, and events
+// outside it are dropped by the run loop.
+func FixedBackend(area Rect) Backend {
+    val a = fixedArea(area)
+    var lastTerm = (0, 0)
+    return Backend(
+        Name  = "fixed",
+        Size  = () => fixedSize(a, TermSize()),
+        Write = (s) => stdoutWrite(s),
+        Read  = (buf) => stdinRead(buf),
+        ReadAsync = () => terminalReadFuture(),
+        Open  = (mouse) => fixedOpen(a, mouse),
+        Paint = (frame, prev) => {
+            val term = TermSize()
+            val resized = term != lastTerm
+            lastTerm = term
+            stdoutWrite(fixedPaintString(frame, if (resized) nil else prev, a, term))
+        },
+        // The rows above a fixed rectangle belong to someone else, so lines
+        // have nowhere to go — the same answer the alternate screen gives.
+        InsertBefore = (lines) => false,
+        Origin = () => (a.X, a.Y),
+    )
+}
+
+// fixedArea clips the rectangle at the top and left edges of the screen: a
+// negative origin would put malformed `ESC[row;-1H` moves on the wire.
+func fixedArea(area Rect) Rect {
+    val x = MaxInt(0, area.X)
+    val y = MaxInt(0, area.Y)
+    return Rect(X = x, Y = y,
+                Width = MaxInt(0, area.Width - (x - area.X)),
+                Height = MaxInt(0, area.Height - (y - area.Y)))
+}
+
+// fixedSize is the rectangle clipped to a terminal of `term` cells, at least
+// one cell each way so the app always has a frame to render into — an
+// off-screen rectangle renders it and `fixedPaintString` draws none of it.
+func fixedSize(area Rect, term Tuple[int, int]) Tuple[int, int] =
+    (MaxInt(1, MinInt(area.Width, term.V1 - area.X)),
+     MaxInt(1, MinInt(area.Height, term.V2 - area.Y)))
+
+// fixedPaintString is one paint: nothing when the rectangle is off the
+// screen, otherwise the diff offset to the rectangle, wrapped in a cursor
+// save and restore.
+func fixedPaintString(frame *Buffer, prev *Buffer, area Rect, term Tuple[int, int]) string =
+    if (area.X >= term.V1 || area.Y >= term.V2 || area.Width <= 0 || area.Height <= 0) ""
+    else "\x1b7" + frame.DiffStringAt(prev, area.X, area.Y) + "\x1b8"
+
+// fixedOpen takes raw mode and the input modes without the alternate screen:
+// the screen around the rectangle is not the app's to hide.
+func fixedOpen(area Rect, mouse bool) BackendSession =
+    openRawSession(mouse,
+        (modesOn) => ansiCursorHide() + modesOn,
+        (modesOff) => fixedExitString(area, TermSize(), modesOff))
+
+// fixedExitString leaves the cursor on the line below the rectangle, so the
+// shell's next prompt does not land on top of the app's last frame. When the
+// rectangle reaches the bottom of the screen there is no line below: the
+// cursor goes to the last row and a newline scrolls one into existence.
+func fixedExitString(area Rect, term Tuple[int, int], modesOff string) string {
+    val below = area.Y + MinInt(area.Height, term.V2 - area.Y)
+    val move = if (below < term.V2) ansiMoveTo(below + 1, 1)
+               else ansiMoveTo(term.V2, 1) + "\r\n"
+    return ResetSgr() + move + modesOff + ansiCursorShow()
 }

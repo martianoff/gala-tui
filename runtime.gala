@@ -37,6 +37,9 @@ func ansiCursorShow() string   = "\x1b[?25h"
 func ansiClear() string        = "\x1b[2J"
 func ansiHome() string         = "\x1b[H"
 
+// ansiMoveTo moves the cursor to 1-indexed (row, col) — absolute screen cells.
+func ansiMoveTo(row int, col int) string = s"\x1b[${row};${col}H"
+
 // ----------------------------------------------------------------------------
 // Modern input-protocol modes.
 //
@@ -748,7 +751,7 @@ func RunWithMouse[M any, T any](
         var inputPrints = EmptyArray[string]()
         val (exitNow, leftover) = processInputBytesWithHits(
             program, &model, &pending, &inputPrints, &pendingClick, &dragActive,
-            avail, makeInputMsg, hits,
+            avail, makeInputMsg, hits, backendViewport(backend),
         )
         carry = leftover
         // Flushed before the exit check so an event that prints on its way
@@ -781,15 +784,19 @@ func processInputBytesWithHits[M any, T any](
     buf []byte,
     makeInputMsg func(InputEvent) T,
     hits *HitRegistry,
+    viewport Rect,
 ) Tuple[bool, []byte] {
     val n = buf.Size()
     var consumed = 0
     for consumed < n {
-        val (ev, c) = ParseInput(Slice(buf, consumed, n))
+        val (parsed, c) = ParseInput(Slice(buf, consumed, n))
+        val shifted = toViewport(parsed, viewport)
         if c == 0 {
             return (false, carryOver(Slice(buf, consumed, n)))
         }
         consumed = consumed + c
+        if shifted.IsEmpty() { continue }
+        val ev = shifted.Get()
 
         if isForcedQuit(ev) {
             return (true, SliceEmpty[byte]())
@@ -1343,6 +1350,41 @@ func processKeyBytes[M any, T any](
         }
     }
     return (false, SliceEmpty[byte]())
+}
+
+// backendOrigin is the backend's `Origin`, or (0, 0) for one that has none.
+func backendOrigin(b Backend) Tuple[int, int] =
+    if (b.Origin == nil) (0, 0) else b.Origin()
+
+// backendViewport is where the app's cells are on the screen: the backend's
+// origin, at the size it renders.
+func backendViewport(b Backend) Rect {
+    val (x, y) = backendOrigin(b)
+    val (w, h) = b.Size()
+    return Rect(X = x, Y = y, Width = w, Height = h)
+}
+
+// toViewport moves a mouse event from screen cells into viewport cells, or
+// drops it when it happened outside the viewport: a click, a wheel turn or
+// a drag over someone else's part of the screen is not the app's, and before
+// viewports could sit anywhere but (0, 0) an app never saw a coordinate
+// outside its own area — handlers index rows with them.
+//
+// A RELEASE outside is kept, clamped to the nearest edge, because it is what
+// ends a drag the app started inside: dropping it would leave the drag
+// running with no button held.
+func toViewport(ev InputEvent, vp Rect) Option[InputEvent] = ev match {
+    case MouseInput(m) => {
+        val x = m.X - vp.X
+        val y = m.Y - vp.Y
+        val inside = x >= 0 && y >= 0 && x < vp.Width && y < vp.Height
+        return if (inside) Some(MouseInput(m.Copy(X = x, Y = y)))
+               else if (!m.Pressed) Some(MouseInput(m.Copy(
+                   X = clampInt(x, 0, MaxInt(0, vp.Width - 1)),
+                   Y = clampInt(y, 0, MaxInt(0, vp.Height - 1)))))
+               else None[InputEvent]()
+    }
+    case _ => Some(ev)
 }
 
 // emitPrints hands `lines` to the backend's scrollback and repaints.

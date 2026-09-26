@@ -114,7 +114,10 @@ func megaChartsMain(m MegaModel, th Theme) Widget {
         Fixed(6, Titled(megaGaugeStack(pct), " Gauges ")),
         Fixed(5, Titled(megaSparklines(series, offset),
                         " Sparkline — left-to-right, right-to-left, and gaps ")),
-        Flex(1, Titled(megaMultiChart(series), " MultiLineChart ")),
+        Flex(1, Row(ArrayOf[LayoutChild](
+            Flex(2, Titled(megaMultiChart(series), " MultiLineChart ")),
+            Flex(1, Titled(megaBarsChart(series), " Chart — bars ")),
+        ))),
     ))
 }
 
@@ -169,6 +172,15 @@ func megaSparklines(series Array[int], offset int) Widget =
 // stays a clean diff.
 func megaGappedSeries(series Array[int], offset int) Array[Option[int]] =
     ArrayTabulate(series.Length(), (i) => Unless((offset + i) % 37 < 2, series.Get(i)))
+
+// megaBarsChart is the same feed as amounts rather than a trend: the last
+// dozen samples as bars on a Chart, which is what GraphBar is for.
+func megaBarsChart(series Array[int]) Widget {
+    val tail = series.Drop(MaxInt(0, series.Length() - 12))
+    val pts = tail.ZipWithIndex().Map((p) => CanvasPoint(X = float64(p.V2), Y = float64(p.V1)))
+    return Chart(ArrayOf[ChartDataset](DatasetBars("", pts, DefaultStyle().WithFg(BrightCyan()))),
+                 AxisBare(XBounds(-0.5, 11.5)), AxisBare(YBounds(0.0, 100.0)))
+}
 
 // megaMultiChart overlays two series. The chart is a filled glyph matrix, so
 // the second one painted wins every cell they share — which means two series
@@ -469,7 +481,10 @@ func megaReviewNotes() string =
 
 func megaLinkRow() Widget =
     PaddingHV(1, 1, Column(ArrayOf[LayoutChild](
-        Fixed(1, Link("gala-tui on GitHub", "https://github.com/martianoff/gala-tui")),
+        // The underline in its own colour (SGR 58): a dim rule under bright
+        // text, where the terminal supports it, and a plain underline where not.
+        Fixed(1, LinkStyled("gala-tui on GitHub", "https://github.com/martianoff/gala-tui",
+            DefaultStyle().WithFg(BrightCyan()).WithUnderlineColor(BrightBlack()))),
         Fixed(1, Text("")),
         Fixed(1, Row(ArrayOf[LayoutChild](
             Fixed(12, Tag(" passing ", BrightGreen())),
