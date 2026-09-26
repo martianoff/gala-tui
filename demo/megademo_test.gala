@@ -1638,3 +1638,49 @@ func megaUniqueLength(xs Array[string]) int {
     }
     return uniq.Length()
 }
+
+// megaColumns stitches columns [x0, x1) of every row — one pane's worth of
+// the screen, so an assertion about a pane cannot be satisfied by text that
+// happens to appear in another.
+func megaColumns(buf *Buffer, x0 int, x1 int) string {
+    var s = ""
+    var y = 0
+    for y < buf.Height {
+        var x = x0
+        for x < x1 {
+            s = s + string(buf.CharAt(x, y))
+            x = x + 1
+        }
+        s = s + "\n"
+        y = y + 1
+    }
+    return s
+}
+
+func megaOverviewAt36() *Buffer {
+    val buf = NewBuffer(120, 36)
+    RenderTo(MegaView(NewMegaModel()), Rect(X = 0, Y = 0, Width = 120, Height = 36), buf)
+    return buf
+}
+
+// The sidebar's throughput chart is a grouped column chart: every team's
+// label sits under its pair of bars, and the tallest bar carries its value.
+// Read from the sidebar's own columns — "42" appears in the build numbers
+// elsewhere on the screen — at 36 rows, the tour's size, where it has to fit
+// between the nav and the tree.
+func TestMegaSidebarShowsTheGroupedThroughputChart(t T) T {
+    val sidebar = megaColumns(megaOverviewAt36(), 0, 28)
+    val t1 = IsTrue(t, megaStringHas(sidebar, "api     web    infra"))
+    val t2 = IsTrue(t1, megaStringHas(sidebar, "42"))
+    return IsTrue(t2, megaStringHas(sidebar, "pass / fail"))
+}
+
+// The overview's stage-time chart is the horizontal form: stage names as
+// group labels, p50 / p95 in the label column, the tail's value printed past
+// its bar.
+func TestMegaOverviewShowsStageTimesLyingDown(t T) T {
+    val main = megaColumns(megaOverviewAt36(), 28, 120)
+    val t1 = IsTrue(t, megaStringHas(main, "compile"))
+    val t2 = IsTrue(t1, megaStringHas(main, "p95 "))
+    return IsTrue(t2, megaStringHas(main, " 188"))
+}

@@ -47,6 +47,7 @@ gala_library(
     srcs = [
         "advanced.gala",
         "backend.gala",
+        "barchart.gala",
         "buffer.gala",
         "calendar.gala",
         "cancellable.gala",
@@ -124,6 +125,7 @@ gala_test(
         "async_test.gala",
         "autoscroll_test.gala",
         "backend_test.gala",
+        "barchart_test.gala",
         "block_richtext_test.gala",
         "calendar_test.gala",
         "cancellable_test.gala",
@@ -237,6 +239,7 @@ gala_test(
         "backend.gala",
         "canvas.gala",
         "chart.gala",
+        "barchart.gala",
     ],
     pkg = "gala_tui",
     deps = [

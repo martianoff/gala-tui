@@ -20,7 +20,7 @@ func shots() Array[Shot] = ArrayOf[Shot](
     Shot(Name = "layout",       Cols = 64, Rows = 9,  W = shotLayout()),
     Shot(Name = "richtext",     Cols = 64, Rows = 6,  W = shotRichText()),
     Shot(Name = "canvas",       Cols = 64, Rows = 9,  W = shotCanvas()),
-    Shot(Name = "charts",       Cols = 64, Rows = 18, W = shotCharts()),
+    Shot(Name = "charts",       Cols = 64, Rows = 32, W = shotCharts()),
     Shot(Name = "lists",        Cols = 64, Rows = 11, W = shotLists()),
     Shot(Name = "forms",        Cols = 64, Rows = 9,  W = shotForms()),
     Shot(Name = "modals",       Cols = 64, Rows = 9,  W = shotModals()),
@@ -113,7 +113,26 @@ func shotCharts() Widget =
             BarChartDatum(Label = "frontend", Value = 28),
             BarChartDatum(Label = "infra",    Value = 15),
         ))),
+        Fixed(1, Text("")),
+        // The same week both ways round: grouped columns, and the same
+        // groups lying down. Pass and fail in two colours is the reason to
+        // group at all — a total per team cannot say which team is red.
+        Fixed(13, Row(ArrayOf[LayoutChild](
+            Fixed(30, Titled(BarChartOf(demoBarGroups(), DefaultStyle(),
+                BarGeometry(Width = 3, Gap = 1, GroupGap = 3)), " BarChartOf ")),
+            Fixed(2, Text("")),
+            Flex(1, Titled(HBarChartOf(demoBarGroups()), " HBarChartOf ")),
+        ))),
     ))
+
+func demoBarGroups() Array[BarGroup] {
+    val pass = DefaultStyle().WithFg(BrightGreen())
+    val fail = DefaultStyle().WithFg(BrightRed())
+    val team = (name string, passed int, failed int) => BarGroupOf(name, ArrayOf[Bar](
+        BarOf("ok", passed).WithStyle(pass),
+        BarOf("err", failed).WithStyle(fail)))
+    return ArrayOf[BarGroup](team("api", 42, 3), team("web", 28, 9), team("infra", 15, 1))
+}
 
 // demoGappedSeries is the same shape with two dropped readings, so the
 // picture shows a gap beside a baseline rather than only in prose.

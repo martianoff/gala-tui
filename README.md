@@ -27,7 +27,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 **Widgets**
 - Text · Paragraph (word-wrap) · Input (focus caret + horizontal scroll, **masked** for passwords, **click to position**) · Button · Spinner
 - List · Table · **DataTable** (sort + filter + frozen header + scrolling) · Tree
-- Progress · ProgressLabeled · Gauge · **LineGauge** (one row: caption + rule) · Sparkline · BarChart · **LineChart** (sub-cell resolution)
+- Progress · ProgressLabeled · Gauge · **LineGauge** (one row: caption + rule) · Sparkline · BarChart · **BarChartOf** / **HBarChartOf** (grouped bars, vertical or horizontal, eighth-cell precision) · **LineChart** (sub-cell resolution)
 - **Canvas** — shapes in your own coordinate space at 2×4 braille resolution, including filled areas
 - **Tabs** · **Menu** · **Dropdown** · **Modal** (ConfirmDialog / AlertDialog) · **Scrollbar** (4 orientations) · **Viewport**
 - **Toast** · **StatusBar** · **LogPanel** · **Form** (multi-field with validators)
@@ -71,7 +71,7 @@ them they put every widget on screen at least once:
 
 | Screen | What it shows |
 |---|---|
-| Overview | sidebar nav, collapsible Tree, BarChart, Sparkline, Gauge, Recent Builds |
+| Overview | sidebar nav, collapsible Tree, grouped BarChartOf, Sparkline, Gauge, Recent Builds |
 | Builds | sortable/filterable DataTable behind a Tabs bar |
 | Pipelines | the Tree as the main pane, expand/collapse by double-click |
 | Logs | LogPanel, also reachable as a drawer over any screen |
