@@ -4,6 +4,7 @@ import (
     "strings"
     "martianoff/gala/go_builtins"
     . "martianoff/gala/go_interop"
+    "slices"
 )
 
 // Cell is the atomic unit of rendering: a single rune painted with a style.
@@ -194,6 +195,7 @@ func NewBuffer(w int, h int) *Buffer {
     if w < 0 || h < 0 {
         go_builtins.Panic("NewBuffer: negative dimensions")
     }
+    // The buffer's own storage, filled in place: one append per cell.
     var cs = SliceWithCapacity[Cell](w * h)
     var i = 0
     for i < w * h {
@@ -322,6 +324,27 @@ func (b *Buffer) SetRegionStyle(r Rect, style Style) {
     b.RestyleRegion(r, (s) => style)
 }
 
+// blit copies the `dst`-sized block of `src` whose top-left is (sx, sy) into
+// `dst`. Source cells outside `src` are skipped rather than read as blanks;
+// destination cells outside this buffer are clipped by `Set`.
+func (b *Buffer) blit(src *Buffer, sx int, sy int, dst Rect) {
+    if dst.Zero() {
+        return
+    }
+    var y = 0
+    for y < dst.Height {
+        var x = 0
+        for x < dst.Width {
+            val idx = src.Index(sx + x, sy + y)
+            if idx >= 0 {
+                b.Set(dst.X + x, dst.Y + y, src.cells[idx])
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+}
+
 // DrawText renders a plain string starting at (x, y) with `style`, advancing
 // horizontally by each rune's grapheme width (1 cell for ASCII / Latin,
 // 2 cells for CJK / fullwidth / emoji, 0 cells for combining marks).
@@ -366,21 +389,10 @@ func (b *Buffer) Clone() *Buffer =
 // ContentsEqual is a true cell-by-cell comparison — used mainly in tests and
 // by the differential renderer. Not named `Equal` because GALA auto-generates
 // that method on struct types (would collide here on `type Buffer struct`).
-func (b *Buffer) ContentsEqual(other *Buffer) bool {
-    if b.Width != other.Width || b.Height != other.Height {
-        return false
-    }
-    for i, c := range b.cells {
-        val o = other.cells[i]
-        if c.Ch != o.Ch {
-            return false
-        }
-        if !StyleEqual(c.St, o.St) {
-            return false
-        }
-    }
-    return true
-}
+func (b *Buffer) ContentsEqual(other *Buffer) bool =
+    b.Width == other.Width && b.Height == other.Height &&
+        slices.EqualFunc(b.cells, other.cells,
+            (c Cell, o Cell) => c.Ch == o.Ch && StyleEqual(c.St, o.St))
 
 // DiffString produces an ANSI-escape string that, when written to a terminal,
 // updates only the cells of the previous frame that differ in this one. Runs
