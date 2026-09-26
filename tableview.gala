@@ -84,18 +84,6 @@ func (r TableRow) rowHeight() int =
     if (r.Height > 0) r.Height
     else MaxInt(1, r.Cells.FoldLeft(0, (a, c) => MaxInt(a, c.Lines.Length())))
 
-// HighlightSpacing is when the highlight symbol's column is reserved.
-//
-// `HighlightWhenSelected` — ratatui's default — shifts every column sideways
-// the moment a selection appears and back when it clears, which is right for
-// a table that is only sometimes interactive and jarring for one that always
-// has a cursor. `HighlightAlways` keeps the column still.
-sealed type HighlightSpacing {
-    case HighlightWhenSelected()
-    case HighlightAlways()
-    case HighlightNever()
-}
-
 // TableSpec is everything a TableView draws. Build one with `TableSpecOf`
 // and the `With*` / `Select*` methods rather than by hand.
 //
@@ -118,6 +106,7 @@ struct TableSpec(
     CellHighlight    Style,
     HighlightSymbol  string,
     HighlightSpacing HighlightSpacing,
+    ScrollPadding    int,
 )
 
 func noTableRow() TableRow = TableRow(Cells = EmptyArray[TableCell](), Style = DefaultStyle(), Height = 0)
@@ -143,6 +132,7 @@ func TableSpecOf(widths Array[Constraint], rows Array[TableRow]) TableSpec = Tab
     CellHighlight    = DefaultStyle().WithBold().WithUnderline(),
     HighlightSymbol  = "",
     HighlightSpacing = HighlightWhenSelected(),
+    ScrollPadding    = 0,
 )
 
 // WithHeader adds a header row, separated from the body by a rule unless
@@ -170,6 +160,11 @@ func (t TableSpec) SelectCell(row int, col int) TableSpec = t.Copy(Selected = ro
 // ScrollTo pins the first visible body row, instead of following the cursor.
 func (t TableSpec) ScrollTo(offset int) TableSpec = t.Copy(Offset = offset)
 
+// WithScrollPadding keeps `n` rows past the cursor in view, the same rule
+// `SelectListView` follows, so the row the next keypress lands on is
+// already on screen.
+func (t TableSpec) WithScrollPadding(n int) TableSpec = t.Copy(ScrollPadding = n)
+
 func (t TableSpec) WithHighlights(row Style, column Style, cell Style) TableSpec =
     t.Copy(RowHighlight = row, ColumnHighlight = column, CellHighlight = cell)
 
@@ -195,7 +190,7 @@ func TableView(spec TableSpec) Widget {
         t.Rows.Length(),
         t.Rows.Map((r) => r.rowHeight()),
         (i) => tableRowWidget(t, t.Rows.Get(i), i == t.Selected, t.SelectedCol, symW),
-        t.Selected, t.Offset)
+        t.Selected, t.Offset, t.ScrollPadding)
     return Stack(ArrayOf[Widget](
         FillChStyled(' ', t.Style),
         Column(header.Append(Flex(1, body)).AppendAll(tableEdgeRow(t, t.Footer, symW))),
@@ -209,16 +204,10 @@ func tableEdgeRow(t TableSpec, r TableRow, symW int) Array[LayoutChild] =
     if (r.Cells.IsEmpty()) EmptyArray[LayoutChild]()
     else ArrayOf[LayoutChild](Fixed(r.rowHeight(), tableRowWidget(t, r, false, -1, symW)))
 
-// tableSymbolWidth is the width of the highlight symbol's column: the
-// symbol's own width when it is reserved, otherwise nothing.
-func tableSymbolWidth(t TableSpec) int {
-    val w = StringCellWidth(t.HighlightSymbol)
-    return t.HighlightSpacing match {
-        case HighlightAlways()       => w
-        case HighlightWhenSelected() => if (t.Selected >= 0) w else 0
-        case HighlightNever()        => 0
-    }
-}
+// tableSymbolWidth is the symbol column's width. `TableView` has already
+// turned an out-of-range selection into none, so `Selected >= 0` is a row.
+func tableSymbolWidth(t TableSpec) int =
+    highlightSymbolWidth(t.HighlightSymbol, t.HighlightSpacing, t.Selected >= 0)
 
 val emptyTableCell = CellOf("")
 

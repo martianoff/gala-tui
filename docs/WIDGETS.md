@@ -355,8 +355,9 @@ SparklineOf(ArrayOf[Option[int]](Some(4), Some(0),      Some(4)), style)  // █
 |---|---|---|
 | `SelectList(items, selected)` | `(Array[ListItem], int) Widget` | Vertical list. Each item carries label + optional hint via `NewListItem(label)`. |
 | `SelectListOf(labels, selected)` | `(Array[string], int) Widget` | Convenience over `SelectList` when you only need labels. |
+| `SelectListView(spec)` | `(ListSpec) Widget` | Every list option: `ListSpecOf(items, sel)` then `.Focus(b)`, `.ScrollTo(n)`, `.Reversed()`, `.WithHighlightSymbol("▶ ", spacing?)` — the cursor marked in a column of its own, visible without colour — and `.WithScrollPadding(n)`, which scrolls early to keep `n` items of context past the cursor. `SelectList`, `SelectListOf`, `SelectListAt` and `SelectListReversed` are this with the defaults. |
 | `Table(data)` | `(TableData) Widget` | Fixed grid; pre-sized columns. |
-| `TableView(spec)` | `(TableSpec) Widget` | Styled cells, header + footer, multi-line rows, a highlight symbol, and row / column / cell selection. Scrolls to keep the cursor visible. Build the spec with `TableSpecOf(widths, rows)` — see below. |
+| `TableView(spec)` | `(TableSpec) Widget` | Styled cells, header + footer, multi-line rows, a highlight symbol, and row / column / cell selection. Scrolls to keep the cursor visible; `.WithScrollPadding(n)` scrolls early to keep `n` rows past it in view — the same rule as `SelectListView`. Build the spec with `TableSpecOf(widths, rows)` — see below. |
 | `DataTableView(dt)` | `(DataTable) Widget` | Sortable + filterable. State in `DataTable` model — drive with `DataTableUpdate`. |
 | `Tree(root)` | `(TreeNode) Widget` | Static collapsible tree. Build with `NewTreeBranch`/`NewTreeBranchExpanded`/`NewTreeLeaf`. |
 | `TreeFocused(root, cursor, focused = false)` | `(TreeNode, int, bool) Widget` | Interactive variant — cursor highlight + focus accent. Pair with `TreeFlatRowCount` for clamping and `TreeToggleAt` for expand/collapse. |

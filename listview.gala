@@ -1,0 +1,82 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ----------------------------------------------------------------------------
+// SelectListView — the list with every option
+// ----------------------------------------------------------------------------
+//
+// `SelectList` marks its selection with colour alone, and scrolls only once
+// the cursor reaches the very last visible row. ratatui's List adds the two
+// things a list you actually navigate needs:
+//
+//   - a highlight SYMBOL (`▶ `) beside the selected item, in a column of its
+//     own, so the cursor is visible without colour — on a monochrome
+//     terminal, in a screenshot, to a colour-blind reader;
+//   - scroll PADDING: the view scrolls before the cursor reaches the edge,
+//     keeping that many items of context past it, so you can see what the
+//     next keypress will land on.
+//
+//     SelectListView(ListSpecOf(items, sel)
+//         .Focus(focused)
+//         .WithHighlightSymbol("▶ ")
+//         .WithScrollPadding(2))
+//
+// `SelectList`, `SelectListAt` and `SelectListReversed` are this with the
+// defaults.
+
+struct ListSpec(
+    Items            Array[ListItem],
+    Selected         int,
+    Focused          bool,
+    Offset           int,
+    Direction        ListDirection,
+    HighlightSymbol  string,
+    HighlightSpacing HighlightSpacing,
+    ScrollPadding    int,
+)
+
+func ListSpecOf(items Array[ListItem], selected int) ListSpec = ListSpec(
+    Items = items, Selected = selected, Focused = false, Offset = -1,
+    Direction = ListTopToBottom(), HighlightSymbol = "",
+    HighlightSpacing = HighlightWhenSelected(), ScrollPadding = 0)
+
+// ListSpecOfLabels is `ListSpecOf` for plain strings.
+func ListSpecOfLabels(labels Array[string], selected int) ListSpec =
+    ListSpecOf(labels.Map((l) => NewListItem(l)), selected)
+
+// Focus brightens the selection — the keyboard is driving this list.
+func (l ListSpec) Focus(focused bool) ListSpec = l.Copy(Focused = focused)
+
+// ScrollTo pins the first visible item; -1 follows the selection.
+func (l ListSpec) ScrollTo(offset int) ListSpec = l.Copy(Offset = offset)
+
+// Reversed grows the list upward from the bottom edge.
+func (l ListSpec) Reversed() ListSpec = l.Copy(Direction = ListBottomToTop())
+
+// WithHighlightSymbol marks the selected item with `symbol` in a column of
+// its own. `HighlightWhenSelected` (the default) reserves the column only
+// while something is selected; `HighlightAlways` keeps the labels still.
+func (l ListSpec) WithHighlightSymbol(symbol string, spacing HighlightSpacing = HighlightWhenSelected()) ListSpec =
+    l.Copy(HighlightSymbol = symbol, HighlightSpacing = spacing)
+
+// WithScrollPadding keeps `n` items past the cursor in view: the list
+// scrolls before the cursor reaches the bottom edge. Because the view is a
+// function of the cursor alone, once it has scrolled there are always at
+// least as many items above the cursor as below — the context holds in both
+// directions. Capped at what the window can give.
+func (l ListSpec) WithScrollPadding(n int) ListSpec = l.Copy(ScrollPadding = n)
+
+func SelectListView(l ListSpec) Widget = ListW(
+    Items            = l.Items,
+    Selected         = l.Selected,
+    SelStyle         = if (l.Focused) DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+                       else DefaultStyle().WithReverse(),
+    Offset           = l.Offset,
+    Direction        = l.Direction,
+    HighlightSymbol  = l.HighlightSymbol,
+    HighlightSpacing = l.HighlightSpacing,
+    ScrollPadding    = l.ScrollPadding,
+)

@@ -95,6 +95,12 @@ sealed type Widget {
         SelStyle  Style,
         Offset    int,
         Direction ListDirection,
+        // HighlightSymbol marks the selected row in a column of its own (see
+        // `HighlightSpacing`); ScrollPadding keeps that many items past the
+        // cursor in view (see `listViewportOffset`).
+        HighlightSymbol  string,
+        HighlightSpacing HighlightSpacing,
+        ScrollPadding    int,
     )
     // AutoScrollW stacks rows — row i is `Build(i)`, `Heights[i]` cells tall —
     // and scrolls the stack so `Selected` stays visible, using the area height
@@ -122,6 +128,8 @@ sealed type Widget {
         Selected int,
         Offset   int,
         Heights  Array[int],
+        // Padding keeps that many rows past the cursor in view.
+        Padding  int,
     )
     // Focused is carried explicitly rather than inferred from Style. An
     // unfocused field legitimately has a non-default style — themed,
@@ -557,12 +565,14 @@ func AutoScrollLazy(
     build func(int) Widget,
     selected int,
     offset int,
+    pad int = 0,
 ) Widget = AutoScrollW(
     Build    = build,
     Selected = selected,
     Offset   = offset,
     Heights  = ArrayTabulate(count, (i) =>
         if (i < heights.Length()) MaxInt(1, heights.Get(i)) else 1),
+    Padding  = pad,
 )
 
 func sumInt(xs Array[int]) int = xs.FoldLeft(0, (a, x) => a + x)
@@ -645,19 +655,8 @@ func Pct(p int, w Widget) LayoutChild =
 // `focused` (default false) brightens the selection row when the
 // keyboard is currently driving this list — bold + bright yellow on
 // reverse so the user sees where arrows will land.
-func SelectList(items Array[ListItem], selected int, focused bool = false) Widget {
-    val sel = if (focused)
-        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
-    else
-        DefaultStyle().WithReverse()
-    return ListW(
-        Items     = items,
-        Selected  = selected,
-        SelStyle  = sel,
-        Offset    = -1,
-        Direction = ListTopToBottom(),
-    )
-}
+func SelectList(items Array[ListItem], selected int, focused bool = false) Widget =
+    SelectListView(ListSpecOf(items, selected).Focus(focused))
 
 // SelectListAt is SelectList with an explicit scroll offset, for a list that
 // scrolls independently of its cursor (a wheel over an unfocused pane).
@@ -667,19 +666,7 @@ func SelectListAt(
     selected int,
     offset int,
     focused bool = false,
-) Widget {
-    val sel = if (focused)
-        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
-    else
-        DefaultStyle().WithReverse()
-    return ListW(
-        Items     = items,
-        Selected  = selected,
-        SelStyle  = sel,
-        Offset    = offset,
-        Direction = ListTopToBottom(),
-    )
-}
+) Widget = SelectListView(ListSpecOf(items, selected).Focus(focused).ScrollTo(offset))
 
 // SelectListReversed grows upward from the bottom edge — how a chat
 // transcript or REPL log reads.
@@ -693,23 +680,11 @@ func SelectListReversed(
     items Array[ListItem],
     selected int,
     focused bool = false,
-) Widget {
-    val sel = if (focused)
-        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
-    else
-        DefaultStyle().WithReverse()
-    return ListW(
-        Items     = items,
-        Selected  = selected,
-        SelStyle  = sel,
-        Offset    = -1,
-        Direction = ListBottomToTop(),
-    )
-}
+) Widget = SelectListView(ListSpecOf(items, selected).Focus(focused).Reversed())
 
 // SelectListOf is a convenience wrapper when your items are plain strings.
 func SelectListOf(labels Array[string], selected int, focused bool = false) Widget =
-    SelectList(labels.Map((l) => NewListItem(l)), selected, focused)
+    SelectListView(ListSpecOfLabels(labels, selected).Focus(focused))
 
 // SelectListPick is the click-aware sibling: each row is clickable and
 // dispatches `onPick(rowIdx)` when clicked.
@@ -1350,10 +1325,10 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderColumn(children, flex, spacing, area, buf, hits)
         case StackWidget(layers) =>
             layers.ForEach((layer) => renderToInternal(layer, area, buf, hits))
-        case ListW(items, sel, selStyle, offset, direction) =>
-            renderList(items, sel, selStyle, offset, direction, area, buf)
-        case AutoScrollW(build, sel, offset, heights) =>
-            renderAutoScroll(build, sel, offset, heights, area, buf, hits)
+        case ListW(items, sel, selStyle, offset, direction, symbol, spacing, padding) =>
+            renderList(items, sel, selStyle, offset, direction, symbol, spacing, padding, area, buf)
+        case AutoScrollW(build, sel, offset, heights, pad) =>
+            renderAutoScroll(build, sel, offset, heights, pad, area, buf, hits)
         case InputW(value, cursor, placeholder, style, phStyle, focused) =>
             renderInput(value, cursor, placeholder, style, phStyle, focused, area, buf)
         case ProgressW(pct, style) => {
@@ -1617,6 +1592,9 @@ func renderList(
     selStyle Style,
     explicitOffset int,
     direction ListDirection,
+    symbol string,
+    spacing HighlightSpacing,
+    padding int,
     area Rect,
     buf *Buffer,
 ) {
@@ -1639,24 +1617,21 @@ func renderList(
     // "cursor on the first item": a focused reversed list with the cursor at
     // 0 would render no visible highlight at all, and the viewport would
     // jump from the tail back to the head on the first Down keypress.
-    val autoOffset = direction match {
-        case ListTopToBottom() => listViewportOffset(n, sel, area.Height)
-        case ListBottomToTop() =>
-            if (sel >= 0) listViewportOffset(n, sel, area.Height)
-            else MaxInt(0, n - MaxInt(1, area.Height))
+    val tailAnchored = direction match {
+        case ListTopToBottom() => false
+        case ListBottomToTop() => sel < 0
     }
+    val autoOffset = if (tailAnchored) MaxInt(0, n - MaxInt(1, area.Height))
+                     else listViewportOffset(n, sel, area.Height, padding)
     val offset = if (explicitOffset < 0)
         autoOffset
     else
         clampInt(explicitOffset, 0, MaxInt(0, n - MaxInt(1, area.Height)))
     val visibleRows = MinInt(area.Height, MaxInt(0, n - offset))
+    val symW = MinInt(area.Width, highlightSymbolWidth(symbol, spacing, sel >= 0 && sel < n))
     var row = 0
-    for row < area.Height {
+    for row < visibleRows {
         val idx = offset + row
-        if idx >= n {
-            row = row + 1
-            continue
-        }
         // Bottom-to-top pins the first visible item to the bottom edge, so
         // a transcript grows upward and short content sits at the foot of
         // the pane instead of floating at the top.
@@ -1665,25 +1640,23 @@ func renderList(
             case ListBottomToTop() => area.Y + area.Height - visibleRows + row
         }
         val item = items.Get(idx)
-        var style = item.Style
-        if idx == sel {
-            style = selStyle
-        }
+        val style = if (idx == sel) selStyle else item.Style
         // Clear the row to the area width (with the style) so selected
-        // highlighting extends across the whole row.
-        var x = area.X
-        val xEnd = area.X + area.Width
-        for x < xEnd {
-            buf.Set(x, y, Cell(Ch = ' ', St = style))
-            x = x + 1
+        // highlighting extends across the whole row — the symbol column
+        // included, so the cursor row still reads as one band.
+        buf.Fill(Rect(X = area.X, Y = y, Width = area.Width, Height = 1), Cell(Ch = ' ', St = style))
+        if symW > 0 && idx == sel {
+            renderText(symbol, style,
+                       Rect(X = area.X, Y = y, Width = symW, Height = 1), buf)
         }
         // Then draw the label, cut with a "…" if it is wider than the
         // pane. A hard clip here made a long entry look like a shorter
         // entry that fit, which in a list of paths or branch names picks
         // out the wrong one.
-        renderText(StringCellEllipsis(item.Label, area.Width), style, Rect(
-            X = area.X, Y = y,
-            Width = area.Width, Height = 1,
+        val labelW = area.Width - symW
+        renderText(StringCellEllipsis(item.Label, labelW), style, Rect(
+            X = area.X + symW, Y = y,
+            Width = labelW, Height = 1,
         ), buf)
         row = row + 1
     }
@@ -1702,6 +1675,7 @@ func renderAutoScroll(
     selected int,
     explicitOffset int,
     heights Array[int],
+    pad int,
     area Rect,
     buf *Buffer,
     hits *HitRegistry,
@@ -1709,7 +1683,7 @@ func renderAutoScroll(
     val n = heights.Length()
     if n == 0 || area.Height <= 0 { return }
     val offset = if (explicitOffset < 0)
-        scrollOffsetToShow(heights, selected, area.Height)
+        scrollOffsetToShow(heights, selected, area.Height, pad)
     else
         clampInt(explicitOffset, 0, lastPageOffset(heights, area.Height))
     // Only whole rows are drawn: a row cut off at the bottom edge would show
@@ -1732,18 +1706,39 @@ func renderAutoScroll(
 
 // scrollOffsetToShow is the first visible row that keeps `sel` on screen in
 // `height` cells: the top while the selection fits below it, otherwise the
-// row that puts the selection flush against the bottom edge. For uniform
-// heights this is exactly `listViewportOffset`.
-func scrollOffsetToShow(heights Array[int], sel int, height int) int {
-    val last = clampInt(sel, 0, heights.Length() - 1)
+// row that puts the selection flush against the bottom edge — or, with
+// `pad`, that many rows above it, so the rows the cursor is about to reach
+// are already in view.
+//
+// The padding actually used is the largest up to `pad` that (a) fits on
+// screen together with the cursor and (b) leaves at least as many rows above
+// the cursor as it asks for below. (a) means rows too tall for full padding
+// still get some rather than none; (b) means the cursor is never pinned to
+// the top edge by padding it cannot honour, and — the view being a function
+// of the cursor alone — the context holds in both directions. For uniform
+// heights this is exactly `listViewportOffset`, which caps at half the
+// window less one.
+func scrollOffsetToShow(heights Array[int], sel int, height int, pad int = 0) int {
+    val n = heights.Length()
+    val cur = clampInt(sel, 0, n - 1)
+    var p = MinInt(MaxInt(0, pad), n - 1 - cur)
+    for p > 0 {
+        val off = scrollFitFrom(heights, cur + p, height)
+        if off <= cur && (off == 0 || cur - off >= p) { return off }
+        p = p - 1
+    }
+    return scrollFitFrom(heights, cur, height)
+}
+
+// scrollFitFrom is the topmost row that still fits with row `last` on screen
+// — or `last` itself when that row alone is taller than the area.
+func scrollFitFrom(heights Array[int], last int, height int) int {
     var used = 0
     var k = last
     for k >= 0 && used + heights.Get(k) <= height {
         used = used + heights.Get(k)
         k = k - 1
     }
-    // k + 1 is the topmost row that still fits with `last` — or `last` itself
-    // when that row alone is taller than the area.
     return MinInt(last, k + 1)
 }
 
@@ -1753,12 +1748,15 @@ func scrollOffsetToShow(heights Array[int], sel int, height int) int {
 func lastPageOffset(heights Array[int], height int) int =
     scrollOffsetToShow(heights, heights.Length() - 1, height)
 
-// listViewportOffset computes the top-of-viewport index so that `sel` is
-// on-screen. Simple top-or-bottom anchor.
-func listViewportOffset(n int, sel int, height int) int =
-    if (height <= 0 || n <= height) 0
-    else if (sel < height) 0
-    else MinInt(sel - height + 1, n - height)
+// listViewportOffset is `scrollOffsetToShow` for rows one cell tall, in
+// closed form — a list does not allocate a heights array per frame to learn
+// what every height is. `pad` keeps that many items past the cursor in view,
+// capped at half the window less one so the cursor always has a row.
+func listViewportOffset(n int, sel int, height int, pad int = 0) int {
+    if height <= 0 || n <= height || sel < 0 { return 0 }
+    val target = MinInt(n - 1, sel + MinInt(MaxInt(0, pad), MaxInt(0, (height - 1) / 2)))
+    return if (target < height) 0 else MinInt(target - height + 1, n - height)
+}
 
 // renderInput paints a value or a placeholder, plus a visible cursor.
 // The caret is always drawn and the value window always follows it.
@@ -2458,9 +2456,10 @@ func defaultRenderWidth(w Widget) int {
             children.FoldLeft(0, (acc, c) => MaxInt(acc, defaultRenderWidth(c.Widget)))
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderWidth(w)))
-        case ListW(items, _, _, _, _)          =>
-            items.FoldLeft(0, (acc, it) => MaxInt(acc, RuneCount(it.Label)))
-        case AutoScrollW(build, _, _, heights)  =>
+        case ListW(items, sel, _, _, _, symbol, spacing, _) =>
+            highlightSymbolWidth(symbol, spacing, sel >= 0 && sel < items.Length()) +
+                items.FoldLeft(0, (acc, it) => MaxInt(acc, StringCellWidth(it.Label)))
+        case AutoScrollW(build, _, _, heights, _) =>
             // A sample, not every row: measuring builds the row, and building
             // every row of a long list is what the lazy form exists to avoid.
             ArrayTabulate(MinInt(heights.Length(), 64), (i) => defaultRenderWidth(build(i))).FoldLeft(0, MaxInt)
@@ -2508,8 +2507,8 @@ func defaultRenderHeight(w Widget) int {
             children.FoldLeft(0, (acc, c) => acc + defaultRenderHeight(c.Widget))
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderHeight(w)))
-        case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
-        case AutoScrollW(_, _, _, heights)     => MaxInt(1, sumInt(heights))
+        case ListW(items, _, _, _, _, _, _, _) => MaxInt(1, items.Length())
+        case AutoScrollW(_, _, _, heights, _)  => MaxInt(1, sumInt(heights))
         case InputW(_, _, _, _, _, _)          => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
@@ -2580,8 +2579,8 @@ func IntrinsicHeightAt(w Widget, width int) int {
             children.FoldLeft(0, (acc, c) => acc + intrinsicChildHeight(c, width))
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, l) => MaxInt(acc, IntrinsicHeightAt(l, width)))
-        case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
-        case AutoScrollW(_, _, _, heights)     => MaxInt(1, sumInt(heights))
+        case ListW(items, _, _, _, _, _, _, _) => MaxInt(1, items.Length())
+        case AutoScrollW(_, _, _, heights, _)  => MaxInt(1, sumInt(heights))
         case InputW(_, _, _, _, _, _)          => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
