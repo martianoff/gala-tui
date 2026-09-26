@@ -84,30 +84,12 @@ func (s ScreenStack) Previous() Option[string] {
 
 // Contains reports whether `route` appears anywhere in the stack. Useful
 // for "am I nested inside a help overlay?" checks.
-func (s ScreenStack) Contains(route string) bool {
-    var i = 0
-    val n = s.Stack.Length()
-    for i < n {
-        if s.Stack.Get(i) == route { return true }
-        i = i + 1
-    }
-    return false
-}
+func (s ScreenStack) Contains(route string) bool = s.Stack.Contains(route)
 
 // Breadcrumb returns the stack as a " › "-joined string — handy for
 // rendering a "Home › Settings › Profile"-style breadcrumb at the top of
 // a view.
-func (s ScreenStack) Breadcrumb() string {
-    if s.Stack.IsEmpty() { return "" }
-    var out = s.Stack.Get(0)
-    var i = 1
-    val n = s.Stack.Length()
-    for i < n {
-        out = out + " › " + s.Stack.Get(i)
-        i = i + 1
-    }
-    return out
-}
+func (s ScreenStack) Breadcrumb() string = s.Stack.MkString(" › ")
 
 // BreadcrumbParts returns the stack as an Array — the raw segments
 // without any joining separator. Use this when feeding the framework's
