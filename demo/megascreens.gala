@@ -54,7 +54,7 @@ func megaChartFeedLen() int = 420
 func megaChartFeed() Array[int] =
     stream.Iterate(megaWalkStep((1234567, 28)), megaWalkStep)
         .Take(megaChartFeedLen())
-        .Map[int]((st Tuple[int, int]) => st.V2)
+        .Map((st) => st.V2)
         .ToArray()
 
 // megaWalkStep advances the walk one sample. The state is (LCG seed, value).

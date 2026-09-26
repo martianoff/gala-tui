@@ -147,7 +147,7 @@ func dtSort(dt DataTable, rows Array[Array[string]]) Array[Array[string]] {
     // Stable: rows with equal keys keep their input order in both
     // directions. SortWith is not stable on its own, so ties fall back to
     // the original index.
-    val key = (r Array[string]) => if (col < r.Length()) r.Get(col) else ""
+    val key = (r Array[string]) => r.GetOption(col).GetOrElse("")
     return rows.ZipWithIndex().SortWith((a, b) => {
         val ka = key(a.V1)
         val kb = key(b.V1)

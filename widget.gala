@@ -1752,19 +1752,23 @@ func renderInput(
 // `cur` lands inside a field `width` cells wide. Walks the start forward
 // until the run up to the caret fits, leaving one column for the caret
 // itself so an end-of-text caret has somewhere to sit.
+//
+// One pass of prefix widths rather than re-measuring rs[start:cur) for each
+// candidate start: this runs every frame, and the run from `start` to the
+// caret is just the total less the prefix before `start`.
 func inputWindowStart(rs []rune, cur int, width int) int {
     val budget = MaxInt(1, width - 1)
-    return stream.Range(0, cur).Find((start) => runesCellWidth(rs, start, cur) <= budget).GetOrElse(cur)
+    val hi = MinInt(rs.Size(), cur)
+    val total = runesCellWidth(rs, 0, hi)
+    val prefixes = stream.Range(0, hi).Map((i) => RuneCellWidth(rs[i])).Scan(0, (x, w) => x + w)
+    return stream.Range(0, hi).Zip(prefixes).Find((t) => total - t.V2 <= budget).Map((t) => t.V1).GetOrElse(hi)
 }
 
 // runesCellWidth totals the rendered width of rs[from:to) in terminal
 // cells, so CJK and emoji count as the two columns they occupy. Out-of-range
 // bounds are clamped, and an empty range is 0 cells.
-func runesCellWidth(rs []rune, from int, to int) int {
-    val lo = MaxInt(0, from)
-    val hi = MinInt(rs.Size(), to)
-    return if (lo >= hi) 0 else StringCellWidth(string(SliceFrom(SliceTo(rs, hi), lo)))
-}
+func runesCellWidth(rs []rune, from int, to int) int =
+    stream.Range(MaxInt(0, from), MinInt(rs.Size(), to)).Fold(0, (w, i) => w + RuneCellWidth(rs[i]))
 
 // inputIndexAtColumn maps a clicked column back to a rune index.
 //

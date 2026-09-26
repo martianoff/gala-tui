@@ -12,8 +12,7 @@ import (
 
 func TestHyperlinkStartBeginsWithEsc(t T) T {
     val s = HyperlinkStart("https://example.com")
-    val rs = stringRunes(s)
-    return Eq(t, rs.Get(0), rune(0x1B))
+    return IsTrue(t, strings.HasPrefix(s, "\x1b"))
 }
 
 func TestHyperlinkStartIncludesUrl(t T) T {

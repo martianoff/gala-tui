@@ -198,7 +198,7 @@ func countIf(present bool) int = if (present) 1 else 0
 func barCentered(buf *Buffer, x int, y int, width int, text string, style Style) {
     val fitted = StringCellTruncate(text, width)
     val slot = Rect(X = x, Y = y, Width = width, Height = 1)
-    val _ = buf.DrawText(slot.Centered(StringCellWidth(fitted), 1).X, y, fitted, style)
+    buf.DrawText(slot.Centered(StringCellWidth(fitted), 1).X, y, fitted, style)
 }
 
 func renderBarChart(
@@ -365,7 +365,7 @@ func renderBarsHorizontal(
     // screen. `barRuns` reserves the label row and enforces that.
     barRuns(groups, geom, area.Y, area.Bottom(), barH, countIf(shape.HasGroupLabels)).ForEach((run) => {
         if shape.HasGroupLabels {
-            val _ = buf.DrawText(area.X, run.Start, StringCellTruncate(run.Group.Label, area.Width), style)
+            buf.DrawText(area.X, run.Start, StringCellTruncate(run.Group.Label, area.Width), style)
         }
         run.Bars.ForEach((placed) => {
             val (b, y) = placed
@@ -381,10 +381,10 @@ func renderBarsHorizontal(
             }
             val mid = y + barH / 2
             if labelW > 0 {
-                val _ = buf.DrawText(area.X, mid, StringCellTruncate(b.Label, labelW), style)
+                buf.DrawText(area.X, mid, StringCellTruncate(b.Label, labelW), style)
             }
             if showValues {
-                val _ = buf.DrawText(barX + full + countIf(part > 0) + 1, mid, barText(b), st)
+                buf.DrawText(barX + full + countIf(part > 0) + 1, mid, barText(b), st)
             }
         })
     })

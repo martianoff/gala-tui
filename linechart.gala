@@ -216,12 +216,10 @@ func chartCellAt(rows Array[Array[rune]], y int, x int) rune {
 // Max > Min, so the union does too; with no data it is the empty chart's
 // (0, 1).
 func multiBounds(series Array[Array[int]]) LineChartBounds {
-    val bs = series.Filter((s) => s.NonEmpty()).Map((s) => LineChartAutoBounds(s))
-    if bs.IsEmpty() { return LineChartBounds(Min = 0, Max = 1) }
-    return LineChartBounds(
-        Min = bs.Map((b) => b.Min).Reduce(MinInt),
-        Max = bs.Map((b) => b.Max).Reduce(MaxInt),
-    )
+    return series
+        .Collect({ case s if s.NonEmpty() => LineChartAutoBounds(s) })
+        .ReduceOption((a, b) => LineChartBounds(Min = MinInt(a.Min, b.Min), Max = MaxInt(a.Max, b.Max)))
+        .GetOrElse(LineChartBounds(Min = 0, Max = 1))
 }
 
 // defaultSeriesStyle cycles through a handful of distinct colors for callers

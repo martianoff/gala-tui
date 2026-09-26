@@ -72,7 +72,7 @@ func (tm *vt) feed(s string) {
             // swallows the rest of the input.
             val fin = stream.Range(i + 2, n).Find((j) => isFinalByte(rs.Get(j))).GetOrElse(n)
             if fin < n && rs.Get(fin) == 'H' {
-                tm.cursorTo(string(rs.Slice(i + 2, fin).ToGoSlice()))
+                tm.cursorTo(runeRange(rs, i + 2, fin))
             }
             i = fin + 1
             continue
@@ -109,13 +109,13 @@ func (tm *vt) cursorTo(body string) {
     val rs = stringRunes(body)
     val semi = rs.LastIndexOf(';')
     if semi > 0 {
-        tm.Cy = decodeInt(string(rs.Take(semi).ToGoSlice())) - 1
-        tm.Cx = decodeInt(string(rs.Drop(semi + 1).ToGoSlice())) - 1
+        tm.Cy = decodeInt(runeRange(rs, 0, semi)) - 1
+        tm.Cx = decodeInt(runeRange(rs, semi + 1, rs.Length())) - 1
         tm.Pending = false
     }
 }
 
-func decodeInt(digits string) int = Try(() => strconv.Atoi(digits)).GetOrElse(0)
+func decodeInt(digits string) int = Try(strconv.Atoi(digits)).GetOrElse(0)
 
 // screenText renders the terminal's screen as one string per row, joined by
 // "/", so a failure shows every row at once.

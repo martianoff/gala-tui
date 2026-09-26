@@ -197,20 +197,17 @@ func pasteCloserLen() int = 6
 // partial paste would split one logical event across two — which is the
 // keypress-burst problem again, just at a coarser grain.
 func parseBracketedPaste(buf []byte, from int) Tuple[InputEvent, int] {
-    val end = pasteCloserIndex(buf, from)
-    if end < 0 {
-        return (UnknownInput(), 0)
+    return pasteCloserIndex(buf, from) match {
+        case Some(end) => (PasteInput(Content = ToString(Slice(buf, from, end))), end + pasteCloserLen())
+        case _ => (UnknownInput(), 0)
     }
-    return (PasteInput(Content = ToString(Slice(buf, from, end))),
-            end + pasteCloserLen())
 }
 
 // pasteCloserIndex returns the index of the ESC that begins `ESC [ 201 ~`,
-// searching from `from`, or -1 when the closer is not in `buf` yet.
-func pasteCloserIndex(buf []byte, from int) int =
+// searching from `from`, or None when the closer is not in `buf` yet.
+func pasteCloserIndex(buf []byte, from int) Option[int] =
     stream.Range(from, buf.Size() - pasteCloserLen() + 1)
         .Find((i) => isPasteCloserAt(buf, i))
-        .GetOrElse(-1)
 
 // isPasteOpenerAt reports whether `ESC [ 200 ~` starts at `i`. The runtime
 // uses it to resync a paste that was opened and never closed.

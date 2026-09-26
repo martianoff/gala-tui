@@ -151,9 +151,9 @@ func styledRunesWidth(rs Array[styledRune]) int =
 // Spans plus the run being grown, and a style change closes the run.
 func coalesceSpans(rs Array[styledRune]) Array[Span] {
     if rs.IsEmpty() { return EmptyArray[Span]() }
-    val folded = rs.Drop(1).FoldLeft((EmptyArray[Span](), ArrayOf[styledRune](rs.Get(0))), (acc, r) =>
+    val folded = rs.Drop(1).FoldLeft((EmptyArray[Span](), ArrayOf(rs.Get(0))), (acc, r) =>
         if (StyleEqual(acc.V2.Get(0).St, r.St)) (acc.V1, acc.V2.Append(r))
-        else (acc.V1.Append(runSpan(acc.V2)), ArrayOf[styledRune](r)))
+        else (acc.V1.Append(runSpan(acc.V2)), ArrayOf(r)))
     return folded.V1.Append(runSpan(folded.V2))
 }
 
@@ -221,7 +221,7 @@ func spanWrapStepRune(s spanWrapState, r styledRune, width int) spanWrapState {
         return spanWrapState(
             Out  = afterLine.Append(LineOf(coalesceSpans(s.Word))),
             Line = EmptyArray[styledRune](),
-            Word = ArrayOf[styledRune](r),
+            Word = ArrayOf(r),
         )
     }
     return spanWrapState(Out = s.Out, Line = s.Line, Word = s.Word.Append(r))

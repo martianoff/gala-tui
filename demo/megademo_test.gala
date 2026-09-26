@@ -1005,8 +1005,8 @@ func TestMegaCycleThemeFullLoop(t T) T {
 func TestMegaCycleThemeAllFourAreDistinct(t T) T {
     // The start plus three cycles: Scan emits the seed first.
     val seen = stream.Range(0, 3)
-        .Scan(NewMegaModel(), (m MegaModel, _ int) => MegaUpdate(m, MegaCycleTheme()).V1)
-        .Map[string]((m MegaModel) => megaThemeName(m.ActiveTheme))
+        .Scan(NewMegaModel(), (m, _) => MegaUpdate(m, MegaCycleTheme()).V1)
+        .Map((m) => megaThemeName(m.ActiveTheme))
         .ToArray()
     // Each theme name appears exactly once across 4 distinct themes.
     return Eq(t, seen.Distinct().Length(), 4)
@@ -1034,7 +1034,7 @@ func TestMegaSidebarNavSequence(t T) T {
 func TestMegaPushFlowReachesAllRoutes(t T) T {
     val routes = ArrayOf[string]("overview", "builds", "pipelines", "logs")
     val start = (t, NewMegaModel())
-    return routes.FoldLeft(start, (acc Tuple[T, MegaModel], route string) => {
+    return routes.FoldLeft(start, (acc, route) => {
         val (next, _) = MegaUpdate(acc.V2, MegaPushScreen(Route = route))
         return (Eq(acc.V1, next.Screens.Current(), route), next)
     }).V1
@@ -1449,11 +1449,11 @@ func megaStitchRows(buf *Buffer) string = megaColumns(buf, 0, buf.Width)
 
 // megaUpdateTimes applies `msg` to `m` n times, discarding the commands.
 func megaUpdateTimes(m MegaModel, msg MegaMsg, n int) MegaModel =
-    stream.Range(0, n).Fold(m, (acc MegaModel, _ int) => MegaUpdate(acc, msg).V1)
+    stream.Range(0, n).Fold(m, (acc, _) => MegaUpdate(acc, msg).V1)
 
 // megaTypeChars presses each rune of `s` in turn through megaPressChar.
 func megaTypeChars(m MegaModel, s string) MegaModel =
-    gs.S(s).Fold(m, (acc MegaModel, c rune) => megaPressChar(acc, c).V1)
+    gs.S(s).Fold(m, (acc, c) => megaPressChar(acc, c).V1)
 
 // megaFindBrightYellowRowAfter returns the y of the FIRST row at or
 // after `startY` that contains any cell with BrightYellow foreground.
@@ -1463,7 +1463,7 @@ func megaTypeChars(m MegaModel, s string) MegaModel =
 // Returns -1 if no such row is found.
 func megaFindBrightYellowRowAfter(buf *Buffer, w int, h int, startY int) int =
     stream.Range(startY, h)
-        .Find((y int) => stream.Range(0, w).Exists((x int) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
+        .Find((y) => stream.Range(0, w).Exists((x) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
         .GetOrElse(-1)
 
 // megaCountNonBlankRowsInTreePane counts how many rows in the body area
@@ -1472,7 +1472,7 @@ func megaFindBrightYellowRowAfter(buf *Buffer, w int, h int, startY int) int =
 func megaCountNonBlankRowsInTreePane(buf *Buffer, w int, h int) int {
     // Rows: skip the title bar (rows 0–2) + the body's top border, and the
     // footer. Columns: skip the left border + indent, and the right edge.
-    val hasContent = (y int) => stream.Range(2, w - 2).Exists((x int) => {
+    val hasContent = (y int) => stream.Range(2, w - 2).Exists((x) => {
         val c = buf.CharAt(x, y)
         return c != ' ' && c != '│'
     })

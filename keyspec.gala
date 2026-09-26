@@ -59,18 +59,19 @@ func ParseKeySpec(spec string) KeySpec {
     // The terminal key must be the LAST part and everything before it a
     // modifier — a non-modifier token followed by anything, or a spec that
     // is all modifiers, is malformed.
-    val keyPart = parts.LastOption().Filter((p) => !keyIsModifier(p)).GetOrElse("")
-    if keyPart == "" || !parts.Init().ForAll(keyIsModifier) {
-        return KeySpecInvalid()
+    return parts.LastOption().Filter((p) => p != "" && !keyIsModifier(p)) match {
+        case Some(keyPart) if parts.Init().ForAll(keyIsModifier) => {
+            val parsedKey = parseKeyName(keyPart)
+            return KeySpec(
+                Key   = parsedKey,
+                Ctrl  = parts.Contains("ctrl"),
+                Shift = parts.Contains("shift"),
+                Alt   = parts.Contains("alt"),
+                Valid = keyIsParsed(parsedKey),
+            )
+        }
+        case _ => KeySpecInvalid()
     }
-    val parsedKey = parseKeyName(keyPart)
-    return KeySpec(
-        Key   = parsedKey,
-        Ctrl  = parts.Contains("ctrl"),
-        Shift = parts.Contains("shift"),
-        Alt   = parts.Contains("alt"),
-        Valid = keyIsParsed(parsedKey),
-    )
 }
 
 func keyIsModifier(p string) bool = p == "ctrl" || p == "shift" || p == "alt"
@@ -177,7 +178,7 @@ func parseKeyName(name string) Key {
     // F1..F12
     if name.Size() >= 2 && strings.HasPrefix(name, "f") {
         // A non-numeric tail parses as 0, which the range check rejects.
-        val n = Try(() => strconv.Atoi(strings.TrimPrefix(name, "f"))).GetOrElse(0)
+        val n = Try(strconv.Atoi(strings.TrimPrefix(name, "f"))).GetOrElse(0)
         if n >= 1 && n <= 12 {
             return FKey(n)
         }

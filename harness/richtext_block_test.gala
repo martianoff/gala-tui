@@ -88,7 +88,7 @@ func TestHarnessRestyleIsReversible(t T) T {
     // Sweep the whole run, not one cell — a single sample would pass if
     // only the first character had been un-bolded.
     val buf = rtHarness().Start().Type("b").Type("p").Buffer()
-    return stream.Range(1, 5).Fold(t, (acc T, x int) => IsTrue(acc, !buf.StyleAt(x, 1).Bold))
+    return stream.Range(1, 5).Fold(t, (acc, x) => IsTrue(acc, !buf.StyleAt(x, 1).Bold))
 }
 
 func TestBlockTitleFillsWiderViewport(t T) T {

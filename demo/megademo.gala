@@ -1057,14 +1057,14 @@ func megaResolveTheme(t MegaTheme) Theme {
 }
 
 func megaCountStatus(dt DataTable, status string) int =
-    dt.Rows.Count((row Array[string]) => row.Length() > 2 && row.Get(2) == status)
+    dt.Rows.Count((row) => row.GetOption(2).Map((s) => s == status).GetOrElse(false))
 
 // Deterministic sample series — values derived from m.Tick so the UI moves.
 func megaSparklineFeed(m MegaModel) Array[int] =
-    ArrayTabulate(40, (i int) => 30 + ((m.Tick + i * 7) * 17) % 60)
+    ArrayTabulate(40, (i) => 30 + ((m.Tick + i * 7) * 17) % 60)
 
 func megaLineChartFeed(m MegaModel) Array[int] =
-    ArrayTabulate(30, (i int) => 40 + ((m.Tick + i * 3) * 13) % 50)
+    ArrayTabulate(30, (i) => 40 + ((m.Tick + i * 3) * 13) % 50)
 
 // ----------------------------------------------------------------------------
 // Help screen Markdown

@@ -96,20 +96,19 @@ func mdFlushParagraph(out Array[MdBlock], para Array[string]) Array[MdBlock] =
 // mdLineBlock classifies one non-fence line: the block it forms on its own,
 // or None when it is paragraph text.
 func mdLineBlock(line string) Option[MdBlock] {
-    if line == "" { return Some[MdBlock](MdBlank()) }
-    if mdIsRule(line) { return Some[MdBlock](MdRule()) }
+    if line == "" { return Some(MdBlank()) }
+    if mdIsRule(line) { return Some(MdRule()) }
     val headingLevel = mdHeadingLevel(line)
     if headingLevel > 0 {
-        return Some[MdBlock](MdHeading(Level = headingLevel, Inlines = parseInlines(mdStripHeading(line, headingLevel))))
+        return Some(MdHeading(Level = headingLevel, Inlines = parseInlines(mdStripHeading(line, headingLevel))))
     }
     if mdIsBullet(line) {
-        return Some[MdBlock](MdBullet(Inlines = parseInlines(mdStripBulletPrefix(line))))
+        return Some(MdBullet(Inlines = parseInlines(mdStripBulletPrefix(line))))
     }
-    val num = mdNumberedPrefix(line)
-    if num >= 0 {
-        return Some[MdBlock](MdNumbered(Num = num, Inlines = parseInlines(mdStripNumberedPrefix(line))))
+    return mdNumberedPrefix(line) match {
+        case Some(num) => Some(MdNumbered(Num = num, Inlines = parseInlines(mdStripNumberedPrefix(line))))
+        case _ => None()
     }
-    return None[MdBlock]()
 }
 
 // ----------------------------------------------------------------------------
@@ -133,11 +132,11 @@ func mdIsBullet(line string) bool =
 func mdStripBulletPrefix(line string) string = dropRunes(line, 2)
 
 // mdNumberedPrefix returns the integer prefix for "N. rest" (e.g., "1. Hello"),
-// or -1 if the line doesn't start with a number followed by ". ".
-func mdNumberedPrefix(line string) int {
+// or None if the line doesn't start with a number followed by ". ".
+func mdNumberedPrefix(line string) Option[int] {
     val rest = strings.TrimLeft(line, "0123456789")
-    if rest == line || !strings.HasPrefix(rest, ". ") { return -1 }
-    return Try(() => strconv.Atoi(strings.TrimSuffix(line, rest))).GetOrElse(-1)
+    if rest == line || !strings.HasPrefix(rest, ". ") { return None() }
+    return Try(strconv.Atoi(strings.TrimSuffix(line, rest))).ToOption()
 }
 
 func mdStripNumberedPrefix(line string) string {
@@ -211,31 +210,36 @@ func mdInlineAt(rs Array[rune], i int) Option[Tuple[MdInline, int]] {
     val n = rs.Length()
     val c = rs.Get(i)
     if c == '`' {
-        val end = runeIndexFrom(rs, '`', i + 1)
-        if end < 0 { return None[Tuple[MdInline, int]]() }
-        return Some[Tuple[MdInline, int]]((MdCode(Text = runeRange(rs, i + 1, end)), end + 1))
+        return runeIndexFrom(rs, '`', i + 1) match {
+            case Some(end) => Some[Tuple[MdInline, int]]((MdCode(Text = runeRange(rs, i + 1, end)), end + 1))
+            case _ => None()
+        }
     }
     if c == '*' && i + 1 < n && rs.Get(i + 1) == '*' {
-        val end = stream.Range(i + 2, n - 1).Find((k) => rs.Get(k) == '*' && rs.Get(k + 1) == '*').GetOrElse(-1)
-        if end < 0 { return None[Tuple[MdInline, int]]() }
-        return Some[Tuple[MdInline, int]]((MdBold(Text = runeRange(rs, i + 2, end)), end + 2))
+        return stream.Range(i + 2, n - 1).Find((k) => rs.Get(k) == '*' && rs.Get(k + 1) == '*') match {
+            case Some(end) => Some[Tuple[MdInline, int]]((MdBold(Text = runeRange(rs, i + 2, end)), end + 2))
+            case _ => None()
+        }
     }
     if c == '_' || c == '*' {
-        val end = runeIndexFrom(rs, c, i + 1)
-        if end < 0 { return None[Tuple[MdInline, int]]() }
-        return Some[Tuple[MdInline, int]]((MdItalic(Text = runeRange(rs, i + 1, end)), end + 1))
+        return runeIndexFrom(rs, c, i + 1) match {
+            case Some(end) => Some[Tuple[MdInline, int]]((MdItalic(Text = runeRange(rs, i + 1, end)), end + 1))
+            case _ => None()
+        }
     }
     if c == '[' {
-        val linkEnd = runeIndexFrom(rs, ']', i + 1)
-        if linkEnd < 0 || linkEnd + 1 >= n || rs.Get(linkEnd + 1) != '(' { return None[Tuple[MdInline, int]]() }
-        val urlEnd = runeIndexFrom(rs, ')', linkEnd + 2)
-        if urlEnd < 0 { return None[Tuple[MdInline, int]]() }
-        return Some[Tuple[MdInline, int]]((MdLink(
-            Label = runeRange(rs, i + 1, linkEnd),
-            Url   = runeRange(rs, linkEnd + 2, urlEnd),
-        ), urlEnd + 1))
+        return runeIndexFrom(rs, ']', i + 1).Filter((e) => e + 1 < n && rs.Get(e + 1) == '(') match {
+            case Some(linkEnd) => runeIndexFrom(rs, ')', linkEnd + 2) match {
+                case Some(urlEnd) => Some[Tuple[MdInline, int]]((MdLink(
+                    Label = runeRange(rs, i + 1, linkEnd),
+                    Url   = runeRange(rs, linkEnd + 2, urlEnd),
+                ), urlEnd + 1))
+                case _ => None()
+            }
+            case _ => None()
+        }
     }
-    return None[Tuple[MdInline, int]]()
+    return None()
 }
 
 // mdFlushText appends rs[lo:hi] as literal text when the run is non-empty.

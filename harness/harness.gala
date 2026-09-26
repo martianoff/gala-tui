@@ -510,7 +510,7 @@ func (s Session[M, T]) FindCell(target rune) Option[Tuple[int, int]] =
 //
 //     IsTrue(t, session.FindRow("Quit").IsDefined())
 func (s Session[M, T]) FindRow(needle string) Option[int] =
-    stream.Range(0, s.H.Height).Find((y int) => HarnessContains(s.Row(y), needle))
+    stream.Range(0, s.H.Height).Find((y) => HarnessContains(s.Row(y), needle))
 
 // ----------------------------------------------------------------------------
 // Time-travel: drive a sequence and capture every intermediate state.
@@ -574,8 +574,8 @@ func HarnessContains(rendered string, needle string) bool = strings.Contains(ren
 func HarnessFindCellWith(buf *Buffer, target rune) Option[Tuple[int, int]] {
     val w = buf.Width
     return stream.Range(0, w * buf.Height)
-        .Find((i int) => buf.CharAt(i % w, i / w) == target)
-        .Map[Tuple[int, int]]((i int) => (i % w, i / w))
+        .Find((i) => buf.CharAt(i % w, i / w) == target)
+        .Map((i) => (i % w, i / w))
 }
 
 // PrintHarnessFrame renders `session` and writes a labeled, framed dump
@@ -593,7 +593,7 @@ func PrintHarnessFrame[M any, T any](session Session[M, T]) {
     val h = session.H.Height
     val border = strings.Repeat("─", w + 5)
     Println(s"┌─[ ${w}×${h} ]" + border)
-    stream.Range(0, h).ForEach((y int) => Println("│" + session.Row(y) + "│"))
+    stream.Range(0, h).ForEach((y) => Println("│" + session.Row(y) + "│"))
     Println("└" + border + "─────────")
 }
 

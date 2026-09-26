@@ -218,4 +218,4 @@ func TestShowcaseEndToEnd(t T) T {
 // containsAnyRow reports whether any single row contains the substring.
 // Shared by the showcase tests in this package.
 func containsAnyRow(buf *Buffer, needle string) bool =
-    stream.Range(0, buf.Height).Exists((y int) => strings.Contains(RowText(buf, y), needle))
+    stream.Range(0, buf.Height).Exists((y) => strings.Contains(RowText(buf, y), needle))

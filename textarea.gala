@@ -149,7 +149,7 @@ func taDelete(t TextArea) TextArea {
     val n = RuneCount(line)
     if t.Col < n {
         val (lhs, rhs) = runeSplitAt(line, t.Col)
-        val newLine = lhs + string(stringRunes(rhs).Drop(1).ToGoSlice())
+        val newLine = lhs + dropRunes(rhs, 1)
         val newLines = t.Lines.Updated(t.Row, newLine)
         return taLinesAndCursor(t, newLines, t.Row, t.Col)
     }

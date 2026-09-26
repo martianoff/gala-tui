@@ -31,11 +31,11 @@ func TestDataTableSortDescIsStable(t T) T {
 // matched cells in the same case: "ÉCOLE" did not find "école".
 func TestDataTableFilterFoldsNonASCIICase(t T) T {
     val dt = DataTableUpdate(NewDataTable(
-        ArrayOf[string]("Name"),
+        ArrayOf("Name"),
         ArrayOf[Constraint](Fill(1)),
-        ArrayOf[Array[string]](
-            ArrayOf[string]("école"),
-            ArrayOf[string]("office"),
+        ArrayOf(
+            ArrayOf("école"),
+            ArrayOf("office"),
         ),
     ), DTFilter(Query = "ÉCOLE"))
     return Eq(t, dtVisibleNames(dt), "école")

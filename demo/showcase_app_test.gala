@@ -110,7 +110,7 @@ func TestShowcasePaletteBackspaceDropsOneRune(t T) T {
 
 func TestShowcaseTickFillsSpark(t T) T {
     val m = stream.Range(0, 5).Fold(NewShowcaseModel(),
-        (acc ShowcaseModel, _ int) => ShowcaseUpdate(acc, ShTick()).V1)
+        (acc, _) => ShowcaseUpdate(acc, ShTick()).V1)
     val t1 = Eq(t, m.Tick, 5)
     return Eq(t1, m.Spark.Length(), 5)
 }

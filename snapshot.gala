@@ -69,11 +69,11 @@ func RowText(b *Buffer, y int) string =
 // Empty report means no differences — caller should check .IsEmpty() or
 // use SnapshotsEqual.
 func SnapshotDiff(got string, want string) Option[string] {
-    if got == want { return None[string]() }
+    if got == want { return None() }
     val gotLines = ArrayFromSlice(strings.Split(got, "\n"))
     val wantLines = ArrayFromSlice(strings.Split(want, "\n"))
     val maxLines = MaxInt(gotLines.Length(), wantLines.Length())
-    return Some[string](stream.Range(0, maxLines)
+    return Some(stream.Range(0, maxLines)
         .Filter((i) => diffLineAt(gotLines, i) != diffLineAt(wantLines, i))
         .Map((i) => diffEntry(i, diffLineAt(gotLines, i), diffLineAt(wantLines, i)))
         .MkString(""))
@@ -81,7 +81,7 @@ func SnapshotDiff(got string, want string) Option[string] {
 
 // diffLineAt is line `i` of a snapshot, or a marker when it has fewer.
 func diffLineAt(lines Array[string], i int) string =
-    if (i < lines.Length()) lines.Get(i) else "<missing>"
+    lines.GetOption(i).GetOrElse("<missing>")
 
 // diffEntry is one mismatched line of a SnapshotDiff report.
 func diffEntry(i int, g string, wl string) string =

@@ -86,7 +86,7 @@ func renderSvg(w Widget, cols int, rows int) string {
 // as vertical stripes straight through a selection highlight. A run is one
 // rect with one pair of edges, so there is nothing to seam.
 func svgBackgrounds(buf *Buffer, cols int, rows int) string =
-    ArrayTabulate(rows, (y int) => svgBackgroundRow(buf, cols, y)).MkString("")
+    ArrayTabulate(rows, (y) => svgBackgroundRow(buf, cols, y)).MkString("")
 
 func svgBackgroundRow(buf *Buffer, cols int, y int) string {
     var sb strings.Builder
@@ -95,7 +95,7 @@ func svgBackgroundRow(buf *Buffer, cols int, y int) string {
     for x < cols {
         val bg = effectiveBg(buf.StyleAt(x, y))
         val end = stream.Range(x, cols)
-            .Find((i int) => effectiveBg(buf.StyleAt(i, y)) != bg)
+            .Find((i) => effectiveBg(buf.StyleAt(i, y)) != bg)
             .GetOrElse(cols)
         if bg != bgHex() {
             val px = float64(x) * cellW()
@@ -112,7 +112,7 @@ func svgBackgroundRow(buf *Buffer, cols int, y int) string {
 // keeps the file to a few hundred elements instead of one per cell — and keeps
 // the text selectable when a reader opens the image on its own.
 func svgGlyphs(buf *Buffer, cols int, rows int) string =
-    ArrayTabulate(rows, (y int) => svgGlyphRow(buf, cols, y)).MkString("")
+    ArrayTabulate(rows, (y) => svgGlyphRow(buf, cols, y)).MkString("")
 
 func svgGlyphRow(buf *Buffer, cols int, y int) string {
     var sb strings.Builder
@@ -129,9 +129,9 @@ func svgGlyphRow(buf *Buffer, cols int, y int) string {
         // unify with `rune` or `Style` (see buffer.gala).
         val st = buf.StyleAt(x, y)
         val end = stream.Range(x, cols)
-            .Find((i int) => buf.CharAt(i, y) == ' ' || !StyleEqual(buf.StyleAt(i, y), st))
+            .Find((i) => buf.CharAt(i, y) == ' ' || !StyleEqual(buf.StyleAt(i, y), st))
             .GetOrElse(cols)
-        val run = ArrayTabulate(end - x, (k int) => buf.CharAt(x + k, y))
+        val run = ArrayTabulate(end - x, (k) => buf.CharAt(x + k, y))
         sb.WriteString(svgText(string(run.ToGoSlice()), x, y, st))
         x = end
     }

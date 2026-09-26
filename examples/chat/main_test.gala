@@ -163,5 +163,5 @@ func TestChatClearLogWipesEverything(t T) T {
 // runes one at a time via TaInsert — same path the runtime uses for
 // real keypresses.
 func composerWith(s string) Model =
-    gs.S(s).Fold(initial(), (m Model, c rune) =>
+    gs.S(s).Fold(initial(), (m, c) =>
         m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsert(C = c))))

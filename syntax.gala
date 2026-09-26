@@ -104,14 +104,11 @@ func tokenize(line string, lang string) Array[SyntaxToken] {
         }
         // String literal — consume up to matching quote.
         if c == '"' || c == '\'' {
-            val end = runeIndexFrom(rs, c, i + 1)
-            if end < 0 {
-                // Unterminated: the rest of the line is the string.
-                out = out.Append(TokString(Text = runeRange(rs, i, n)))
-                break
-            }
-            out = out.Append(TokString(Text = runeRange(rs, i, end + 1)))
-            i = end + 1
+            // Unterminated: the rest of the line is the string, and the
+            // scan ends with it.
+            val stop = runeIndexFrom(rs, c, i + 1).Map((end) => end + 1).GetOrElse(n)
+            out = out.Append(TokString(Text = runeRange(rs, i, stop)))
+            i = stop
             continue
         }
         // Number — digit-led run.
@@ -250,9 +247,9 @@ func dropRunes(s string, k int) string = string(stringRunes(s).Drop(k).ToGoSlice
 // runeRange is the string of rs[lo:hi].
 func runeRange(rs Array[rune], lo int, hi int) string = string(rs.Slice(lo, hi).ToGoSlice())
 
-// runeIndexFrom is the index of the first `target` at or after `start`, or -1.
-func runeIndexFrom(rs Array[rune], target rune, start int) int =
-    stream.Range(start, rs.Length()).Find((k) => rs.Get(k) == target).GetOrElse(-1)
+// runeIndexFrom is the index of the first `target` at or after `start`, if any.
+func runeIndexFrom(rs Array[rune], target rune, start int) Option[int] =
+    stream.Range(start, rs.Length()).Find((k) => rs.Get(k) == target)
 
 // syntaxStartsWith reports whether `prefix` occurs in rs at index `at`.
 func syntaxStartsWith(rs Array[rune], at int, prefix string) bool =

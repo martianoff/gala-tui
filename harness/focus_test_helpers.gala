@@ -71,8 +71,8 @@ func AssertFocusedShowsBrightYellow(
     val area = Rect(X = 0, Y = 0, Width = width, Height = height)
     val buf = NewBuffer(width, height)
     RenderTo(widget, area, buf)
-    val found = stream.Range(0, height).Exists((y int) =>
-        stream.Range(0, width).Exists((x int) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
+    val found = stream.Range(0, height).Exists((y) =>
+        stream.Range(0, width).Exists((x) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
     return IsTrue(t, found)
 }
 
@@ -106,8 +106,8 @@ func AssertNavigationAdvancesCursor[S any](
 // buffersFullyEqual compares two buffers cell-by-cell — char + every
 // visible style attribute. Used by AssertFocusedRendersDifferently.
 func buffersFullyEqual(a *Buffer, b *Buffer, w int, h int) bool =
-    stream.Range(0, h).ForAll((y int) =>
-        stream.Range(0, w).ForAll((x int) => cellsFullyEqual(a, b, x, y)))
+    stream.Range(0, h).ForAll((y) =>
+        stream.Range(0, w).ForAll((x) => cellsFullyEqual(a, b, x, y)))
 
 // cellsFullyEqual compares one cell of two buffers — char plus every
 // visible style attribute.
