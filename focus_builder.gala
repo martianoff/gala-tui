@@ -82,8 +82,14 @@ func (fb FocusBuilder) FileBrowser(pane string, b FileBrowser) Widget =
 func (fb FocusBuilder) Form(pane string, f FormState) Widget =
     FormView(f, fb.IsFocused(pane))
 
-func (fb FocusBuilder) Tabs(pane string, titles Array[string], bodies Array[Widget], sel int) Widget =
-    Tabs(titles, bodies, sel, fb.IsFocused(pane))
+func (fb FocusBuilder) Tabs(
+    pane string,
+    titles Array[string],
+    bodies Array[Widget],
+    sel int,
+    divider string = "",
+) Widget =
+    Tabs(titles, bodies, sel, fb.IsFocused(pane), divider)
 
 func (fb FocusBuilder) Input(pane string, value string, cursor int, placeholder string) Widget =
     Input(value, cursor, placeholder, fb.IsFocused(pane))
@@ -140,4 +146,5 @@ func (fb FocusBuilder) MenuPick[T any](
 
 func (fb FocusBuilder) TabsTabClick[T any](
     pane string, titles Array[string], bodies Array[Widget], sel int, onTabClick func(int) T,
-) Widget = TabsClick[T](titles, bodies, sel, fb.IsFocused(pane), onTabClick)
+    divider string = "",
+) Widget = TabsClick[T](titles, bodies, sel, fb.IsFocused(pane), onTabClick, divider)

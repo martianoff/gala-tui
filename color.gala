@@ -67,6 +67,20 @@ func ToSgrBg(c Color) string {
     }
 }
 
+// ToSgrUnderline is the SGR 58 form for underline colour. There is no short
+// 16-colour code for it, so a named colour goes out as its palette index —
+// which is what the named codes select anyway.
+func ToSgrUnderline(c Color) string {
+    return c match {
+        case DefaultColor()  => "59"
+        // Out of range follows `namedSgr`: either side of 0..15 is plain
+        // white, so a bad index looks the same underlined as it does as text.
+        case NamedColor(idx) => s"58;5;${if (idx < 0 || idx > 15) 7 else idx}"
+        case Indexed(idx)    => s"58;5;$idx"
+        case RGB(r, g, b)    => s"58;2;$r;$g;$b"
+    }
+}
+
 // namedSgr maps a 16-color index to its SGR base. 0–7 go at `base`, 8–15 at
 // `bright`. For out-of-range indexes, falls back to default (idx 7 / 15).
 func namedSgr(idx int, base int, bright int) string {

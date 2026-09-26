@@ -43,13 +43,9 @@ func BreadcrumbStyled(
 ) Widget {
     val n = parts.Length()
     if n == 0 { return Empty() }
-    val cells = parts.ZipWithIndex().FlatMap((p) => {
-        val isLast = p.V2 == n - 1
-        val style = if (isLast) active else inactive
-        val seg = Fixed(RuneCount(p.V1), TextStyled(p.V1, style))
-        return if (isLast) ArrayOf[LayoutChild](seg)
-               else ArrayOf[LayoutChild](seg, Fixed(RuneCount(separator), TextStyled(separator, inactive)))
-    })
+    val segs = parts.ZipWithIndex().Map((p) =>
+        Fixed(RuneCount(p.V1), TextStyled(p.V1, if (p.V2 == n - 1) active else inactive)))
+    val cells = interleave(segs, Fixed(RuneCount(separator), TextStyled(separator, inactive)))
     return Row(cells.Append(Flex(1, Empty())))   // trailing flex absorbs slack
 }
 
@@ -99,23 +95,16 @@ func KeyHint(spec string, description string) Widget {
 func KeyHintRow(pairs Array[string]) Widget {
     val n = pairs.Length()
     if n == 0 { return Empty() }
-    val sep = TextStyled(" · ", DefaultStyle().WithDim())
-    val groups = pairs.Grouped(2)
-    val cells = groups.ZipWithIndex().FlatMap((g) => {
-        val pair = g.V1
-        val isFirst = g.V2 == 0
-        val sepCells = if (isFirst) EmptyArray[LayoutChild]()
-                       else ArrayOf[LayoutChild](Fixed(3, sep))
-        return sepCells.AppendAll(if (pair.Length() == 2) {
+    val hints = pairs.Grouped(2).Map((pair) =>
+        if (pair.Length() == 2) {
             val spec = pair.Get(0)
             val desc = pair.Get(1)
-            ArrayOf[LayoutChild](Fixed(RuneCount(spec) + RuneCount(desc) + 1, KeyHint(spec, desc)))
+            Fixed(RuneCount(spec) + RuneCount(desc) + 1, KeyHint(spec, desc))
         } else {
             // Odd-length tail: spec alone, no description.
             val spec = pair.Get(0)
-            val tail = TextStyled(spec, DefaultStyle().WithBold().WithFg(BrightCyan()))
-            ArrayOf[LayoutChild](Fixed(RuneCount(spec), tail))
+            Fixed(RuneCount(spec), TextStyled(spec, DefaultStyle().WithBold().WithFg(BrightCyan())))
         })
-    })
+    val cells = interleave(hints, Fixed(3, TextStyled(" · ", DefaultStyle().WithDim())))
     return Row(cells.Append(Flex(1, Empty())))
 }

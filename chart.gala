@@ -69,6 +69,10 @@ sealed type ChartGraph {
     // GraphScatter plots the points alone, for data with no meaningful
     // order along X.
     case GraphScatter()
+    // GraphBar stands each point on the baseline as a vertical bar — zero,
+    // or the nearer Y bound when zero is off the axis — for values that are
+    // amounts rather than a trend: requests per minute, not latency.
+    case GraphBar()
 }
 
 // ChartDataset is one named series.
@@ -84,6 +88,13 @@ struct ChartDataset(
 func DatasetOf(name string, points Array[CanvasPoint], style Style) ChartDataset =
     ChartDataset(Name = name, Points = points, Marker = BrailleMarker(),
                  Graph = GraphLine(), Style = style)
+
+// DatasetBars is `DatasetOf` drawn as bars standing on the baseline.
+func DatasetBars(name string, points Array[CanvasPoint], style Style) ChartDataset =
+    // Block marker: a bar is a solid column. Braille would draw it as a
+    // one-dot hairline, which reads as a line plot of spikes.
+    ChartDataset(Name = name, Points = points, Marker = BlockMarker(),
+                 Graph = GraphBar(), Style = style)
 
 // DatasetScatter is `DatasetOf` with the points left unconnected.
 func DatasetScatter(name string, points Array[CanvasPoint], style Style) ChartDataset =
@@ -201,7 +212,7 @@ func chartPlotLayer(
     legend LegendPosition,
 ) Widget {
     val canvas = Canvas(x.Bounds, y.Bounds, chartMarker(datasets),
-                        chartShapes(datasets))
+                        chartShapes(datasets, y.Bounds))
     return legend match {
         case LegendHidden() => canvas
         case _ => Stack(ArrayOf[Widget](canvas, chartLegend(datasets, legend)))
@@ -209,11 +220,15 @@ func chartPlotLayer(
 }
 
 // chartShapes turns each dataset into the canvas shapes that draw it.
-func chartShapes(datasets Array[ChartDataset]) Array[Shape] =
-    datasets.FoldLeft(EmptyArray[Shape](), (acc, d) => acc.AppendAll(datasetShapes(d)))
+func chartShapes(datasets Array[ChartDataset], yb Bounds) Array[Shape] =
+    datasets.FoldLeft(EmptyArray[Shape](), (acc, d) => acc.AppendAll(datasetShapes(d, yb)))
 
-func datasetShapes(d ChartDataset) Array[Shape] = d.Graph match {
+func datasetShapes(d ChartDataset, yb Bounds) Array[Shape] = d.Graph match {
     case GraphScatter() => ArrayOf[Shape](ShapePoints(Pts = d.Points, Style = d.Style))
+    case GraphBar() => {
+        val base = yb.Clamp(0.0)
+        return d.Points.Map((p) => ShapeLine(X1 = p.X, Y1 = base, X2 = p.X, Y2 = p.Y, Style = d.Style))
+    }
     // A line is the segments BETWEEN points plus the points themselves: a
     // single-point series would otherwise draw nothing at all, and the dots
     // keep the samples visible where the line is nearly flat.

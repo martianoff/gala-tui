@@ -190,5 +190,6 @@ func statusCellStyle(cell Style, bar Style) Style {
         Underline = cell.Underline || bar.Underline,
         Blink     = cell.Blink || bar.Blink,
         Strike    = cell.Strike || bar.Strike,
+        UnderlineColor = patchColor(cell.UnderlineColor, bar.UnderlineColor),
     )
 }

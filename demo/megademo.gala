@@ -924,6 +924,7 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
         ArrayOf[string]("Running", "Succeeded", "Failed"),
         ArrayOf[Widget](table, table, table),
         m.BuildTab,
+        "│",
     )
     val borderKind = if (focused) ThickBorder() else th.BorderKind
     return BorderOf(PaddingHV(0, 1, tabs), borderKind)

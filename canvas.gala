@@ -90,6 +90,9 @@ struct Bounds(Min float64, Max float64)
 func XBounds(min float64, max float64) Bounds = Bounds(Min = min, Max = max)
 func YBounds(min float64, max float64) Bounds = Bounds(Min = min, Max = max)
 
+// Clamp is `v` held inside the bounds.
+func (b Bounds) Clamp(v float64) float64 = if (v < b.Min) b.Min else if (v > b.Max) b.Max else v
+
 // Canvas builds a canvas widget.
 func Canvas(x Bounds, y Bounds, marker CanvasMarker, shapes Array[Shape]) Widget =
     CanvasW(

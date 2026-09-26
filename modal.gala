@@ -63,7 +63,7 @@ func ModalOver(below Widget, width int, height int, body Widget) Widget =
 // its own lines. Filling the panel's area first costs one pass and makes the
 // panel a panel rather than a frame.
 func opaquePanel(inner Widget) Widget =
-    Overlay(FillChStyled(' ', DefaultStyle()), inner)
+    Overlay(Clear(), inner)
 
 // ModalOverStyled is `ModalOver` with a caller-chosen border.
 func ModalOverStyled(
