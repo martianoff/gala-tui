@@ -173,6 +173,7 @@ gala_test(
         "runewidth_test.gala",
         "search_input_test.gala",
         "snapshot_test.gala",
+        "smallgaps_test.gala",
         "sparkline_direction_test.gala",
         "status_widgets_test.gala",
         "subs_test.gala",

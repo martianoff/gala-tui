@@ -1,0 +1,75 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+    "strings"
+)
+
+// ============================================================================
+// Clear, underline colour, Chart bars, Tabs divider
+// ============================================================================
+
+// Clear wipes what was drawn under it — glyph and style both.
+func TestClearResetsItsArea(t T) T {
+    val w = Stack(ArrayOf[Widget](TextStyled("xyz", DefaultStyle().On(Red())), Clear()))
+    val buf = renderAt(w, 3, 1)
+    val t1 = Eq(t, BufferText(buf, 0), "   ")
+    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Bg, DefaultColor()))
+}
+
+// An underline colour is SGR 58, emitted only alongside an underline.
+func TestUnderlineColourEmitsSgr58(t T) T {
+    val t1 = IsTrue(t, strings.Contains(DefaultStyle().WithUnderlineColor(Indexed(196)).ToSgr(), "58;5;196"))
+    val t2 = IsTrue(t1, strings.Contains(DefaultStyle().WithUnderlineColor(RGB(1, 2, 3)).ToSgr(), "58;2;1;2;3"))
+    val noUnderline = DefaultStyle().WithUnderlineColor(Red()).Copy(Underline = false)
+    return IsFalse(t2, strings.Contains(noUnderline.ToSgr(), "58;"))
+}
+
+// Two styles differing only in underline colour are different styles: the
+// renderer must not merge their runs and drop one colour.
+func TestUnderlineColourIsPartOfStyleEquality(t T) T =
+    IsFalse(t, StyleEqual(DefaultStyle().WithUnderlineColor(Red()),
+                          DefaultStyle().WithUnderlineColor(Blue())))
+
+// A patch keeps the underline colour underneath unless it sets its own.
+func TestPatchCarriesUnderlineColour(t T) T =
+    IsTrue(t, ColorEq(DefaultStyle().WithUnderlineColor(Red()).Patch(DefaultStyle().WithBold()).UnderlineColor, Red()))
+
+// GraphBar stands each point on the baseline: a bar is a solid column from
+// the bottom of the plot up to its value, not a dot at the value.
+func TestChartBarsStandOnTheBaseline(t T) T {
+    val ds = DatasetBars("", ArrayOf[CanvasPoint](CanvasPoint(X = 0.5, Y = 10.0)), DefaultStyle())
+    val w = Chart(ArrayOf[ChartDataset](ds), AxisBare(XBounds(0.0, 1.0)), AxisBare(YBounds(0.0, 10.0)))
+    val buf = renderAt(w, 6, 5)
+    // Some column holds a solid run of blocks at least three rows tall — a
+    // column standing on the baseline, not a dot at the value.
+    val runs = ArrayTabulate(6, (x) => ArrayTabulate(5, (y) => if (buf.CharAt(x, y) == '█') 1 else 0)
+        .FoldLeft(0, (a, v) => a + v))
+    return IsTrue(t, runs.Exists((n) => n >= 3))
+}
+
+// A divider sits between titles, not before the first or after the last,
+// and the default stays exactly as it was.
+func TestTabsDivider(t T) T {
+    val titles = ArrayOf[string]("a", "b", "c")
+    val bodies = ArrayOf[Widget](Empty(), Empty(), Empty())
+    val t1 = Eq(t, BufferText(renderAt(Tabs(titles, bodies, 0, false, "│"), 12, 1), 0), " a │ b │ c  ")
+    return Eq(t1, BufferText(renderAt(Tabs(titles, bodies, 0), 12, 1), 0), " a  b  c    ")
+}
+
+
+// A popup clears the area it covers, as a modal does.
+func TestPopupClearsTheAreaItCovers(t T) T {
+    val w = PopupOver(FillCh('x'), Popup(0, 0, 6, 3, Empty()))
+    return Eq(t, BufferText(renderAt(w, 6, 3), 1), "│    │")
+}
+
+// When the tab bar overflows, a divider is never drawn without the title it
+// introduces — no "│" dangling before the overflow marker.
+func TestTabDividerNeverDanglesBeforeTheOverflowMarker(t T) T {
+    val titles = ArrayOf[string]("Running", "Succeeded", "Failed")
+    val bodies = ArrayOf[Widget](Empty(), Empty(), Empty())
+    val row = BufferText(renderAt(Tabs(titles, bodies, 0, false, "│"), 12, 1), 0)
+    return IsFalse(t, strings.Contains(row, "│›"))
+}

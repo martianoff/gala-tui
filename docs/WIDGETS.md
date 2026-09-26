@@ -59,11 +59,23 @@ val tree  = ui.Tree("pipelines", m.Pipelines, m.Cursor)
 | `TextStyled(content, style)` | `(string, Style) Widget` | Text with explicit style. |
 | `FillCh(ch)` | `(rune) Widget` | Fill the area with a single character. |
 | `FillChStyled(ch, style)` | `(rune, Style) Widget` | Filled background block. |
+| `Clear()` | → `Widget` | Resets its area to blank default-style cells — ratatui's `Clear`. Stack it under a popup or a toast so what the screen drew there cannot show through the popup's own blank cells. |
 | `Paragraph(content)` | `(string) Widget` | Word-wrapped paragraph. |
 | `ParagraphStyled(content, style)` | `(string, Style) Widget` | Same with explicit style. |
 
 ```gala
 TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan()))
+```
+
+A `Style` is built fluently: `.WithFg`, `.WithBg` / `.On`, `.WithBold`, `.WithItalic`,
+`.WithUnderline`, `.WithReverse`, `.WithDim`, `.WithBlink`, `.WithStrike`, `.WithLink(url)`,
+and `.WithUnderlineColor(c)` — an underline in its own colour (SGR 58: a red
+rule under an error, a dim rule under bright link text). Terminals
+without SGR 58 ignore it and draw the ordinary underline. `a.Patch(b)` layers
+`b` over `a`, keeping whatever `b` leaves unset.
+
+```gala
+DefaultStyle().WithFg(BrightWhite()).WithUnderlineColor(BrightRed())
 ```
 
 ## Layout
@@ -264,6 +276,7 @@ on one edge. Shapes outside the bounds clip; they do not wrap.
 | `LineChartBounded(values, style, bounds)` | `(Array[int], Style, LineChartBounds) Widget` | Explicit `LineChartBounds(Min, Max)`. |
 | `LineChartAtHeight(values, style, bounds, rows)` | `(Array[int], Style, LineChartBounds, int) Widget` | Pin the chart to exactly `rows` rows. |
 | `MultiLineChart(series, styles)` | `(Array[Array[int]], Array[Style]) Widget` | Overlapping series sharing one Y-axis. |
+| `Chart(datasets, x, y)` | `(Array[ChartDataset], ChartAxis, ChartAxis) Widget` | Axes, tick labels and a legend over a Canvas. Datasets: `DatasetOf` (a connected line), `DatasetScatter` (points), `DatasetBars` (each point a bar standing on the baseline — zero, or the nearer Y bound when zero is off the axis). `ChartWithLegend` places the legend. |
 | `MultiLineChartAtHeight(series, styles, rows)` | `(Array[Array[int]], Array[Style], int) Widget` | Pinned-row variant. |
 | `Gauge(percent)` | `(int) Widget` | Horizontal fill bar. Sub-cell precision via partial blocks. |
 | `Progress(percent)` | `(int) Widget` | Cell-precise progress bar. |
@@ -536,7 +549,7 @@ RenderTo(ToastView(toasts1), area, buf)
 |---|---|---|
 | `MenuView(m)` | `(Menu) Widget` | Vertical or horizontal menu — set `Menu.Orientation`. |
 | `DropdownView(d)` | `(Dropdown) Widget` | Closed = trigger; open = menu below. |
-| `Tabs(titles, bodies, selected)` | `(Array[string], Array[Widget], int) Widget` | Tabbed pane — bodies parallel to titles. |
+| `Tabs(titles, bodies, selected, focused?, divider?)` | `(Array[string], Array[Widget], int, bool, string) Widget` | Tabbed pane — bodies parallel to titles. `divider` (e.g. `"│"`) goes between titles, dim; empty by default. |
 | `Scrollbar(total, visible, offset)` | `(int, int, int) Widget` | Vertical scroll-thumb track on the right edge. Pass `visible = 0` to derive the viewport from the bar's own area. With nothing to scroll it draws track only, not a full thumb. |
 | `ScrollbarStyled(total, visible, offset, style)` | `(int, int, int, Style) Widget` | …with explicit fg/bg. |
 | `ScrollbarAt(total, visible, offset, style, orientation)` | `(int, int, int, Style, ScrollbarOrientation) Widget` | Pick the edge: `ScrollbarVerticalRight` / `…Left` / `ScrollbarHorizontalBottom` / `…Top`. |

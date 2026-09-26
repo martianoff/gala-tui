@@ -26,6 +26,11 @@ struct Style(
     Dim       bool,
     Blink     bool,
     Strike    bool,
+    // UnderlineColor colours the underline independently of the text —
+    // SGR 58, which kitty, WezTerm, iTerm2, foot and VTE honour and other
+    // terminals ignore, leaving the ordinary underline. DefaultColor draws
+    // the underline in the text colour.
+    UnderlineColor Color,
     // Link is the OSC 8 hyperlink target for cells carrying this style, or
     // None for ordinary text.
     //
@@ -55,6 +60,7 @@ func DefaultStyle() Style = Style(
     Bg = DefaultColor(),
     Bold = false, Italic = false, Underline = false,
     Reverse = false, Dim = false, Blink = false, Strike = false,
+    UnderlineColor = DefaultColor(),
     Link = None[string](),
 )
 
@@ -79,6 +85,10 @@ func (s Style) WithReverse() Style   = s.Copy(Reverse = true)
 func (s Style) WithDim() Style       = s.Copy(Dim = true)
 func (s Style) WithBlink() Style     = s.Copy(Blink = true)
 func (s Style) WithStrike() Style    = s.Copy(Strike = true)
+
+// WithUnderlineColor underlines in `c` rather than in the text colour — a
+// red squiggle under an error, a dim rule under a link.
+func (s Style) WithUnderlineColor(c Color) Style = s.Copy(Underline = true, UnderlineColor = c)
 
 // WithLink marks cells carrying this style as an OSC 8 hyperlink to `url`.
 // The escape bytes are emitted by the buffer writers at the boundaries of
@@ -109,6 +119,7 @@ func (s Style) Patch(over Style) Style = Style(
     Dim       = s.Dim || over.Dim,
     Blink     = s.Blink || over.Blink,
     Strike    = s.Strike || over.Strike,
+    UnderlineColor = patchColor(s.UnderlineColor, over.UnderlineColor),
     Link      = over.Link match {
         case Some(_) => over.Link
         case None()  => s.Link
@@ -152,10 +163,15 @@ func (s Style) sgrParts() Array[string] {
         case DefaultColor() => flagParts
         case _              => flagParts.Append(ToSgrFg(s.Fg))
     }
-    return s.Bg match {
+    val withBg = s.Bg match {
         case DefaultColor() => withFg
         case _              => withFg.Append(ToSgrBg(s.Bg))
     }
+    // Only an underlined cell says which colour its underline is: SGR 58 on
+    // a cell with no underline would be dead bytes on every flush.
+    return if (s.Underline && !ColorEq(s.UnderlineColor, DefaultColor()))
+        withBg.Append(ToSgrUnderline(s.UnderlineColor))
+    else withBg
 }
 
 // ResetSgr is the universal "reset everything" escape — written before moving
@@ -173,6 +189,9 @@ func StyleEqual(a Style, b Style) bool {
         a.Dim == b.Dim &&
         a.Blink == b.Blink &&
         a.Strike == b.Strike &&
+        // An underline colour only shows on an underlined cell; comparing it
+        // otherwise would split runs of cells that look identical.
+        (!a.Underline || ColorEq(a.UnderlineColor, b.UnderlineColor)) &&
         ColorEq(a.Fg, b.Fg) &&
         ColorEq(a.Bg, b.Bg) &&
         LinkUrl(a) == LinkUrl(b)

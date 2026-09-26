@@ -29,7 +29,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 - List (**highlight symbol + scroll padding** via `SelectListView`) · Table · **TableView** (styled cells, footer, multi-line rows, row/column/cell selection) · **DataTable** (sort + filter + frozen header + scrolling) · Tree
 - Progress · ProgressLabeled · Gauge · **LineGauge** (one row: caption + rule) · Sparkline · BarChart · **BarChartOf** / **HBarChartOf** (grouped bars, vertical or horizontal, eighth-cell precision) · **LineChart** (sub-cell resolution)
 - **Canvas** — shapes in your own coordinate space at 2×4 braille resolution, including filled areas
-- **Tabs** · **Menu** · **Dropdown** · **Modal** (ConfirmDialog / AlertDialog) · **Scrollbar** (4 orientations) · **Viewport**
+- **Tabs** (optional divider) · **Menu** · **Dropdown** · **Modal** (ConfirmDialog / AlertDialog) · **Scrollbar** (4 orientations) · **Viewport**
 - **Toast** · **StatusBar** · **LogPanel** · **Form** (multi-field with validators)
 - **Markdown** rendering (headings, bold, italic, code spans, links, lists, rules)
 - **Command palette** with fuzzy search (à la VS Code Cmd-Shift-P)

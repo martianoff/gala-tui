@@ -40,7 +40,9 @@ func Popup(x int, y int, w int, h int, body Widget) Widget =
     PopupStyled(x, y, w, h, body, SingleBorder())
 
 func PopupStyled(x int, y int, w int, h int, body Widget, border BorderKind) Widget {
-    val bordered = BorderOf(body, border)
+    // Opaque, as a modal is: the body's blank cells must hide the screen
+    // under the popup, not show it through.
+    val bordered = opaquePanel(BorderOf(body, border))
     return popupAtAbsolute(x, y, w, h, bordered)
 }
 
