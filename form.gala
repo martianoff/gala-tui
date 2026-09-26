@@ -130,18 +130,10 @@ func NewForm(fields Array[FormField]) FormState =
     FormState(Fields = fields, Focused = 0, Submitted = false)
 
 // FormIsValid reports whether every field validates successfully.
-func FormIsValid(f FormState) bool {
-    var i = 0
-    val n = f.Fields.Length()
-    for i < n {
-        val fld = f.Fields.Get(i)
-        if fld.Validator(fld.Value).IsDefined() {
-            return false
-        }
-        i = i + 1
-    }
-    return true
-}
+func FormIsValid(f FormState) bool = !f.Fields.Exists(formFieldInvalid)
+
+// formFieldInvalid reports whether a field's validator rejects its value.
+func formFieldInvalid(fld FormField) bool = fld.Validator(fld.Value).IsDefined()
 
 // FormValue looks up the current value of a field by name. Returns "" when
 // the name isn't a known field — apps that can't tolerate silent defaults
@@ -152,18 +144,8 @@ func FormValue(f FormState, name string) string =
 // FormValueOpt returns the current value of a field, or None if the name is
 // unknown. Preferred when you need to distinguish "missing field" from
 // "empty field".
-func FormValueOpt(f FormState, name string) Option[string] {
-    var i = 0
-    val n = f.Fields.Length()
-    for i < n {
-        val fld = f.Fields.Get(i)
-        if fld.Name == name {
-            return Some[string](fld.Value)
-        }
-        i = i + 1
-    }
-    return None[string]()
-}
+func FormValueOpt(f FormState, name string) Option[string] =
+    f.Fields.Find((fld) => fld.Name == name).Map((fld) => fld.Value)
 
 // ----------------------------------------------------------------------------
 // Update
@@ -203,7 +185,7 @@ func formBackspace(f FormState) FormState {
     if f.Fields.IsEmpty() { return f }
     val fld = f.Fields.Get(f.Focused)
     if fld.Value == "" { return f }
-    val updated = fld.Copy(Value = dropLastRuneForm(fld.Value))
+    val updated = fld.Copy(Value = dropLastRune(fld.Value))
     return f.Copy(Fields = replaceAt(f.Fields, f.Focused, updated))
 }
 
@@ -220,21 +202,13 @@ func formPrevFocus(f FormState) int {
 }
 
 // formSubmit sets Submitted = true only if every field validates.
+// Otherwise focus jumps to the first invalid field so the user sees what's
+// wrong.
 func formSubmit(f FormState) FormState {
-    if FormIsValid(f) {
-        return f.Copy(Submitted = true)
+    return f.Fields.ZipWithIndex().Find((t) => formFieldInvalid(t.V1)) match {
+        case Some(t) => f.Copy(Focused = t.V2)
+        case None()  => f.Copy(Submitted = true)
     }
-    // Jump focus to the first invalid field so the user sees what's wrong.
-    var i = 0
-    val n = f.Fields.Length()
-    for i < n {
-        val fld = f.Fields.Get(i)
-        if fld.Validator(fld.Value).IsDefined() {
-            return f.Copy(Focused = i)
-        }
-        i = i + 1
-    }
-    return f
 }
 
 // ----------------------------------------------------------------------------
@@ -303,20 +277,4 @@ func formInput(fld FormField, active bool, formFocused bool) Widget {
 func replaceAt[T any](xs Array[T], i int, v T) Array[T] {
     val (before, after) = xs.SplitAt(i)
     return before.Append(v).AppendAll(after.Drop(1))
-}
-
-// dropLastRuneForm strips the last rune from `s`. Duplicated from other
-// files to keep this module self-contained.
-func dropLastRuneForm(s string) string {
-    val total = RuneCount(s)
-    if total == 0 { return s }
-    var kept = ""
-    var seen = 0
-    for _, c := range s {
-        if seen < total - 1 {
-            kept = kept + string(c)
-        }
-        seen = seen + 1
-    }
-    return kept
 }

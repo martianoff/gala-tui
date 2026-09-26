@@ -130,7 +130,7 @@ func taBackspace(t TextArea) TextArea {
     if t.Col > 0 {
         val line = t.Lines.Get(t.Row)
         val (lhs, rhs) = runeSplitAt(line, t.Col)
-        val newLine = runeSliceTo(lhs, RuneCount(lhs) - 1) + rhs
+        val newLine = dropLastRune(lhs) + rhs
         val newLines = t.Lines.Updated(t.Row, newLine)
         return taLinesAndCursor(t, newLines, t.Row, t.Col - 1)
     }
@@ -149,7 +149,7 @@ func taDelete(t TextArea) TextArea {
     val n = RuneCount(line)
     if t.Col < n {
         val (lhs, rhs) = runeSplitAt(line, t.Col)
-        val newLine = lhs + runeSliceFrom(rhs, 1)
+        val newLine = lhs + string(stringRunes(rhs).Drop(1).ToGoSlice())
         val newLines = t.Lines.Updated(t.Row, newLine)
         return taLinesAndCursor(t, newLines, t.Row, t.Col)
     }
@@ -220,7 +220,7 @@ func taHistoryStep(t TextArea, delta int) TextArea {
                   }
     // Save the current draft on the FIRST step into history so we
     // can restore it when the user comes back.
-    val savedDraft = if (t.HistoryIdx == -1) taContentOf(t.Lines) else t.Draft
+    val savedDraft = if (t.HistoryIdx == -1) t.Lines.MkString("\n") else t.Draft
     val newContent = if (nextIdx == -1) savedDraft else t.History.Get(nextIdx)
     val newLines = stringToLines(newContent)
     val newRow = newLines.Length() - 1
@@ -236,7 +236,7 @@ func taHistoryStep(t TextArea, delta int) TextArea {
 }
 
 func taSubmit(t TextArea) TextArea {
-    val content = taContentOf(t.Lines)
+    val content = t.Lines.MkString("\n")
     val newHist = if (content == "") t.History
                   else t.History.Append(content)
     return TextArea(
@@ -268,55 +268,43 @@ func taLinesAndCursor(t TextArea, lines Array[string], row int, col int) TextAre
 )
 
 // TextAreaContent joins the lines with `\n`.
-func TextAreaContent(t TextArea) string = taContentOf(t.Lines)
-
-func taContentOf(lines Array[string]) string {
-    if lines.IsEmpty() { return "" }
-    var s = lines.Get(0)
-    var i = 1
-    val n = lines.Length()
-    for i < n {
-        s = s + "\n" + lines.Get(i)
-        i = i + 1
-    }
-    return s
-}
+func TextAreaContent(t TextArea) string = t.Lines.MkString("\n")
 
 func stringToLines(s string) Array[string] =
     ArrayFromSlice(strings.Split(s, "\n"))
 
+// ----------------------------------------------------------------------------
+// Rune helpers, shared by the text-editing widgets (TextArea, Form, Palette,
+// KeySpec).
+// ----------------------------------------------------------------------------
+
+// stringRunes splits `s` into its runes (invalid UTF-8 bytes become
+// U+FFFD, as `range` yields them).
+//
+// This is `S(s).ToChars()` from martianoff/gala/strings, spelled out by
+// hand because that package cannot be imported here: on GALA 0.80 importing
+// it anywhere in this package makes the transpiler treat `strings` as a GALA
+// package and reject buffer.gala's `*strings.Builder` parameter
+// (GALA-E0025). Replace the body with `S(s).ToChars()` once that is fixed.
+func stringRunes(s string) Array[rune] {
+    var acc = EmptyArray[rune]()
+    for _, c := range s {
+        acc = acc.Append(c)
+    }
+    return acc
+}
+
 // runeSplitAt returns (lhs, rhs) such that lhs has `col` runes and rhs has
 // the remainder. Out-of-range cols clamp to the string boundaries.
 func runeSplitAt(s string, col int) Tuple[string, string] {
-    var lhs = ""
-    var rhs = ""
-    var i = 0
-    for _, c := range s {
-        if i < col { lhs = lhs + string(c) }
-        else       { rhs = rhs + string(c) }
-        i = i + 1
-    }
-    return (lhs, rhs)
+    val rs = stringRunes(s)
+    return (string(rs.Take(col).ToGoSlice()), string(rs.Drop(col).ToGoSlice()))
 }
 
-func runeSliceTo(s string, end int) string {
-    var out = ""
-    var i = 0
-    for _, c := range s {
-        if i < end { out = out + string(c) }
-        i = i + 1
-    }
-    return out
-}
-
-func runeSliceFrom(s string, start int) string {
-    var out = ""
-    var i = 0
-    for _, c := range s {
-        if i >= start { out = out + string(c) }
-        i = i + 1
-    }
-    return out
+// dropLastRune strips the last rune from `s`; "" stays "".
+func dropLastRune(s string) string {
+    val rs = stringRunes(s)
+    return string(rs.Take(rs.Length() - 1).ToGoSlice())
 }
 
 // ----------------------------------------------------------------------------

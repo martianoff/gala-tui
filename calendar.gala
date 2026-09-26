@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strconv"
     "time"
     . "martianoff/gala/collection_immutable"
 )
@@ -117,7 +118,7 @@ func daysInMonth(year int, month int) int {
 // "the cursor", as opposed to the just-highlighted active selection.
 func CalendarView(c Calendar, focused bool = false) Widget {
     val title = TextStyled(
-        " " + monthName(c.Month) + " " + intToStr(c.Year) + " ",
+        " " + monthName(c.Month) + " " + strconv.Itoa(c.Year) + " ",
         DefaultStyle().WithBold().WithFg(BrightCyan()),
     )
     val dayLabels = Row(ArrayOf[LayoutChild](
@@ -175,8 +176,8 @@ func calDayCell(c Calendar, today time.Time, day int, totalDays int, focused boo
 
 // calPad formats a day number into a 3-cell string (" D " or " DD").
 func calPad(day int) string {
-    if day < 10 { return " " + intToStr(day) + " " }
-    return " " + intToStr(day)
+    if day < 10 { return " " + strconv.Itoa(day) + " " }
+    return " " + strconv.Itoa(day)
 }
 
 // ----------------------------------------------------------------------------
@@ -198,23 +199,5 @@ func monthName(m int) string = m match {
     case _  => "December"
 }
 
-// intToStr renders a non-negative int in base 10. We avoid fmt.Sprintf
-// because GALA's interpolation already handles the common case; this is
-// the inner-loop fallback that doesn't pull in fmt.
-func intToStr(n int) string {
-    if n == 0 { return "0" }
-    var v = n
-    var neg = false
-    if v < 0 {
-        neg = true
-        v = -v
-    }
-    var rev = ""
-    for v > 0 {
-        val d = v % 10
-        rev = string(rune('0' + d)) + rev
-        v = v / 10
-    }
-    if neg { return "-" + rev }
-    return rev
-}
+// intToStr is kept for calendar_test.gala; library code calls strconv.Itoa.
+func intToStr(n int) string = strconv.Itoa(n)

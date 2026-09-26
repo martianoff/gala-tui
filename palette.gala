@@ -75,7 +75,7 @@ sealed type PaletteEvent {
 func PaletteUpdate[T any](p Palette[T], ev PaletteEvent) Palette[T] {
     return ev match {
         case PalChar(c)     => palRefilter(palWithQuery(p, p.Query + string(c)))
-        case PalBackspace() => palRefilter(palWithQuery(p, palDropLast(p.Query)))
+        case PalBackspace() => palRefilter(palWithQuery(p, dropLastRune(p.Query)))
         case PalNext()      => palWithSelected(p, palWrap(p.Selected + 1, p.FilteredIdx.Length()))
         case PalPrev()      => palWithSelected(p, palWrap(p.Selected - 1, p.FilteredIdx.Length()))
         case PalConfirm()   => p
@@ -112,20 +112,6 @@ struct palScored(
     Score int,
 )
 
-func palDropLast(s string) string {
-    val total = RuneCount(s)
-    if total == 0 { return s }
-    var kept = ""
-    var seen = 0
-    for _, c := range s {
-        if seen < total - 1 {
-            kept = kept + string(c)
-        }
-        seen = seen + 1
-    }
-    return kept
-}
-
 func palWrap(idx int, length int) int {
     if length == 0 { return 0 }
     if idx < 0 { return length - 1 }
@@ -160,51 +146,38 @@ func (p Palette[T]) FilteredActions() Array[PaletteAction[T]] =
 // ----------------------------------------------------------------------------
 
 func FuzzyScore(query string, candidate string) int {
-    val qRunes = strRunes(query)
-    val cRunes = strRunes(candidate)
+    val qRunes = stringRunes(query)
+    val cRunes = stringRunes(candidate)
     val qn = qRunes.Length()
-    val cn = cRunes.Length()
     if qn == 0 { return 1 }                   // empty query matches everything with low score
-    if qn > cn { return 0 }
-    var score = 0
-    var qi = 0
-    var ci = 0
-    var prevMatched = false
-    for qi < qn && ci < cn {
-        val qc = qRunes.Get(qi)
-        val cc = cRunes.Get(ci)
-        if qc == cc {
-            score = score + 1
-            if prevMatched {
-                score = score + 2            // consecutive bonus
-            }
-            if palIsWordBoundary(cRunes, ci) {
-                score = score + 3            // word-start bonus
-            }
-            qi = qi + 1
-            prevMatched = true
-        } else {
-            prevMatched = false
-        }
-        ci = ci + 1
-    }
-    if qi < qn { return 0 }                   // query not fully consumed → no match
-    return score
+    if qn > cRunes.Length() { return 0 }
+    // One pass over the candidate. Once the whole query has matched, the
+    // remaining steps leave the state alone — nothing after that point can
+    // change the score.
+    val end = cRunes.ZipWithIndex().FoldLeft(palFuzzy(Qi = 0, Prev = false, Score = 0), (st, t) => {
+        if st.Qi >= qn { return st }
+        if qRunes.Get(st.Qi) != t.V1 { return st.Copy(Prev = false) }
+        val consecutive = if (st.Prev) 2 else 0                         // consecutive bonus
+        val wordStart = if (palIsWordBoundary(cRunes, t.V2)) 3 else 0   // word-start bonus
+        return palFuzzy(Qi = st.Qi + 1, Prev = true, Score = st.Score + 1 + consecutive + wordStart)
+    })
+    if end.Qi < qn { return 0 }               // query not fully consumed → no match
+    return end.Score
 }
+
+// palFuzzy is FuzzyScore's fold state: query runes matched so far, whether
+// the previous candidate rune matched, and the running score.
+struct palFuzzy(
+    Qi    int,
+    Prev  bool,
+    Score int,
+)
 
 func palIsWordBoundary(runes Array[rune], i int) bool {
     if i == 0 { return true }
     val prev = runes.Get(i - 1)
     return prev == ' ' || prev == '-' || prev == '_' ||
            prev == '/' || prev == '.'
-}
-
-func strRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
 }
 
 // ----------------------------------------------------------------------------
