@@ -89,12 +89,12 @@ func TestStyleAllAttributes(t T) T {
 //
 // We compare single-rune values by rendering to a single-char string with
 // `CellChar` — avoids an Immutable[rune] vs rune unification issue at the Eq
-// call site (see BUG-gala_tui-009).
+// call site when reading `.Ch` off `Buffer.Get`'s return value.
 // ============================================================================
 
 // CellChar renders the cell at (x, y) as a one-rune string. Uses the raw-rune
 // accessor CharAt on Buffer to avoid Immutable[rune] unification issues inside
-// Eq (see BUG-gala_tui-009).
+// Eq.
 func CellChar(b *Buffer, x int, y int) string = string(b.CharAt(x, y))
 
 func TestNewBufferEmpty(t T) T {

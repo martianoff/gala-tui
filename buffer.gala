@@ -224,9 +224,9 @@ func (b *Buffer) Get(x int, y int) Cell {
 }
 
 // CharAt returns the Ch field of the cell at (x, y) as a raw rune. Provided so
-// tests can compare with rune literals without wading through Immutable[rune]
-// wrapping — field access through a value returned by a method auto-wraps and
-// breaks Eq's type unification (see BUG-gala_tui-009).
+// tests can compare with rune literals directly: a field read off a method's
+// return value (`b.Get(x, y).Ch`) is not unwrapped from its Immutable[rune]
+// field storage, so `Eq(t, b.Get(x, y).Ch, 'x')` fails to type-check.
 func (b *Buffer) CharAt(x int, y int) rune {
     val idx = b.Index(x, y)
     if idx < 0 {

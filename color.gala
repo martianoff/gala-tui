@@ -21,9 +21,10 @@ sealed type Color {
 // classic 4-bit palette supported by every VT100-compatible terminal.
 //
 // Exposed as zero-arg functions rather than top-level `val` bindings because
-// GALA currently wraps top-level `val` in `std.Immutable[T]`, which is NOT
-// assignable to the un-wrapped `Color` type the renderer expects
-// (see BUG-gala_tui-008). A zero-arg function is the idiomatic workaround.
+// a package-level `val` referenced from another package reaches the caller as
+// `std.Immutable[Color]` rather than `Color`, so `.WithFg(tui.Red)` would not
+// compile in user code. Same-package references unwrap correctly; the
+// cross-package case does not yet.
 func Black() Color         = NamedColor(0)
 func Red() Color           = NamedColor(1)
 func Green() Color         = NamedColor(2)
