@@ -26,7 +26,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 
 **Widgets**
 - Text · Paragraph (word-wrap) · Input (focus caret + horizontal scroll, **masked** for passwords, **click to position**) · Button · Spinner
-- List · Table · **DataTable** (sort + filter + frozen header + scrolling) · Tree
+- List · Table · **TableView** (styled cells, footer, multi-line rows, row/column/cell selection) · **DataTable** (sort + filter + frozen header + scrolling) · Tree
 - Progress · ProgressLabeled · Gauge · **LineGauge** (one row: caption + rule) · Sparkline · BarChart · **BarChartOf** / **HBarChartOf** (grouped bars, vertical or horizontal, eighth-cell precision) · **LineChart** (sub-cell resolution)
 - **Canvas** — shapes in your own coordinate space at 2×4 braille resolution, including filled areas
 - **Tabs** · **Menu** · **Dropdown** · **Modal** (ConfirmDialog / AlertDialog) · **Scrollbar** (4 orientations) · **Viewport**
@@ -77,7 +77,7 @@ them they put every widget on screen at least once:
 | Logs | LogPanel, also reachable as a drawer over any screen |
 | Charts | LineChart, MultiLineChart, a Canvas filled-area series, LineGauge, Gauge, Sparkline |
 | Forms | Input and InputMasked with click-to-position, Button, SearchInput |
-| Data | SelectList, Dropdown, Table and the Scrollbar that tracks it |
+| Data | SelectList, Dropdown, a TableView (coloured states, totals footer, ▶ cursor) and the Scrollbar that tracks it |
 | Review | DiffViewStats, MarkdownView, OSC 8 links, Tags |
 
 Over the top of all of them: the command palette, the confirm modal, toasts,

@@ -1684,3 +1684,16 @@ func TestMegaOverviewShowsStageTimesLyingDown(t T) T {
     val t2 = IsTrue(t1, megaStringHas(main, "p95 "))
     return IsTrue(t2, megaStringHas(main, " 188"))
 }
+
+// The Data screen's quota table is a TableView: the cursor row carries the
+// ▶ symbol, numbers are right-aligned against their header, and the footer
+// totals every region — including the four scrolled out of view.
+func TestMegaDataScreenTableHasCursorAndTotals(t T) T {
+    val (m1, _) = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "data"))
+    val buf = NewBuffer(120, 36)
+    RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 36), buf)
+    val table = megaColumns(buf, 28, 120)
+    val t1 = IsTrue(t, megaStringHas(table, "▶ us-east-1"))
+    val t2 = IsTrue(t1, megaStringHas(table, "total"))
+    return IsTrue(t2, megaStringHas(table, "2250"))
+}

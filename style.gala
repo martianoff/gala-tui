@@ -89,6 +89,37 @@ func (s Style) WithLink(url string) Style = s.Copy(Link = Some(url))
 // linked one.
 func (s Style) WithoutLink() Style = s.Copy(Link = None[string]())
 
+// Patch layers `over` on top of `s`: every colour `over` sets and every
+// attribute it turns on wins, and everything it leaves at the default keeps
+// the value underneath. It is how a table cell's style sits on its row's,
+// and a highlight on the cell's — a highlight that only sets a background
+// must not strip the bold or the colour the cell drew with, and a plain
+// `Highlighted`, which replaces the style outright, does exactly that.
+//
+// Attributes can only be added this way, never removed: a default `false`
+// cannot be told apart from "not mentioned". Derive the base style without
+// the attribute instead.
+func (s Style) Patch(over Style) Style = Style(
+    Fg        = patchColor(s.Fg, over.Fg),
+    Bg        = patchColor(s.Bg, over.Bg),
+    Bold      = s.Bold || over.Bold,
+    Italic    = s.Italic || over.Italic,
+    Underline = s.Underline || over.Underline,
+    Reverse   = s.Reverse || over.Reverse,
+    Dim       = s.Dim || over.Dim,
+    Blink     = s.Blink || over.Blink,
+    Strike    = s.Strike || over.Strike,
+    Link      = over.Link match {
+        case Some(_) => over.Link
+        case None()  => s.Link
+    },
+)
+
+func patchColor(under Color, over Color) Color = over match {
+    case DefaultColor() => under
+    case _              => over
+}
+
 // ----------------------------------------------------------------------------
 // SGR rendering.
 // ----------------------------------------------------------------------------

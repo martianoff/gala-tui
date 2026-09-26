@@ -240,8 +240,10 @@ func (w Widget) WithDim() Widget = restyleLeaves(w, (s) => s.WithDim())
 // a styled leaf like TextWidget is, so `.WithBold()` over a rich-text
 // subtree bolds each run rather than flattening them to one style.
 func restyleRichText(t RichText, f func(Style) Style) RichText =
-    RichTextOf(t.Lines.Map((l) =>
-        Line(Spans = l.Spans.Map((s) => s.Styled(f(s.Style))), Align = l.Align)))
+    RichTextOf(t.Lines.Map((l) => restyleLine(l, f)))
+
+func restyleLine(l Line, f func(Style) Style) Line =
+    Line(Spans = l.Spans.Map((s) => s.Styled(f(s.Style))), Align = l.Align)
 
 // restyleShape applies `f` to a Shape's Style. A Shape is a styled leaf the
 // same way a Span is.
@@ -271,6 +273,8 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
             CanvasW(XMin = x1, XMax = x2, YMin = y1, YMax = y2, Marker = mk,
                     Shapes = sh.Map((s) => restyleShape(s, f)))
         case CellTextW(c, s)                   => CellTextW(Content = c, Style = f(s))
+        case CellRichW(ls, s, o)               =>
+            CellRichW(Lines = ls.Map((l) => restyleLine(l, f)), Style = f(s), Top = f(o))
         case FillWidget(ch, s)                 => FillWidget(Ch = ch, Style = f(s))
         case BorderWidget(inner, kind, sides, style, titles) =>
             // The border's own style is a leaf too — restyling a subtree
@@ -315,9 +319,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ListW(items, sel, ss, off, dir)   =>
             ListW(Items = items, Selected = sel, SelStyle = f(ss),
                   Offset = off, Direction = dir)
-        case AutoScrollW(rows, sel, off, rh)   =>
-            AutoScrollW(Rows = rows.Map((r) => restyleLeaves(r, f)),
-                        Selected = sel, Offset = off, RowH = rh)
+        case AutoScrollW(build, sel, off, hs)  =>
+            AutoScrollW(Build = (i) => restyleLeaves(build(i), f),
+                        Heights = hs, Selected = sel, Offset = off)
         case InputW(v, cu, p, s, ps, fo)       =>
             InputW(Value = v, Cursor = cu, Placeholder = p,
                    Style = f(s), PlaceholderStyle = f(ps), Focused = fo)

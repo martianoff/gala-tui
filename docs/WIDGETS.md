@@ -329,6 +329,7 @@ SparklineOf(ArrayOf[Option[int]](Some(4), Some(0),      Some(4)), style)  // █
 | `SelectList(items, selected)` | `(Array[ListItem], int) Widget` | Vertical list. Each item carries label + optional hint via `NewListItem(label)`. |
 | `SelectListOf(labels, selected)` | `(Array[string], int) Widget` | Convenience over `SelectList` when you only need labels. |
 | `Table(data)` | `(TableData) Widget` | Fixed grid; pre-sized columns. |
+| `TableView(spec)` | `(TableSpec) Widget` | Styled cells, header + footer, multi-line rows, a highlight symbol, and row / column / cell selection. Scrolls to keep the cursor visible. Build the spec with `TableSpecOf(widths, rows)` — see below. |
 | `DataTableView(dt)` | `(DataTable) Widget` | Sortable + filterable. State in `DataTable` model — drive with `DataTableUpdate`. |
 | `Tree(root)` | `(TreeNode) Widget` | Static collapsible tree. Build with `NewTreeBranch`/`NewTreeBranchExpanded`/`NewTreeLeaf`. |
 | `TreeFocused(root, cursor, focused = false)` | `(TreeNode, int, bool) Widget` | Interactive variant — cursor highlight + focus accent. Pair with `TreeFlatRowCount` for clamping and `TreeToggleAt` for expand/collapse. |
@@ -345,6 +346,45 @@ val initial = NewDataTable(
 val dt2 = DataTableUpdate(initial, DTSortBy(0))
 RenderTo(DataTableView(dt2), area, buf)
 ```
+
+### TableView
+
+`Table` is a grid of strings with a highlighted row. `TableView` is the one a
+dashboard grid needs:
+
+```gala
+val num = (s string) => CellOf(s).Aligned(AlignRight())
+TableView(TableSpecOf(
+    ArrayOf[Constraint](Length(14), Length(7), Fill(1)),
+    ArrayOf[TableRow](
+        TableRowOf(CellOf("us-east-1"), num("318"), CellOf("ok").WithStyle(green)),
+        TableRowOf(CellOf("eu-west-1"), num("241"), CellOf("near limit").WithStyle(yellow)),
+    ))
+    .WithHeader(TableRowOf(CellOf("region"), num("used"), CellOf("state")))
+    .WithFooter(TableRowOf(CellOf("total"), num("559"), CellOf("")))
+    .SelectCell(1, 1)                              // or .Select(row) / .SelectColumn(col)
+    .WithHighlightSymbol("▶ ", HighlightAlways()))
+```
+
+- **Cells** — `CellOf(text)` (a `"\n"` starts a second line), `CellSpans(spans...)`
+  for styled runs; `.WithStyle(s)` fills the whole cell, `.Aligned(a)` aligns it.
+  Too wide for its column, a cell is cut with `…` in the style of what it cut.
+- **Rows** — `TableRowOf(cells...)` / `TableRowOfStrings(texts...)`,
+  `.WithStyle(s)`, `.WithHeight(n)`. A row is as tall as its tallest cell
+  unless told otherwise, and the body scrolls by rows of mixed height.
+- **Styles layer** with `Style.Patch`: table → row → cell → the text's spans,
+  then row, column and cell highlights on top. Patching rather than replacing
+  keeps a red "failed" red inside a selected row. The defaults read without
+  colour: reverse for the row, bold for the column, bold underline where they
+  cross. Highlights only ever add attributes (like ratatui's `add_modifier`),
+  so on cells that are already reversed or bold, give the table a highlight
+  that sets a colour with `.WithHighlights(row, column, cell)`.
+- **Highlight symbol** — `HighlightWhenSelected()` (the default) reserves the
+  symbol's column only while a row is selected, so the columns shift when the
+  cursor appears; `HighlightAlways()` keeps them still.
+- The header and footer take neither the cursor nor the column highlight, and
+  the footer stays pinned while the body scrolls. `.ScrollTo(n)` pins the first
+  body row instead of following the cursor.
 
 ## Forms & input
 

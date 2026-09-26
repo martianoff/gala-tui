@@ -21,7 +21,7 @@ func shots() Array[Shot] = ArrayOf[Shot](
     Shot(Name = "richtext",     Cols = 64, Rows = 6,  W = shotRichText()),
     Shot(Name = "canvas",       Cols = 64, Rows = 9,  W = shotCanvas()),
     Shot(Name = "charts",       Cols = 64, Rows = 32, W = shotCharts()),
-    Shot(Name = "lists",        Cols = 64, Rows = 11, W = shotLists()),
+    Shot(Name = "lists",        Cols = 64, Rows = 15, W = shotLists()),
     Shot(Name = "forms",        Cols = 64, Rows = 9,  W = shotForms()),
     Shot(Name = "modals",       Cols = 64, Rows = 9,  W = shotModals()),
     Shot(Name = "status",       Cols = 64, Rows = 9,  W = shotStatus()),
@@ -142,19 +142,42 @@ func demoGappedSeries() Array[Option[int]] {
 }
 
 func shotLists() Widget =
-    Row(ArrayOf[LayoutChild](
-        Flex(1, Titled(SelectListOf(ArrayOf[string](
-            "  overview", "  builds", "  pipelines", "  logs"), 1, true), " SelectList ")),
-        Flex(1, Titled(Table(TableData(
-            Headers  = ArrayOf[string]("build", "state"),
-            Widths   = ArrayOf[Constraint](Percent(N = 55), Percent(N = 45)),
-            Rows     = ArrayOf[Array[string]](
-                ArrayOf[string]("#4211", "running"),
-                ArrayOf[string]("#4210", "passed"),
-                ArrayOf[string]("#4209", "passed"),
-            ),
-            Selected = 0)), " Table ")),
+    Column(ArrayOf[LayoutChild](
+        Fixed(7, Row(ArrayOf[LayoutChild](
+            Flex(1, Titled(SelectListOf(ArrayOf[string](
+                "  overview", "  builds", "  pipelines", "  logs"), 1, true), " SelectList ")),
+            Flex(1, Titled(Table(TableData(
+                Headers  = ArrayOf[string]("build", "state"),
+                Widths   = ArrayOf[Constraint](Percent(N = 55), Percent(N = 45)),
+                Rows     = ArrayOf[Array[string]](
+                    ArrayOf[string]("#4211", "running"),
+                    ArrayOf[string]("#4210", "passed"),
+                    ArrayOf[string]("#4209", "passed"),
+                ),
+                Selected = 0)), " Table ")),
+        ))),
+        // TableView: a state coloured by its value, numbers right-aligned, a
+        // footer that stays put, a cursor that reads without colour, and a
+        // selected COLUMN crossing the selected row at one cell.
+        Fixed(8, Titled(TableView(shotTableSpec()), " TableView ")),
     ))
+
+func shotTableSpec() TableSpec {
+    val num = (s string) => CellOf(s).Aligned(AlignRight())
+    val state = (s string, c Color) => CellOf(s).WithStyle(DefaultStyle().WithFg(c))
+    val bold = DefaultStyle().WithBold()
+    return TableSpecOf(
+        ArrayOf[Constraint](Length(14), Length(7), Length(7), Fill(1)),
+        ArrayOf[TableRow](
+            TableRowOf(CellOf("us-east-1"), num("400"), num("318"), state("ok", BrightGreen())),
+            TableRowOf(CellOf("eu-west-1"), num("250"), num("241"), state("near limit", BrightYellow())),
+            TableRowOf(CellOf("af-south-1"), num("100"), num("0"), state("unused", BrightBlack())),
+        ))
+        .WithHeader(TableRowOf(CellOf("region"), num("quota"), num("used"), CellOf("state")).WithStyle(bold))
+        .WithFooter(TableRowOf(CellOf("total"), num("750"), num("559"), CellOf("75% used")).WithStyle(bold))
+        .SelectCell(1, 2)
+        .WithHighlightSymbol("▶ ", HighlightAlways())
+}
 
 func shotForms() Widget =
     Column(ArrayOf[LayoutChild](

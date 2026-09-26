@@ -1,0 +1,267 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    "strings"
+)
+
+// ----------------------------------------------------------------------------
+// TableView — styled cells, header and footer, row heights, highlights
+// ----------------------------------------------------------------------------
+//
+// `Table` takes rows of strings and highlights a whole row. That covers a
+// list with columns and nothing else. ratatui's Table is what a dashboard
+// grid needs: a cell coloured by its own value ("failed" in red), a footer
+// with the totals, rows that wrap to two lines, a `▶` marking the cursor so
+// the selection is visible without colour, and a cursor that can pick a
+// COLUMN or a single CELL as well as a row — the shape of a spreadsheet, a
+// matrix of results, a key map.
+//
+//     TableView(TableSpecOf(
+//         ArrayOf[Constraint](Length(8), Fill(1), Length(9)),
+//         ArrayOf[TableRow](
+//             TableRowOf(CellOf("#4211"), CellOf("feat/async"),
+//                        CellOf("failed").WithStyle(red)),
+//             TableRowOf(CellOf("#4210"), CellOf("main"), CellOf("passed")),
+//         ))
+//         .WithHeader(TableRowOf(CellOf("build"), CellOf("branch"), CellOf("state")))
+//         .Select(0)
+//         .WithHighlightSymbol("▶ "))
+//
+// Styles layer the way ratatui's do, each patched over the last (see
+// `Style.Patch`): table, row, cell, then the text's own spans; and when
+// selected, the row highlight, the column highlight, and the cell highlight
+// on top. Patching rather than replacing is what keeps a red "failed" red
+// inside a highlighted row that only sets a background.
+//
+// Built by composition — Row, Column, `CellRichW`, `AutoScrollW` — so a
+// restyle of the table (`.WithDim()`, a theme) reaches every cell.
+
+// TableCell is one cell: lines of styled text, and the cell's own style.
+// A cell of several lines makes its row that many rows tall.
+struct TableCell(
+    Lines Array[Line],
+    Style Style,
+)
+
+// CellOf is a plain cell. A "\n" in the text starts a new line.
+func CellOf(text string) TableCell = TableCell(
+    Lines = ArrayOf[string](strings.Split(text, "\n")...).Map((l) => LineFromString(l, DefaultStyle())),
+    Style = DefaultStyle())
+
+// CellSpans is a one-line cell of styled runs.
+func CellSpans(spans ...Span) TableCell =
+    TableCell(Lines = ArrayOf[Line](LineOf(ArrayOf(spans...))), Style = DefaultStyle())
+
+// WithStyle sets the cell's style — its background fills the whole cell.
+func (c TableCell) WithStyle(s Style) TableCell = c.Copy(Style = s)
+
+// Aligned aligns every line of the cell — numbers read best right-aligned.
+func (c TableCell) Aligned(a Align) TableCell = c.Copy(Lines = c.Lines.Map((l) => l.Aligned(a)))
+
+// TableRow is a row of cells with its own style and height. `Height` 0 means
+// "as tall as the tallest cell".
+struct TableRow(
+    Cells  Array[TableCell],
+    Style  Style,
+    Height int,
+)
+
+func TableRowOf(cells ...TableCell) TableRow =
+    TableRow(Cells = ArrayOf(cells...), Style = DefaultStyle(), Height = 0)
+
+// TableRowOfStrings is a row of plain cells.
+func TableRowOfStrings(texts ...string) TableRow =
+    TableRow(Cells = ArrayOf(texts...).Map((t) => CellOf(t)), Style = DefaultStyle(), Height = 0)
+
+func (r TableRow) WithStyle(s Style) TableRow = r.Copy(Style = s)
+
+// WithHeight fixes the row's height; lines past it are not drawn.
+func (r TableRow) WithHeight(h int) TableRow = r.Copy(Height = h)
+
+// rowHeight is the row's height in cells: explicit, or its tallest cell.
+func (r TableRow) rowHeight() int =
+    if (r.Height > 0) r.Height
+    else MaxInt(1, r.Cells.FoldLeft(0, (a, c) => MaxInt(a, c.Lines.Length())))
+
+// HighlightSpacing is when the highlight symbol's column is reserved.
+//
+// `HighlightWhenSelected` — ratatui's default — shifts every column sideways
+// the moment a selection appears and back when it clears, which is right for
+// a table that is only sometimes interactive and jarring for one that always
+// has a cursor. `HighlightAlways` keeps the column still.
+sealed type HighlightSpacing {
+    case HighlightWhenSelected()
+    case HighlightAlways()
+    case HighlightNever()
+}
+
+// TableSpec is everything a TableView draws. Build one with `TableSpecOf`
+// and the `With*` / `Select*` methods rather than by hand.
+//
+// `Header` and `Footer` are rows with no cells when absent. `Selected`,
+// `SelectedCol` are -1 for no selection; `Offset` is -1 to scroll so the
+// selected row stays visible, or an explicit first row.
+struct TableSpec(
+    Widths           Array[Constraint],
+    Rows             Array[TableRow],
+    Header           TableRow,
+    Footer           TableRow,
+    HeaderRule       bool,
+    ColumnSpacing    int,
+    Style            Style,
+    Selected         int,
+    SelectedCol      int,
+    Offset           int,
+    RowHighlight     Style,
+    ColumnHighlight  Style,
+    CellHighlight    Style,
+    HighlightSymbol  string,
+    HighlightSpacing HighlightSpacing,
+)
+
+func noTableRow() TableRow = TableRow(Cells = EmptyArray[TableCell](), Style = DefaultStyle(), Height = 0)
+
+// TableSpecOf starts a spec with no header, footer or selection, one blank
+// column between columns, and highlights that read without colour: reverse
+// video for the row, bold for the column, and bold underline for the cell
+// where they cross — underline because the cell sits inside the reversed
+// row, where more reverse would not show.
+func TableSpecOf(widths Array[Constraint], rows Array[TableRow]) TableSpec = TableSpec(
+    Widths           = widths,
+    Rows             = rows,
+    Header           = noTableRow(),
+    Footer           = noTableRow(),
+    HeaderRule       = true,
+    ColumnSpacing    = tableColumnSpacing(),
+    Style            = DefaultStyle(),
+    Selected         = -1,
+    SelectedCol      = -1,
+    Offset           = -1,
+    RowHighlight     = DefaultStyle().WithReverse(),
+    ColumnHighlight  = DefaultStyle().WithBold(),
+    CellHighlight    = DefaultStyle().WithBold().WithUnderline(),
+    HighlightSymbol  = "",
+    HighlightSpacing = HighlightWhenSelected(),
+)
+
+// WithHeader adds a header row, separated from the body by a rule unless
+// `rule` is false.
+func (t TableSpec) WithHeader(r TableRow, rule bool = true) TableSpec = t.Copy(Header = r, HeaderRule = rule)
+
+// WithFooter adds a footer row — totals, a summary — pinned below the body
+// however the body scrolls.
+func (t TableSpec) WithFooter(r TableRow) TableSpec = t.Copy(Footer = r)
+
+func (t TableSpec) WithStyle(s Style) TableSpec = t.Copy(Style = s)
+
+func (t TableSpec) WithColumnSpacing(n int) TableSpec = t.Copy(ColumnSpacing = MaxInt(0, n))
+
+// Select puts the cursor on body row `row` (-1 for none).
+func (t TableSpec) Select(row int) TableSpec = t.Copy(Selected = row)
+
+// SelectColumn highlights column `col` down the whole body (-1 for none).
+func (t TableSpec) SelectColumn(col int) TableSpec = t.Copy(SelectedCol = col)
+
+// SelectCell is `Select(row)` and `SelectColumn(col)` together; the cell
+// where they cross takes the cell highlight.
+func (t TableSpec) SelectCell(row int, col int) TableSpec = t.Copy(Selected = row, SelectedCol = col)
+
+// ScrollTo pins the first visible body row, instead of following the cursor.
+func (t TableSpec) ScrollTo(offset int) TableSpec = t.Copy(Offset = offset)
+
+func (t TableSpec) WithHighlights(row Style, column Style, cell Style) TableSpec =
+    t.Copy(RowHighlight = row, ColumnHighlight = column, CellHighlight = cell)
+
+// WithHighlightSymbol marks the selected row with `symbol` in a column of
+// its own — a cursor that stays visible without colour.
+func (t TableSpec) WithHighlightSymbol(symbol string, spacing HighlightSpacing = HighlightWhenSelected()) TableSpec =
+    t.Copy(HighlightSymbol = symbol, HighlightSpacing = spacing)
+
+// TableView draws the spec: header, rule, scrolling body, footer. Body rows
+// are built lazily — only the ones on screen — so a long table costs what it
+// shows, not what it holds.
+//
+// A selection outside the rows — a cursor the model kept after a filter
+// shrank the table — counts as no selection: no symbol column reserved, no
+// row highlighted, and no scroll to a row that is not there.
+func TableView(spec TableSpec) Widget {
+    val t = if (spec.Selected < spec.Rows.Length()) spec else spec.Copy(Selected = -1)
+    val symW = tableSymbolWidth(t)
+    val header = tableEdgeRow(t, t.Header, symW).AppendAll(
+        if (t.HeaderRule && t.Header.Cells.NonEmpty()) ArrayOf[LayoutChild](Fixed(1, FillChStyled('─', t.Style)))
+        else EmptyArray[LayoutChild]())
+    val body = AutoScrollLazy(
+        t.Rows.Length(),
+        t.Rows.Map((r) => r.rowHeight()),
+        (i) => tableRowWidget(t, t.Rows.Get(i), i == t.Selected, t.SelectedCol, symW),
+        t.Selected, t.Offset)
+    return Stack(ArrayOf[Widget](
+        FillChStyled(' ', t.Style),
+        Column(header.Append(Flex(1, body)).AppendAll(tableEdgeRow(t, t.Footer, symW))),
+    ))
+}
+
+// tableEdgeRow is the header or footer as a layout slot, or nothing when the
+// row has no cells. Edge rows take neither the cursor nor the column
+// highlight — a highlighted column is a column of DATA.
+func tableEdgeRow(t TableSpec, r TableRow, symW int) Array[LayoutChild] =
+    if (r.Cells.IsEmpty()) EmptyArray[LayoutChild]()
+    else ArrayOf[LayoutChild](Fixed(r.rowHeight(), tableRowWidget(t, r, false, -1, symW)))
+
+// tableSymbolWidth is the width of the highlight symbol's column: the
+// symbol's own width when it is reserved, otherwise nothing.
+func tableSymbolWidth(t TableSpec) int {
+    val w = StringCellWidth(t.HighlightSymbol)
+    return t.HighlightSpacing match {
+        case HighlightAlways()       => w
+        case HighlightWhenSelected() => if (t.Selected >= 0) w else 0
+        case HighlightNever()        => 0
+    }
+}
+
+val emptyTableCell = CellOf("")
+
+// tableRowWidget lays out one row. `selected` is whether the cursor is on it
+// and `selCol` the highlighted column, -1 for none.
+//
+// The columns are the spec's `Widths`: a row with more cells than that drops
+// the extra ones, as ratatui does, rather than growing a column of its own
+// that would squeeze its neighbours out of line with every other row.
+func tableRowWidget(t TableSpec, r TableRow, selected bool, selCol int, symW int) Widget {
+    val base = t.Style.Patch(r.Style)
+    val band = base.Patch(tableHighlight(t, selected, false))
+    val ncols = if (t.Widths.NonEmpty()) t.Widths.Length() else r.Cells.Length()
+    val cells = ArrayTabulate(ncols, (col) => {
+        val cell = if (col < r.Cells.Length()) r.Cells.Get(col) else emptyTableCell
+        return LayoutChild(Constraint = tableWidthAt(t.Widths, col),
+            Widget = CellRichW(Lines = cell.Lines, Style = base.Patch(cell.Style),
+                               Top = tableHighlight(t, selected, col == selCol)))
+    })
+    // The symbol sits flush against the first cell — it carries its own
+    // trailing space, as in "> " — so it is outside the spaced columns.
+    val columns = RowSpaced(cells, t.ColumnSpacing)
+    val row = if (symW == 0) columns else Row(ArrayOf[LayoutChild](
+        Fixed(symW, CellTextStyled(if (selected) t.HighlightSymbol else "", band)),
+        Flex(1, columns),
+    ))
+    // The row's style — and its highlight — is painted under the whole row,
+    // gaps between columns included, so a selected row reads as one band
+    // rather than one chip per column.
+    return Stack(ArrayOf[Widget](FillChStyled(' ', band), row))
+}
+
+// tableHighlight is the overlay a cell is under, in ratatui's order: the row
+// highlight, then the column highlight, then — where the cursor row crosses
+// the highlighted column — the cell highlight. It is patched over the cell
+// AND its text's own spans, so a highlight that sets a colour stays visible
+// on a cell that paints its own.
+//
+// Like ratatui's `add_modifier`, a highlight can only add attributes: a cell
+// that is already reversed shows no change under a reverse-video highlight.
+// Give such tables a highlight that sets a colour.
+func tableHighlight(t TableSpec, rowSel bool, colSel bool) Style {
+    val withRow = if (rowSel) t.RowHighlight else DefaultStyle()
+    val withCol = if (colSel) withRow.Patch(t.ColumnHighlight) else withRow
+    return if (rowSel && colSel) withCol.Patch(t.CellHighlight) else withCol
+}
