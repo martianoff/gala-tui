@@ -48,8 +48,9 @@ func TestAutoScrollExplicitOffsetIsClamped(t T) T {
 func TestAutoScrollHandlesEmptyAndTinyAreas(t T) T {
     val empty = Snapshot(AutoScroll(EmptyArray[Widget](), 0), 4, 2)
     val t1 = Eq(t, empty, "    \n    ")
-    // An area shorter than one row renders nothing rather than trapping.
-    return Eq(t1, Snapshot(AutoScrollH(scrollRows(3), 0, -1, 3), 6, 2), "      \n      ")
+    // An area shorter than one row neither traps nor goes blank: the row the
+    // cursor is on is drawn clipped, because a blank area would hide it.
+    return Eq(t1, Snapshot(AutoScrollH(scrollRows(3), 0, -1, 3), 6, 2), "row0  \n      ")
 }
 
 func TestAutoScrollMultiLineRows(t T) T {

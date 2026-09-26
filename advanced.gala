@@ -71,13 +71,18 @@ func Table(data TableData) Widget {
 // leaves running together as `Alicex`.
 func tableColumnSpacing() int = 1
 
+// tableWidthAt is column `idx`'s constraint; a column the caller gave no
+// width for shares the slack with `Fill(1)`.
+func tableWidthAt(widths Array[Constraint], idx int) Constraint =
+    if (idx < widths.Length()) widths.Get(idx) else Fill(1)
+
 // renderTableHeaderRow builds a Row of bold header cells.
 func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget =
     RowSpaced(headers.ZipWithIndex().Map((pair) =>
         tableHeaderCell(pair.V1, pair.V2, widths)), tableColumnSpacing())
 
 func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChild {
-    val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
+    val w = tableWidthAt(widths, idx)
     return LayoutChild(Constraint = w,
         Widget = CellTextStyled(header, DefaultStyle().WithBold()))
 }
@@ -109,7 +114,7 @@ func tableBodyCell(
     widths Array[Constraint],
     style Style,
 ) LayoutChild {
-    val w = if (idx < widths.Length()) widths.Get(idx) else Fill(1)
+    val w = tableWidthAt(widths, idx)
     return LayoutChild(Constraint = w, Widget = CellTextStyled(cell, style))
 }
 

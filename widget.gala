@@ -64,6 +64,13 @@ sealed type Widget {
     // that content was cut; blank separation is a layout choice, expressed
     // with the row's `Spacing` — see `tableColumnSpacing`.
     case CellTextW(Content string, Style Style)
+    // CellRichW is `CellTextW` for styled text: each line is cut to the
+    // slot with a "…" at render time, and the whole slot is painted in
+    // `Style` first, with every span patched over it — so a table cell's
+    // background runs to its edge and a bold span stays bold on it.
+    // `Top` is patched on top of everything, spans included: it is how a
+    // highlight stays visible over text that sets its own colours.
+    case CellRichW(Lines Array[Line], Style Style, Top Style)
     case FillWidget(Ch rune, Style Style)
     case BorderWidget(
         Inner  Widget,
@@ -89,9 +96,11 @@ sealed type Widget {
         Offset    int,
         Direction ListDirection,
     )
-    // AutoScrollW stacks `Rows` as fixed-height children and scrolls the
-    // stack so `Selected` stays visible, using the area height the renderer
-    // supplies.
+    // AutoScrollW stacks rows — row i is `Build(i)`, `Heights[i]` cells tall —
+    // and scrolls the stack so `Selected` stays visible, using the area height
+    // the renderer supplies. Heights are per row so a table whose rows wrap
+    // to different heights scrolls by rows rather than by a common height
+    // that is wrong for most of them.
     //
     // `ListW` already does this, but only for `ListItem` — a plain label and
     // one style. Anything whose rows are composed widgets (a table row of
@@ -101,13 +110,18 @@ sealed type Widget {
     // every row and let the renderer clip, so a cursor moved past the
     // bottom simply vanished with no indication.
     //
+    // Rows are BUILT on demand, only the ones on screen: a table of five
+    // thousand rows must not construct five thousand row widgets a frame to
+    // draw thirty. The heights, which scrolling needs for every row, are
+    // plain ints.
+    //
     // `Offset` is -1 for "track the selection" — the usual case — or an
     // explicit first-visible index, clamped so it cannot point past the end.
     case AutoScrollW(
-        Rows     Array[Widget],
+        Build    func(int) Widget,
         Selected int,
         Offset   int,
-        RowH     int,
+        Heights  Array[int],
     )
     // Focused is carried explicitly rather than inferred from Style. An
     // unfocused field legitimately has a non-default style — themed,
@@ -513,17 +527,42 @@ func Backdrop(inner Widget, bg Color) Widget =
 // once the stack is taller than the area it is given. The composed-widget
 // counterpart to `SelectList`, for rows that are more than a label.
 func AutoScroll(rows Array[Widget], selected int) Widget =
-    AutoScrollW(Rows = rows, Selected = selected, Offset = -1, RowH = 1)
+    AutoScrollVar(rows, EmptyArray[int](), selected, -1)
 
 // AutoScrollAt is AutoScroll with an explicit first-visible row, for a
 // stack that scrolls independently of its cursor. Pass -1 to track the
 // selection.
 func AutoScrollAt(rows Array[Widget], selected int, offset int) Widget =
-    AutoScrollW(Rows = rows, Selected = selected, Offset = offset, RowH = 1)
+    AutoScrollVar(rows, EmptyArray[int](), selected, offset)
 
 // AutoScrollH is the multi-line-row form — each row occupies `rowH` cells.
 func AutoScrollH(rows Array[Widget], selected int, offset int, rowH int) Widget =
-    AutoScrollW(Rows = rows, Selected = selected, Offset = offset, RowH = rowH)
+    if (rowH <= 0) Empty()
+    else AutoScrollVar(rows, ArrayTabulate(rows.Length(), (_) => rowH), selected, offset)
+
+// AutoScrollVar is the general form: row i is `heights[i]` cells tall.
+// A row missing from `heights` counts as one cell.
+func AutoScrollVar(rows Array[Widget], heights Array[int], selected int, offset int) Widget =
+    AutoScrollLazy(rows.Length(), heights, (i) => rows.Get(i), selected, offset)
+
+// AutoScrollLazy is AutoScrollVar with rows built on demand: `build(i)` runs
+// only for the rows on screen. The form for a long list whose rows are
+// expensive to build — the renderer never asks for the ones scrolled away.
+func AutoScrollLazy(
+    count int,
+    heights Array[int],
+    build func(int) Widget,
+    selected int,
+    offset int,
+) Widget = AutoScrollW(
+    Build    = build,
+    Selected = selected,
+    Offset   = offset,
+    Heights  = ArrayTabulate(count, (i) =>
+        if (i < heights.Length()) MaxInt(1, heights.Get(i)) else 1),
+)
+
+func sumInt(xs Array[int]) int = xs.FoldLeft(0, (a, x) => a + x)
 
 // RichTextView renders a RichText block — the multi-style counterpart to
 // `Text`. Use it wherever a single row needs more than one style.
@@ -1286,6 +1325,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         }
         case CanvasW(xmin, xmax, ymin, ymax, marker, shapes) =>
             renderCanvas(xmin, xmax, ymin, ymax, marker, shapes, area, buf)
+        case CellRichW(lines, style, over) =>
+            renderCellRich(lines, style, over, area, buf)
         case CellTextW(content, style) =>
             renderText(StringCellEllipsis(content, area.Width), style, area, buf)
         case FillWidget(ch, style) =>
@@ -1308,8 +1349,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             layers.ForEach((layer) => renderToInternal(layer, area, buf, hits))
         case ListW(items, sel, selStyle, offset, direction) =>
             renderList(items, sel, selStyle, offset, direction, area, buf)
-        case AutoScrollW(rows, sel, offset, rowH) =>
-            renderAutoScroll(rows, sel, offset, rowH, area, buf, hits)
+        case AutoScrollW(build, sel, offset, heights) =>
+            renderAutoScroll(build, sel, offset, heights, area, buf, hits)
         case InputW(value, cursor, placeholder, style, phStyle, focused) =>
             renderInput(value, cursor, placeholder, style, phStyle, focused, area, buf)
         case ProgressW(pct, style) => {
@@ -1652,34 +1693,60 @@ func renderList(
 // what lets a scrolling table's clicks stay correct without the click
 // wrapper needing to know the offset.
 func renderAutoScroll(
-    rows Array[Widget],
+    build func(int) Widget,
     selected int,
     explicitOffset int,
-    rowH int,
+    heights Array[int],
     area Rect,
     buf *Buffer,
     hits *HitRegistry,
 ) {
-    val n = rows.Length()
-    if n == 0 || rowH <= 0 || area.Height < rowH {
-        return
-    }
-    val window = MaxInt(1, area.Height / rowH)
+    val n = heights.Length()
+    if n == 0 || area.Height <= 0 { return }
     val offset = if (explicitOffset < 0)
-        listViewportOffset(n, selected, window)
+        scrollOffsetToShow(heights, selected, area.Height)
     else
-        clampInt(explicitOffset, 0, MaxInt(0, n - window))
-    var i = 0
-    for i < window && offset + i < n {
-        renderToInternal(rows.Get(offset + i), Rect(
+        clampInt(explicitOffset, 0, lastPageOffset(heights, area.Height))
+    // Only whole rows are drawn: a row cut off at the bottom edge would show
+    // its first line as if it were the whole row. The exception is the first
+    // row, when it alone is taller than the area — the selection is always
+    // that row, and a blank area would hide it entirely.
+    var y = area.Y
+    var i = offset
+    for i < n && (i == offset || y + heights.Get(i) <= area.Bottom()) {
+        renderToInternal(build(i), Rect(
             X      = area.X,
-            Y      = area.Y + i * rowH,
+            Y      = y,
             Width  = area.Width,
-            Height = rowH,
+            Height = MinInt(heights.Get(i), area.Bottom() - y),
         ), buf, hits)
+        y = y + heights.Get(i)
         i = i + 1
     }
 }
+
+// scrollOffsetToShow is the first visible row that keeps `sel` on screen in
+// `height` cells: the top while the selection fits below it, otherwise the
+// row that puts the selection flush against the bottom edge. For uniform
+// heights this is exactly `listViewportOffset`.
+func scrollOffsetToShow(heights Array[int], sel int, height int) int {
+    val last = clampInt(sel, 0, heights.Length() - 1)
+    var used = 0
+    var k = last
+    for k >= 0 && used + heights.Get(k) <= height {
+        used = used + heights.Get(k)
+        k = k - 1
+    }
+    // k + 1 is the topmost row that still fits with `last` — or `last` itself
+    // when that row alone is taller than the area.
+    return MinInt(last, k + 1)
+}
+
+// lastPageOffset is the largest first-visible row an explicit offset may
+// ask for: the one whose page ends exactly at the last row, so scrolling
+// cannot run the stack off the top and leave the area half empty.
+func lastPageOffset(heights Array[int], height int) int =
+    scrollOffsetToShow(heights, heights.Length() - 1, height)
 
 // listViewportOffset computes the top-of-viewport index so that `sel` is
 // on-screen. Simple top-or-bottom anchor.
@@ -2210,6 +2277,20 @@ func joinTitleSpans(group Array[BlockTitle]) Array[Span] =
         if (acc.IsEmpty()) t.Content.Spans
         else acc.Append(SpanOf(" ")).AppendAll(t.Content.Spans))
 
+// renderCellRich paints a CellRichW: the slot in `style` with `over` on top,
+// then each line's spans patched over `style` with `over` patched over them,
+// cut to the slot with a "…". A line that fits — the common case — skips the
+// cut entirely, which would otherwise flatten it to styled characters just
+// to measure it.
+func renderCellRich(lines Array[Line], style Style, over Style, area Rect, buf *Buffer) {
+    buf.Fill(area, Cell(Ch = ' ', St = style.Patch(over)))
+    renderRichText(RichTextOf(lines.Map((l) => {
+        val patched = l.Spans.Map((s) => s.Styled(style.Patch(s.Style).Patch(over)))
+        val spans = if (l.CellWidth() <= area.Width) patched else SpansEllipsis(patched, area.Width)
+        return Line(Spans = spans, Align = l.Align)
+    })), area, buf)
+}
+
 // drawSpans paints a span run left to right starting at `x`, clipping at
 // `maxX`. Shared by title rendering and RichTextW.
 // Stops at the first glyph that does not fit, exactly as `renderText` does.
@@ -2340,6 +2421,7 @@ func defaultRenderWidth(w Widget) int {
         case RestyleW(inner, _)                => defaultRenderWidth(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(content, _)             => StringCellWidth(content)
+        case CellRichW(lines, _, _)            => RichTextOf(lines).CellWidth()
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderWidth(inner) + borderWidthOverhead(sides)
@@ -2355,8 +2437,10 @@ func defaultRenderWidth(w Widget) int {
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderWidth(w)))
         case ListW(items, _, _, _, _)          =>
             items.FoldLeft(0, (acc, it) => MaxInt(acc, RuneCount(it.Label)))
-        case AutoScrollW(rows, _, _, _)        =>
-            rows.FoldLeft(0, (acc, r) => MaxInt(acc, defaultRenderWidth(r)))
+        case AutoScrollW(build, _, _, heights)  =>
+            // A sample, not every row: measuring builds the row, and building
+            // every row of a long list is what the lazy form exists to avoid.
+            ArrayTabulate(MinInt(heights.Length(), 64), (i) => defaultRenderWidth(build(i))).FoldLeft(0, MaxInt)
         case InputW(value, _, ph, _, _, _)     => MaxInt(RuneCount(value), RuneCount(ph))
         case ProgressW(_, _)                   => 20
         case GaugeW(_, _)                      => 20
@@ -2386,6 +2470,7 @@ func defaultRenderHeight(w Widget) int {
         case RestyleW(inner, _)                => defaultRenderHeight(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(_, _)                   => 1
+        case CellRichW(lines, _, _)            => MaxInt(1, lines.Length())
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             defaultRenderHeight(inner) + borderHeightOverhead(sides)
@@ -2400,7 +2485,7 @@ func defaultRenderHeight(w Widget) int {
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, w) => MaxInt(acc, defaultRenderHeight(w)))
         case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
-        case AutoScrollW(rows, _, _, rh)       => MaxInt(1, rows.Length() * MaxInt(1, rh))
+        case AutoScrollW(_, _, _, heights)     => MaxInt(1, sumInt(heights))
         case InputW(_, _, _, _, _, _)          => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1
@@ -2455,6 +2540,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         // A canvas has no natural size — it fills whatever it is given.
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(_, _)                   => 1
+        case CellRichW(lines, _, _)            => MaxInt(1, lines.Length())
         case FillWidget(_, _)                  => 1
         case BorderWidget(inner, _, sides, _, _) =>
             IntrinsicHeightAt(inner, MaxInt(0, width - borderWidthOverhead(sides)))
@@ -2470,7 +2556,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case StackWidget(layers)               =>
             layers.FoldLeft(0, (acc, l) => MaxInt(acc, IntrinsicHeightAt(l, width)))
         case ListW(items, _, _, _, _)          => MaxInt(1, items.Length())
-        case AutoScrollW(rows, _, _, rh)       => MaxInt(1, rows.Length() * MaxInt(1, rh))
+        case AutoScrollW(_, _, _, heights)     => MaxInt(1, sumInt(heights))
         case InputW(_, _, _, _, _, _)          => 1
         case ProgressW(_, _)                   => 1
         case GaugeW(_, _)                      => 1

@@ -272,3 +272,25 @@ func WrapSpans(spans Array[Span], width int) Array[Line] {
 func WrapRichText(t RichText, width int) RichText =
     RichTextOf(t.Lines.FoldLeft(EmptyArray[Line](), (acc, l) =>
         acc.AppendAll(WrapSpans(l.Spans, width).Map((w) => w.Aligned(l.Align)))))
+
+// SpansEllipsis is `StringCellEllipsis` for styled text: spans that fit in
+// `width` cells come back unchanged, and spans that do not are cut to
+// `width - 1` cells and marked with a "…" in the style of the last kept
+// character — so a cut inside a bold run ends in a bold ellipsis, and the
+// mark reads as part of the text it shortens.
+//
+// The result is always exactly `width` cells. A full-width character that
+// straddles the cut leaves a one-cell hole, which is filled before the mark
+// so a right-aligned column of cut cells ends flush.
+func SpansEllipsis(spans Array[Span], width int) Array[Span] {
+    if width <= 0 { return EmptyArray[Span]() }
+    val rs = spanRunes(spans)
+    if styledRunesWidth(rs) <= width { return spans }
+    val cut = rs.FoldLeft((EmptyArray[styledRune](), 0), (acc, r) => {
+        val w = RuneCellWidth(r.Ch)
+        return if (acc.V2 + w > width - 1) (acc.V1, width) else (acc.V1.Append(r), acc.V2 + w)
+    }).V1
+    val markStyle = if (cut.IsEmpty()) rs.Get(0).St else cut.Get(cut.Length() - 1).St
+    val hole = ArrayTabulate(width - 1 - styledRunesWidth(cut), (_) => styledRune(Ch = ' ', St = markStyle))
+    return coalesceSpans(cut.AppendAll(hole).Append(styledRune(Ch = '…', St = markStyle)))
+}
