@@ -14,6 +14,16 @@ anything that emits escapes, **record the demo and look at it**:
 demo/record/record.sh          # build → drive the scripted tour → render the GIF
 ```
 
+On Windows the recorder needs a POSIX pty, so it runs inside WSL (gala, Go,
+python3 + pyte, agg and ffmpeg installed there — see `demo/record/README.md`):
+
+```powershell
+powershell -File demo/record/record.ps1    # = wsl bash -lc demo/record/record.sh
+```
+
+Run the `pyte` and `ffmpeg` snippets below inside WSL too (`wsl python3 …`,
+`wsl ffmpeg …`).
+
 Then open `docs/gala-tui-demo.gif`, or pull a frame:
 
 ```bash
@@ -83,9 +93,11 @@ pictures from going stale.
 
 ## Other conventions
 
-- `gala build` names its output after the module, so `./demo` and anything
-  under `tools/` both write `./gala-tui`. It is a build artifact and is
-  gitignored — never commit it.
+- `gala build` names its output after the checkout directory (`gala-tui` in a
+  plain clone, `gala_tui.exe` in a Windows checkout called `gala_tui`, the
+  worktree's name in a worktree), so `./demo` and anything under `tools/` all
+  write the same file. `record.sh` passes `-o gala-tui` so it does not depend
+  on that. It is a build artifact and is gitignored — never commit it.
 - Regenerate Bazel files with `bazel run //:gazelle` after adding a `.gala`
   file. `gala test` globs the directory while Bazel uses explicit `srcs`, so
   CI can pass while Bazel is broken.

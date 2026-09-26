@@ -6,3 +6,10 @@
 BUILD      text eol=lf
 WORKSPACE  text eol=lf
 gala.mod   text eol=lf
+
+# The demo recorder runs under Linux (WSL on Windows). bash reads a CRLF
+# script as `set -euo pipefail\r` and fails, and a CRLF shebang names an
+# interpreter that does not exist — so the recording pipeline stays LF.
+*.sh       text eol=lf
+*.py       text eol=lf
+demo/record/tour.txt text eol=lf
