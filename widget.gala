@@ -1419,12 +1419,16 @@ func registerRowHits(
     payloads func(int) any,
     register func(Rect, any),
 ) {
-    if count > 0 && rowH > 0 {
-        stream.Range(0, count).ForEach((i) =>
-            register(Rect(
-                X = area.X, Y = area.Y + i * rowH,
-                Width = area.Width, Height = rowH,
-            ).Intersection(area), payloads(i)))
+    // A counted loop rather than stream.Range(...).ForEach: this runs for
+    // every clickable list on every frame, and the stream allocates per row.
+    if rowH <= 0 { return }
+    var i = 0
+    for i < count {
+        register(Rect(
+            X = area.X, Y = area.Y + i * rowH,
+            Width = area.Width, Height = rowH,
+        ).Intersection(area), payloads(i))
+        i = i + 1
     }
 }
 
@@ -1579,7 +1583,10 @@ func renderList(
         clampInt(explicitOffset, 0, MaxInt(0, n - MaxInt(1, area.Height)))
     val visibleRows = MinInt(area.Height, MaxInt(0, n - offset))
     val symW = MinInt(area.Width, highlightSymbolWidth(symbol, spacing, sel >= 0 && sel < n))
-    stream.Range(0, visibleRows).ForEach((row) => {
+    // A counted loop rather than stream.Range(...).ForEach: this paints
+    // every list on every frame, and the stream allocates per row.
+    var row = 0
+    for row < visibleRows {
         val idx = offset + row
         // Bottom-to-top pins the first visible item to the bottom edge, so
         // a transcript grows upward and short content sits at the foot of
@@ -1607,7 +1614,8 @@ func renderList(
             X = area.X + symW, Y = y,
             Width = labelW, Height = 1,
         ), buf)
-    })
+        row = row + 1
+    }
 }
 
 // renderAutoScroll paints the window of rows that fits, scrolled so the
@@ -1765,26 +1773,41 @@ func renderInput(
 }
 
 // inputWindowStart is the first visible rune index such that the caret at
-// `cur` lands inside a field `width` cells wide. Walks the start forward
-// until the run up to the caret fits, leaving one column for the caret
-// itself so an end-of-text caret has somewhere to sit.
+// `cur` lands inside a field `width` cells wide: the longest run ending at
+// the caret that fits, leaving one column for the caret itself so an
+// end-of-text caret has somewhere to sit. A rune wider than that budget
+// leaves the window starting at the caret.
 //
-// One pass of prefix widths rather than re-measuring rs[start:cur) for each
-// candidate start: this runs every frame, and the run from `start` to the
-// caret is just the total less the prefix before `start`.
+// One allocation-free walk back from the caret, stopping at the first rune
+// that does not fit: this runs every frame.
 func inputWindowStart(rs []rune, cur int, width int) int {
     val budget = MaxInt(1, width - 1)
-    val hi = MinInt(rs.Size(), cur)
-    val total = runesCellWidth(rs, 0, hi)
-    val prefixes = stream.Range(0, hi).Map((i) => RuneCellWidth(rs[i])).Scan(0, (x, w) => x + w)
-    return stream.Range(0, hi).Zip(prefixes).Find((t) => total - t.V2 <= budget).Map((t) => t.V1).GetOrElse(hi)
+    var start = MinInt(rs.Size(), cur)
+    var w = 0
+    for start > 0 {
+        w = w + RuneCellWidth(rs[start - 1])
+        if w > budget { break }
+        start = start - 1
+    }
+    return start
 }
 
 // runesCellWidth totals the rendered width of rs[from:to) in terminal
 // cells, so CJK and emoji count as the two columns they occupy. Out-of-range
 // bounds are clamped, and an empty range is 0 cells.
-func runesCellWidth(rs []rune, from int, to int) int =
-    stream.Range(MaxInt(0, from), MinInt(rs.Size(), to)).Fold(0, (w, i) => w + RuneCellWidth(rs[i]))
+//
+// A counted loop, not a stream fold: it places the caret on every frame,
+// and like StringCellWidth it should not allocate to compute a sum.
+func runesCellWidth(rs []rune, from int, to int) int {
+    val hi = MinInt(rs.Size(), to)
+    var w = 0
+    var i = MaxInt(0, from)
+    for i < hi {
+        w = w + RuneCellWidth(rs[i])
+        i = i + 1
+    }
+    return w
+}
 
 // inputIndexAtColumn maps a clicked column back to a rune index.
 //

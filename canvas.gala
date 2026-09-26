@@ -154,9 +154,6 @@ func markerSubCells(m CanvasMarker) Tuple[int, int] = m match {
 // The layout is historical and not row-major — dots 1-6 were the original
 // 6-dot cell and 7-8 were appended underneath — so the fourth row's bits
 // are 0x40 and 0x80 rather than continuing the pattern.
-// brailleDots is the (col, row) of each of the eight dots in a braille cell.
-val brailleDots = ArrayTabulate(8, (k) => (k % 2, k / 2))
-
 func brailleBit(col int, row int) int {
     if col == 0 {
         if row == 0 { return 0x01 }
@@ -588,9 +585,15 @@ func emitCanvasGlyphs(g *canvasGrid, marker CanvasMarker, area Rect, buf *Buffer
 func canvasGlyph(g *canvasGrid, marker CanvasMarker, cx int, cy int) rune {
     return marker match {
         case BrailleMarker() => {
-            val bits = brailleDots.FoldLeft(0, (acc, d) =>
-                if (canvasDotAt(g, cx*2 + d.V1, cy*4 + d.V2)) acc + brailleBit(d.V1, d.V2)
-                else acc)
+            // The eight dots spelled out rather than folded over a table:
+            // this runs per lit cell per frame, and a closure over the grid
+            // would allocate for each one.
+            val gx = cx * 2
+            val gy = cy * 4
+            val bits = brailleDotBit(g, gx, gy, 0, 0) + brailleDotBit(g, gx, gy, 1, 0) +
+                brailleDotBit(g, gx, gy, 0, 1) + brailleDotBit(g, gx, gy, 1, 1) +
+                brailleDotBit(g, gx, gy, 0, 2) + brailleDotBit(g, gx, gy, 1, 2) +
+                brailleDotBit(g, gx, gy, 0, 3) + brailleDotBit(g, gx, gy, 1, 3)
             if (bits == 0) ' ' else rune(0x2800 + bits)
         }
         case HalfBlockMarker() => {
@@ -606,6 +609,11 @@ func canvasGlyph(g *canvasGrid, marker CanvasMarker, cx int, cy int) rune {
         case BlockMarker() => if (canvasDotAt(g, cx, cy)) '█' else ' '
     }
 }
+
+// brailleDotBit is dot (col, row) of the braille cell whose top-left dot is
+// (gx, gy): its bit when lit, 0 when not.
+func brailleDotBit(g *canvasGrid, gx int, gy int, col int, row int) int =
+    if (canvasDotAt(g, gx + col, gy + row)) brailleBit(col, row) else 0
 
 func canvasDotAt(g *canvasGrid, gx int, gy int) bool {
     if gx < 0 || gy < 0 || gx >= g.W || gy >= g.H {

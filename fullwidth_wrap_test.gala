@@ -3,6 +3,7 @@ package gala_tui
 import (
     . "martianoff/gala/collection_immutable"
     "strconv"
+    . "martianoff/gala/go_interop"
     "martianoff/gala/stream"
     . "martianoff/gala/std"
     . "martianoff/gala/test"
@@ -62,16 +63,16 @@ func (tm *vt) put(c rune) {
 // cursor and discarding the escape sequences that do not. The loop is a
 // terminal-protocol parser: each step's stride depends on what it decodes.
 func (tm *vt) feed(s string) {
-    val rs = stringRunes(s)
-    val n = rs.Length()
+    val rs = ToRunes(s)
+    val n = rs.Size()
     var i = 0
     for i < n {
-        val c = rs.Get(i)
-        if c == rune(27) && i + 1 < n && rs.Get(i+1) == '[' {
+        val c = rs[i]
+        if c == rune(27) && i + 1 < n && rs[i+1] == '[' {
             // The sequence runs to its final byte; an unterminated one
             // swallows the rest of the input.
-            val fin = stream.Range(i + 2, n).Find((j) => isFinalByte(rs.Get(j))).GetOrElse(n)
-            if fin < n && rs.Get(fin) == 'H' {
+            val fin = runeIndexWhere(rs, i + 2, (j) => isFinalByte(rs[j])).GetOrElse(n)
+            if fin < n && rs[fin] == 'H' {
                 tm.cursorTo(runeRange(rs, i + 2, fin))
             }
             i = fin + 1
@@ -106,11 +107,11 @@ func isFinalByte(f rune) bool = (f >= 'A' && f <= 'Z') || (f >= 'a' && f <= 'z')
 
 // cursorTo applies `ESC[row;colH`, whose parameters are 1-based.
 func (tm *vt) cursorTo(body string) {
-    val rs = stringRunes(body)
-    val semi = rs.LastIndexOf(';')
+    val rs = ToRunes(body)
+    val semi = ArrayFromSlice(rs).LastIndexOf(';')
     if semi > 0 {
         tm.Cy = decodeInt(runeRange(rs, 0, semi)) - 1
-        tm.Cx = decodeInt(runeRange(rs, semi + 1, rs.Length())) - 1
+        tm.Cx = decodeInt(runeRange(rs, semi + 1, rs.Size())) - 1
         tm.Pending = false
     }
 }
@@ -120,7 +121,7 @@ func decodeInt(digits string) int = Try(strconv.Atoi(digits)).GetOrElse(0)
 // screenText renders the terminal's screen as one string per row, joined by
 // "/", so a failure shows every row at once.
 func screenText(tm *vt) string =
-    ArrayTabulate(tm.Screen.Height, (y) => RowText(tm.Screen, y)).MkString("/")
+    bufferLines(tm.Screen).MkString("/")
 
 // fullWidthRows paints `h` rows that each fill the buffer's full width, so
 // every row ends with the cursor at the right margin.

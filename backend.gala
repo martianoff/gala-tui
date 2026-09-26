@@ -251,10 +251,6 @@ func testBackendInsertBefore(st *TestBackendState, lines Array[string]) bool {
     return true
 }
 
-// testBackendRead copies the next chunk of the script into `buf`, returning
-// (bytes, ok). `ok = false` once the script is exhausted, which the run loop
-// reads as end of input — so a scripted run terminates on its own instead of
-// needing a Quit message in every fixture.
 // copyBytes writes the head of `src` into `dst` and returns how many bytes
 // that was: Go's `copy`, which GALA does not expose (it points at
 // `SliceCopy`, which allocates a new slice instead of filling the reader's
@@ -270,6 +266,10 @@ func copyBytes(dst []byte, src []byte) int {
     return n
 }
 
+// testBackendRead copies the next chunk of the script into `buf`, returning
+// (bytes, ok). `ok = false` once the script is exhausted, which the run loop
+// reads as end of input — so a scripted run terminates on its own instead of
+// needing a Quit message in every fixture.
 func testBackendRead(st *TestBackendState, buf []byte) Tuple[int, bool] {
     val avail = st.Input.Size() - st.Pos
     if avail <= 0 {

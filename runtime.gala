@@ -327,9 +327,9 @@ func Run[M any, T any](
 
             // Any synchronously-emitted messages are dispatched in-line, same
             // as StepAll's behavior — supports `Cmd.MsgCmd(x)` chaining.
-            // Not `dispatchAll`: this loop hands each update's prints to the
-            // backend (with a repaint) as it goes, where dispatchAll batches
-            // them, and it stops on the first quit an update returns.
+            // Not `dispatchAll`: Run emits each update's prints as it goes,
+            // with a repaint, where dispatchAll only collects them for the
+            // caller to write afterwards.
             val emitted = PendingMsgs(cmd)
             var i = 0
             for i < emitted.Length() {
@@ -1250,8 +1250,9 @@ struct DispatchResult[M any, T any](
 // Each message's synchronously emitted messages (MsgCmd chains) are
 // dispatched inline, right after it and before the next message — one
 // level deep: what an emitted message emits in turn is not re-dispatched.
-// This is the one copy of that redispatch; the key and input byte loops
-// hand their messages here.
+// This is the one copy of that redispatch, shared by the key and input byte
+// loops and the async, tick and resize drains. Run keeps its own loop only
+// because it emits prints incrementally, repainting after each.
 func dispatchAll[M any, T any](
     program Program[M, T],
     start M,

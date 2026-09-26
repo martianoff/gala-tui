@@ -2,7 +2,6 @@ package gala_tui
 
 import (
     . "martianoff/gala/collection_immutable"
-    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -167,26 +166,18 @@ func MultiLineChartAtHeight(series Array[Array[int]], styles Array[Style], rows 
 }
 
 // multiRowSpans resolves one row of the overlay into styled runs: for each
-// column the last layer holding a glyph wins, and adjacent columns won by the
-// same layer share a Span.
+// column the last layer holding a glyph wins, and adjacent columns of the
+// same style share a Span.
 func multiRowSpans(
     layers Array[Array[Array[rune]]],
     styles Array[Style],
     y int,
     width int,
-) Array[Span] {
-    val owners = ArrayTabulate(width, (x) => multiCellOwner(layers, y, x))
-    // A run starts at column 0 and wherever the owner changes; each run ends
-    // where the next one starts.
-    val starts = stream.Range(0, width)
-        .Filter((x) => x == 0 || owners.Get(x) != owners.Get(x - 1))
-        .ToArray()
-    return starts.Zip(starts.Drop(1).Append(width)).Map((r) => {
-        val owner = owners.Get(r.V1)
-        val glyphs = ArrayTabulate(r.V2 - r.V1, (k) => multiCellGlyph(layers, y, r.V1 + k, owner))
-        return SpanStyled(string(glyphs.ToGoSlice()), multiStyle(styles, owner))
-    })
-}
+) Array[Span] =
+    coalesceSpans(ArrayTabulate(width, (x) => {
+        val owner = multiCellOwner(layers, y, x)
+        return styledRune(Ch = multiCellGlyph(layers, y, x, owner), St = multiStyle(styles, owner))
+    }))
 
 // multiCellOwner is the highest-indexed layer with a glyph at (x, y), or -1
 // when every layer is blank there.

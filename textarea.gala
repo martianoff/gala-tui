@@ -274,32 +274,6 @@ func stringToLines(s string) Array[string] =
     ArrayFromSlice(strings.Split(s, "\n"))
 
 // ----------------------------------------------------------------------------
-// Rune helpers, shared by the text-editing widgets (TextArea, Form, Palette,
-// KeySpec).
-// ----------------------------------------------------------------------------
-
-// stringRunes splits `s` into its runes (invalid UTF-8 bytes become
-// U+FFFD, as `range` yields them).
-//
-// Not `S(s).ToChars()`: importing martianoff/gala/strings anywhere in this
-// package makes GALA 0.80 reject buffer.gala's `*strings.Builder` parameter
-// (GALA-E0025).
-func stringRunes(s string) Array[rune] = ArrayFromSlice(ToRunes(s))
-
-// runeSplitAt returns (lhs, rhs) such that lhs has `col` runes and rhs has
-// the remainder. Out-of-range cols clamp to the string boundaries.
-func runeSplitAt(s string, col int) Tuple[string, string] {
-    val rs = stringRunes(s)
-    return (string(rs.Take(col).ToGoSlice()), string(rs.Drop(col).ToGoSlice()))
-}
-
-// dropLastRune strips the last rune from `s`; "" stays "".
-func dropLastRune(s string) string {
-    val rs = stringRunes(s)
-    return string(rs.Take(rs.Length() - 1).ToGoSlice())
-}
-
-// ----------------------------------------------------------------------------
 // View
 // ----------------------------------------------------------------------------
 

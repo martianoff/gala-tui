@@ -5,7 +5,7 @@ import (
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
-    "martianoff/gala/stream"
+    . "martianoff/gala/go_interop"
 )
 
 // ============================================================================
@@ -139,10 +139,9 @@ func mdNumberedPrefix(line string) Option[int] {
     return Try(strconv.Atoi(strings.TrimSuffix(line, rest))).ToOption()
 }
 
-func mdStripNumberedPrefix(line string) string {
-    val dot = stringRunes(line).IndexOf('.')
-    return if (dot < 0) line else dropRunes(line, dot + 2)
-}
+// mdStripNumberedPrefix drops the "N. " that mdNumberedPrefix matched.
+func mdStripNumberedPrefix(line string) string =
+    strings.TrimPrefix(strings.TrimLeft(line, "0123456789"), ". ")
 
 func mdIsRule(line string) bool {
     if line != "---" && line != "***" { return false }
@@ -178,8 +177,8 @@ func mdSplitLines(s string) Array[string] {
 // closer. Literal text is never built rune by rune; it is the run
 // rs[textStart:i], cut once when a delimiter (or the end) closes it.
 func parseInlines(s string) Array[MdInline] {
-    val rs = stringRunes(s)
-    val n = rs.Length()
+    val rs = ToRunes(s)
+    val n = rs.Size()
     var out = EmptyArray[MdInline]()
     var textStart = 0
     var i = 0
@@ -193,7 +192,7 @@ func parseInlines(s string) Array[MdInline] {
             case _ => {
                 // An unmatched backtick still closes the pending text: it
                 // starts a new text run of its own.
-                if rs.Get(i) == '`' {
+                if rs[i] == '`' {
                     out = mdFlushText(out, rs, textStart, i)
                     textStart = i
                 }
@@ -206,17 +205,17 @@ func parseInlines(s string) Array[MdInline] {
 
 // mdInlineAt matches a delimited inline starting at rs[i]: the inline and
 // the index just past its closer, or None when rs[i] is literal text.
-func mdInlineAt(rs Array[rune], i int) Option[Tuple[MdInline, int]] {
-    val n = rs.Length()
-    val c = rs.Get(i)
+func mdInlineAt(rs []rune, i int) Option[Tuple[MdInline, int]] {
+    val n = rs.Size()
+    val c = rs[i]
     if c == '`' {
         return runeIndexFrom(rs, '`', i + 1) match {
             case Some(end) => Some[Tuple[MdInline, int]]((MdCode(Text = runeRange(rs, i + 1, end)), end + 1))
             case _ => None()
         }
     }
-    if c == '*' && i + 1 < n && rs.Get(i + 1) == '*' {
-        return stream.Range(i + 2, n - 1).Find((k) => rs.Get(k) == '*' && rs.Get(k + 1) == '*') match {
+    if c == '*' && i + 1 < n && rs[i + 1] == '*' {
+        return runeIndexWhere(rs, i + 2, (k) => k + 1 < n && rs[k] == '*' && rs[k + 1] == '*') match {
             case Some(end) => Some[Tuple[MdInline, int]]((MdBold(Text = runeRange(rs, i + 2, end)), end + 2))
             case _ => None()
         }
@@ -228,7 +227,7 @@ func mdInlineAt(rs Array[rune], i int) Option[Tuple[MdInline, int]] {
         }
     }
     if c == '[' {
-        return runeIndexFrom(rs, ']', i + 1).Filter((e) => e + 1 < n && rs.Get(e + 1) == '(') match {
+        return runeIndexFrom(rs, ']', i + 1).Filter((e) => e + 1 < n && rs[e + 1] == '(') match {
             case Some(linkEnd) => runeIndexFrom(rs, ')', linkEnd + 2) match {
                 case Some(urlEnd) => Some[Tuple[MdInline, int]]((MdLink(
                     Label = runeRange(rs, i + 1, linkEnd),
@@ -243,7 +242,7 @@ func mdInlineAt(rs Array[rune], i int) Option[Tuple[MdInline, int]] {
 }
 
 // mdFlushText appends rs[lo:hi] as literal text when the run is non-empty.
-func mdFlushText(out Array[MdInline], rs Array[rune], lo int, hi int) Array[MdInline] =
+func mdFlushText(out Array[MdInline], rs []rune, lo int, hi int) Array[MdInline] =
     if (hi > lo) out.Append(MdText(Text = runeRange(rs, lo, hi))) else out
 
 // ----------------------------------------------------------------------------

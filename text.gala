@@ -138,7 +138,7 @@ struct styledRune(Ch rune, St Style)
 // spanRunes flattens Spans into one styled-character sequence, which is the
 // form the wrap fold consumes.
 func spanRunes(spans Array[Span]) Array[styledRune] =
-    spans.FlatMap((sp) => ArrayFromSlice(ToRunes(sp.Content)).Map((c) => styledRune(Ch = c, St = sp.Style)))
+    spans.FlatMap((sp) => stringRunes(sp.Content).Map((c) => styledRune(Ch = c, St = sp.Style)))
 
 func styledRunesWidth(rs Array[styledRune]) int =
     rs.FoldLeft(0, (acc, r) => acc + RuneCellWidth(r.Ch))

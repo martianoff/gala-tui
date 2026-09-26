@@ -47,8 +47,12 @@ func SnapshotStyled(w Widget, width int, height int) string {
 func SnapshotLines(w Widget, width int, height int) Array[string] {
     val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
-    return ArrayTabulate(height, (y) => RowText(buf, y))
+    return bufferLines(buf)
 }
+
+// bufferLines reads every row of `buf` as plain text, top to bottom.
+func bufferLines(buf *Buffer) Array[string] =
+    ArrayTabulate(buf.Height, (y) => RowText(buf, y))
 
 // RowText reads one buffer row as a plain string (no styling). Useful in
 // snapshot tests and in the harness. Out-of-range y returns "".

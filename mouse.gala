@@ -1,8 +1,8 @@
 package gala_tui
 
 import (
+    "bytes"
     . "martianoff/gala/go_interop"
-    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -184,7 +184,9 @@ func isMouseSgrPrefix(buf []byte) bool =
 // ----------------------------------------------------------------------------
 
 func pasteStartParam() int = 200
-func pasteEndParam() int   = 201
+
+// pasteCloser is the `ESC [ 201 ~` that ends a paste.
+func pasteCloser() []byte = ToBytes("\x1b[201~")
 
 // pasteCloserLen is the byte length of `ESC [ 201 ~`.
 func pasteCloserLen() int = 6
@@ -205,17 +207,17 @@ func parseBracketedPaste(buf []byte, from int) Tuple[InputEvent, int] {
 
 // pasteCloserIndex returns the index of the ESC that begins `ESC [ 201 ~`,
 // searching from `from`, or None when the closer is not in `buf` yet.
-func pasteCloserIndex(buf []byte, from int) Option[int] =
-    stream.Range(from, buf.Size() - pasteCloserLen() + 1)
-        .Find((i) => isPasteCloserAt(buf, i))
+// bytes.Index rather than a per-offset marker test: a paste can be large,
+// and this runs again on every read until the closer arrives.
+func pasteCloserIndex(buf []byte, from int) Option[int] {
+    val idx = bytes.Index(SliceFrom(buf, from), pasteCloser())
+    return When(idx >= 0, from + idx)
+}
 
 // isPasteOpenerAt reports whether `ESC [ 200 ~` starts at `i`. The runtime
 // uses it to resync a paste that was opened and never closed.
 func isPasteOpenerAt(buf []byte, i int) bool =
     isPasteMarkerAt(buf, i, pasteStartParam())
-
-func isPasteCloserAt(buf []byte, i int) bool =
-    isPasteMarkerAt(buf, i, pasteEndParam())
 
 func isPasteMarkerAt(buf []byte, i int, param int) bool {
     if int(buf[i]) != 0x1B || int(buf[i + 1]) != 0x5B || int(buf[i + 5]) != 0x7E {
@@ -238,6 +240,8 @@ func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
     var field = 0                   // 0 = btn, 1 = x, 2 = y
     var pressed = true
     var done = false
+    // A wire-protocol parser, run per mouse event: the field being decoded
+    // carries from byte to byte, and the final byte ends it with `break`.
     for i < n {
         val c = int(buf[i])
         if c >= 0x30 && c <= 0x39 {
