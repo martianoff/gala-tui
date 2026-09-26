@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/collection_immutable"
+    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -217,19 +218,12 @@ func datasetShapes(d ChartDataset) Array[Shape] = d.Graph match {
     // A line is the segments BETWEEN points plus the points themselves: a
     // single-point series would otherwise draw nothing at all, and the dots
     // keep the samples visible where the line is nearly flat.
-    case GraphLine() => {
-        var out = ArrayOf[Shape](ShapePoints(Pts = d.Points, Style = d.Style))
-        var i = 1
-        val n = d.Points.Length()
-        for i < n {
-            val a = d.Points.Get(i - 1)
-            val b = d.Points.Get(i)
-            out = out.Append(ShapeLine(X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y,
-                                       Style = d.Style))
-            i = i + 1
-        }
-        return out
-    }
+    case GraphLine() => ArrayOf[Shape](ShapePoints(Pts = d.Points, Style = d.Style)).AppendAll(
+        d.Points.Zip(d.Points.Drop(1)).Map((ab) => {
+            val (a, b) = ab
+            return ShapeLine(X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Style = d.Style)
+        }),
+    )
 }
 
 // chartMarker takes the first dataset's marker for the whole canvas. One
@@ -271,16 +265,9 @@ func chartYLabels(y ChartAxis) Widget {
     if n == 1 {
         return chartYLabelCell(top.Get(0), y)
     }
-    var kids = EmptyArray[LayoutChild]()
-    var i = 0
-    for i < n {
-        if i > 0 {
-            kids = kids.Append(Flex(1, Empty()))
-        }
-        kids = kids.Append(Fixed(1, chartYLabelCell(top.Get(i), y)))
-        i = i + 1
-    }
-    return Column(kids)
+    return Column(stream.FromArray(top.Map((l) => Fixed(1, chartYLabelCell(l, y))))
+        .Intersperse(Flex(1, Empty()))
+        .ToArray())
 }
 
 func chartYLabelCell(label string, y ChartAxis) Widget =
