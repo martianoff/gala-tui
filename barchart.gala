@@ -1,0 +1,418 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ----------------------------------------------------------------------------
+// Bar charts — vertical, horizontal, grouped
+// ----------------------------------------------------------------------------
+//
+// `BarChart` (advanced.gala) is a list of labelled gauges: one horizontal bar
+// per datum, whole-cell resolution, one colour. That is enough for "top N" and
+// nothing else. ratatui's BarChart is the shape dashboards actually reach for:
+// columns standing on a baseline, grouped so that "p50 / p95 / p99 for each
+// service" reads as three bars per service rather than nine unrelated rows,
+// each bar in its own colour and carrying its value.
+//
+//     BarChartOf(ArrayOf[BarGroup](
+//         BarGroupOf("api", ArrayOf[Bar](
+//             BarOf("p50", 12).WithStyle(green),
+//             BarOf("p95", 48).WithStyle(yellow),
+//         )),
+//         BarGroupOf("db", ArrayOf[Bar](
+//             BarOf("p50", 3).WithStyle(green),
+//             BarOf("p95", 9).WithStyle(yellow),
+//         )),
+//     ))
+//
+// Bar ends are drawn in eighths of a cell (`▁`..`█` standing, `▏`..`█` lying
+// down), so two values a few percent apart do not render as the same bar the
+// way whole cells would make them.
+//
+// `BarChartOf` stands bars on the bottom edge; `HBarChartOf` lays them along
+// the left. Both are one `BarChartW` case: the direction changes where things
+// go, not what the chart is.
+
+// Bar is one bar: its value, the label printed beside it, how it is filled
+// and the text printed as its value.
+struct Bar(
+    Label string,
+    Value int,
+    Fill  BarFill,
+    Text  Option[string],
+)
+
+// BarFill is where a bar's style comes from. "No style of its own" has to be
+// distinguishable from "explicitly the default style", so that an unstyled
+// bar takes the chart's colour and a theme pass over the chart reaches it
+// too. (A sealed type rather than `Option[Style]`, which GALA 0.80 lowers to
+// an undefined `std.Style`.)
+sealed type BarFill {
+    case BarInherit()
+    case BarOwn(St Style)
+}
+
+// BarOf is a bar in the chart's style that prints its own value.
+func BarOf(label string, value int) Bar =
+    Bar(Label = label, Value = value, Fill = BarInherit(), Text = None[string]())
+
+// WithStyle gives the bar its own style instead of the chart's.
+func (b Bar) WithStyle(s Style) Bar = b.Copy(Fill = BarOwn(s))
+
+// WithText replaces the printed value — "48ms" rather than "48", or "" to
+// print nothing. The bar's length still comes from `Value`.
+func (b Bar) WithText(text string) Bar = b.Copy(Text = Some(text))
+
+// BarGroup is a run of bars drawn together, with one label for the run.
+// An ungrouped chart is a single group with an empty label.
+struct BarGroup(
+    Label string,
+    Bars  Array[Bar],
+)
+
+func BarGroupOf(label string, bars Array[Bar]) BarGroup =
+    BarGroup(Label = label, Bars = bars)
+
+// BarGeometry is how thick each bar is and how much space surrounds it, in
+// cells: columns for a vertical chart, rows for a horizontal one.
+//
+// `Gap` separates bars inside a group and `GroupGap` separates groups, so a
+// group reads as a unit only while `GroupGap > Gap`.
+struct BarGeometry(
+    Width    int,
+    Gap      int,
+    GroupGap int,
+)
+
+// VerticalBarGeometry is three columns per bar: wide enough to print a
+// three-digit value inside the bar's own footprint.
+func VerticalBarGeometry() BarGeometry = BarGeometry(Width = 3, Gap = 1, GroupGap = 2)
+
+// HorizontalBarGeometry is one row per bar with no gap, the density of a
+// list; groups are set apart by a blank row.
+func HorizontalBarGeometry() BarGeometry = BarGeometry(Width = 1, Gap = 0, GroupGap = 1)
+
+// BarDirection is which edge the bars grow from.
+sealed type BarDirection {
+    case BarsVertical()   // standing on the bottom edge
+    case BarsHorizontal() // growing from the left edge
+}
+
+// BarChartOf draws the groups as columns standing on a common baseline.
+//
+// `max` is the value a full-height bar represents; 0 scales to the largest
+// value in the chart. Fixing it is how two charts side by side are made
+// comparable, and how a chart that updates live keeps its scale still.
+func BarChartOf(
+    groups Array[BarGroup],
+    style Style = DefaultStyle(),
+    geom BarGeometry = VerticalBarGeometry(),
+    max int = 0,
+) Widget = barChartWidget(groups, style, geom, max, BarsVertical())
+
+// HBarChartOf draws the groups as bars growing rightward from a label column.
+// Parameters are as for `BarChartOf`, with `geom.Width` counting rows.
+func HBarChartOf(
+    groups Array[BarGroup],
+    style Style = DefaultStyle(),
+    geom BarGeometry = HorizontalBarGeometry(),
+    max int = 0,
+) Widget = barChartWidget(groups, style, geom, max, BarsHorizontal())
+
+// BarChartOfValues is the ungrouped vertical chart over plain datums — the
+// column-chart form of `BarChart`.
+func BarChartOfValues(data Array[BarChartDatum], style Style = DefaultStyle()) Widget =
+    BarChartOf(ArrayOf[BarGroup](BarGroupOf("",
+        data.Map((d) => BarOf(d.Label, d.Value)))), style)
+
+func barChartWidget(
+    groups Array[BarGroup],
+    style Style,
+    geom BarGeometry,
+    max int,
+    dir BarDirection,
+) Widget {
+    if groups.ForAll((g) => g.Bars.IsEmpty()) { return Empty() }
+    return BarChartW(Groups = groups, Style = style, Geom = geom, Max = max, Dir = dir)
+}
+
+// ----------------------------------------------------------------------------
+// Rendering
+// ----------------------------------------------------------------------------
+
+// barShape is what the renderers and the intrinsic size need to know about
+// the data, gathered in one pass over the bars rather than one per question.
+//
+// `LabelW` and `ValueW` are the widest bar label and printed value in cells;
+// `MaxV` is the value a full bar represents — an explicit maximum, otherwise
+// the largest value, floored at 1 so an all-zero chart has a scale rather
+// than a division by zero.
+struct barShape(
+    MaxV           int,
+    LabelW         int,
+    ValueW         int,
+    HasLabels      bool,
+    HasGroupLabels bool,
+)
+
+func barShapeOf(groups Array[BarGroup], max int) barShape {
+    val zero = barShape(MaxV = 0, LabelW = 0, ValueW = 0,
+                        HasLabels = false, HasGroupLabels = false)
+    val s = groups.FoldLeft(zero, (acc, g) => g.Bars.FoldLeft(
+        acc.Copy(HasGroupLabels = acc.HasGroupLabels || g.Label != ""),
+        (a, b) => a.Copy(
+            MaxV      = MaxInt(a.MaxV, b.Value),
+            LabelW    = MaxInt(a.LabelW, StringCellWidth(b.Label)),
+            ValueW    = MaxInt(a.ValueW, StringCellWidth(barText(b))),
+            HasLabels = a.HasLabels || b.Label != "",
+        )))
+    return s.Copy(MaxV = if (max > 0) max else MaxInt(1, s.MaxV))
+}
+
+// barEighths is a bar's length in eighths of a cell over `cells` cells.
+// Negative values clamp to an empty bar and values past the maximum to a full
+// one, so a fixed `max` that live data outgrows saturates instead of drawing
+// over the labels.
+//
+// The ratio is taken in floating point. `value * cells * 8` in int wraps for
+// byte counts or nanosecond durations long before `value` itself does, and a
+// wrapped product is a NEGATIVE bar — one whose value then prints below the
+// baseline, over the labels.
+func barEighths(value int, maxV int, cells int) int =
+    if (value >= maxV) cells * 8
+    else int(float64(MaxInt(0, value)) * float64(cells * 8) / float64(maxV))
+
+func barStyle(b Bar, chart Style) Style = b.Fill match {
+    case BarInherit() => chart
+    case BarOwn(st)   => st
+}
+
+func barText(b Bar) string = b.Text.GetOrElse(s"${b.Value}")
+
+// countIf is 1 for a row or column that is present and 0 for one that is
+// not, which is how every piece of this layout is sized.
+func countIf(present bool) int = if (present) 1 else 0
+
+// barCentered draws `text` centred in [x, x+width), truncated to fit.
+func barCentered(buf *Buffer, x int, y int, width int, text string, style Style) {
+    val fitted = StringCellTruncate(text, width)
+    val slot = Rect(X = x, Y = y, Width = width, Height = 1)
+    val _ = buf.DrawText(slot.Centered(StringCellWidth(fitted), 1).X, y, fitted, style)
+}
+
+func renderBarChart(
+    groups Array[BarGroup],
+    style Style,
+    geom BarGeometry,
+    max int,
+    dir BarDirection,
+    area Rect,
+    buf *Buffer,
+) {
+    if area.Zero() { return }
+    val shape = barShapeOf(groups, max)
+    dir match {
+        case BarsVertical()   => renderBarsVertical(groups, style, geom, shape, area, buf)
+        case BarsHorizontal() => renderBarsHorizontal(groups, style, geom, shape, area, buf)
+    }
+}
+
+// renderBarsVertical lays the chart out bottom-up:
+//
+//     row 0 .. plotH-1   the bars, with each value on the row above its bar
+//     plotH              bar labels        (only if some bar has one)
+//     plotH+1            group labels      (only if some group has one)
+//
+// The top row of the plot is kept free of bar so that the tallest bar still
+// has a row above it for its value — a value printed over the bar's own top
+// cell would erase the eighths that distinguish it from its neighbours.
+// A chart too short for everything gives up the value row first, then the
+// group labels, then the bar labels: whatever it keeps, it keeps a row of
+// plot, because labels with no bars over them describe nothing.
+//
+// A bar is drawn only if its whole width fits; a clipped column reads as a
+// thinner bar with a different value. The first bar that does not fit ends
+// the chart rather than only its group — with `GroupGap < Gap` the next
+// group's first bar could still squeeze in, and would read as the missing
+// bar of the group before it. Gaps are charged BEFORE a bar or group rather
+// than after, so a group's span ends at its last bar with nothing to take
+// back off.
+func renderBarsVertical(
+    groups Array[BarGroup],
+    style Style,
+    geom BarGeometry,
+    shape barShape,
+    area Rect,
+    buf *Buffer,
+) {
+    val barW = MaxInt(1, geom.Width)
+    val labelRow = countIf(shape.HasLabels && area.Height >= 2)
+    val groupRow = countIf(shape.HasGroupLabels && area.Height - labelRow >= 2)
+    val showValues = area.Height - labelRow - groupRow >= 2
+    val plotH = area.Height - labelRow - groupRow - countIf(showValues)
+    if plotH < 1 { return }
+    val baseline = area.Y + countIf(showValues) + plotH - 1
+    val labelY = baseline + 1
+    val groupY = labelY + labelRow
+
+    var x = area.X
+    var fits = true
+    var gi = 0
+    for fits && gi < groups.Length() {
+        val g = groups.Get(gi)
+        if gi > 0 { x = x + geom.GroupGap }
+        val groupX = x
+        var bi = 0
+        for fits && bi < g.Bars.Length() {
+            val left = x + countIf(bi > 0) * geom.Gap
+            if left + barW > area.Right() {
+                fits = false
+            } else {
+                x = left
+                val b = g.Bars.Get(bi)
+                val st = barStyle(b, style)
+                val eighths = barEighths(b.Value, shape.MaxV, plotH)
+                val full = eighths / 8
+                val part = eighths % 8
+                buf.Fill(Rect(X = x, Y = baseline - full + 1, Width = barW, Height = full),
+                         Cell(Ch = '█', St = st))
+                if part > 0 {
+                    buf.Fill(Rect(X = x, Y = baseline - full, Width = barW, Height = 1),
+                             Cell(Ch = sparklineRamp.Get(part - 1), St = st))
+                }
+                if showValues {
+                    val text = barText(b)
+                    if stringFitsInCells(text, barW) {
+                        barCentered(buf, x, baseline - full - countIf(part > 0), barW, text, st)
+                    }
+                }
+                if b.Label != "" && labelRow > 0 {
+                    barCentered(buf, x, labelY, barW, b.Label, style)
+                }
+                x = x + barW
+                bi = bi + 1
+            }
+        }
+        if g.Label != "" && x > groupX && groupRow > 0 {
+            barCentered(buf, groupX, groupY, x - groupX, g.Label, style)
+        }
+        gi = gi + 1
+    }
+}
+
+// renderBarsHorizontal lays the chart out left to right:
+//
+//     [bar label ][bar ........][ value]
+//
+// with each group preceded by a row carrying its label, if any group has one.
+// The value is printed just past the end of the bar rather than at the right
+// edge, so it sits next to the thing it measures; the width it could need is
+// reserved from the bar's length so the longest bar still has room for it.
+// A bar thicker than one row carries its label and value on its middle row.
+//
+// The label column is capped at half the width and its labels truncated: one
+// long name reserving its full width left no room for any bar, and the whole
+// chart rendered blank. As vertically, the first bar that does not fit ends
+// the chart, not just its group.
+func renderBarsHorizontal(
+    groups Array[BarGroup],
+    style Style,
+    geom BarGeometry,
+    shape barShape,
+    area Rect,
+    buf *Buffer,
+) {
+    val barH = MaxInt(1, geom.Width)
+    val labelW = MinInt(shape.LabelW, area.Width / 2)
+    val labelCols = barSeparated(labelW)
+    val valueCols = barSeparated(shape.ValueW)
+    val showValues = area.Width - labelCols - valueCols >= 1
+    val barMaxW = area.Width - labelCols - (if (showValues) valueCols else 0)
+    if barMaxW < 1 { return }
+    val barX = area.X + labelCols
+
+    var y = area.Y
+    var fits = true
+    var gi = 0
+    for fits && gi < groups.Length() {
+        val g = groups.Get(gi)
+        if gi > 0 { y = y + geom.GroupGap }
+        // A group label is drawn only if its first bar fits beneath it: a
+        // label on the last row with nothing under it names data that is not
+        // on screen.
+        if shape.HasGroupLabels {
+            if y + 1 + barH > area.Bottom() { return }
+            val _ = buf.DrawText(area.X, y, StringCellTruncate(g.Label, area.Width), style)
+            y = y + 1
+        }
+        var bi = 0
+        for fits && bi < g.Bars.Length() {
+            val top = y + countIf(bi > 0) * geom.Gap
+            if top + barH > area.Bottom() {
+                fits = false
+            } else {
+                y = top
+                val b = g.Bars.Get(bi)
+                val st = barStyle(b, style)
+                val eighths = barEighths(b.Value, shape.MaxV, barMaxW)
+                val full = eighths / 8
+                val part = eighths % 8
+                buf.Fill(Rect(X = barX, Y = y, Width = full, Height = barH),
+                         Cell(Ch = '█', St = st))
+                if part > 0 {
+                    buf.Fill(Rect(X = barX + full, Y = y, Width = 1, Height = barH),
+                             Cell(Ch = gaugeEighthRune(part), St = st))
+                }
+                val mid = y + barH / 2
+                if labelW > 0 {
+                    val _ = buf.DrawText(area.X, mid, StringCellTruncate(b.Label, labelW), style)
+                }
+                if showValues {
+                    val _ = buf.DrawText(barX + full + countIf(part > 0) + 1, mid, barText(b), st)
+                }
+                y = y + barH
+                bi = bi + 1
+            }
+        }
+        gi = gi + 1
+    }
+}
+
+// barSeparated is the columns a horizontal chart reserves for a label or
+// value column `w` cells wide: the column plus a separating space, or nothing
+// when there is nothing to print.
+func barSeparated(w int) int = if (w > 0) w + 1 else 0
+
+// barChartIntrinsic is the chart's size for the no-area `Render`: the
+// smallest extent that shows every part. Standing up, that is each group at
+// the wider of its bars and its label, with the gaps between — counted per
+// group, since an empty group has no inner gap to contribute — and a value
+// row and four rows of plot above the labels. Lying down, it is every bar at
+// its full thickness plus a label row per group, and ten columns of bar
+// between the label column and the value column.
+func barChartIntrinsic(groups Array[BarGroup], geom BarGeometry, dir BarDirection) Tuple[int, int] {
+    val shape = barShapeOf(groups, 0)
+    val thick = MaxInt(1, geom.Width)
+    val groupGaps = MaxInt(0, groups.Length() - 1) * geom.GroupGap
+    val barSpan = (g BarGroup) => thick * g.Bars.Length() + MaxInt(0, g.Bars.Length() - 1) * geom.Gap
+    return dir match {
+        case BarsVertical() =>
+            (groups.FoldLeft(groupGaps, (acc, g) =>
+                 acc + MaxInt(barSpan(g), StringCellWidth(g.Label))),
+             1 + 4 + countIf(shape.HasLabels) + countIf(shape.HasGroupLabels))
+        case BarsHorizontal() =>
+            (barSeparated(shape.LabelW) + 10 + barSeparated(shape.ValueW),
+             groups.FoldLeft(groupGaps, (acc, g) => acc + barSpan(g)) +
+                 countIf(shape.HasGroupLabels) * groups.Length())
+    }
+}
+
+// barChartRestyle maps every style the chart holds. A bar that inherits the
+// chart's style is left inheriting — the chart's own style carries the change
+// to it — so only bars with a style of their own are rewritten.
+func barChartRestyle(groups Array[BarGroup], f func(Style) Style) Array[BarGroup] =
+    groups.Map((g) => g.Copy(Bars = g.Bars.Map((b) => b.Fill match {
+        case BarInherit() => b
+        case BarOwn(st)   => b.Copy(Fill = BarOwn(f(st)))
+    })))

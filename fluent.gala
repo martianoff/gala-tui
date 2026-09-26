@@ -353,6 +353,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         // other leaf — which is the whole reason it is not a CustomW.
         case SparklineW(values, style, dir)    =>
             SparklineW(Values = values, Style = f(style), Dir = dir)
+        case BarChartW(groups, style, geom, max, dir) =>
+            BarChartW(Groups = barChartRestyle(groups, f), Style = f(style),
+                      Geom = geom, Max = max, Dir = dir)
         // CustomW renders by user-supplied closure — restyleLeaves has
         // no way to inspect or rewrite styles inside it. Pass through.
         case CustomW(_, _, _)                  => w

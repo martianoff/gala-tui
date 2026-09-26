@@ -828,17 +828,30 @@ func megaSidebar(m MegaModel, th Theme) Widget {
         Fixed(1, TextStyled(titleLabel, titleStyle)),
         Fixed(8, menu),
         Fixed(1, Text("")),
-        Fixed(1, TextStyled(" Throughput (7d)", th.Heading)),
-        Fixed(5, BarChart(ArrayOf[BarChartDatum](
-            BarChartDatum(Label = "backend",  Value = 42),
-            BarChartDatum(Label = "frontend", Value = 28),
-            BarChartDatum(Label = "infra",    Value = 15),
-        ))),
+        Fixed(1, SpansLine(
+            SpanStyled(" Builds (7d) ", th.Heading),
+            SpanStyled("pass", th.Success), SpanStyled(" / ", th.Heading),
+            SpanStyled("fail", th.Error))),
+        Fixed(6, megaThroughputChart(th)),
         Fixed(1, Text("")),
         Flex(1, Tree(m.Pipelines)),
     ))
     val borderKind = if (focused) ThickBorder() else th.BorderKind
     return BorderOf(PaddingHV(0, 1, inside), borderKind)
+}
+
+// megaThroughputChart is a week of builds per team, passes beside failures.
+// Grouped rather than one bar per team because the question the sidebar
+// answers is "which team is red", and a total alone cannot show it; the
+// heading's coloured words are the legend, so no row is spent on bar labels.
+func megaThroughputChart(th Theme) Widget {
+    val team = (name string, passed int, failed int) => BarGroupOf(name, ArrayOf[Bar](
+        BarOf("", passed).WithStyle(th.Success),
+        BarOf("", failed).WithStyle(th.Error)))
+    return BarChartOf(
+        ArrayOf[BarGroup](team("api", 42, 3), team("web", 28, 9), team("infra", 15, 1)),
+        DefaultStyle(),
+        BarGeometry(Width = 3, Gap = 0, GroupGap = 2))
 }
 
 func megaOverviewMain(m MegaModel, th Theme) Widget {
@@ -865,7 +878,30 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
     val children = ArrayOf[LayoutChild](
         Fixed(1, TextStyled(" Recent Builds", th.Heading)),
     ).AppendAll(items)
-    return Column(children)
+    return Row(ArrayOf[LayoutChild](
+        // Wide enough for the longest row; halved, it clipped a duration to
+        // "00:00:4" — a different number rather than a shortened one.
+        Fixed(50, Column(children)),
+        Flex(1, Column(ArrayOf[LayoutChild](
+            Fixed(1, SpansLine(
+                SpanStyled(" Build time by stage (s)  ", th.Heading),
+                SpanStyled("p50", th.Accent), SpanStyled(" / ", th.Heading),
+                SpanStyled("p95", th.Warning))),
+            Flex(1, megaStageTimes(th)),
+        ))),
+    ))
+}
+
+// megaStageTimes is the horizontal form of the grouped bar chart: a stage per
+// group, its median beside its tail. Lying down because the stage names are
+// the thing being read, and a label column holds a name a column chart would
+// have to truncate to its bar's width.
+func megaStageTimes(th Theme) Widget {
+    val stage = (name string, p50 int, p95 int) => BarGroupOf(name, ArrayOf[Bar](
+        BarOf("p50", p50).WithStyle(th.Accent),
+        BarOf("p95", p95).WithStyle(th.Warning)))
+    return HBarChartOf(ArrayOf[BarGroup](
+        stage("compile", 41, 73), stage("test", 96, 188), stage("deploy", 22, 64)))
 }
 
 func megaBuildsBody(m MegaModel, th Theme) Widget {

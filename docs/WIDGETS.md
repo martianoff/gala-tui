@@ -228,7 +228,10 @@ on one edge. Shapes outside the bounds clip; they do not wrap.
 | `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. A value at the series minimum floors to the smallest visible block; an *empty* series still renders blank. |
 | `SparklineStyled(values, style, dir?)` | `(Array[int], Style, SparkDirection) Widget` | …with custom fg/bg, and which end sample 0 sits at. |
 | `SparklineOf(values, style, dir?)` | `(Array[Option[int]], Style, SparkDirection) Widget` | …where `None` is a sample that does not exist, drawn as a blank column. |
-| `BarChart(data)` | `(Array[BarChartDatum]) Widget` | Labeled horizontal bars. |
+| `BarChart(data)` | `(Array[BarChartDatum]) Widget` | Labeled horizontal gauges, one per datum, whole-cell resolution. |
+| `BarChartOf(groups, style?, geom?, max?)` | `(Array[BarGroup], Style, BarGeometry, int) Widget` | Grouped columns on a common baseline, eighth-cell tops, each value above its bar. `max = 0` scales to the data; fix it to keep a live chart's scale still (values past it saturate). |
+| `HBarChartOf(groups, style?, geom?, max?)` | `(Array[BarGroup], Style, BarGeometry, int) Widget` | The same chart lying down: label column, bars from a shared left edge, value just past each bar's end. |
+| `BarChartOfValues(data, style?)` | `(Array[BarChartDatum], Style) Widget` | One ungrouped column chart over the datums `BarChart` takes. |
 | `LineChart(values)` | `(Array[int]) Widget` | Auto-bounded, sub-cell resolution. |
 | `LineChartStyled(values, style)` | `(Array[int], Style) Widget` | Default bounds, explicit style. |
 | `LineChartBounded(values, style, bounds)` | `(Array[int], Style, LineChartBounds) Widget` | Explicit `LineChartBounds(Min, Max)`. |
@@ -267,6 +270,36 @@ and drops the caption for the rule when the caption would have to be cut. A
 *clip* is always signalled (`StringCellEllipsis`'s `…`, `OverflowRow`'s `›`),
 because a clipped value can be misread as a shorter one; a *drop* needs no
 marker, because an absent rule cannot be mistaken for a short rule.
+
+### Bar charts: groups, direction, scale
+
+A `Bar` is `BarOf(label, value)`, optionally `.WithStyle(s)` — otherwise it
+takes the chart's style, and a restyle of the chart (`.WithDim()`, a theme
+pass) reaches it either way — and `.WithText(t)` to print `"48ms"` instead of
+`48`, or `""` to print nothing. `BarGroupOf(label, bars)` draws a run of bars
+under one label; an ungrouped chart is one group with an empty label.
+
+`BarGeometry(Width, Gap, GroupGap)` is in cells — columns standing up, rows
+lying down. The defaults are `VerticalBarGeometry()` (3 / 1 / 2, room for a
+three-digit value inside a bar's footprint) and `HorizontalBarGeometry()`
+(1 / 0 / 1). Keep `GroupGap > Gap`, or the groups stop reading as groups.
+
+```gala
+val team = (name string, passed int, failed int) => BarGroupOf(name, ArrayOf[Bar](
+    BarOf("ok",  passed).WithStyle(green),
+    BarOf("err", failed).WithStyle(red)))
+BarChartOf(ArrayOf[BarGroup](team("api", 42, 3), team("web", 28, 9)))
+```
+
+What gives way when space runs out, and why:
+
+- A bar that does not fit **whole** is not drawn. A clipped column reads as a
+  thinner bar, and a clipped row as a smaller value.
+- A value wider than its bar is not printed rather than spilling over the
+  neighbour it would be read as belonging to.
+- A chart too short for everything gives up the value row first, then labels.
+- A zero or negative value draws no bar but still prints its value on the
+  baseline, so `0` reads as a measurement rather than a missing bar.
 
 ### Sparkline direction and gaps
 

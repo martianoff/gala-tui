@@ -212,6 +212,18 @@ sealed type Widget {
     // be placed against a known width so that `SparkRightToLeft` clips its
     // far end rather than the end it pins. See `renderSparkline`.
     case SparklineW(Values Array[Option[int]], Style Style, Dir SparkDirection)
+
+    // BarChartW is a vertical or horizontal bar chart of grouped bars. A
+    // first-class case for the same restyle reason as SparklineW, and because
+    // its layout — which bars fit, where a group label centres — depends on
+    // the width it is given. See `barchart.gala`.
+    case BarChartW(
+        Groups Array[BarGroup],
+        Style  Style,
+        Geom   BarGeometry,
+        Max    int,
+        Dir    BarDirection,
+    )
 }
 
 // LayoutChild binds a widget to the Constraint Row/Column use when
@@ -1412,6 +1424,8 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         }
         case SparklineW(values, style, dir) =>
             renderSparkline(values, style, dir, area, buf)
+        case BarChartW(groups, style, geom, max, dir) =>
+            renderBarChart(groups, style, geom, max, dir, area, buf)
         case CustomW(_, _, render) =>
             render(area, buf, hits)
     }
@@ -2359,6 +2373,7 @@ func defaultRenderWidth(w Widget) int {
         case DraggableW(inner, _)              => defaultRenderWidth(inner)
         case DraggableRowsW(inner, _, _, _)    => defaultRenderWidth(inner)
         case SparklineW(values, _, _)           => values.Length()
+        case BarChartW(groups, _, geom, _, dir)  => barChartIntrinsic(groups, geom, dir).V1
         case CustomW(minW, _, _)               => minW
     }
 }
@@ -2402,6 +2417,7 @@ func defaultRenderHeight(w Widget) int {
         case DraggableW(inner, _)              => defaultRenderHeight(inner)
         case DraggableRowsW(inner, _, _, _)    => defaultRenderHeight(inner)
         case SparklineW(_, _, _)               => 1
+        case BarChartW(groups, _, geom, _, dir) => barChartIntrinsic(groups, geom, dir).V2
         case CustomW(_, minH, _)               => minH
     }
 }
@@ -2472,6 +2488,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case DraggableW(inner, _)              => IntrinsicHeightAt(inner, width)
         case DraggableRowsW(inner, _, _, _)    => IntrinsicHeightAt(inner, width)
         case SparklineW(_, _, _)               => 1
+        case BarChartW(groups, _, geom, _, dir) => barChartIntrinsic(groups, geom, dir).V2
         case CustomW(_, minH, _)               => minH
     }
 }
