@@ -27,10 +27,10 @@ func TestTableWithHeadersRenders(t T) T {
     // so the declared width still shows all five characters.
     val buf = NewBuffer(11, 4)
     RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 11, Height = 4), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "Name  Age  ")
-    val t2 = Eq(t1, BufferText(buf, 1), "───────────")
-    val t3 = Eq(t2, BufferText(buf, 2), "Alice 30   ")
-    return Eq(t3, BufferText(buf, 3), "Bob   25   ")
+    val t1 = Eq(t, RowText(buf, 0), "Name  Age  ")
+    val t2 = Eq(t1, RowText(buf, 1), "───────────")
+    val t3 = Eq(t2, RowText(buf, 2), "Alice 30   ")
+    return Eq(t3, RowText(buf, 3), "Bob   25   ")
 }
 
 func TestTableSelectionHighlight(t T) T {
@@ -45,7 +45,7 @@ func TestTableSelectionHighlight(t T) T {
     )
     val buf = NewBuffer(7, 2)
     RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 7, Height = 2), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "one  1 ")
+    val t1 = Eq(t, RowText(buf, 0), "one  1 ")
     // Second row should be reverse-video (the selected row).
     return IsTrue(t1, buf.StyleAt(0, 1).Reverse)
 }
@@ -63,7 +63,7 @@ func TestExactFitColumnsStaySeparated(t T) T {
     )
     val buf = NewBuffer(11, 1)
     RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 11, Height = 1), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "Alice Bobby")
+    val t1 = Eq(t, RowText(buf, 0), "Alice Bobby")
     // Neither value was shortened to pay for the gap.
     return Eq(t1, buf.CharAt(4, 0), 'e')
 }
@@ -72,7 +72,7 @@ func TestTableEmpty(t T) T {
     val data = NewTable(EmptyArray[Constraint](), EmptyArray[Array[string]](), -1)
     val buf = NewBuffer(5, 2)
     RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 5, Height = 2), buf)
-    return Eq(t, BufferText(buf, 0), "     ")
+    return Eq(t, RowText(buf, 0), "     ")
 }
 
 // ============================================================================
@@ -87,14 +87,14 @@ func TestSparklineRendersBlocks(t T) T {
     // MINIMUM now floors to the smallest visible block instead of rendering
     // as a blank cell — a low value and a missing one were indistinguishable,
     // so a dip in a series read as a hole in the data.
-    return Eq(t, BufferText(buf, 0), "▁▁▂▄▆█")
+    return Eq(t, RowText(buf, 0), "▁▁▂▄▆█")
 }
 
 func TestSparklineEmptyIsNothing(t T) T {
     val buf = NewBuffer(4, 1)
     val w = Sparkline(EmptyArray[int]())
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "    ")
+    return Eq(t, RowText(buf, 0), "    ")
 }
 
 func TestSparklineAllZerosIsAFlatLineNotBlank(t T) T {
@@ -108,7 +108,7 @@ func TestSparklineAllZerosIsAFlatLineNotBlank(t T) T {
     val buf = NewBuffer(4, 1)
     val w = Sparkline(ArrayOf(0, 0, 0, 0))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "▁▁▁▁")
+    return Eq(t, RowText(buf, 0), "▁▁▁▁")
 }
 
 // ============================================================================
@@ -124,8 +124,8 @@ func TestBarChartRendersRows(t T) T {
     RenderTo(BarChart(data), Rect(X = 0, Y = 0, Width = 12, Height = 2), buf)
     // Row 0: "A " label (2 cells) + Gauge(100) for 10 wide = all full
     // Row 1: "B " label + Gauge(50) for 10 wide = 5 full + 5 empty
-    val t1 = IsTrue(t, strings.HasPrefix(BufferText(buf, 0), "A "))
-    return IsTrue(t1, strings.HasPrefix(BufferText(buf, 1), "B "))
+    val t1 = IsTrue(t, strings.HasPrefix(RowText(buf, 0), "A "))
+    return IsTrue(t1, strings.HasPrefix(RowText(buf, 1), "B "))
 }
 
 // ============================================================================
@@ -140,9 +140,9 @@ func TestTreeRendersCollapsed(t T) T {
     val buf = NewBuffer(15, 3)
     RenderTo(Tree(root), Rect(X = 0, Y = 0, Width = 15, Height = 3), buf)
     // Collapsed: only root visible, with ▶ marker.
-    val t1 = IsTrue(t, strings.Contains(BufferText(buf, 0), "▶ root"))
+    val t1 = IsTrue(t, strings.Contains(RowText(buf, 0), "▶ root"))
     // Child rows should NOT appear.
-    return IsFalse(t1, strings.Contains(BufferText(buf, 1), "child"))
+    return IsFalse(t1, strings.Contains(RowText(buf, 1), "child"))
 }
 
 func TestTreeRendersExpanded(t T) T {
@@ -152,9 +152,9 @@ func TestTreeRendersExpanded(t T) T {
     ))
     val buf = NewBuffer(15, 3)
     RenderTo(Tree(root), Rect(X = 0, Y = 0, Width = 15, Height = 3), buf)
-    val t1 = IsTrue(t, strings.Contains(BufferText(buf, 0), "▼ root"))
-    val t2 = IsTrue(t1, strings.Contains(BufferText(buf, 1), "child1"))
-    return IsTrue(t2, strings.Contains(BufferText(buf, 2), "child2"))
+    val t1 = IsTrue(t, strings.Contains(RowText(buf, 0), "▼ root"))
+    val t2 = IsTrue(t1, strings.Contains(RowText(buf, 1), "child1"))
+    return IsTrue(t2, strings.Contains(RowText(buf, 2), "child2"))
 }
 
 func TestTreeLeafMarker(t T) T {
@@ -162,7 +162,7 @@ func TestTreeLeafMarker(t T) T {
     val buf = NewBuffer(10, 1)
     RenderTo(Tree(leaf), Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // Leaf uses • marker.
-    return IsTrue(t, strings.Contains(BufferText(buf, 0), "• alone"))
+    return IsTrue(t, strings.Contains(RowText(buf, 0), "• alone"))
 }
 
 func TestTreeDeepIndentation(t T) T {
@@ -174,5 +174,5 @@ func TestTreeDeepIndentation(t T) T {
     val buf = NewBuffer(12, 3)
     RenderTo(Tree(deep), Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
     // "c" is indented 2 levels — 4 spaces of leading whitespace.
-    return IsTrue(t, strings.HasPrefix(BufferText(buf, 2), "    • c"))
+    return IsTrue(t, strings.HasPrefix(RowText(buf, 2), "    • c"))
 }

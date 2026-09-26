@@ -13,8 +13,8 @@ func TestListSelectionHighlight(t T) T {
     val buf = NewBuffer(6, 3)
     val w = SelectListOf(ArrayOf[string]("apple", "banana", "cherry"), 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "apple ")
-    val t2 = Eq(t1, BufferText(buf, 1), "banana")   // selected row filled to width
+    val t1 = Eq(t, RowText(buf, 0), "apple ")
+    val t2 = Eq(t1, RowText(buf, 1), "banana")   // selected row filled to width
     // Selected row style should be reverse.
     return IsTrue(t2, buf.StyleAt(0, 1).Reverse)
 }
@@ -24,7 +24,7 @@ func TestListHandlesEmpty(t T) T {
     val w = SelectListOf(EmptyArray[string](), 0)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 2), buf)
     // Nothing should crash; buffer stays blank.
-    return Eq(t, BufferText(buf, 0), "     ")
+    return Eq(t, RowText(buf, 0), "     ")
 }
 
 func TestListScrollsToShowSelected(t T) T {
@@ -33,8 +33,8 @@ func TestListScrollsToShowSelected(t T) T {
     val buf = NewBuffer(4, 2)
     val w = SelectListOf(ArrayOf[string]("a", "b", "c", "d", "e"), 4)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "d   ")
-    return Eq(t1, BufferText(buf, 1), "e   ")
+    val t1 = Eq(t, RowText(buf, 0), "d   ")
+    return Eq(t1, RowText(buf, 1), "e   ")
 }
 
 func TestListViewportOffsetBasic(t T) T {
@@ -52,7 +52,7 @@ func TestInputShowsPlaceholderWhenEmpty(t T) T {
     val buf = NewBuffer(12, 1)
     val w = Input("", 0, "type here", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "type here   ")
+    val t1 = Eq(t, RowText(buf, 0), "type here   ")
     // Placeholder rendered with dim style. Sampled at cell 1, not cell 0:
     // an empty field now draws its caret at column 0, so that cell carries
     // the field style inverted rather than the placeholder's dim. Before,
@@ -66,7 +66,7 @@ func TestInputShowsValueAndCursor(t T) T {
     val buf = NewBuffer(10, 1)
     val w = Input("hello", 3, "", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "hello     ")
+    val t1 = Eq(t, RowText(buf, 0), "hello     ")
     // Cursor at column 3 → that cell should be reversed.
     return IsTrue(t1, buf.StyleAt(3, 0).Reverse)
 }
@@ -80,21 +80,21 @@ func TestProgressBarHalf(t T) T {
     val w = Progress(50)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // 10-width bar, 50%: "[████░░░░]" — 4 filled + 4 empty between brackets.
-    return Eq(t, BufferText(buf, 0), "[████░░░░]")
+    return Eq(t, RowText(buf, 0), "[████░░░░]")
 }
 
 func TestProgressBarFull(t T) T {
     val buf = NewBuffer(8, 1)
     val w = Progress(100)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "[██████]")
+    return Eq(t, RowText(buf, 0), "[██████]")
 }
 
 func TestProgressBarEmpty(t T) T {
     val buf = NewBuffer(8, 1)
     val w = Progress(0)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "[░░░░░░]")
+    return Eq(t, RowText(buf, 0), "[░░░░░░]")
 }
 
 func TestProgressClampsOverflow(t T) T {
@@ -102,7 +102,7 @@ func TestProgressClampsOverflow(t T) T {
     val w = Progress(250)   // out of range
     RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
     // Clamped to 100% → all inner cells filled.
-    return Eq(t, BufferText(buf, 0), "[██████]")
+    return Eq(t, RowText(buf, 0), "[██████]")
 }
 
 func TestGaugeFullCells(t T) T {
@@ -113,7 +113,7 @@ func TestGaugeFullCells(t T) T {
     // glyph rather than spaces: a Gauge at 0% was indistinguishable from an
     // empty layout slot, while Progress — the other bar widget in this
     // library — has always drawn `[░░░░░░]`.
-    return Eq(t, BufferText(buf, 0), "██░░")
+    return Eq(t, RowText(buf, 0), "██░░")
 }
 
 // ============================================================================
@@ -125,7 +125,7 @@ func TestLineGaugeSplitsTheRuleAtThePercentage(t T) T {
     // A four-column caption plus its separator claims 5, leaving a 9-cell
     // rule. Half of nine is four and a half, so four heavy cells and a head.
     RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 14, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), " 50% ━━━━╾────")
+    return Eq(t, RowText(buf, 0), " 50% ━━━━╾────")
 }
 
 func TestLineGaugeCaptionKeepsTheRuleOriginFixed(t T) T {
@@ -163,10 +163,10 @@ func TestLineGaugeDrawsAHeadOnlyWhenTheFillEndsMidCell(t T) T {
     // the fill has not reached.
     val odd = NewBuffer(5, 1)
     RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 5, Height = 1), odd)
-    val t1 = Eq(t, BufferText(odd, 0), "━━╾──")
+    val t1 = Eq(t, RowText(odd, 0), "━━╾──")
     val even = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), even)
-    return Eq(t1, BufferText(even, 0), "━━━━────")
+    return Eq(t1, RowText(even, 0), "━━━━────")
 }
 
 func TestLineGaugeNeverClipsACaptionIntoSomethingElse(t T) T {
@@ -176,10 +176,10 @@ func TestLineGaugeNeverClipsACaptionIntoSomethingElse(t T) T {
     // own width the rule takes the row in both cases.
     val number = NewBuffer(2, 1)
     RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 2, Height = 1), number)
-    val t1 = Eq(t, BufferText(number, 0), "━━")
+    val t1 = Eq(t, RowText(number, 0), "━━")
     val word = NewBuffer(4, 1)
     RenderTo(LineGaugeLabeled("Uploading", 50), Rect(X = 0, Y = 0, Width = 4, Height = 1), word)
-    return Eq(t1, BufferText(word, 0), "━━──")
+    return Eq(t1, RowText(word, 0), "━━──")
 }
 
 func TestLineGaugeLeavesRowsBelowItsOwnAlone(t T) T {
@@ -189,8 +189,8 @@ func TestLineGaugeLeavesRowsBelowItsOwnAlone(t T) T {
     val buf = NewBuffer(6, 3)
     buf.Fill(Rect(X = 0, Y = 1, Width = 6, Height = 2), Cell(Ch = '.', St = DefaultStyle()))
     RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "━━━━━━")
-    return Eq(t1, BufferText(buf, 1), "......")
+    val t1 = Eq(t, RowText(buf, 0), "━━━━━━")
+    return Eq(t1, RowText(buf, 1), "......")
 }
 
 func TestLineGaugeOwnsEveryCellWhenTheRuleIsDropped(t T) T {
@@ -203,7 +203,7 @@ func TestLineGaugeOwnsEveryCellWhenTheRuleIsDropped(t T) T {
         Cell(Ch = '.', St = DefaultStyle().WithReverse()),
     )
     RenderTo(LineGaugeLabeled("Sync", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "Sync    ")
+    val t1 = Eq(t, RowText(buf, 0), "Sync    ")
     return IsTrue(t1, !buf.StyleAt(7, 0).Reverse)
 }
 
@@ -231,10 +231,10 @@ func TestLineGaugeBareRuleDrawsBelowTheMinimumRuleWidth(t T) T {
     // is the picture `gaugeTrack` exists to prevent.
     val one = NewBuffer(1, 1)
     RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 1, Height = 1), one)
-    val t1 = Eq(t, BufferText(one, 0), "━")
+    val t1 = Eq(t, RowText(one, 0), "━")
     val three = NewBuffer(3, 1)
     RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 3, Height = 1), three)
-    return Eq(t1, BufferText(three, 0), "───")
+    return Eq(t1, RowText(three, 0), "───")
 }
 
 func TestLineGaugeIntrinsicWidthDoesNotVaryWithTheValue(t T) T {
@@ -252,16 +252,16 @@ func TestLineGaugeDrawsTheTrackAtZeroAndFillsAtFull(t T) T {
     // rather than on a wider or negative rule.
     val zero = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", 0), Rect(X = 0, Y = 0, Width = 8, Height = 1), zero)
-    val t1 = Eq(t, BufferText(zero, 0), "────────")
+    val t1 = Eq(t, RowText(zero, 0), "────────")
     val full = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", 100), Rect(X = 0, Y = 0, Width = 8, Height = 1), full)
-    val t2 = Eq(t1, BufferText(full, 0), "━━━━━━━━")
+    val t2 = Eq(t1, RowText(full, 0), "━━━━━━━━")
     val over = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", 250), Rect(X = 0, Y = 0, Width = 8, Height = 1), over)
-    val t3 = Eq(t2, BufferText(over, 0), "━━━━━━━━")
+    val t3 = Eq(t2, RowText(over, 0), "━━━━━━━━")
     val under = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", -40), Rect(X = 0, Y = 0, Width = 8, Height = 1), under)
-    return Eq(t3, BufferText(under, 0), "────────")
+    return Eq(t3, RowText(under, 0), "────────")
 }
 
 func TestLineGaugeKeepsTheLabelWhenTheRowIsTooNarrowForARule(t T) T {
@@ -269,7 +269,7 @@ func TestLineGaugeKeepsTheLabelWhenTheRowIsTooNarrowForARule(t T) T {
     // "Sync" + space + a 4-cell minimum rule needs 9 columns; at 6 the rule
     // is dropped rather than drawn too short to mean anything.
     RenderTo(LineGaugeLabeled("Sync", 50), Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "Sync  ")
+    return Eq(t, RowText(buf, 0), "Sync  ")
 }
 
 func TestLineGaugeFallsBackToTheRuleWhenTheLabelCannotFit(t T) T {
@@ -278,7 +278,7 @@ func TestLineGaugeFallsBackToTheRuleWhenTheLabelCannotFit(t T) T {
     // a shorter caption — it is a different word, or a different number. The
     // gauge keeps the half of itself that cannot be misread.
     RenderTo(LineGaugeLabeled("Uploading", 50), Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "━━──")
+    return Eq(t, RowText(buf, 0), "━━──")
 }
 
 func TestLineGaugeStylesTheFilledRunAndTheTrackApart(t T) T {
@@ -310,7 +310,7 @@ func TestLineGaugeLabelCarriesTheFilledStyle(t T) T {
 func TestLineGaugeRendersNothingIntoAZeroArea(t T) T {
     val buf = NewBuffer(6, 1)
     RenderTo(LineGauge(50), Rect(X = 0, Y = 0, Width = 0, Height = 0), buf)
-    return Eq(t, BufferText(buf, 0), "      ")
+    return Eq(t, RowText(buf, 0), "      ")
 }
 
 // ============================================================================
@@ -329,7 +329,7 @@ func TestSpinnerRendersCell(t T) T {
     val buf = NewBuffer(3, 1)
     val w = Spinner(PipeSpinner(), 2)  // '-'
     RenderTo(w, Rect(X = 0, Y = 0, Width = 3, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "-  ")
+    return Eq(t, RowText(buf, 0), "-  ")
 }
 
 // ============================================================================
@@ -341,13 +341,13 @@ func TestButtonRendersLabel(t T) T {
     val w = Button("OK", false)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // "[ OK ]" = 6 chars + 4 blanks = 10.
-    return Eq(t, BufferText(buf, 0), "[ OK ]    ")
+    return Eq(t, RowText(buf, 0), "[ OK ]    ")
 }
 
 func TestFocusedButtonIsReversed(t T) T {
     val buf = NewBuffer(10, 1)
     val w = Button("OK", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "[ OK ]    ")
+    val t1 = Eq(t, RowText(buf, 0), "[ OK ]    ")
     return IsTrue(t1, buf.StyleAt(0, 0).Reverse)
 }

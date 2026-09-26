@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/test"
 )
 
@@ -16,7 +17,7 @@ func TestLoaderRendersTextAndSpinner(t T) T {
     val buf = NewBuffer(30, 1)
     RenderTo(Loader("Loading…", 0),
         Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
-    return IsTrue(t, megaContains(BufferText(buf, 0), "Loading…"))
+    return IsTrue(t, strings.Contains(RowText(buf, 0), "Loading…"))
 }
 
 func TestLoaderSpinnerAdvancesOnFrameChange(t T) T {
@@ -45,9 +46,9 @@ func TestEmptyStateRendersIconAndText(t T) T {
     val buf = NewBuffer(40, 1)
     RenderTo(EmptyState("X", "no items"),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = IsTrue(t, megaContains(row, "X"))
-    return IsTrue(t1, megaContains(row, "no items"))
+    val row = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(row, "X"))
+    return IsTrue(t1, strings.Contains(row, "no items"))
 }
 
 func TestEmptyStateTextIsDim(t T) T {
@@ -62,8 +63,8 @@ func TestEmptyStateHintedHasTwoRows(t T) T {
     val buf = NewBuffer(40, 2)
     RenderTo(EmptyStateHinted("X", "no items", "press N to add"),
         Rect(X = 0, Y = 0, Width = 40, Height = 2), buf)
-    val t1 = IsTrue(t, megaContains(BufferText(buf, 0), "no items"))
-    return IsTrue(t1, megaContains(BufferText(buf, 1), "press N to add"))
+    val t1 = IsTrue(t, strings.Contains(RowText(buf, 0), "no items"))
+    return IsTrue(t1, strings.Contains(RowText(buf, 1), "press N to add"))
 }
 
 // ----------------------------------------------------------------------------

@@ -17,8 +17,8 @@ func TestPopupRendersAtPosition(t T) T {
     val p = Popup(2, 1, 10, 3, Text("hi"))
     val buf = NewBuffer(20, 5)
     RenderTo(p, Rect(X = 0, Y = 0, Width = 20, Height = 5), buf)
-    val joined = popupTestStitch(buf)
-    return IsTrue(t, popupTestContains(joined, "hi"))
+    val joined = allRows(buf)
+    return IsTrue(t, strings.Contains(joined, "hi"))
 }
 
 // PopupOver stacks correctly: lower content visible AROUND the popup
@@ -29,9 +29,9 @@ func TestPopupOverStacks(t T) T {
     val w = PopupOver(below, pop)
     val buf = NewBuffer(15, 5)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 15, Height = 5), buf)
-    val joined = popupTestStitch(buf)
-    val t1 = IsTrue(t, popupTestContains(joined, "X"))
-    return IsTrue(t1, popupTestContains(joined, "-"))
+    val joined = allRows(buf)
+    val t1 = IsTrue(t, strings.Contains(joined, "X"))
+    return IsTrue(t1, strings.Contains(joined, "-"))
 }
 
 // Link wraps in OSC 8 escapes — assert the open + close sequences are
@@ -53,8 +53,8 @@ func TestLinkRendersOSC8(t T) T {
     val t1 = Eq(t, RowText(buf, 0), "github.com          ")
     // The escape reaches the wire, wrapping exactly the label.
     val wire = buf.String()
-    val t2 = IsTrue(t1, popupTestContains(wire, "\x1b]8;;https://github.com\x1b\\"))
-    return IsTrue(t2, popupTestContains(wire, "\x1b]8;;\x1b\\"))
+    val t2 = IsTrue(t1, strings.Contains(wire, "\x1b]8;;https://github.com\x1b\\"))
+    return IsTrue(t2, strings.Contains(wire, "\x1b]8;;\x1b\\"))
 }
 
 func TestLinkClaimsOnlyTheLabelsWidth(t T) T {
@@ -73,9 +73,9 @@ func TestLinkDoesNotLeakPastItsLabel(t T) T {
     val buf = NewBuffer(10, 1)
     RenderTo(row, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val wire = buf.String()
-    val openAt = popupTestIndexOf(wire, "\x1b]8;;https://example.com\x1b\\")
-    val closeAt = popupTestIndexOf(wire, "\x1b]8;;\x1b\\")
-    val plainAt = popupTestIndexOf(wire, "plain")
+    val openAt = strings.Index(wire, "\x1b]8;;https://example.com\x1b\\")
+    val closeAt = strings.Index(wire, "\x1b]8;;\x1b\\")
+    val plainAt = strings.Index(wire, "plain")
     val t1 = IsTrue(t, openAt >= 0 && closeAt > openAt)
     return IsTrue(t1, plainAt > closeAt)
 }
@@ -87,7 +87,7 @@ func TestHyperlinkTextNowCarriesItsUrl(t T) T {
     RenderTo(HyperlinkText("docs", "https://gala.fyi"),
         Rect(X = 0, Y = 0, Width = 14, Height = 1), buf)
     val t1 = Eq(t, RowText(buf, 0), "docs          ")
-    return IsTrue(t1, popupTestContains(buf.String(), "\x1b]8;;https://gala.fyi\x1b\\"))
+    return IsTrue(t1, strings.Contains(buf.String(), "\x1b]8;;https://gala.fyi\x1b\\"))
 }
 
 func TestLinkedWrapsAComposedWidget(t T) T {
@@ -97,7 +97,7 @@ func TestLinkedWrapsAComposedWidget(t T) T {
     val buf = NewBuffer(6, 3)
     RenderTo(card, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
     val t1 = Eq(t, RowText(buf, 0), "┌────┐")
-    val t2 = IsTrue(t1, popupTestContains(buf.String(), "\x1b]8;;https://example.com\x1b\\"))
+    val t2 = IsTrue(t1, strings.Contains(buf.String(), "\x1b]8;;https://example.com\x1b\\"))
     // Every cell of the area carries the link, border glyphs included.
     return IsTrue(t2, LinkUrl(buf.StyleAt(0, 0)) == "https://example.com"
                    && LinkUrl(buf.StyleAt(5, 2)) == "https://example.com")
@@ -106,7 +106,7 @@ func TestLinkedWrapsAComposedWidget(t T) T {
 func TestUnlinkedCellsEmitNoOsc8(t T) T {
     val buf = NewBuffer(6, 1)
     RenderTo(Text("plain"), Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
-    return IsTrue(t, !popupTestContains(buf.String(), "]8;;"))
+    return IsTrue(t, !strings.Contains(buf.String(), "]8;;"))
 }
 
 func TestDiffRenderOpensAndClosesLinksWithinItsRun(t T) T {
@@ -122,8 +122,8 @@ func TestDiffRenderOpensAndClosesLinksWithinItsRun(t T) T {
     )), Rect(X = 0, Y = 0, Width = 12, Height = 1), next)
 
     val diff = next.DiffString(prev)
-    val openAt = popupTestIndexOf(diff, "\x1b]8;;https://example.com\x1b\\")
-    val closeAt = popupTestIndexOf(diff, "\x1b]8;;\x1b\\")
+    val openAt = strings.Index(diff, "\x1b]8;;https://example.com\x1b\\")
+    val closeAt = strings.Index(diff, "\x1b]8;;\x1b\\")
     val t1 = IsTrue(t, openAt >= 0)
     // Closed inside the same run, before the untouched cells after it.
     return IsTrue(t1, closeAt > openAt)
@@ -134,7 +134,7 @@ func TestDiffRenderEmitsNoLinkWhenNoneChanged(t T) T {
     RenderTo(Text("ab"), Rect(X = 0, Y = 0, Width = 6, Height = 1), prev)
     val next = NewBuffer(6, 1)
     RenderTo(Text("cd"), Rect(X = 0, Y = 0, Width = 6, Height = 1), next)
-    return IsTrue(t, !popupTestContains(next.DiffString(prev), "]8;;"))
+    return IsTrue(t, !strings.Contains(next.DiffString(prev), "]8;;"))
 }
 
 func TestLinkIsClosedAtEndOfEveryRow(t T) T {
@@ -147,13 +147,10 @@ func TestLinkIsClosedAtEndOfEveryRow(t T) T {
     val buf = NewBuffer(4, 2)
     RenderTo(col, Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
     val wire = buf.String()
-    val closeAt = popupTestIndexOf(wire, "\x1b]8;;\x1b\\")
-    val newlineAt = popupTestIndexOf(wire, "\n")
+    val closeAt = strings.Index(wire, "\x1b]8;;\x1b\\")
+    val newlineAt = strings.Index(wire, "\n")
     return IsTrue(t, closeAt >= 0 && closeAt < newlineAt)
 }
-
-func popupTestIndexOf(hay string, needle string) int =
-    strings.Index(hay, needle)
 
 // LinkClick wraps the styled link with a Clickable; the outer widget
 // should be a ClickableW so the runtime registers a hit.
@@ -169,46 +166,3 @@ func TestLinkClickWrapsClickable(t T) T {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-func popupTestStitch(buf *Buffer) string {
-    var s = ""
-    var y = 0
-    for y < buf.Height {
-        s = s + BufferText(buf, y) + "\n"
-        y = y + 1
-    }
-    return s
-}
-
-func popupTestContains(hay string, needle string) bool {
-    val h = popupTestRunes(hay)
-    val n = popupTestRunes(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if h.Get(i + j) != n.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
-}
-
-func popupTestRunes(s string) Array[rune] {
-    var out = EmptyArray[rune]()
-    for _, c := range s {
-        out = out.Append(c)
-    }
-    return out
-}

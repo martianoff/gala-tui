@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "martianoff/gala/stream"
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
@@ -164,12 +165,8 @@ func TestBorderStyleSweptAcrossTheWholeFrame(t T) T {
     val w = BorderStyled(Text(""), SingleBorder(), DefaultStyle().WithBold())
     val buf = NewBuffer(6, 3)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
-    var acc = t
-    var x = 0
-    for x < 6 {
-        acc = IsTrue(acc, buf.StyleAt(x, 0).Bold && buf.StyleAt(x, 2).Bold)
-        x = x + 1
-    }
+    val acc = stream.Range(0, 6).Fold(t, (acc, x) =>
+        IsTrue(acc, buf.StyleAt(x, 0).Bold && buf.StyleAt(x, 2).Bold))
     return IsTrue(acc, buf.StyleAt(0, 1).Bold && buf.StyleAt(5, 1).Bold)
 }
 

@@ -76,7 +76,7 @@ func TestRowTwoTextsSplitByLength(t T) T {
         Fixed(5, Text("12345")),
     ))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "Hello12345")
+    return Eq(t, RowText(buf, 0), "Hello12345")
 }
 
 func TestRowFillFillEvenSplit(t T) T {
@@ -86,7 +86,7 @@ func TestRowFillFillEvenSplit(t T) T {
         Flex(1, Text("bbbbbbbbbb")),
     ))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "aaaaabbbbb")
+    return Eq(t, RowText(buf, 0), "aaaaabbbbb")
 }
 
 func TestRowLengthPlusFill(t T) T {
@@ -96,7 +96,7 @@ func TestRowLengthPlusFill(t T) T {
         Flex(1, Text("bodybodyXX")),
     ))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "IDsbodybod")
+    return Eq(t, RowText(buf, 0), "IDsbodybod")
 }
 
 func TestColumnThreeRows(t T) T {
@@ -107,9 +107,9 @@ func TestColumnThreeRows(t T) T {
         Fixed(1, Text("ccccc")),
     ))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 3), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "aaaaa")
-    val t2 = Eq(t1, BufferText(buf, 1), "bbbbb")
-    return Eq(t2, BufferText(buf, 2), "ccccc")
+    val t1 = Eq(t, RowText(buf, 0), "aaaaa")
+    val t2 = Eq(t1, RowText(buf, 1), "bbbbb")
+    return Eq(t2, RowText(buf, 2), "ccccc")
 }
 
 func TestColumnHeaderBodyFooter(t T) T {
@@ -120,18 +120,18 @@ func TestColumnHeaderBodyFooter(t T) T {
         Fixed(1, Text("FOOTR")),
     ))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 5), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "HEADR")
-    val t2 = Eq(t1, BufferText(buf, 1), ".....")
-    val t3 = Eq(t2, BufferText(buf, 2), ".....")
-    val t4 = Eq(t3, BufferText(buf, 3), ".....")
-    return Eq(t4, BufferText(buf, 4), "FOOTR")
+    val t1 = Eq(t, RowText(buf, 0), "HEADR")
+    val t2 = Eq(t1, RowText(buf, 1), ".....")
+    val t3 = Eq(t2, RowText(buf, 2), ".....")
+    val t4 = Eq(t3, RowText(buf, 3), ".....")
+    return Eq(t4, RowText(buf, 4), "FOOTR")
 }
 
 func TestStackMergesLayers(t T) T {
     val buf = NewBuffer(5, 1)
     val w = Stack(ArrayOf[Widget](FillCh('.'), Text("hi")))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
-    return Eq(t, BufferText(buf, 0), "hi...")
+    return Eq(t, RowText(buf, 0), "hi...")
 }
 
 func TestRealDashboardLayout(t T) T {
@@ -145,7 +145,7 @@ func TestRealDashboardLayout(t T) T {
         Fixed(1, Text("[ready]             ")),
     ))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 20, Height = 7), buf)
-    val t1 = Eq(t, BufferText(buf, 0), "== TITLE ===========")
-    val t2 = Eq(t1, BufferText(buf, 1), "NAV  ┌─────────────┐")
-    return Eq(t2, BufferText(buf, 6), "[ready]             ")
+    val t1 = Eq(t, RowText(buf, 0), "== TITLE ===========")
+    val t2 = Eq(t1, RowText(buf, 1), "NAV  ┌─────────────┐")
+    return Eq(t2, RowText(buf, 6), "[ready]             ")
 }

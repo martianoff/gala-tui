@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -86,41 +87,6 @@ func TestFileBrowserViewRendersBreadcrumb(t T) T {
     val b = FileBrowserOpen(".")
     val buf = NewBuffer(40, 8)
     RenderTo(FileBrowserView(b), Rect(X = 0, Y = 0, Width = 40, Height = 8), buf)
-    val joined = stitchFbRows(buf)
-    return IsTrue(t, fbRowHas(joined, ".."))
-}
-
-func stitchFbRows(buf *Buffer) string {
-    var s = ""
-    var y = 0
-    for y < buf.Height {
-        s = s + BufferText(buf, y) + "\n"
-        y = y + 1
-    }
-    return s
-}
-
-func fbRowHas(hay string, needle string) bool {
-    val h = mdRunes(hay)
-    val n = mdRunes(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if h.Get(i + j) != n.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
+    val joined = allRows(buf)
+    return IsTrue(t, strings.Contains(joined, ".."))
 }

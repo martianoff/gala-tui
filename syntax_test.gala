@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/test"
     . "martianoff/gala/collection_immutable"
 )
@@ -163,8 +164,8 @@ func TestMarkdownFencedCodeBlockRendersWithBorder(t T) T {
     val widget = MarkdownView(src)
     val buf = NewBuffer(20, 5)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 5), buf)
-    val joined = stitchSyntaxRows(buf)
-    return IsTrue(t, syntaxRowHas(joined, "println"))
+    val joined = allRows(buf)
+    return IsTrue(t, strings.Contains(joined, "println"))
 }
 
 // ----------------------------------------------------------------------------
@@ -186,39 +187,4 @@ func tokenKindMatches(tok SyntaxToken, kind string) bool {
         case TokIdent(_)    => kind == "ident"
         case TokPunct(_)    => kind == "punct"
     }
-}
-
-func stitchSyntaxRows(buf *Buffer) string {
-    var s = ""
-    var y = 0
-    for y < buf.Height {
-        s = s + BufferText(buf, y) + "\n"
-        y = y + 1
-    }
-    return s
-}
-
-func syntaxRowHas(hay string, needle string) bool {
-    val h = syntaxRunes(hay)
-    val n = syntaxRunes(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if h.Get(i + j) != n.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
 }

@@ -1,0 +1,14 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+)
+
+// ============================================================================
+// Helpers shared by the package's tests.
+// ============================================================================
+
+// allRows reads every row of `buf` as plain text, each followed by "\n", so
+// a test can ask whether some text appears anywhere on screen.
+func allRows(buf *Buffer) string =
+    ArrayTabulate(buf.Height, (y) => RowText(buf, y) + "\n").MkString("")

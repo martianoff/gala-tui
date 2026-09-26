@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "martianoff/gala/stream"
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
@@ -106,21 +107,16 @@ func drainInput(buf []byte) Tuple[Array[InputEvent], []byte] {
 // read cannot hold a pasted paragraph — so it is the only way to test that a
 // paste survives being split across reads.
 func feedChunks(buf []byte, size int) Array[InputEvent] {
-    var out = EmptyArray[InputEvent]()
-    var carry = SliceEmpty[byte]()
     val n = buf.Size()
-    var at = 0
-    for at < n {
-        var end = at + size
-        if end > n {
-            end = n
-        }
-        val avail = SliceAppendAll(carry, Slice(buf, at, end))
-        val (evs, rest) = drainInput(avail)
-        out = out.AppendAll(evs)
-        carry = carryOver(rest)
-        at = end
-    }
+    val (out, _) = stream.RangeStep(0, n, size).Fold(
+        (EmptyArray[InputEvent](), SliceEmpty[byte]()),
+        (acc, at) => {
+            val (sofar, carry) = acc
+            val avail = SliceAppendAll(carry, Slice(buf, at, MinInt(at + size, n)))
+            val (evs, rest) = drainInput(avail)
+            return (sofar.AppendAll(evs), carryOver(rest))
+        },
+    )
     return out
 }
 
@@ -138,14 +134,10 @@ func pasteWire(body string) string = "\x1b[200~" + body + "\x1b[201~"
 // terminal sends under `metaSendsEscape`. See `parseCsi`.
 func assertAllPrefixesIncomplete(t T, wire string, label string) T {
     val full = ToBytes(wire)
-    var acc = t
-    var i = 3
-    for i < full.Size() {
+    return stream.Range(3, full.Size()).Fold(t, (acc, i) => {
         val (_, n) = ParseInput(Slice(full, 0, i))
-        acc = EqMsg(acc, n, 0, s"$label truncated to $i bytes must consume 0")
-        i = i + 1
-    }
-    return acc
+        return EqMsg(acc, n, 0, s"$label truncated to $i bytes must consume 0")
+    })
 }
 
 // ----------------------------------------------------------------------------
@@ -195,17 +187,14 @@ func TestPasteConsumesExactlyTheWrappedRun(t T) T {
 // against — falling through to ParseKey — produces exactly `len` events, so a
 // single short fixture would be easy to pass by accident.
 func TestPasteIsOneEventNotAKeystrokeBurst(t T) T {
-    var acc = t
-    var chars = 1
-    for chars <= 256 {
+    val lengths = stream.Iterate(1, (c) => c * 2).TakeWhile((c) => c <= 256)
+    return lengths.Fold(t, (acc, chars) => {
         val (evs, rest) = drainInput(ToBytes(pasteWire(strings.Repeat("x", chars))))
-        acc = EqMsg(acc, evs.Length(), 1, s"$chars-char paste must decode as 1 event")
-        acc = EqMsg(acc, describeInput(evs.Get(0)), "paste:" + strings.Repeat("x", chars),
-                    s"$chars-char paste body")
-        acc = EqMsg(acc, rest.Size(), 0, s"$chars-char paste must be fully consumed")
-        chars = chars * 2
-    }
-    return acc
+        val a1 = EqMsg(acc, evs.Length(), 1, s"$chars-char paste must decode as 1 event")
+        val a2 = EqMsg(a1, describeInput(evs.Get(0)), "paste:" + strings.Repeat("x", chars),
+                       s"$chars-char paste body")
+        return EqMsg(a2, rest.Size(), 0, s"$chars-char paste must be fully consumed")
+    })
 }
 
 // A paste with no terminator is the classic truncation: every prefix of the
@@ -233,16 +222,12 @@ func TestPasteWithoutTerminatorReturnsZeroConsumed(t T) T {
 func TestPasteReassemblesAcrossReads(t T) T {
     val body = strings.Repeat("abcdefghij", 30)     // 300 bytes, > one 64-byte read
     val wire = ToBytes(pasteWire(body))
-    var acc = t
-    var size = 2
-    for size <= 64 {
+    return stream.Range(2, 65).Fold(t, (acc, size) => {
         val evs = feedChunks(wire, size)
-        acc = EqMsg(acc, evs.Length(), 1, s"paste split into $size-byte reads must be 1 event")
-        acc = EqMsg(acc, describeInput(evs.Get(0)), "paste:" + body,
-                    s"paste split into $size-byte reads must keep its body")
-        size = size + 1
-    }
-    return acc
+        val a1 = EqMsg(acc, evs.Length(), 1, s"paste split into $size-byte reads must be 1 event")
+        return EqMsg(a1, describeInput(evs.Get(0)), "paste:" + body,
+                     s"paste split into $size-byte reads must keep its body")
+    })
 }
 
 // Pasted text is opaque: a 0x03 byte inside it is the letter, not Ctrl-C.
@@ -340,13 +325,9 @@ func TestKittyModifierParameterSweep(t T) T {
         "key:ctrl+alt+a",           // 7 = ctrl|alt
         "key:ctrl+alt+shift+a",     // 8 = ctrl|alt|shift
     )
-    var acc = t
-    var p = 1
-    for p <= 8 {
-        acc = EqMsg(acc, decodeOne(kittyWire(97, p)), want.Get(p - 1),
-                    s"kitty modifier parameter $p")
-        p = p + 1
-    }
+    val acc = want.ZipWithIndex().FoldLeft(t, (acc, w) =>
+        EqMsg(acc, decodeOne(kittyWire(97, w.V2 + 1)), w.V1,
+              s"kitty modifier parameter ${w.V2 + 1}"))
     // Locks and the super/hyper/meta bits must not alias onto ctrl or alt:
     // 65 = 1 + 64 is caps-lock alone, which is no modifier we model.
     return EqMsg(acc, decodeOne(kittyWire(97, 65)), "key:a", "caps-lock bit")
@@ -363,60 +344,37 @@ func TestKittyNamedKeysSweep(t T) T {
     val codes = ArrayOf[int](27, 13, 10, 9, 32, 127, 8)
     val names = ArrayOf[string]("esc", "enter", "enter", "tab", "space",
                                 "backspace", "backspace")
-    var acc = t
-    var i = 0
-    for i < codes.Length() {
-        acc = EqMsg(acc, decodeOne(kittyWire(codes.Get(i), 1)), "key:" + names.Get(i),
-                    s"kitty key code ${codes.Get(i)}")
-        i = i + 1
-    }
-    return acc
+    return codes.Zip(names).FoldLeft(t, (acc, c) =>
+        EqMsg(acc, decodeOne(kittyWire(c.V1, 1)), "key:" + c.V2, s"kitty key code ${c.V1}"))
 }
 
 // F13..F35 live at 57376..57398 in the private-use area. Swept end to end:
 // the mapping is arithmetic, so a wrong base shows up at one end only.
 func TestKittyFunctionKeysF13ToF35Sweep(t T) T {
-    var acc = t
-    var cp = 57376
-    for cp <= 57398 {
+    return stream.Range(57376, 57399).Fold(t, (acc, cp) => {
         val n = cp - 57376 + 13
-        acc = EqMsg(acc, decodeOne(kittyWire(cp, 1)), s"key:f$n", s"kitty codepoint $cp")
-        cp = cp + 1
-    }
-    return acc
+        return EqMsg(acc, decodeOne(kittyWire(cp, 1)), s"key:f$n", s"kitty codepoint $cp")
+    })
 }
 
 // "Disambiguate escape codes" also gives every keypad key its own codepoint,
 // so without this block enabling the protocol would break the numeric keypad.
 func TestKittyKeypadSweep(t T) T {
-    var acc = t
-    var cp = 57399
-    for cp <= 57408 {
+    val digits = stream.Range(57399, 57409).Fold(t, (acc, cp) => {
         val digit = string(rune(cp - 57399 + 0x30))
-        acc = EqMsg(acc, decodeOne(kittyWire(cp, 1)), "key:" + digit,
-                    s"kitty keypad codepoint $cp")
-        cp = cp + 1
-    }
+        return EqMsg(acc, decodeOne(kittyWire(cp, 1)), "key:" + digit,
+                     s"kitty keypad codepoint $cp")
+    })
     val punct = ArrayOf[int](57409, 57410, 57411, 57412, 57413, 57415, 57416)
     val glyph = ArrayOf[string](".", "/", "*", "-", "+", "=", ",")
-    var i = 0
-    for i < punct.Length() {
-        acc = EqMsg(acc, decodeOne(kittyWire(punct.Get(i), 1)), "key:" + glyph.Get(i),
-                    s"kitty keypad codepoint ${punct.Get(i)}")
-        i = i + 1
-    }
     val nav = ArrayOf[int](57414, 57417, 57418, 57419, 57420, 57421, 57422,
                            57423, 57424, 57425, 57426)
     val navName = ArrayOf[string]("enter", "left", "right", "up", "down",
                                   "pageup", "pagedown", "home", "end",
                                   "insert", "delete")
-    var j = 0
-    for j < nav.Length() {
-        acc = EqMsg(acc, decodeOne(kittyWire(nav.Get(j), 1)), "key:" + navName.Get(j),
-                    s"kitty keypad codepoint ${nav.Get(j)}")
-        j = j + 1
-    }
-    return acc
+    return punct.Zip(glyph).AppendAll(nav.Zip(navName)).FoldLeft(digits, (acc, k) =>
+        EqMsg(acc, decodeOne(kittyWire(k.V1, 1)), "key:" + k.V2,
+              s"kitty keypad codepoint ${k.V1}"))
 }
 
 // The key code is a Unicode codepoint, not a byte, so it has to survive
@@ -468,55 +426,41 @@ func TestKittyTruncatedMidNumberReturnsZeroConsumed(t T) T {
 func TestLegacyArrowsUnchanged(t T) T {
     val wires = ArrayOf[string]("\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D")
     val names = ArrayOf[string]("up", "down", "right", "left")
-    var acc = t
-    var i = 0
-    for i < wires.Length() {
-        acc = EqMsg(acc, decodeOne(wires.Get(i)), "key:" + names.Get(i),
-                    s"legacy arrow ${names.Get(i)}")
-        acc = EqMsg(acc, consumedFor(wires.Get(i)), 3,
-                    s"legacy arrow ${names.Get(i)} consumed")
-        i = i + 1
-    }
-    return acc
+    return wires.Zip(names).FoldLeft(t, (acc, a) => {
+        val (wire, name) = a
+        val a1 = EqMsg(acc, decodeOne(wire), "key:" + name, s"legacy arrow $name")
+        return EqMsg(a1, consumedFor(wire), 3, s"legacy arrow $name consumed")
+    })
 }
 
 // 0x01..0x1A are Ctrl-A..Ctrl-Z, minus the four the terminal reuses for
 // Backspace / Tab / LF / CR — which is precisely the conflation the kitty
 // protocol resolves, and which must keep behaving as before when it is off.
 func TestLegacyCtrlLetterSweep(t T) T {
-    var acc = t
-    var b = 0x01
-    for b <= 0x1A {
+    return stream.Range(0x01, 0x1B).Fold(t, (acc, b) => {
         val wire = string(rune(b))
         if b == 0x08 {
-            acc = EqMsg(acc, decodeOne(wire), "key:backspace", "0x08 is Backspace")
+            return EqMsg(acc, decodeOne(wire), "key:backspace", "0x08 is Backspace")
         }
         if b == 0x09 {
-            acc = EqMsg(acc, decodeOne(wire), "key:tab", "0x09 is Tab")
+            return EqMsg(acc, decodeOne(wire), "key:tab", "0x09 is Tab")
         }
         if b == 0x0A || b == 0x0D {
-            acc = EqMsg(acc, decodeOne(wire), "key:enter", s"0x$b is Enter")
+            return EqMsg(acc, decodeOne(wire), "key:enter", s"0x$b is Enter")
         }
-        if b != 0x08 && b != 0x09 && b != 0x0A && b != 0x0D {
-            val letter = string(rune(b + 0x60))
-            acc = EqMsg(acc, decodeOne(wire), "key:ctrl+" + letter, s"ctrl+$letter")
-        }
-        b = b + 1
-    }
-    return acc
+        val letter = string(rune(b + 0x60))
+        return EqMsg(acc, decodeOne(wire), "key:ctrl+" + letter, s"ctrl+$letter")
+    })
 }
 
 // Every printable ASCII rune, not a sampled few: the CSI rewrite sits in
 // front of this path and a mis-scoped byte range would only show at an edge.
 func TestLegacyPrintableAsciiSweep(t T) T {
-    var acc = t
-    var b = 0x21
-    for b <= 0x7E {
+    val acc = stream.Range(0x21, 0x7F).Fold(t, (acc, b) => {
         val ch = string(rune(b))
-        acc = EqMsg(acc, decodeOne(ch), "key:" + ch, s"printable 0x$b")
-        acc = EqMsg(acc, consumedFor(ch), 1, s"printable 0x$b consumed")
-        b = b + 1
-    }
+        val a1 = EqMsg(acc, decodeOne(ch), "key:" + ch, s"printable 0x$b")
+        return EqMsg(a1, consumedFor(ch), 1, s"printable 0x$b consumed")
+    })
     return EqMsg(acc, decodeOne(" "), "key:space", "0x20 is Space")
 }
 
@@ -528,14 +472,10 @@ func TestLegacyFunctionKeysUnchanged(t T) T {
         "\x1b[15~", "\x1b[17~", "\x1b[18~", "\x1b[19~",
         "\x1b[20~", "\x1b[21~", "\x1b[23~", "\x1b[24~",
     )
-    var acc = t
-    var i = 0
-    for i < wires.Length() {
-        val n = i + 1
-        acc = EqMsg(acc, decodeOne(wires.Get(i)), s"key:f$n", s"legacy F$n")
-        i = i + 1
-    }
-    return acc
+    return wires.ZipWithIndex().FoldLeft(t, (acc, w) => {
+        val n = w.V2 + 1
+        return EqMsg(acc, decodeOne(w.V1), s"key:f$n", s"legacy F$n")
+    })
 }
 
 func TestLegacyEditingKeysUnchanged(t T) T {
@@ -543,14 +483,8 @@ func TestLegacyEditingKeysUnchanged(t T) T {
                                 "\x1b[3~", "\x1b[4~", "\x1b[5~", "\x1b[6~")
     val names = ArrayOf[string]("home", "end", "home", "insert",
                                 "delete", "end", "pageup", "pagedown")
-    var acc = t
-    var i = 0
-    for i < wires.Length() {
-        acc = EqMsg(acc, decodeOne(wires.Get(i)), "key:" + names.Get(i),
-                    s"legacy editing key ${wires.Get(i)}")
-        i = i + 1
-    }
-    return acc
+    return wires.Zip(names).FoldLeft(t, (acc, w) =>
+        EqMsg(acc, decodeOne(w.V1), "key:" + w.V2, s"legacy editing key ${w.V1}"))
 }
 
 func TestLegacyAltLetterAndBareEscUnchanged(t T) T {
@@ -584,20 +518,13 @@ func TestModifiedArrowsDecode(t T) T {
     val params = ArrayOf[int](2, 3, 5, 6, 7, 8)
     val mods   = ArrayOf[string]("shift+", "alt+", "ctrl+", "ctrl+shift+",
                                  "ctrl+alt+", "ctrl+alt+shift+")
-    var acc = t
-    var i = 0
-    for i < finals.Length() {
-        var j = 0
-        for j < params.Length() {
-            val wire = s"\x1b[1;${params.Get(j)}${finals.Get(i)}"
-            acc = EqMsg(acc, decodeOne(wire), "key:" + mods.Get(j) + names.Get(i),
-                        s"modified arrow $wire")
-            acc = EqMsg(acc, consumedFor(wire), 6, s"modified arrow $wire consumed")
-            j = j + 1
-        }
-        i = i + 1
-    }
-    return acc
+    return finals.Zip(names).FoldLeft(t, (outer, arrow) =>
+        params.Zip(mods).FoldLeft(outer, (acc, mod) => {
+            val wire = s"\x1b[1;${mod.V1}${arrow.V1}"
+            val a1 = EqMsg(acc, decodeOne(wire), "key:" + mod.V2 + arrow.V2,
+                           s"modified arrow $wire")
+            return EqMsg(a1, consumedFor(wire), 6, s"modified arrow $wire consumed")
+        }))
 }
 
 // Whatever a CSI sequence turns out to be, it must be consumed whole. The
@@ -610,19 +537,14 @@ func TestCsiSequencesNeverLeakTheirTail(t T) T {
         "\x1b[200~x\x1b[201~", "\x1b[<0;5;7M",
         "\x1b[1;2R", "\x1b[?62;1c", "\x1b[999X",     // unrecognised, still whole
     )
-    var acc = t
-    var i = 0
-    for i < wires.Length() {
-        val wire = wires.Get(i)
+    return wires.FoldLeft(t, (acc, wire) => {
         val buf = ToBytes(wire + "a")
         val (_, n) = ParseInput(buf)
-        acc = EqMsg(acc, n, ToBytes(wire).Size(), s"$wire must be consumed whole")
+        val a1 = EqMsg(acc, n, ToBytes(wire).Size(), s"$wire must be consumed whole")
         val (next, n2) = ParseInput(Slice(buf, n, buf.Size()))
-        acc = EqMsg(acc, describeInput(next), "key:a", s"byte after $wire")
-        acc = EqMsg(acc, n2, 1, s"byte after $wire consumed")
-        i = i + 1
-    }
-    return acc
+        val a2 = EqMsg(a1, describeInput(next), "key:a", s"byte after $wire")
+        return EqMsg(a2, n2, 1, s"byte after $wire consumed")
+    })
 }
 
 // A CSI whose body has started but whose final byte has not arrived asks
@@ -651,13 +573,7 @@ func TestEveryTruncatedSequenceReturnsZeroConsumed(t T) T {
         "\x1b[97;5u", "\x1b[57399;1u",
         "\x1b[<0;12;34M", "\x1b[200~text\x1b[201~",
     )
-    var acc = t
-    var i = 0
-    for i < wires.Length() {
-        acc = assertAllPrefixesIncomplete(acc, wires.Get(i), wires.Get(i))
-        i = i + 1
-    }
-    return acc
+    return wires.FoldLeft(t, (acc, wire) => assertAllPrefixesIncomplete(acc, wire, wire))
 }
 
 // A C0 byte inside a CSI body means the sequence was interrupted. Drop only
@@ -727,9 +643,7 @@ func TestTermModesOnAndOffAreExactAndReversed(t T) T {
 func TestEveryEnabledModeIsDisabledSweep(t T) T {
     val onSeq  = ArrayOf[string]("\x1b[?1006h", "\x1b[?2004h", "\x1b[?1004h", "\x1b[>1u")
     val offSeq = ArrayOf[string]("\x1b[?1006l", "\x1b[?2004l", "\x1b[?1004l", "\x1b[<u")
-    var acc = t
-    var bits = 0
-    for bits < 16 {
+    return stream.Range(0, 16).Fold(t, (outer, bits) => {
         val m = TermModes(
             Mouse = (bits & 1) != 0,
             Paste = (bits & 2) != 0,
@@ -739,17 +653,13 @@ func TestEveryEnabledModeIsDisabledSweep(t T) T {
         val on  = termModesOn(m)
         val off = termModesOff(m)
         val want = ArrayOf[bool](m.Mouse, m.Paste, m.Focus, m.Kitty)
-        var i = 0
-        for i < 4 {
-            acc = EqMsg(acc, strings.Contains(on, onSeq.Get(i)), want.Get(i),
-                        s"combination $bits: enable of mode $i")
-            acc = EqMsg(acc, strings.Contains(off, offSeq.Get(i)), want.Get(i),
-                        s"combination $bits: disable of mode $i")
-            i = i + 1
-        }
-        bits = bits + 1
-    }
-    return acc
+        return stream.Range(0, 4).Fold(outer, (acc, i) => {
+            val a1 = EqMsg(acc, strings.Contains(on, onSeq.Get(i)), want.Get(i),
+                           s"combination $bits: enable of mode $i")
+            return EqMsg(a1, strings.Contains(off, offSeq.Get(i)), want.Get(i),
+                         s"combination $bits: disable of mode $i")
+        })
+    })
 }
 
 // Paste and focus produce InputEvent cases, and only RunWithMouse has a

@@ -1,6 +1,8 @@
 package gala_tui
 
 import (
+    . "martianoff/gala/collection_immutable"
+    "martianoff/gala/stream"
     "strings"
     . "martianoff/gala/test"
 )
@@ -35,13 +37,7 @@ func TestEmptyFieldCarriesItsFieldStyle(t T) T {
                    Focused = true,
                    Style = focus, PlaceholderStyle = DefaultStyle())
     val buf = inputBuf(w, 6)
-    var acc = t
-    var x = 0
-    for x < 6 {
-        acc = IsTrue(acc, buf.StyleAt(x, 0).Bold)
-        x = x + 1
-    }
-    return acc
+    return stream.Range(0, 6).Fold(t, (acc, x) => IsTrue(acc, buf.StyleAt(x, 0).Bold))
 }
 
 func TestFocusedEmptyFieldWithPlaceholderDrawsACaret(t T) T {
@@ -56,12 +52,7 @@ func TestUnfocusedFieldDrawsNoCaret(t T) T {
     // The other half, which nothing asserted: a field the keyboard is not
     // driving must not claim to be.
     val buf = inputBuf(Input("abc", 1, "", false), 8)
-    var any = false
-    var x = 0
-    for x < 8 {
-        if buf.StyleAt(x, 0).Reverse { any = true }
-        x = x + 1
-    }
+    val any = stream.Range(0, 8).Exists((x) => buf.StyleAt(x, 0).Reverse)
     return IsTrue(t, !any)
 }
 
@@ -77,13 +68,7 @@ func TestUnfocusedFieldDoesNotEraseTheSurfaceUnderIt(t T) T {
     // renderText paints the two glyph cells, which is how every text widget
     // here behaves. Everything the field did not write must survive.
     val buf = inputBuf(surface, 10)
-    var acc = t
-    var x = 2
-    for x < 10 {
-        acc = IsTrue(acc, ColorEq(buf.StyleAt(x, 0).Bg, Blue()))
-        x = x + 1
-    }
-    return acc
+    return stream.Range(2, 10).Fold(t, (acc, x) => IsTrue(acc, ColorEq(buf.StyleAt(x, 0).Bg, Blue())))
 }
 
 func TestPaletteQueryCaretFollowsThePalettesFocus(t T) T {
@@ -126,12 +111,7 @@ func TestValueScrollsToKeepTheCaretVisible(t T) T {
     val value = "abcdefghijklmnopqrstuvwxyz0123456789"
     val buf = inputBuf(Input(value, 30, "", true), 20)
     // Caret is on screen...
-    var caretX = -1
-    var x = 0
-    for x < 20 {
-        if buf.StyleAt(x, 0).Reverse { caretX = x }
-        x = x + 1
-    }
+    val caretX = caretColumn(buf, 20)
     val t1 = IsTrue(t, caretX >= 0)
     // ...and sits on the character the cursor indexes.
     return Eq(t1, buf.CharAt(caretX, 0), '4')
@@ -157,15 +137,8 @@ func TestCaretAtEndOfAFullFieldStaysOnScreen(t T) T {
 }
 
 // caretColumn is the column carrying the caret, or -1 if none does.
-func caretColumn(buf *Buffer, width int) int {
-    var found = -1
-    var x = 0
-    for x < width {
-        if buf.StyleAt(x, 0).Reverse { found = x }
-        x = x + 1
-    }
-    return found
-}
+func caretColumn(buf *Buffer, width int) int =
+    stream.Range(0, width).ToArray().FindLast((x) => buf.StyleAt(x, 0).Reverse).GetOrElse(-1)
 
 func TestCaretPositionIsClampedToTheValue(t T) T {
     // An out-of-range cursor must not read past the end or vanish. The

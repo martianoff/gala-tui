@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -21,8 +22,8 @@ func TestDiffFirstFrameIsFullPaint(t T) T {
     buf.DrawText(0, 0, "hi", DefaultStyle())
     val s = buf.DiffString(nil)
     // Full paint begins with cursor-home.
-    val t1 = IsTrue(t, stringStartsWith(s, "\x1b[H"))
-    return IsTrue(t1, stringContainsAll(s, "hi"))
+    val t1 = IsTrue(t, strings.HasPrefix(s, "\x1b[H"))
+    return IsTrue(t1, strings.Contains(s, "hi"))
 }
 
 func TestDiffIdenticalBuffersProduceEmpty(t T) T {
@@ -41,8 +42,8 @@ func TestDiffSingleCellChangeEmitsCursorJump(t T) T {
     cur.DrawText(0, 0, "hxllo", DefaultStyle())
     val s = cur.DiffString(prev)
     // Cell (1,0) changed from 'e' to 'x'. Cursor to row 1 col 2 (1-indexed).
-    val t1 = IsTrue(t, stringContainsAll(s, "\x1b[1;2H"))
-    return IsTrue(t1, stringContainsAll(s, "x"))
+    val t1 = IsTrue(t, strings.Contains(s, "\x1b[1;2H"))
+    return IsTrue(t1, strings.Contains(s, "x"))
 }
 
 func TestDiffContiguousChangesShareOneJump(t T) T {
@@ -53,8 +54,8 @@ func TestDiffContiguousChangesShareOneJump(t T) T {
     val s = cur.DiffString(prev)
     // Four contiguous changes at col 3 (1-indexed) — one jump, no second jump
     // within the run.
-    val t1 = IsTrue(t, stringContainsAll(s, "\x1b[1;3H"))
-    return IsFalse(t1, stringContainsAll(s, "\x1b[1;4H"))
+    val t1 = IsTrue(t, strings.Contains(s, "\x1b[1;3H"))
+    return IsFalse(t1, strings.Contains(s, "\x1b[1;4H"))
 }
 
 func TestDiffResizeTriggersFullPaint(t T) T {
@@ -63,7 +64,7 @@ func TestDiffResizeTriggersFullPaint(t T) T {
     var cur = NewBuffer(5, 1)
     cur.DrawText(0, 0, "abcde", DefaultStyle())
     val s = cur.DiffString(prev)
-    return IsTrue(t, stringStartsWith(s, "\x1b[H"))
+    return IsTrue(t, strings.HasPrefix(s, "\x1b[H"))
 }
 
 func TestDiffTwoRowsOfChangesEmitTwoJumps(t T) T {
@@ -76,55 +77,6 @@ func TestDiffTwoRowsOfChangesEmitTwoJumps(t T) T {
     cur.DrawText(0, 1, "bXbb", DefaultStyle())   // change at col 2
     cur.DrawText(0, 2, "ccYc", DefaultStyle())   // change at col 3
     val s = cur.DiffString(prev)
-    val t1 = IsTrue(t, stringContainsAll(s, "\x1b[2;2H"))
-    return IsTrue(t1, stringContainsAll(s, "\x1b[3;3H"))
-}
-
-// ----------------------------------------------------------------------------
-// Small string helpers (local — don't leak into the public API).
-// ----------------------------------------------------------------------------
-
-func stringStartsWith(s string, prefix string) bool {
-    val sr = stringToRunes(s)
-    val pr = stringToRunes(prefix)
-    if pr.Length() > sr.Length() { return false }
-    var i = 0
-    for i < pr.Length() {
-        if sr.Get(i) != pr.Get(i) { return false }
-        i = i + 1
-    }
-    return true
-}
-
-func stringContainsAll(s string, needle string) bool {
-    val sr = stringToRunes(s)
-    val nr = stringToRunes(needle)
-    val sn = sr.Length()
-    val nn = nr.Length()
-    if nn == 0 { return true }
-    if nn > sn { return false }
-    var i = 0
-    for i <= sn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if sr.Get(i + j) != nr.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
-}
-
-func stringToRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
+    val t1 = IsTrue(t, strings.Contains(s, "\x1b[2;2H"))
+    return IsTrue(t1, strings.Contains(s, "\x1b[3;3H"))
 }
