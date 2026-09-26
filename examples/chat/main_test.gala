@@ -3,6 +3,7 @@ package main
 import (
     . "github.com/martianoff/gala-tui"
     . "martianoff/gala/std"
+    gs "martianoff/gala/strings"
     . "martianoff/gala/test"
 )
 
@@ -14,23 +15,28 @@ import (
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// stringHasPrefix
+// slash-command prefix matching (the composer text is the prefix)
 // ----------------------------------------------------------------------------
 
-func TestChatStringHasPrefixMatches(t T) T =
-    Eq(t, stringHasPrefix("/clear", "/cl"), true)
+func TestChatSlashPrefixBareSlashMatchesAll(t T) T =
+    Eq(t, filteredSlashCommands(composerWith("/")).Length(), 4)
 
-func TestChatStringHasPrefixRejects(t T) T =
-    Eq(t, stringHasPrefix("/help", "/cl"), false)
+func TestChatSlashPrefixSelfMatch(t T) T {
+    val filtered = filteredSlashCommands(composerWith("/help"))
+    val t1 = Eq(t, filtered.Length(), 1)
+    return Eq(t1, filtered.Get(0).Name, "/help")
+}
 
-func TestChatStringHasPrefixEmptyPrefix(t T) T =
-    Eq(t, stringHasPrefix("/anything", ""), true)
+func TestChatSlashPrefixLongerThanNameRejects(t T) T =
+    Eq(t, filteredSlashCommands(composerWith("/clearx")).Length(), 0)
 
-func TestChatStringHasPrefixSelfMatch(t T) T =
-    Eq(t, stringHasPrefix("/help", "/help"), true)
+func TestChatSlashPopupOpensOnSlash(t T) T =
+    Eq(t, slashPopupOpen(composerWith("/")), true)
 
-func TestChatStringHasPrefixLongerPrefixRejects(t T) T =
-    Eq(t, stringHasPrefix("/cl", "/clear"), false)
+func TestChatSlashPopupClosedWithoutSlash(t T) T {
+    val t1 = Eq(t, slashPopupOpen(initial()), false)
+    return Eq(t1, slashPopupOpen(composerWith("x/")), false)
+}
 
 // ----------------------------------------------------------------------------
 // filteredSlashCommands
@@ -156,10 +162,6 @@ func TestChatClearLogWipesEverything(t T) T {
 // composerWith returns a Model whose composer contains `s`. Inserts
 // runes one at a time via TaInsert — same path the runtime uses for
 // real keypresses.
-func composerWith(s string) Model {
-    var m = initial()
-    for _, c := range s {
-        m = m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsert(C = c)))
-    }
-    return m
-}
+func composerWith(s string) Model =
+    gs.S(s).Fold(initial(), (m Model, c rune) =>
+        m.Copy(Composer = TextAreaUpdate(m.Composer, TaInsert(C = c))))
