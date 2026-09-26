@@ -4,6 +4,7 @@ import (
     . "github.com/martianoff/gala-tui"
     "strings"
     . "martianoff/gala/collection_immutable"
+    "martianoff/gala/stream"
     . "martianoff/gala/test"
 )
 
@@ -205,7 +206,7 @@ func TestShowcaseEndToEnd(t T) T {
     RenderTo(dashView(final), Rect(X = 0, Y = 0, Width = 65, Height = 20), buf)
 
     // Title bar is row 0.
-    val t7 = IsTrue(t6, containsRow(buf, 0, "gala-tui Dashboard"))
+    val t7 = IsTrue(t6, strings.Contains(RowText(buf, 0), "gala-tui Dashboard"))
     // "Actions" header inside left panel's border — row 3.
     val t8 = IsTrue(t7, containsAnyRow(buf, "Actions"))
     // The progress bar shows 40% on some row — bars contain "█" runs.
@@ -214,25 +215,7 @@ func TestShowcaseEndToEnd(t T) T {
     return IsTrue(t9, containsAnyRow(buf, "hi"))
 }
 
-// containsRow checks whether RowText(buf, y) contains the given substring.
-func containsRow(buf *Buffer, y int, needle string) bool {
-    val s = RowText(buf, y)
-    return stringContains(s, needle)
-}
-
-// containsAnyRow scans every row for the substring.
-func containsAnyRow(buf *Buffer, needle string) bool {
-    var y = 0
-    for y < buf.Height {
-        if stringContains(RowText(buf, y), needle) {
-            return true
-        }
-        y = y + 1
-    }
-    return false
-}
-
-// stringContains is a trivial substring check. `hay[i:i+n]` slice expressions
-// are rejected by the GALA parser (BUG-gala_tui-003), so we defer to the
-// standard library.
-func stringContains(hay string, needle string) bool = strings.Contains(hay, needle)
+// containsAnyRow reports whether any single row contains the substring.
+// Shared by the showcase tests in this package.
+func containsAnyRow(buf *Buffer, needle string) bool =
+    stream.Range(0, buf.Height).Exists((y int) => strings.Contains(RowText(buf, y), needle))
