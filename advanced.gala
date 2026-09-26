@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
 )
 
@@ -236,12 +237,10 @@ func renderSparkline(values Array[Option[int]], style Style,
     val maxV = sparklineMax(values)
     val reversed = sparkReversed(dir)
     val rightEdge = area.Right() - 1
-    var i = 0
-    for i < cols {
-        val x = if (reversed) rightEdge - i else area.X + i
-        buf.Set(x, area.Y, Cell(Ch = sparklineGlyph(values.Get(i), maxV), St = style))
-        i = i + 1
-    }
+    values.Take(cols).ZipWithIndex().ForEach((t) => {
+        val x = if (reversed) rightEdge - t.V2 else area.X + t.V2
+        buf.Set(x, area.Y, Cell(Ch = sparklineGlyph(t.V1, maxV), St = style))
+    })
 }
 
 // sparkReversed folds the direction down to the one question the renderer
@@ -419,7 +418,7 @@ func treeToggleHelper(node TreeNode, target int, idx int) Tuple[TreeNode, int] {
 // flattenTree turns a TreeNode into a list of display strings with
 // indentation and expand/collapse markers.
 func flattenTree(node TreeNode, depth int) Array[string] {
-    val indent = treeIndent(depth)
+    val indent = strings.Repeat("  ", depth)
     val marker = treeMarker(node)
     val line = indent + marker + " " + node.Label
     if node.Expanded && node.Children.NonEmpty() {
@@ -428,16 +427,6 @@ func flattenTree(node TreeNode, depth int) Array[string] {
         )
     }
     return ArrayOf(line)
-}
-
-func treeIndent(depth int) string {
-    var s = ""
-    var i = 0
-    for i < depth {
-        s = s + "  "
-        i = i + 1
-    }
-    return s
 }
 
 func treeMarker(node TreeNode) string {

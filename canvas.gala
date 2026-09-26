@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "math"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
     . "martianoff/gala/std"
@@ -153,6 +154,9 @@ func markerSubCells(m CanvasMarker) Tuple[int, int] = m match {
 // The layout is historical and not row-major — dots 1-6 were the original
 // 6-dot cell and 7-8 were appended underneath — so the fourth row's bits
 // are 0x40 and 0x80 rather than continuing the pattern.
+// brailleDots is the (col, row) of each of the eight dots in a braille cell.
+val brailleDots = ArrayTabulate(8, (k) => (k % 2, k / 2))
+
 func brailleBit(col int, row int) int {
     if col == 0 {
         if row == 0 { return 0x01 }
@@ -364,6 +368,8 @@ func plotFilledLine(
     // integer form would multiply before dividing and wrap two large
     // coordinates into a garbage row.
     val slope = float64(y2 - y1) / float64(x2 - x1)
+    // Rasteriser inner loop, run per frame for every filled segment: a
+    // counter over the clipped columns, allocation-free.
     var gx = lo
     for gx <= hi {
         val gy = y1 + int(slope * float64(gx - x1))
@@ -377,6 +383,8 @@ func plotFilledLine(
 // leaving it to `plot`.
 func fillColumn(g *canvasGrid, gx int, top int, bottom int, style Style) {
     val (first, last) = gridSpan(top, bottom, g.H)
+    // Rasteriser inner loop (per frame, per column of a filled shape):
+    // allocation-free writes into the grid.
     var gy = first
     for gy <= last {
         g.plot(gx, gy, style)
@@ -479,6 +487,9 @@ func plotClippedLine(g *canvasGrid, seg clippedSegment, style Style) {
     val sx = if (seg.X1 < seg.X2) 1 else -1
     val sy = if (seg.Y1 < seg.Y2) 1 else -1
     var err = dx + dy
+    // The walk's state (x, y, err) is threaded step to step and it ends on
+    // reaching the far endpoint; it runs per frame per line, so it stays an
+    // allocation-free loop rather than a stream of steps.
     var guard = 0
     val limit = (dx - dy) + 2
     for guard <= limit {
@@ -515,7 +526,8 @@ func plotCircle(
     style Style,
 ) {
     // Step count scaled to the grid so a large circle is not dotted and a
-    // small one is not oversampled.
+    // small one is not oversampled. Per frame, and `steps` grows with the
+    // grid, so it is a plain counter rather than a stream of angles.
     val steps = MaxInt(16, (g.W + g.H) * 2)
     var i = 0
     for i < steps {
@@ -527,13 +539,14 @@ func plotCircle(
 
 // sinApprox / cosApprox — Bhaskara-style approximation, accurate to about
 // 0.2% over a full turn. A canvas quantises to dots anyway, so that is far
-// below one dot of error at any practical size, and it keeps this file free
-// of a math dependency for two calls.
+// below one dot of error at any practical size, and it keeps the dots the
+// same on every platform's libm.
 func sinApprox(x float64) float64 {
     val twoPi = 6.28318530717958
-    var t = x
-    for t < 0.0 { t = t + twoPi }
-    for t >= twoPi { t = t - twoPi }
+    // math.Mod keeps the dividend's sign, so a negative angle lands in
+    // (-2π, 0] and takes one turn back.
+    val m = math.Mod(x, twoPi)
+    val t = if (m < 0.0) m + twoPi else m
     val pi = 3.14159265358979
     if t <= pi {
         return 16.0 * t * (pi - t) / (5.0*pi*pi - 4.0*t*(pi-t))
@@ -551,6 +564,9 @@ func cosApprox(x float64) float64 = sinApprox(x + 1.57079632679489)
 // emitCanvasGlyphs turns the dot bitmap into cells. Only lit cells are
 // written, so a canvas composes over whatever is underneath it rather than
 // blanking its whole area.
+//
+// Per frame over every cell of the canvas, reading the Go slices of the grid
+// in place: allocation-free, and it skips unlit cells without a lookup.
 func emitCanvasGlyphs(g *canvasGrid, marker CanvasMarker, area Rect, buf *Buffer) {
     var cy = 0
     for cy < area.Height {
@@ -572,20 +588,9 @@ func emitCanvasGlyphs(g *canvasGrid, marker CanvasMarker, area Rect, buf *Buffer
 func canvasGlyph(g *canvasGrid, marker CanvasMarker, cx int, cy int) rune {
     return marker match {
         case BrailleMarker() => {
-            var bits = 0
-            var row = 0
-            for row < 4 {
-                var col = 0
-                for col < 2 {
-                    val gx = cx*2 + col
-                    val gy = cy*4 + row
-                    if gx < g.W && gy < g.H && g.Set[gy*g.W+gx] {
-                        bits = bits + brailleBit(col, row)
-                    }
-                    col = col + 1
-                }
-                row = row + 1
-            }
+            val bits = brailleDots.FoldLeft(0, (acc, d) =>
+                if (canvasDotAt(g, cx*2 + d.V1, cy*4 + d.V2)) acc + brailleBit(d.V1, d.V2)
+                else acc)
             if (bits == 0) ' ' else rune(0x2800 + bits)
         }
         case HalfBlockMarker() => {

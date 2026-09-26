@@ -3,6 +3,7 @@ package gala_tui
 import (
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
+    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -114,15 +115,31 @@ func cvScroll(c ConversationLog, delta int) ConversationLog {
     )
 }
 
-func cvTotalLines(entries Array[ConversationEntry]) int {
-    var sum = 0
-    var i = 0
-    val n = entries.Length()
-    for i < n {
-        sum = sum + entries.Get(i).Height
-        i = i + 1
-    }
-    return sum
+func cvTotalLines(entries Array[ConversationEntry]) int =
+    entries.FoldLeft(0, (sum, e) => sum + e.Height)
+
+// cvSlice is the part of one entry the viewport shows: entry `Idx`'s lines
+// [SkipTop, SkipTop+Take), drawn from viewport row `Row`.
+struct cvSlice(Idx int, SkipTop int, Take int, Row int)
+
+// cvSlices lays the entries end to end from line 0 and keeps, oldest first,
+// the slice of each that overlaps the `height` lines from `viewportTop`.
+// Both the hit test and the layout read it, so they cannot disagree about
+// which entry sits on which row.
+func cvSlices(entries Array[ConversationEntry], viewportTop int, height int) Array[cvSlice] {
+    val starts = stream.FromArray(entries).Scan(0, (line, e) => line + e.Height).ToArray()
+    return entries.ZipWithIndex().Zip(starts).Collect((t) => {
+        val entry = t.V1.V1
+        val start = t.V2
+        val visTop = MaxInt(viewportTop, start)
+        val visBot = MinInt(viewportTop + height, start + entry.Height)
+        return When(visBot > visTop, cvSlice(
+            Idx     = t.V1.V2,
+            SkipTop = visTop - start,
+            Take    = visBot - visTop,
+            Row     = visTop - viewportTop,
+        ))
+    })
 }
 
 // ----------------------------------------------------------------------------
@@ -190,35 +207,15 @@ func ConversationLogEntryAt(
     val total = cvTotalLines(c.Entries)
     val viewportTop = if (c.StickToBottom) MaxInt(0, total - viewportH)
                       else c.Offset
-    var lineCursor = 0
-    var i = 0
-    val n = c.Entries.Length()
-    for i < n {
-        val entry = c.Entries.Get(i)
-        val entryStart = lineCursor
-        val entryEnd = lineCursor + entry.Height
-        val visTop = MaxInt(viewportTop, entryStart)
-        val visBot = MinInt(viewportTop + viewportH, entryEnd)
-        if visBot > visTop {
-            val rowsBefore = visTop - viewportTop
-            val rowsAfter  = visBot - viewportTop
-            if rowInViewport >= rowsBefore && rowInViewport < rowsAfter {
-                return Some(i)
-            }
-        }
-        lineCursor = entryEnd
-        i = i + 1
-    }
-    return None[int]()
+    return cvSlices(c.Entries, viewportTop, viewportH)
+        .Find((s) => rowInViewport >= s.Row && rowInViewport < s.Row + s.Take)
+        .Map((s) => s.Idx)
 }
 
-// cvBuildLayout walks `c.Entries`, computes which slice of each entry
-// is visible in the viewport, and lays them out in a Column. Each
-// (already-viewported) entry body is passed through `wrapEntry` along
-// with its entry index — view callers pass identity, click callers
-// attach an OnClick. The walk is stateful (line cursor + remaining
-// rows) so it stays imperative; the loop-bound Append is the single
-// emit point per visible entry.
+// cvBuildLayout lays the visible slice of each entry (see `cvSlices`) out
+// in a Column. Each (already-viewported) entry body is passed through
+// `wrapEntry` along with its entry index — view callers pass identity,
+// click callers attach an OnClick.
 func cvBuildLayout(
     c ConversationLog,
     height int,
@@ -228,33 +225,25 @@ func cvBuildLayout(
     val total = cvTotalLines(c.Entries)
     val viewportTop = if (c.StickToBottom) MaxInt(0, total - height)
                       else c.Offset
-    var children = EmptyArray[LayoutChild]()
-    var lineCursor = 0
-    var rowsLeft = height
-    var i = 0
-    val n = c.Entries.Length()
-    for i < n {
-        if rowsLeft <= 0 { i = n; continue }
-        val entry = c.Entries.Get(i)
-        val entryStart = lineCursor
-        val entryEnd = lineCursor + entry.Height
-        val visTop = MaxInt(viewportTop, entryStart)
-        val visBot = MinInt(viewportTop + height, entryEnd)
-        if visBot > visTop {
-            val skipTop = visTop - entryStart
-            val take = visBot - visTop
-            val body = if (skipTop > 0 || take < entry.Height)
+    val slices = cvSlices(c.Entries, viewportTop, height)
+    // Rows used before each slice. Slices are disjoint windows of the
+    // viewport, so this only bites if an entry reports a negative Height
+    // and the windows overlap — then the viewport still caps the Column.
+    val rowsUsed = stream.FromArray(slices).Scan(0, (rows, s) => rows + s.Take)
+    val children = stream.FromArray(slices).Zip(rowsUsed)
+        .TakeWhile((t) => t.V2 < height)
+        .Map((t) => {
+            val s = t.V1
+            val entry = c.Entries.Get(s.Idx)
+            val body = if (s.SkipTop > 0 || s.Take < entry.Height)
                            ViewportW(
                                Inner         = entry.Body,
-                               Offset        = skipTop,
+                               Offset        = s.SkipTop,
                                ContentHeight = entry.Height,
                            )
                        else entry.Body
-            children = children.Append(Fixed(take, wrapEntry(body, i)))
-            rowsLeft = rowsLeft - take
-        }
-        lineCursor = entryEnd
-        i = i + 1
-    }
+            return Fixed(s.Take, wrapEntry(body, s.Idx))
+        })
+        .ToArray()
     return Column(children)
 }

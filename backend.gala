@@ -255,17 +255,27 @@ func testBackendInsertBefore(st *TestBackendState, lines Array[string]) bool {
 // (bytes, ok). `ok = false` once the script is exhausted, which the run loop
 // reads as end of input — so a scripted run terminates on its own instead of
 // needing a Quit message in every fixture.
+// copyBytes writes the head of `src` into `dst` and returns how many bytes
+// that was: Go's `copy`, which GALA does not expose (it points at
+// `SliceCopy`, which allocates a new slice instead of filling the reader's
+// buffer). With no primitive to call, this is the one byte loop the test
+// backends share.
+func copyBytes(dst []byte, src []byte) int {
+    val n = MinInt(dst.Size(), src.Size())
+    var i = 0
+    for i < n {
+        dst[i] = src[i]
+        i = i + 1
+    }
+    return n
+}
+
 func testBackendRead(st *TestBackendState, buf []byte) Tuple[int, bool] {
     val avail = st.Input.Size() - st.Pos
     if avail <= 0 {
         return (0, false)
     }
-    val n = MinInt(avail, buf.Size())
-    var i = 0
-    for i < n {
-        buf[i] = st.Input[st.Pos + i]
-        i = i + 1
-    }
+    val n = copyBytes(buf, SliceFrom(st.Input, st.Pos))
     st.Pos = st.Pos + n
     return (n, true)
 }
@@ -311,13 +321,7 @@ func NewTestBackendChunks(
         }
         val chunk = ToBytes(queue.Chunks.Get(queue.Idx))
         queue.Idx = queue.Idx + 1
-        val n = MinInt(chunk.Size(), buf.Size())
-        var i = 0
-        for i < n {
-            buf[i] = chunk[i]
-            i = i + 1
-        }
-        return (n, true)
+        return (copyBytes(buf, chunk), true)
     }
     val b = Backend(
         Name  = "test-chunks",
@@ -492,21 +496,9 @@ func inlineFrameString(frame *Buffer, height int) string {
 // needed a trailing `ResetSgr` it was the paint path's loop it would have
 // drifted from.
 func inlineRowsString(height int, rowText func(int) string) string {
-    var sb strings.Builder
-    var i = 0
-    for i < height {
-        sb.WriteString("\r")
-        sb.WriteString(ansiClearLine())
-        sb.WriteString(rowText(i))
-        if i < height - 1 {
-            sb.WriteString("\r\n")
-        }
-        i = i + 1
-    }
+    val rows = ArrayTabulate(height, (i) => "\r" + ansiClearLine() + rowText(i))
     // Back to the top of the block, column 0.
-    sb.WriteString("\r")
-    sb.WriteString(ansiCursorUp(height - 1))
-    return sb.String()
+    return rows.MkString("\r\n") + "\r" + ansiCursorUp(height - 1)
 }
 
 // inlineReserveString scrolls `height` rows into existence and parks the
