@@ -2,7 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/collection_immutable"
-    . "martianoff/gala/go_interop"
+    "martianoff/gala/stream"
 )
 
 // Constraint is the language Row / Column widgets use to sub-allocate their
@@ -41,108 +41,64 @@ sealed type Constraint {
 // The algorithm is intentionally simple and deterministic: compute fixed +
 // percent + minlen in one pass, distribute leftover space to Fill weights,
 // then clip any overflow from the tail.
-//
-// Internal scratch is a Go slice for O(1) indexed mutation across three
-// passes; returns an immutable `Array[int]` so callers can `.Map`, `.FoldLeft`
-// etc. over the widths without converting.
 func Solve(total int, cs Array[Constraint]) Array[int] {
-    val n = cs.Length()
-    var sizes = SliceWithSize[int](n)
-    if n == 0 || total <= 0 {
-        return ArrayFromSlice(sizes)
+    if cs.IsEmpty() || total <= 0 {
+        return ArrayFill(cs.Length(), 0)
     }
 
-    // Pass 1: assign fixed sizes (Length / Percent / MinLen) and total fill
-    // weight so we know how much room is left.
-    var fixedTotal = 0
-    var totalWeight = 0
-    var i = 0
-    for i < n {
-        val c = cs.Get(i)
-        c match {
-            case Length(v) => {
-                val s = MaxInt(0, v)
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case Percent(p) => {
-                val clamped = clampPct(p)
-                val s = total * clamped / 100
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case MinLen(v) => {
-                val s = MaxInt(0, v)
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case MaxLen(v) => {
-                // A cap, not a request: take what is asked for unless the
-                // parent is narrower, in which case the parent wins.
-                val s = MinInt(MaxInt(0, v), total)
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case Ratio(num, den) => {
-                // Guard a zero denominator rather than trapping — a bad
-                // ratio collapses the child instead of killing the render.
-                val s = if (den <= 0) 0 else total * MaxInt(0, num) / den
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case Fill(w) => {
-                totalWeight = totalWeight + MaxInt(0, w)
-                true
-            }
-        }
-        i = i + 1
-    }
+    // Pass 1: assign fixed sizes (Length / Percent / MinLen / MaxLen /
+    // Ratio) and total fill weight so we know how much room is left.
+    val fixed = cs.Map((c) => fixedSize(c, total))
+    val fixedTotal = sumInt(fixed)
+    val totalWeight = cs.FoldLeft(0, (acc, c) => acc + fillWeight(c))
 
-    // Pass 2: distribute leftover cells to Fill constraints, weighted.
+    // Pass 2: distribute leftover cells to Fill constraints, weighted, and
+    // give the rounding remainder to the last Fill.
     val remaining = MaxInt(0, total - fixedTotal)
-    if totalWeight > 0 {
-        var distributed = 0
-        var lastFill = -1
-        var j = 0
-        for j < n {
-            val c = cs.Get(j)
-            c match {
-                case Fill(w) => {
-                    val share = remaining * MaxInt(0, w) / totalWeight
-                    sizes[j] = share
-                    distributed = distributed + share
-                    lastFill = j
-                    true
-                }
-                case _ => true
-            }
-            j = j + 1
-        }
-        // Give the remainder to the last Fill.
-        if lastFill >= 0 && distributed < remaining {
-            sizes[lastFill] = sizes[lastFill] + (remaining - distributed)
+    val sized = if (totalWeight <= 0) fixed else {
+        val shared = cs.Zip(fixed).Map((t) => t.V1 match {
+            case Fill(w) => remaining * MaxInt(0, w) / totalWeight
+            case _       => t.V2
+        })
+        val distributed = sumInt(shared) - fixedTotal
+        cs.ZipWithIndex().FindLast((t) => isFill(t.V1)).Map((t) => t.V2) match {
+            case Some(j) => shared.Updated(j, shared.Get(j) + remaining - distributed)
+            case None()  => shared
         }
     }
 
     // Pass 3: clamp tail — if fixed sizes already overflow the parent, chop
-    // off children that don't fit rather than rendering past the edge.
-    var used = 0
-    var k = 0
-    for k < n {
-        val s = sizes[k]
-        if used + s > total {
-            sizes[k] = MaxInt(0, total - used)
-        }
-        used = used + sizes[k]
-        k = k + 1
-    }
+    // off children that don't fit rather than rendering past the edge. The
+    // running total capped at `total` marks where each child may end.
+    val ends = stream.FromArray(sized).Scan(0, (used, s) => used + s).Map((used) => MinInt(used, total)).ToArray()
+    return ends.Zip(ends.Drop(1)).Map((t) => t.V2 - t.V1)
+}
 
-    return ArrayFromSlice(sizes)
+// fixedSize is what a non-Fill constraint claims of `total` before any Fill
+// is considered; a Fill claims nothing yet.
+func fixedSize(c Constraint, total int) int = c match {
+    case Length(v)  => MaxInt(0, v)
+    case Percent(p) => total * clampPct(p) / 100
+    case MinLen(v)  => MaxInt(0, v)
+    // A cap, not a request: take what is asked for unless the parent is
+    // narrower, in which case the parent wins.
+    case MaxLen(v)  => MinInt(MaxInt(0, v), total)
+    // Guard a zero denominator rather than trapping — a bad ratio collapses
+    // the child instead of killing the render.
+    case Ratio(num, den) => if (den <= 0) 0 else total * MaxInt(0, num) / den
+    case Fill(_)    => 0
+}
+
+// fillWeight is a Fill's share weight (negative weights count as zero);
+// every other constraint weighs nothing.
+func fillWeight(c Constraint) int = c match {
+    case Fill(w) => MaxInt(0, w)
+    case _       => 0
+}
+
+func isFill(c Constraint) bool = c match {
+    case Fill(_) => true
+    case _       => false
 }
 
 // clampPct keeps percentage inputs in the [0..100] range.

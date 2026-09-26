@@ -143,6 +143,9 @@ func isWideSymbol(r rune) bool {
 // StringCellWidth returns the total cell count the string `s` will occupy
 // when rendered on a grid-based terminal. Equivalent to the sum of
 // RuneCellWidth across all runes — runs in O(n) with a single pass.
+// A range loop rather than `S(s).Fold`: this measures text on every frame
+// (layout, alignment, clipping), and the Str fold first materialises the
+// string as an Array of runes — an allocation per call for a sum.
 func StringCellWidth(s string) int {
     var w = 0
     for _, r := range s {

@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
 )
 
 // ============================================================================
@@ -136,13 +137,7 @@ struct styledRune(Ch rune, St Style)
 // spanRunes flattens Spans into one styled-character sequence, which is the
 // form the wrap fold consumes.
 func spanRunes(spans Array[Span]) Array[styledRune] =
-    spans.FoldLeft(EmptyArray[styledRune](), (acc, sp) => {
-        var out = acc
-        for _, c := range sp.Content {
-            out = out.Append(styledRune(Ch = c, St = sp.Style))
-        }
-        return out
-    })
+    spans.FlatMap((sp) => ArrayFromSlice(ToRunes(sp.Content)).Map((c) => styledRune(Ch = c, St = sp.Style)))
 
 func styledRunesWidth(rs Array[styledRune]) int =
     rs.FoldLeft(0, (acc, r) => acc + RuneCellWidth(r.Ch))
@@ -151,35 +146,20 @@ func styledRunesWidth(rs Array[styledRune]) int =
 // neighbours that share a style. Without the merge a wrapped line would
 // carry one Span per character, which is correct but turns every render and
 // every comparison into per-character work.
+//
+// A run-length fold seeded from the head: the accumulator is the finished
+// Spans plus the run being grown, and a style change closes the run.
 func coalesceSpans(rs Array[styledRune]) Array[Span] {
-    var out = EmptyArray[Span]()
-    var cur = ""
-    var curStyle = DefaultStyle()
-    var started = false
-    var i = 0
-    val n = rs.Length()
-    for i < n {
-        val r = rs.Get(i)
-        if !started {
-            cur = string(r.Ch)
-            curStyle = r.St
-            started = true
-        } else {
-            if StyleEqual(curStyle, r.St) {
-                cur = cur + string(r.Ch)
-            } else {
-                out = out.Append(Span(Content = cur, Style = curStyle))
-                cur = string(r.Ch)
-                curStyle = r.St
-            }
-        }
-        i = i + 1
-    }
-    if started {
-        out = out.Append(Span(Content = cur, Style = curStyle))
-    }
-    return out
+    if rs.IsEmpty() { return EmptyArray[Span]() }
+    val folded = rs.Drop(1).FoldLeft((EmptyArray[Span](), ArrayOf[styledRune](rs.Get(0))), (acc, r) =>
+        if (StyleEqual(acc.V2.Get(0).St, r.St)) (acc.V1, acc.V2.Append(r))
+        else (acc.V1.Append(runSpan(acc.V2)), ArrayOf[styledRune](r)))
+    return folded.V1.Append(runSpan(folded.V2))
 }
+
+// runSpan turns one same-style run of characters into a Span.
+func runSpan(run Array[styledRune]) Span =
+    Span(Content = string(run.Map((r) => r.Ch).ToGoSlice()), Style = run.Get(0).St)
 
 // spanWrapState mirrors `wrapState`: finished lines, the line being built,
 // and the unflushed word — all as styled characters.

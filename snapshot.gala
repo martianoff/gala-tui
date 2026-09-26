@@ -4,6 +4,7 @@ import (
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
+    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -26,12 +27,10 @@ import (
 
 // Snapshot renders `w` into a (width × height) buffer and returns a plain
 // text string: one line per row, newlines between rows, no ANSI styling.
-// Ideal for snapshot-style tests with stored fixtures.
-func Snapshot(w Widget, width int, height int) string {
-    val buf = NewBuffer(width, height)
-    RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
-    return bufferPlainText(buf)
-}
+// Ideal for snapshot-style tests with stored fixtures. The trailing newline
+// is omitted so fixtures with or without one both match.
+func Snapshot(w Widget, width int, height int) string =
+    SnapshotLines(w, width, height).MkString("\n")
 
 // SnapshotStyled renders `w` and returns the full ANSI-escape string. Use
 // for tests that want to assert on colors/styles (and tolerate the ANSI
@@ -48,46 +47,14 @@ func SnapshotStyled(w Widget, width int, height int) string {
 func SnapshotLines(w Widget, width int, height int) Array[string] {
     val buf = NewBuffer(width, height)
     RenderTo(w, Rect(X = 0, Y = 0, Width = width, Height = height), buf)
-    var rows = EmptyArray[string]()
-    var y = 0
-    for y < height {
-        rows = rows.Append(rowText(buf, y))
-        y = y + 1
-    }
-    return rows
-}
-
-// bufferPlainText assembles the buffer's rows, separated by '\n'. The
-// trailing newline is omitted so fixtures with or without one both match.
-func bufferPlainText(buf *Buffer) string {
-    var sb strings.Builder
-    var y = 0
-    for y < buf.Height {
-        sb.WriteString(rowText(buf, y))
-        if y < buf.Height - 1 {
-            sb.WriteString("\n")
-        }
-        y = y + 1
-    }
-    return sb.String()
+    return ArrayTabulate(height, (y) => RowText(buf, y))
 }
 
 // RowText reads one buffer row as a plain string (no styling). Useful in
 // snapshot tests and in the harness. Out-of-range y returns "".
-func RowText(b *Buffer, y int) string {
-    if y < 0 || y >= b.Height { return "" }
-    var sb = ""
-    var x = 0
-    for x < b.Width {
-        sb = sb + string(b.CharAt(x, y))
-        x = x + 1
-    }
-    return sb
-}
-
-// rowText is the original lowercase alias retained for back-compat with
-// the rest of the library; new code should use the exported `RowText`.
-func rowText(b *Buffer, y int) string = RowText(b, y)
+func RowText(b *Buffer, y int) string =
+    if (y < 0 || y >= b.Height) ""
+    else string(ArrayTabulate(b.Width, (x) => b.CharAt(x, y)).ToGoSlice())
 
 // ----------------------------------------------------------------------------
 // Diff
@@ -103,41 +70,24 @@ func rowText(b *Buffer, y int) string = RowText(b, y)
 // use SnapshotsEqual.
 func SnapshotDiff(got string, want string) Option[string] {
     if got == want { return None[string]() }
-    val gotLines = splitLines(got)
-    val wantLines = splitLines(want)
+    val gotLines = ArrayFromSlice(strings.Split(got, "\n"))
+    val wantLines = ArrayFromSlice(strings.Split(want, "\n"))
     val maxLines = MaxInt(gotLines.Length(), wantLines.Length())
-    var sb strings.Builder
-    var i = 0
-    for i < maxLines {
-        val g = if (i < gotLines.Length()) gotLines.Get(i) else "<missing>"
-        val wl = if (i < wantLines.Length()) wantLines.Get(i) else "<missing>"
-        if g != wl {
-            sb.WriteString(s"Line ${i + 1}:\n")
-            sb.WriteString(s"  expected: \"$wl\"\n")
-            sb.WriteString(s"  actual:   \"$g\"\n")
-        }
-        i = i + 1
-    }
-    return Some[string](sb.String())
+    return Some[string](stream.Range(0, maxLines)
+        .Filter((i) => diffLineAt(gotLines, i) != diffLineAt(wantLines, i))
+        .Map((i) => diffEntry(i, diffLineAt(gotLines, i), diffLineAt(wantLines, i)))
+        .MkString(""))
 }
+
+// diffLineAt is line `i` of a snapshot, or a marker when it has fewer.
+func diffLineAt(lines Array[string], i int) string =
+    if (i < lines.Length()) lines.Get(i) else "<missing>"
+
+// diffEntry is one mismatched line of a SnapshotDiff report.
+func diffEntry(i int, g string, wl string) string =
+    s"Line ${i + 1}:\n  expected: \"$wl\"\n  actual:   \"$g\"\n"
 
 // SnapshotsEqual is a convenience wrapper for `got == want` — provided so
 // call-sites read nicely:
 //     IsTrue(t, SnapshotsEqual(Snapshot(w, 40, 10), fixture))
 func SnapshotsEqual(got string, want string) bool = got == want
-
-// splitLines breaks a snapshot text on '\n'. Used by the diff helper.
-func splitLines(s string) Array[string] {
-    var out = EmptyArray[string]()
-    var cur = ""
-    for _, c := range s {
-        if c == '\n' {
-            out = out.Append(cur)
-            cur = ""
-        } else {
-            cur = cur + string(c)
-        }
-    }
-    out = out.Append(cur)
-    return out
-}
