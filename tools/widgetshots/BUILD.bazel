@@ -9,5 +9,6 @@ gala_binary(
     deps = [
         "//:gala_tui",
         "@gala//collection_immutable",
+        "@gala//stream",
     ],
 )
