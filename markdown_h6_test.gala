@@ -1,0 +1,48 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// Heading levels at the edge of the CommonMark range.
+//
+// mdHeadingLevel used to stop counting at six '#' and then fall out of its
+// loop as "not a heading", so `###### x` rendered as a paragraph of hashes.
+// ============================================================================
+
+func TestMarkdownHeading6(t T) T {
+    val blocks = ParseMarkdown("###### Tiny")
+    val t1 = Eq(t, blocks.Length(), 1)
+    val level = blocks.Get(0) match {
+        case MdHeading(level, _) => level
+        case _                   => 0
+    }
+    return Eq(t1, level, 6)
+}
+
+func TestMarkdownHeading6Text(t T) T {
+    val text = ParseMarkdown("###### Tiny").Get(0) match {
+        case MdHeading(_, inlines) => mdInlinesToText(inlines)
+        case _                     => ""
+    }
+    return Eq(t, text, "Tiny")
+}
+
+// Seven '#' is past the range: a paragraph, as before.
+func TestMarkdownHeading7IsParagraph(t T) T {
+    val isPara = ParseMarkdown("####### Too deep").Get(0) match {
+        case MdParagraph(_) => true
+        case _              => false
+    }
+    return IsTrue(t, isPara)
+}
+
+// A run of '#' without the space is not a heading at any level.
+func TestMarkdownHeadingNeedsSpace(t T) T {
+    val isPara = ParseMarkdown("######x").Get(0) match {
+        case MdParagraph(_) => true
+        case _              => false
+    }
+    return IsTrue(t, isPara)
+}

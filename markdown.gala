@@ -1,7 +1,11 @@
 package gala_tui
 
 import (
+    "strconv"
+    "strings"
     . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/std"
+    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -50,186 +54,95 @@ sealed type MdInline {
 // ParseMarkdown splits `source` into a sequence of blocks. The block-level
 // parser recognises the prefixes listed above; everything else becomes a
 // paragraph. Inline parsing runs per-block.
+//
+// The line loop stays a loop: a fence consumes a variable number of lines,
+// so the body decides the stride.
 func ParseMarkdown(source string) Array[MdBlock] {
     val lines = mdSplitLines(source)
-    var out = EmptyArray[MdBlock]()
-    var i = 0
     val n = lines.Length()
-    var paragraphBuf = ""
+    var out = EmptyArray[MdBlock]()
+    // Consecutive plain lines; joined with a space into one paragraph when a
+    // block line (or the end of input) closes them.
+    var para = EmptyArray[string]()
+    var i = 0
     for i < n {
         val line = lines.Get(i)
         if mdIsFenceOpen(line) {
-            if paragraphBuf != "" {
-                out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
-                paragraphBuf = ""
-            }
-            val lang = mdFenceLang(line)
-            // Collect lines until the matching close fence (or end of file).
-            var bodyLines = EmptyArray[string]()
-            i = i + 1
-            for i < n && !mdIsFenceClose(lines.Get(i)) {
-                bodyLines = bodyLines.Append(lines.Get(i))
-                i = i + 1
-            }
-            out = out.Append(MdCodeBlock(Lang = lang, Lines = bodyLines))
-            // Skip the closing fence line (if present).
-            i = i + 1
-            continue
-        }
-        if line == "" {
-            if paragraphBuf != "" {
-                out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
-                paragraphBuf = ""
-            }
-            out = out.Append(MdBlank())
+            // The body runs to the matching close fence (or end of file).
+            val body = lines.Drop(i + 1).TakeWhile((l) => !mdIsFenceClose(l))
+            out = mdFlushParagraph(out, para).Append(MdCodeBlock(Lang = mdFenceLang(line), Lines = body))
+            para = EmptyArray[string]()
+            // Skip the opener, the body and the closing fence (if present).
+            i = i + body.Length() + 2
         } else {
-            if mdIsRule(line) {
-                if paragraphBuf != "" {
-                    out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
-                    paragraphBuf = ""
+            mdLineBlock(line) match {
+                case Some(block) => {
+                    out = mdFlushParagraph(out, para).Append(block)
+                    para = EmptyArray[string]()
                 }
-                out = out.Append(MdRule())
-            } else {
-                val headingLevel = mdHeadingLevel(line)
-                if headingLevel > 0 {
-                    if paragraphBuf != "" {
-                        out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
-                        paragraphBuf = ""
-                    }
-                    val rest = mdStripHeading(line, headingLevel)
-                    out = out.Append(MdHeading(Level = headingLevel, Inlines = parseInlines(rest)))
-                } else {
-                    if mdIsBullet(line) {
-                        if paragraphBuf != "" {
-                            out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
-                            paragraphBuf = ""
-                        }
-                        val rest = mdStripBulletPrefix(line)
-                        out = out.Append(MdBullet(Inlines = parseInlines(rest)))
-                    } else {
-                        val numMaybe = mdNumberedPrefix(line)
-                        if numMaybe >= 0 {
-                            if paragraphBuf != "" {
-                                out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
-                                paragraphBuf = ""
-                            }
-                            val rest = mdStripNumberedPrefix(line)
-                            out = out.Append(MdNumbered(Num = numMaybe, Inlines = parseInlines(rest)))
-                        } else {
-                            if paragraphBuf == "" {
-                                paragraphBuf = line
-                            } else {
-                                paragraphBuf = paragraphBuf + " " + line
-                            }
-                        }
-                    }
-                }
+                case _ => para = para.Append(line)
             }
+            i = i + 1
         }
-        i = i + 1
     }
-    if paragraphBuf != "" {
-        out = out.Append(MdParagraph(Inlines = parseInlines(paragraphBuf)))
+    return mdFlushParagraph(out, para)
+}
+
+// mdFlushParagraph closes the pending paragraph lines, if any, onto `out`.
+func mdFlushParagraph(out Array[MdBlock], para Array[string]) Array[MdBlock] =
+    if (para.IsEmpty()) out
+    else out.Append(MdParagraph(Inlines = parseInlines(para.MkString(" "))))
+
+// mdLineBlock classifies one non-fence line: the block it forms on its own,
+// or None when it is paragraph text.
+func mdLineBlock(line string) Option[MdBlock] {
+    if line == "" { return Some[MdBlock](MdBlank()) }
+    if mdIsRule(line) { return Some[MdBlock](MdRule()) }
+    val headingLevel = mdHeadingLevel(line)
+    if headingLevel > 0 {
+        return Some[MdBlock](MdHeading(Level = headingLevel, Inlines = parseInlines(mdStripHeading(line, headingLevel))))
     }
-    return out
+    if mdIsBullet(line) {
+        return Some[MdBlock](MdBullet(Inlines = parseInlines(mdStripBulletPrefix(line))))
+    }
+    val num = mdNumberedPrefix(line)
+    if num >= 0 {
+        return Some[MdBlock](MdNumbered(Num = num, Inlines = parseInlines(mdStripNumberedPrefix(line))))
+    }
+    return None[MdBlock]()
 }
 
 // ----------------------------------------------------------------------------
 // Block-prefix detection
 // ----------------------------------------------------------------------------
 
+// mdHeadingLevel returns N for a line of N '#' (1..6) followed by a space,
+// 0 otherwise.
 func mdHeadingLevel(line string) int {
-    var lvl = 0
-    var i = 0
-    val rs = mdRunes(line)
-    val n = rs.Length()
-    for i < n && lvl < 6 {
-        if rs.Get(i) == '#' {
-            lvl = lvl + 1
-            i = i + 1
-        } else {
-            if lvl > 0 && rs.Get(i) == ' ' {
-                return lvl
-            }
-            return 0
-        }
-    }
-    return 0
+    val rest = strings.TrimLeft(line, "#")
+    val lvl = line.Size() - rest.Size()
+    return if (lvl >= 1 && lvl <= 6 && strings.HasPrefix(rest, " ")) lvl else 0
 }
 
-func mdStripHeading(line string, level int) string {
-    val rs = mdRunes(line)
-    var out = ""
-    var i = level + 1          // level '#' chars + mandatory space
-    val n = rs.Length()
-    for i < n {
-        out = out + string(rs.Get(i))
-        i = i + 1
-    }
-    return out
-}
+// mdStripHeading drops the `level` '#' chars and the mandatory space.
+func mdStripHeading(line string, level int) string = dropRunes(line, level + 1)
 
-func mdIsBullet(line string) bool {
-    val rs = mdRunes(line)
-    if rs.Length() < 2 { return false }
-    val first = rs.Get(0)
-    return (first == '-' || first == '*') && rs.Get(1) == ' '
-}
+func mdIsBullet(line string) bool =
+    strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ")
 
-func mdStripBulletPrefix(line string) string {
-    val rs = mdRunes(line)
-    var out = ""
-    var i = 2
-    val n = rs.Length()
-    for i < n {
-        out = out + string(rs.Get(i))
-        i = i + 1
-    }
-    return out
-}
+func mdStripBulletPrefix(line string) string = dropRunes(line, 2)
 
 // mdNumberedPrefix returns the integer prefix for "N. rest" (e.g., "1. Hello"),
 // or -1 if the line doesn't start with a number followed by ". ".
 func mdNumberedPrefix(line string) int {
-    val rs = mdRunes(line)
-    val n = rs.Length()
-    if n < 3 { return -1 }
-    var i = 0
-    var num = 0
-    for i < n {
-        val c = rs.Get(i)
-        if c >= '0' && c <= '9' {
-            num = num * 10 + int(c - '0')
-            i = i + 1
-        } else {
-            if i > 0 && c == '.' && i + 1 < n && rs.Get(i + 1) == ' ' {
-                return num
-            }
-            return -1
-        }
-    }
-    return -1
+    val rest = strings.TrimLeft(line, "0123456789")
+    if rest == line || !strings.HasPrefix(rest, ". ") { return -1 }
+    return Try(() => strconv.Atoi(strings.TrimSuffix(line, rest))).GetOrElse(-1)
 }
 
 func mdStripNumberedPrefix(line string) string {
-    val rs = mdRunes(line)
-    var dotIdx = -1
-    var i = 0
-    val n = rs.Length()
-    for i < n && dotIdx < 0 {
-        if rs.Get(i) == '.' {
-            dotIdx = i
-        }
-        i = i + 1
-    }
-    if dotIdx < 0 { return line }
-    var out = ""
-    var j = dotIdx + 2
-    for j < n {
-        out = out + string(rs.Get(j))
-        j = j + 1
-    }
-    return out
+    val dot = mdRunes(line).IndexOf('.')
+    return if (dot < 0) line else dropRunes(line, dot + 2)
 }
 
 func mdIsRule(line string) bool {
@@ -238,47 +151,27 @@ func mdIsRule(line string) bool {
 }
 
 // mdIsFenceOpen detects a fenced code-block opening line: ``` or ```lang.
-func mdIsFenceOpen(line string) bool {
-    val rs = mdRunes(line)
-    val n = rs.Length()
-    if n < 3 { return false }
-    return rs.Get(0) == '`' && rs.Get(1) == '`' && rs.Get(2) == '`'
-}
+func mdIsFenceOpen(line string) bool = strings.HasPrefix(line, "```")
 
 // mdIsFenceClose matches exactly ``` (no language tag).
 func mdIsFenceClose(line string) bool = line == "```"
 
 // mdFenceLang extracts the language tag from a fenced opener (whatever
 // follows the three backticks). Empty string when no tag is present.
-func mdFenceLang(line string) string {
-    val rs = mdRunes(line)
-    var out = ""
-    var i = 3
-    val n = rs.Length()
-    for i < n {
-        out = out + string(rs.Get(i))
-        i = i + 1
-    }
-    return out
-}
+func mdFenceLang(line string) string = dropRunes(line, 3)
 
+// mdSplitLines is strings.Split on '\n' minus the empty last piece that a
+// trailing newline (or empty input) produces: "a\n" is one line, "" none.
 func mdSplitLines(s string) Array[string] {
-    var out = EmptyArray[string]()
-    var cur = ""
-    for _, c := range s {
-        if c == '\n' {
-            out = out.Append(cur)
-            cur = ""
-        } else {
-            cur = cur + string(c)
-        }
-    }
-    if cur != "" {
-        out = out.Append(cur)
-    }
-    return out
+    val parts = ArrayFromSlice(strings.Split(s, "\n"))
+    return if (parts.Last() == "") parts.Init() else parts
 }
 
+// mdRunes is the package's one string-to-runes conversion (syntax.gala's
+// helpers and filebrowser.gala use it too). It stays a loop because the
+// library call, S(s).ToChars(), cannot be used here: importing
+// martianoff/gala/strings into this package makes GALA 0.80 resolve
+// buffer.gala's `*strings.Builder` parameter against it (GALA-E0025).
 func mdRunes(s string) Array[rune] {
     var acc = EmptyArray[rune]()
     for _, c := range s {
@@ -294,123 +187,73 @@ func mdRunes(s string) Array[rune] {
 // parseInlines walks the string character by character, emitting an MdInline
 // sequence. Delimiters: `**bold**`, `_italic_` or `*italic*`, `` `code` ``,
 // `[label](url)`. Unmatched delimiters become literal text.
+//
+// A scanner with variable stride: a matched delimiter advances past its
+// closer. Literal text is never built rune by rune; it is the run
+// rs[textStart:i], cut once when a delimiter (or the end) closes it.
 func parseInlines(s string) Array[MdInline] {
-    var out = EmptyArray[MdInline]()
-    var buf = ""
     val rs = mdRunes(s)
+    val n = rs.Length()
+    var out = EmptyArray[MdInline]()
+    var textStart = 0
     var i = 0
-    val n = rs.Length()
     for i < n {
-        val c = rs.Get(i)
-        if c == '`' {
-            if buf != "" {
-                out = out.Append(MdText(Text = buf))
-                buf = ""
+        mdInlineAt(rs, i) match {
+            case Some(hit) => {
+                out = mdFlushText(out, rs, textStart, i).Append(hit.V1)
+                i = hit.V2
+                textStart = i
             }
-            val end = mdFindRune(rs, '`', i + 1)
-            if end < 0 {
-                buf = buf + string(c)
+            case _ => {
+                // An unmatched backtick still closes the pending text: it
+                // starts a new text run of its own.
+                if rs.Get(i) == '`' {
+                    out = mdFlushText(out, rs, textStart, i)
+                    textStart = i
+                }
                 i = i + 1
-            } else {
-                out = out.Append(MdCode(Text = mdSubstring(rs, i + 1, end)))
-                i = end + 1
-            }
-        } else {
-            if c == '*' && i + 1 < n && rs.Get(i + 1) == '*' {
-                val end = mdFindDoubleStar(rs, i + 2)
-                if end < 0 {
-                    buf = buf + string(c)
-                    i = i + 1
-                } else {
-                    if buf != "" {
-                        out = out.Append(MdText(Text = buf))
-                        buf = ""
-                    }
-                    out = out.Append(MdBold(Text = mdSubstring(rs, i + 2, end)))
-                    i = end + 2
-                }
-            } else {
-                if c == '_' || c == '*' {
-                    val end = mdFindRune(rs, c, i + 1)
-                    if end < 0 {
-                        buf = buf + string(c)
-                        i = i + 1
-                    } else {
-                        if buf != "" {
-                            out = out.Append(MdText(Text = buf))
-                            buf = ""
-                        }
-                        out = out.Append(MdItalic(Text = mdSubstring(rs, i + 1, end)))
-                        i = end + 1
-                    }
-                } else {
-                    if c == '[' {
-                        val linkEnd = mdFindRune(rs, ']', i + 1)
-                        if linkEnd < 0 || linkEnd + 1 >= n || rs.Get(linkEnd + 1) != '(' {
-                            buf = buf + string(c)
-                            i = i + 1
-                        } else {
-                            val urlEnd = mdFindRune(rs, ')', linkEnd + 2)
-                            if urlEnd < 0 {
-                                buf = buf + string(c)
-                                i = i + 1
-                            } else {
-                                if buf != "" {
-                                    out = out.Append(MdText(Text = buf))
-                                    buf = ""
-                                }
-                                out = out.Append(MdLink(
-                                    Label = mdSubstring(rs, i + 1, linkEnd),
-                                    Url   = mdSubstring(rs, linkEnd + 2, urlEnd),
-                                ))
-                                i = urlEnd + 1
-                            }
-                        }
-                    } else {
-                        buf = buf + string(c)
-                        i = i + 1
-                    }
-                }
             }
         }
     }
-    if buf != "" {
-        out = out.Append(MdText(Text = buf))
-    }
-    return out
+    return mdFlushText(out, rs, textStart, n)
 }
 
-func mdFindRune(rs Array[rune], target rune, start int) int {
-    var i = start
+// mdInlineAt matches a delimited inline starting at rs[i]: the inline and
+// the index just past its closer, or None when rs[i] is literal text.
+func mdInlineAt(rs Array[rune], i int) Option[Tuple[MdInline, int]] {
     val n = rs.Length()
-    for i < n {
-        if rs.Get(i) == target { return i }
-        i = i + 1
+    val c = rs.Get(i)
+    if c == '`' {
+        val end = runeIndexFrom(rs, '`', i + 1)
+        if end < 0 { return None[Tuple[MdInline, int]]() }
+        return Some[Tuple[MdInline, int]]((MdCode(Text = runeRange(rs, i + 1, end)), end + 1))
     }
-    return -1
+    if c == '*' && i + 1 < n && rs.Get(i + 1) == '*' {
+        val end = stream.Range(i + 2, n - 1).Find((k) => rs.Get(k) == '*' && rs.Get(k + 1) == '*').GetOrElse(-1)
+        if end < 0 { return None[Tuple[MdInline, int]]() }
+        return Some[Tuple[MdInline, int]]((MdBold(Text = runeRange(rs, i + 2, end)), end + 2))
+    }
+    if c == '_' || c == '*' {
+        val end = runeIndexFrom(rs, c, i + 1)
+        if end < 0 { return None[Tuple[MdInline, int]]() }
+        return Some[Tuple[MdInline, int]]((MdItalic(Text = runeRange(rs, i + 1, end)), end + 1))
+    }
+    if c == '[' {
+        val linkEnd = runeIndexFrom(rs, ']', i + 1)
+        if linkEnd < 0 || linkEnd + 1 >= n || rs.Get(linkEnd + 1) != '(' { return None[Tuple[MdInline, int]]() }
+        val urlEnd = runeIndexFrom(rs, ')', linkEnd + 2)
+        if urlEnd < 0 { return None[Tuple[MdInline, int]]() }
+        return Some[Tuple[MdInline, int]]((MdLink(
+            Label = runeRange(rs, i + 1, linkEnd),
+            Url   = runeRange(rs, linkEnd + 2, urlEnd),
+        ), urlEnd + 1))
+    }
+    return None[Tuple[MdInline, int]]()
 }
 
-func mdFindDoubleStar(rs Array[rune], start int) int {
-    var i = start
-    val n = rs.Length()
-    for i < n - 1 {
-        if rs.Get(i) == '*' && rs.Get(i + 1) == '*' {
-            return i
-        }
-        i = i + 1
-    }
-    return -1
-}
-
-func mdSubstring(rs Array[rune], lo int, hi int) string {
-    var out = ""
-    var i = lo
-    for i < hi {
-        out = out + string(rs.Get(i))
-        i = i + 1
-    }
-    return out
-}
+// mdFlushText appends rs[lo:hi] as literal text when the run is non-empty.
+func mdFlushText(out Array[MdInline], rs Array[rune], lo int, hi int) Array[MdInline] =
+    if (hi > lo) out.Append(MdText(Text = runeRange(rs, lo, hi))) else out
 
 // ----------------------------------------------------------------------------
 // Rendering
@@ -442,17 +285,8 @@ func MarkdownViewAt(source string, width int) Widget =
 // MarkdownLineCountAt: total rendered row count for `source` at `width`.
 // Mirrors `MarkdownViewAt` row-for-row so callers can pre-compute the
 // height they need to allocate.
-func MarkdownLineCountAt(source string, width int) int {
-    val blocks = ParseMarkdown(source)
-    var total = 0
-    var i = 0
-    val n = blocks.Length()
-    for i < n {
-        total = total + mdBlockHeightAt(blocks.Get(i), width)
-        i = i + 1
-    }
-    return total
-}
+func MarkdownLineCountAt(source string, width int) int =
+    ParseMarkdown(source).FoldLeft(0, (total, b) => total + mdBlockHeightAt(b, width))
 
 func renderMdBlocks(blocks Array[MdBlock]) Widget {
     if blocks.IsEmpty() {
@@ -532,16 +366,8 @@ func mdInlinesToSpans(inlines Array[MdInline], base Style) Array[Span] =
 // content (no styling, no link URLs) so callers like
 // `renderMdParagraphWidth` can ask `WrapParagraph` how many rows the
 // rendered paragraph will occupy.
-func mdInlinesToText(inlines Array[MdInline]) string {
-    var out = ""
-    var i = 0
-    val n = inlines.Length()
-    for i < n {
-        out = out + mdInlineText(inlines.Get(i))
-        i = i + 1
-    }
-    return out
-}
+func mdInlinesToText(inlines Array[MdInline]) string =
+    inlines.Map(mdInlineText).MkString("")
 
 func renderMdBlockHeight(b MdBlock) int {
     return b match {
@@ -611,22 +437,14 @@ func renderMdInlineRow(inlines Array[MdInline]) Widget =
     renderMdInlineRowStyled(inlines, DefaultStyle(), "")
 
 func renderMdInlineRowStyled(inlines Array[MdInline], base Style, prefix string) Widget {
-    var cells = EmptyArray[LayoutChild]()
-    if prefix != "" {
-        cells = cells.Append(Fixed(RuneCount(prefix), TextStyled(prefix, base)))
-    }
-    var i = 0
-    val n = inlines.Length()
-    for i < n {
-        val run = inlines.Get(i)
-        val text = mdInlineText(run)
-        val style = mdInlineStyle(run, base)
-        cells = cells.Append(Fixed(RuneCount(text), TextStyled(text, style)))
-        i = i + 1
-    }
-    cells = cells.Append(Flex(1, FillCh(' ')))
-    return Row(cells)
+    val lead = if (prefix == "") EmptyArray[LayoutChild]()
+               else ArrayOf[LayoutChild](Fixed(RuneCount(prefix), TextStyled(prefix, base)))
+    val runs = inlines.Map((run) => mdInlineCell(mdInlineText(run), mdInlineStyle(run, base)))
+    return Row(lead.AppendAll(runs).Append(Flex(1, FillCh(' '))))
 }
+
+func mdInlineCell(text string, style Style) LayoutChild =
+    Fixed(RuneCount(text), TextStyled(text, style))
 
 func mdInlineText(r MdInline) string {
     return r match {
