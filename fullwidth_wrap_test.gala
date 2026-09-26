@@ -3,7 +3,6 @@ package gala_tui
 import (
     . "martianoff/gala/collection_immutable"
     "strconv"
-    gs "martianoff/gala/strings"
     "martianoff/gala/stream"
     . "martianoff/gala/std"
     . "martianoff/gala/test"
@@ -63,7 +62,7 @@ func (tm *vt) put(c rune) {
 // cursor and discarding the escape sequences that do not. The loop is a
 // terminal-protocol parser: each step's stride depends on what it decodes.
 func (tm *vt) feed(s string) {
-    val rs = gs.S(s).ToChars()
+    val rs = stringRunes(s)
     val n = rs.Length()
     var i = 0
     for i < n {
@@ -107,11 +106,11 @@ func isFinalByte(f rune) bool = (f >= 'A' && f <= 'Z') || (f >= 'a' && f <= 'z')
 
 // cursorTo applies `ESC[row;colH`, whose parameters are 1-based.
 func (tm *vt) cursorTo(body string) {
-    val semi = gs.S(body).ToChars().LastIndexOf(';')
+    val rs = stringRunes(body)
+    val semi = rs.LastIndexOf(';')
     if semi > 0 {
-        val (row, col) = gs.S(body).SplitAt(semi)
-        tm.Cy = decodeInt(row.ToString()) - 1
-        tm.Cx = decodeInt(col.Drop(1).ToString()) - 1
+        tm.Cy = decodeInt(string(rs.Take(semi).ToGoSlice())) - 1
+        tm.Cx = decodeInt(string(rs.Drop(semi + 1).ToGoSlice())) - 1
         tm.Pending = false
     }
 }

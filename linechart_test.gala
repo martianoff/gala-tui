@@ -1,7 +1,6 @@
 package gala_tui
 
 import (
-    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -59,8 +58,8 @@ func TestLineChartRowsAscendingLine(t T) T {
     // Sanity: first column empty, last column full-height.
     val row0 = rows.Get(0)  // topmost row
     val rowN = rows.Get(3)  // bottommost row
-    val t1 = IsTrue(t, gs.S(row0).ToChars().HeadOption().GetOrElse(' ') == ' ')    // column 0, topmost → empty
-    return IsTrue(t1, gs.S(rowN).ToChars().LastOption().GetOrElse(' ') == '█')      // column 5, bottommost → full
+    val t1 = IsTrue(t, stringRunes(row0).HeadOption().GetOrElse(' ') == ' ')    // column 0, topmost → empty
+    return IsTrue(t1, stringRunes(rowN).LastOption().GetOrElse(' ') == '█')      // column 5, bottommost → full
 }
 
 // ----------------------------------------------------------------------------
