@@ -265,6 +265,7 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         // Recurse into the child but leave the region function alone: it
         // runs last by design, so composing it with `f` here would apply
         // `f` twice to every cell the region covers.
+        case CursorW(inner, cx, cy)            => CursorW(Inner = restyleLeaves(inner, f), X = cx, Y = cy)
         case RestyleW(inner, re)               =>
             RestyleW(Inner = restyleLeaves(inner, f), Restyle = re)
         // Each Shape carries its own Style, so restyling a canvas restyles

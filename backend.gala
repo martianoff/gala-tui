@@ -110,28 +110,57 @@ struct Backend(
 
 // TerminalBackend is the default: raw mode on stdin, ANSI to stdout, size
 // probed from whichever of the three standard fds is a tty.
-func TerminalBackend() Backend = Backend(
-    Name  = "terminal",
-    Size  = () => TermSize(),
-    Write = (s) => stdoutWrite(s),
-    Read  = (buf) => stdinRead(buf),
-    ReadAsync = () => terminalReadFuture(),
-    Open  = (mouse) => terminalOpen(mouse),
-    Paint = (frame, prev) => {
-        if prev == nil {
-            fmt.Fprint(os.Stdout, ansiHome())
-            fmt.Fprint(os.Stdout, frame.String())
-        } else {
-            fmt.Fprint(os.Stdout, frame.DiffString(prev))
-        }
-    },
-    // The alternate screen has no scrollback — it is a second screen that
-    // is thrown away on exit, which is the whole reason a full-screen app
-    // can leave the shell's history untouched. Lines asked for here have
-    // nowhere to go, so they are dropped rather than written into the
-    // frame the app is drawing.
-    InsertBefore = (lines) => false,
-)
+func TerminalBackend() Backend {
+    var shown = false
+    return Backend(
+        Name  = "terminal",
+        Size  = () => TermSize(),
+        Write = (s) => stdoutWrite(s),
+        Read  = (buf) => stdinRead(buf),
+        ReadAsync = () => terminalReadFuture(),
+        Open  = (mouse) => terminalOpen(mouse),
+        Paint = (frame, prev) => {
+            val body = if (prev == nil) ansiHome() + frame.String() else frame.DiffString(prev)
+            stdoutWrite(body + cursorTail(frame, prev, body, shown, 0, 0))
+            shown = frame.Cursor().IsDefined()
+        },
+        // The alternate screen has no scrollback — it is a second screen
+        // that is thrown away on exit, which is the whole reason a
+        // full-screen app can leave the shell's history untouched. Lines
+        // asked for here have nowhere to go, so they are dropped rather than
+        // written into the frame the app is drawing.
+        InsertBefore = (lines) => false,
+    )
+}
+
+// cursorTail follows a paint to leave the real terminal cursor where the
+// frame asked, in screen cells offset by (ox, oy):
+//
+//   - asked for: placed and shown — after any paint that wrote something,
+//     since drawing moved the cursor, and whenever it moved or was hidden.
+//     An idle paint with the cursor already there sends nothing: a move per
+//     tick restarts the blink on terminals that tie blinking to movement.
+//   - not asked for: hidden once, when the last frame had it showing.
+func cursorTail(frame *Buffer, prev *Buffer, painted string, shown bool, ox int, oy int) string =
+    frame.Cursor() match {
+        case Some(p) =>
+            if (painted == "" && shown && prev != nil && cursorAt(prev, p)) ""
+            else ansiMoveTo(oy + p.V2 + 1, ox + p.V1 + 1) + ansiCursorShow()
+        case None() => if (shown) ansiCursorHide() else ""
+    }
+
+// sameCursor is whether two frames asked for the same cursor, or both for
+// none.
+func sameCursor(a *Buffer, b *Buffer) bool = a.Cursor() match {
+    case Some(p) => cursorAt(b, p)
+    case None()  => b.Cursor().IsEmpty()
+}
+
+// cursorAt is whether `frame` asked for the cursor at `p`.
+func cursorAt(frame *Buffer, p Tuple[int, int]) bool = frame.Cursor() match {
+    case Some(q) => q.V1 == p.V1 && q.V2 == p.V2
+    case None()  => false
+}
 
 // stdoutWrite / stdinRead are the real terminal's byte I/O, shared by every
 // backend that talks to it. A read error ends the input stream: a closed
@@ -178,6 +207,25 @@ type TestBackendState struct {
     var Pos     int
     var Opened  int
     var Closed  int
+    // The real cursor the last painted frame asked for, in its own cells.
+    var CursorShown bool
+    var CursorX     int
+    var CursorY     int
+}
+
+// testBackendRecordCursor keeps the cursor the frame asked for, so a run-loop
+// test can assert where the real cursor ended up.
+func testBackendRecordCursor(st *TestBackendState, frame *Buffer) {
+    frame.Cursor() match {
+        case Some(p) => {
+            st.CursorShown = true
+            st.CursorX = p.V1
+            st.CursorY = p.V2
+        }
+        case None() => {
+            st.CursorShown = false
+        }
+    }
 }
 
 // NewTestBackend builds a Backend that reads from `input`, records
@@ -223,6 +271,7 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
         },
         Paint = (frame, prev) => {
             st.Written = st.Written + frame.String()
+            testBackendRecordCursor(st, frame)
         },
         // Recorded verbatim, in order, into the same stream as the frames,
         // so a test can assert both that a line was printed and that it was
@@ -354,6 +403,7 @@ func NewTestBackendChunks(
         },
         Paint = (frame, prev) => {
             st.Written = st.Written + frame.String()
+            testBackendRecordCursor(st, frame)
         },
         // Recorded verbatim, in order, into the same stream as the frames,
         // so a test can assert both that a line was printed and that it was
@@ -377,6 +427,7 @@ type chunkQueue struct {
 // where on the screen the shell left the prompt.
 func ansiCursorUp(n int) string   = if (n <= 0) "" else s"\x1b[${n}A"
 func ansiCursorDown(n int) string = if (n <= 0) "" else s"\x1b[${n}B"
+func ansiCursorForward(n int) string = if (n <= 0) "" else s"\x1b[${n}C"
 
 // ansiClearLine erases the current row from the cursor to the end. Inline
 // frames are repainted in place over whatever was there, and without this a
@@ -405,6 +456,16 @@ func ansiClearLine() string = "\x1b[K"
 // get wrong than it is to make fast.
 func InlineBackend(height int) Backend {
     val h = MaxInt(1, height)
+    // Whether the real cursor was left out in the block by the last paint.
+    // Everything here positions relative to the block's top-left, so a paint
+    // that shows the cursor saves that position first (DECSC), and anything
+    // that writes next restores it (DECRC) before relying on it.
+    var shown = false
+    val home = () => {
+        val s = if (shown) ansiCursorHide() + ansiCursorRestore() else ""
+        shown = false
+        return s
+    }
     return Backend(
         Name  = "inline",
         Size  = () => {
@@ -414,15 +475,38 @@ func InlineBackend(height int) Backend {
         Write = (s) => stdoutWrite(s),
         Read  = (buf) => stdinRead(buf),
         ReadAsync = () => terminalReadFuture(),
-        Open  = (mouse) => inlineOpen(h, mouse),
+        Open  = (mouse) => {
+            val session = inlineOpen(h, mouse)
+            return BackendSession(Close = () => {
+                stdoutWrite(home())
+                session.Close()
+            })
+        },
         Paint = (frame, prev) => {
-            fmt.Fprint(os.Stdout, inlineFrameString(frame, h))
+            // An idle paint — same cells, same cursor — sends nothing: an inline
+            // repaint is a full one, and hiding, redrawing and re-showing the
+            // cursor every tick flickers it and restarts its blink.
+            if prev == nil || !frame.ContentsEqual(prev) || !sameCursor(frame, prev) {
+                val back = home()
+                stdoutWrite(back + inlineFrameString(frame, h) + inlineCursorString(frame))
+                shown = frame.Cursor().IsDefined()
+            }
         },
         InsertBefore = (lines) => {
-            fmt.Fprint(os.Stdout, inlineInsertBeforeString(lines, h))
+            stdoutWrite(home() + inlineInsertBeforeString(lines, h))
             return true
         },
     )
+}
+
+// inlineCursorString moves from the block's top-left — where every inline
+// paint leaves the cursor — to the frame's cursor, saving the top-left on
+// the way so the next write can come back to it. Nothing when the frame
+// asked for no cursor.
+func inlineCursorString(frame *Buffer) string = frame.Cursor() match {
+    case Some(p) => ansiCursorSave() + ansiCursorDown(p.V2) + "\r" +
+                    ansiCursorForward(p.V1) + ansiCursorShow()
+    case None()  => ""
 }
 
 // inlineInsertBeforeString writes `lines` where the viewport's top row is,
@@ -623,6 +707,7 @@ func inlineExitString(height int, modesOff string) string {
 func FixedBackend(area Rect) Backend {
     val a = fixedArea(area)
     var lastTerm = (0, 0)
+    var shown = false
     return Backend(
         Name  = "fixed",
         Size  = () => fixedSize(a, TermSize()),
@@ -634,7 +719,10 @@ func FixedBackend(area Rect) Backend {
             val term = TermSize()
             val resized = term != lastTerm
             lastTerm = term
-            stdoutWrite(fixedPaintString(frame, if (resized) nil else prev, a, term))
+            stdoutWrite(fixedPaintString(frame, if (resized) nil else prev, a, term, shown))
+            // An off-screen paint drew nothing — hid nothing — so it must not
+            // record a cursor state the terminal never saw.
+            if !fixedOffScreen(a, term) { shown = frame.Cursor().IsDefined() }
         },
         // The rows above a fixed rectangle belong to someone else, so lines
         // have nowhere to go — the same answer the alternate screen gives.
@@ -661,11 +749,40 @@ func fixedSize(area Rect, term Tuple[int, int]) Tuple[int, int] =
      MaxInt(1, MinInt(area.Height, term.V2 - area.Y)))
 
 // fixedPaintString is one paint: nothing when the rectangle is off the
-// screen, otherwise the diff offset to the rectangle, wrapped in a cursor
-// save and restore.
-func fixedPaintString(frame *Buffer, prev *Buffer, area Rect, term Tuple[int, int]) string =
-    if (area.X >= term.V1 || area.Y >= term.V2 || area.Width <= 0 || area.Height <= 0) ""
-    else "\x1b7" + frame.DiffStringAt(prev, area.X, area.Y) + "\x1b8"
+// screen, otherwise the diff offset to the rectangle.
+//
+// The terminal has one saved-cursor slot, and the other program's cursor
+// lives in it for as long as the app is not holding the cursor. So:
+//
+//   - not holding, still not: save, draw, restore — the other program's
+//     cursor is exactly where it was.
+//   - starts holding (a field is focused): save it once, draw, move to the
+//     field. While the app holds the cursor an IME has to find it in the
+//     field, which means the other program's next output lands there too —
+//     the price of typing into a panel on a shared screen.
+//   - keeps holding: draw and re-place, never saving again — a second save
+//     would overwrite the other program's position with the field's.
+//   - lets go: draw, restore the other program's cursor, hide.
+func fixedPaintString(
+    frame *Buffer,
+    prev *Buffer,
+    area Rect,
+    term Tuple[int, int],
+    shown bool,
+) string {
+    if fixedOffScreen(area, term) { return "" }
+    val diff = frame.DiffStringAt(prev, area.X, area.Y)
+    val asking = frame.Cursor().IsDefined()
+    val tail = cursorTail(frame, prev, diff, shown, area.X, area.Y)
+    return if (asking && !shown) ansiCursorSave() + diff + tail
+    else if (asking) diff + tail
+    else if (shown) diff + ansiCursorRestore() + tail
+    else if (diff == "") ""
+    else ansiCursorSave() + diff + ansiCursorRestore()
+}
+
+func fixedOffScreen(area Rect, term Tuple[int, int]) bool =
+    area.X >= term.V1 || area.Y >= term.V2 || area.Width <= 0 || area.Height <= 0
 
 // fixedOpen takes raw mode and the input modes without the alternate screen:
 // the screen around the rectangle is not the app's to hide.

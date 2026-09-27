@@ -433,7 +433,8 @@ TableView(TableSpecOf(
 
 | Widget | Signature | Notes |
 |---|---|---|
-| `Input(value, cursor, placeholder)` | `(string, int, string) Widget` | Single-line text field; cursor is the **rune index** of the caret, clamped to the value's length. |
+| `Input(value, cursor, placeholder)` | `(string, int, string) Widget` | Single-line text field; cursor is the **rune index** of the caret, clamped to the value's length. Focused, it also places the **real terminal cursor** at the caret, which is what an IME composition window and a screen reader follow. |
+| `CursorAt(inner, x, y)` | `(Widget, int, int) Widget` | Places the real terminal cursor at `(x, y)` inside `inner`'s area — ratatui's `Frame::set_cursor_position`, for a custom widget with an insertion point of its own. A frame that asks for no cursor gets a hidden one. |
 | `InputMasked(value, cursor, placeholder)` | `(string, int, string) Widget` | The same field for a secret — one `•` per code point. For another glyph, compose: `Input(MaskValue(v, '*'), cursor, ph)`. |
 | `Button(label, focused)` | `(string, bool) Widget` | Reverse style when focused. |
 | `FormView(f)` | `(FormState) Widget` | Multi-field form. State in `FormState`. |
