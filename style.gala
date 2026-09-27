@@ -56,6 +56,32 @@ struct Style(
     // link rather than the renderer having to reconcile a separate range
     // list against whatever region it happens to be repainting.
     Link      Option[string],
+    // Unset lists the attributes this style takes AWAY when it is patched
+    // over another. `WithoutBold()` records it; the style's own `Bold` is
+    // false either way, so it renders the same, but `row.Patch(highlight)`
+    // drops a bold the row had instead of keeping it. A `false` field alone
+    // cannot say that: it is indistinguishable from "not mentioned".
+    Unset     Attrs,
+)
+
+// Attrs is a set of text attributes, one flag per SGR attribute `Style`
+// carries. It is how a style names the attributes it removes (`Unset`).
+struct Attrs(
+    Bold       bool,
+    Italic     bool,
+    Underline  bool,
+    Reverse    bool,
+    Dim        bool,
+    Blink      bool,
+    Strike     bool,
+    Hidden     bool,
+    RapidBlink bool,
+)
+
+// NoAttrs is the empty attribute set.
+func NoAttrs() Attrs = Attrs(
+    Bold = false, Italic = false, Underline = false, Reverse = false, Dim = false,
+    Blink = false, Strike = false, Hidden = false, RapidBlink = false,
 )
 
 // DefaultStyle returns a style with both colors defaulted to the terminal's
@@ -69,6 +95,7 @@ func DefaultStyle() Style = Style(
     Hidden = false, RapidBlink = false,
     UnderlineColor = DefaultColor(),
     Link = None[string](),
+    Unset = NoAttrs(),
 )
 
 // ----------------------------------------------------------------------------
@@ -84,20 +111,35 @@ func (s Style) WithBg(c Color) Style = s.Copy(Bg = c)
 // On is a readability alias for WithBg: `DefaultStyle().WithFg(Red()).On(Black())`.
 func (s Style) On(c Color) Style = s.Copy(Bg = c)
 
-// Attribute toggles. Each flips the corresponding field to true.
-func (s Style) WithBold() Style      = s.Copy(Bold = true)
-func (s Style) WithItalic() Style    = s.Copy(Italic = true)
-func (s Style) WithUnderline() Style = s.Copy(Underline = true)
-func (s Style) WithReverse() Style   = s.Copy(Reverse = true)
-func (s Style) WithDim() Style       = s.Copy(Dim = true)
-func (s Style) WithBlink() Style     = s.Copy(Blink = true)
-func (s Style) WithStrike() Style    = s.Copy(Strike = true)
-func (s Style) WithHidden() Style    = s.Copy(Hidden = true)
-func (s Style) WithRapidBlink() Style = s.Copy(RapidBlink = true)
+// Attribute toggles. Each turns the attribute on, and takes back an earlier
+// `Without` of the same attribute.
+func (s Style) WithBold() Style      = s.Copy(Bold = true, Unset = s.Unset.Copy(Bold = false))
+func (s Style) WithItalic() Style    = s.Copy(Italic = true, Unset = s.Unset.Copy(Italic = false))
+func (s Style) WithUnderline() Style = s.Copy(Underline = true, Unset = s.Unset.Copy(Underline = false))
+func (s Style) WithReverse() Style   = s.Copy(Reverse = true, Unset = s.Unset.Copy(Reverse = false))
+func (s Style) WithDim() Style       = s.Copy(Dim = true, Unset = s.Unset.Copy(Dim = false))
+func (s Style) WithBlink() Style     = s.Copy(Blink = true, Unset = s.Unset.Copy(Blink = false))
+func (s Style) WithStrike() Style    = s.Copy(Strike = true, Unset = s.Unset.Copy(Strike = false))
+func (s Style) WithHidden() Style    = s.Copy(Hidden = true, Unset = s.Unset.Copy(Hidden = false))
+func (s Style) WithRapidBlink() Style = s.Copy(RapidBlink = true, Unset = s.Unset.Copy(RapidBlink = false))
+
+// Removals. Each turns the attribute off here AND in whatever this style is
+// patched over: a selection highlight built with `.WithoutDim()` lifts a
+// dimmed row instead of inheriting the dim.
+func (s Style) WithoutBold() Style      = s.Copy(Bold = false, Unset = s.Unset.Copy(Bold = true))
+func (s Style) WithoutItalic() Style    = s.Copy(Italic = false, Unset = s.Unset.Copy(Italic = true))
+func (s Style) WithoutUnderline() Style = s.Copy(Underline = false, Unset = s.Unset.Copy(Underline = true))
+func (s Style) WithoutReverse() Style   = s.Copy(Reverse = false, Unset = s.Unset.Copy(Reverse = true))
+func (s Style) WithoutDim() Style       = s.Copy(Dim = false, Unset = s.Unset.Copy(Dim = true))
+func (s Style) WithoutBlink() Style     = s.Copy(Blink = false, Unset = s.Unset.Copy(Blink = true))
+func (s Style) WithoutStrike() Style    = s.Copy(Strike = false, Unset = s.Unset.Copy(Strike = true))
+func (s Style) WithoutHidden() Style    = s.Copy(Hidden = false, Unset = s.Unset.Copy(Hidden = true))
+func (s Style) WithoutRapidBlink() Style = s.Copy(RapidBlink = false, Unset = s.Unset.Copy(RapidBlink = true))
 
 // WithUnderlineColor underlines in `c` rather than in the text colour — a
 // red squiggle under an error, a dim rule under a link.
-func (s Style) WithUnderlineColor(c Color) Style = s.Copy(Underline = true, UnderlineColor = c)
+func (s Style) WithUnderlineColor(c Color) Style =
+    s.WithUnderline().Copy(UnderlineColor = c)
 
 // WithLink marks cells carrying this style as an OSC 8 hyperlink to `url`.
 // The escape bytes are emitted by the buffer writers at the boundaries of
@@ -115,27 +157,45 @@ func (s Style) WithoutLink() Style = s.Copy(Link = None[string]())
 // must not strip the bold or the colour the cell drew with, and a plain
 // `Highlighted`, which replaces the style outright, does exactly that.
 //
-// Attributes can only be added this way, never removed: a default `false`
-// cannot be told apart from "not mentioned". Derive the base style without
-// the attribute instead.
+// An attribute `over` leaves as a plain `false` keeps the value underneath
+// — a `false` alone cannot be told apart from "not mentioned". One `over`
+// removes with `Without…` (its `Unset`) is turned off. The removals carry
+// into the result, so patching the result over something else removes them
+// there too.
 func (s Style) Patch(over Style) Style = Style(
     Fg        = patchColor(s.Fg, over.Fg),
     Bg        = patchColor(s.Bg, over.Bg),
-    Bold      = s.Bold || over.Bold,
-    Italic    = s.Italic || over.Italic,
-    Underline = s.Underline || over.Underline,
-    Reverse   = s.Reverse || over.Reverse,
-    Dim       = s.Dim || over.Dim,
-    Blink     = s.Blink || over.Blink,
-    Strike    = s.Strike || over.Strike,
-    Hidden    = s.Hidden || over.Hidden,
-    RapidBlink = s.RapidBlink || over.RapidBlink,
+    Bold      = patchAttr(s.Bold, over.Bold, over.Unset.Bold),
+    Italic    = patchAttr(s.Italic, over.Italic, over.Unset.Italic),
+    Underline = patchAttr(s.Underline, over.Underline, over.Unset.Underline),
+    Reverse   = patchAttr(s.Reverse, over.Reverse, over.Unset.Reverse),
+    Dim       = patchAttr(s.Dim, over.Dim, over.Unset.Dim),
+    Blink     = patchAttr(s.Blink, over.Blink, over.Unset.Blink),
+    Strike    = patchAttr(s.Strike, over.Strike, over.Unset.Strike),
+    Hidden    = patchAttr(s.Hidden, over.Hidden, over.Unset.Hidden),
+    RapidBlink = patchAttr(s.RapidBlink, over.RapidBlink, over.Unset.RapidBlink),
     UnderlineColor = patchColor(s.UnderlineColor, over.UnderlineColor),
     Link      = over.Link match {
         case Some(_) => over.Link
         case None()  => s.Link
     },
+    // A removal survives unless `over` turns the attribute back on.
+    Unset     = Attrs(
+        Bold       = patchAttr(s.Unset.Bold, over.Unset.Bold, over.Bold),
+        Italic     = patchAttr(s.Unset.Italic, over.Unset.Italic, over.Italic),
+        Underline  = patchAttr(s.Unset.Underline, over.Unset.Underline, over.Underline),
+        Reverse    = patchAttr(s.Unset.Reverse, over.Unset.Reverse, over.Reverse),
+        Dim        = patchAttr(s.Unset.Dim, over.Unset.Dim, over.Dim),
+        Blink      = patchAttr(s.Unset.Blink, over.Unset.Blink, over.Blink),
+        Strike     = patchAttr(s.Unset.Strike, over.Unset.Strike, over.Strike),
+        Hidden     = patchAttr(s.Unset.Hidden, over.Unset.Hidden, over.Hidden),
+        RapidBlink = patchAttr(s.Unset.RapidBlink, over.Unset.RapidBlink, over.RapidBlink),
+    ),
 )
+
+// patchAttr is one attribute of a patch: on when the patch sets it, off
+// when the patch removes it, and otherwise whatever it was underneath.
+func patchAttr(under bool, set bool, remove bool) bool = set || (under && !remove)
 
 func patchColor(under Color, over Color) Color = over match {
     case DefaultColor() => under
