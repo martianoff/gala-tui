@@ -41,22 +41,21 @@ struct TableData(
     Selected int,                    // -1 = no selection
 )
 
-// Table extends the Widget sealed type via composition — we render it
-// through a renderTable helper that constructs a layout Row tree on the
-// fly. The Widget variant carries the TableData as a single field.
-//
-// (We cannot add cases to the existing sealed `Widget` without editing
-// widget.gala; instead we expose Table as a function that returns a
-// pre-constructed Widget tree built from Row/Column/Text primitives.)
+// Table is the string-grid form of `TableView`: headers, rows of plain
+// strings and one selected row. It renders through TableView, so it scrolls
+// to keep the selection in view — it used to emit every row and let the
+// renderer clip, and a cursor past the bottom simply vanished. Reach for
+// `TableView` directly for styled cells, a footer or column selection.
 func Table(data TableData) Widget {
-    val hasHeaders = data.Headers.NonEmpty()
-    val bodyChildren = data.Rows.ZipWithIndex().Map((pair) =>
-        Fixed(1, renderTableRow(pair.V1, data.Widths, pair.V2 == data.Selected)))
-    val headerChildren = if (hasHeaders) ArrayOf[LayoutChild](
-        Fixed(1, renderTableHeaderRow(data.Headers, data.Widths)),
-        Fixed(1, FillCh('─')),
-    ) else EmptyArray[LayoutChild]()
-    return Column(headerChildren.AppendAll(bodyChildren))
+    // Columns past the declared widths share the slack, as they always have
+    // here — `TableView` drops cells beyond its widths, so the widths are
+    // padded to the widest row first.
+    val ncols = data.Rows.FoldLeft(data.Headers.Length(), (acc, r) => MaxInt(acc, r.Length()))
+    val widths = ArrayTabulate(ncols, (i) => tableWidthAt(data.Widths, i))
+    val spec = TableSpecOf(widths, data.Rows.Map((r) => TableRowOfStrings(r.ToGoSlice()...)))
+        .Select(data.Selected)
+    return TableView(if (data.Headers.IsEmpty()) spec
+        else spec.WithHeader(TableRowOfStrings(data.Headers.ToGoSlice()...).WithStyle(DefaultStyle().WithBold())))
 }
 
 // tableColumnSpacing is the blank column between two table columns.
@@ -77,30 +76,12 @@ func tableColumnSpacing() int = 1
 func tableWidthAt(widths Array[Constraint], idx int) Constraint =
     if (idx < widths.Length()) widths.Get(idx) else Fill(1)
 
-// renderTableHeaderRow builds a Row of bold header cells.
-func renderTableHeaderRow(headers Array[string], widths Array[Constraint]) Widget =
-    RowSpaced(headers.ZipWithIndex().Map((pair) =>
-        tableHeaderCell(pair.V1, pair.V2, widths)), tableColumnSpacing())
-
+// tableHeaderCell / tableBodyCell are the header and body cells DataTable
+// lays out; Table itself now renders through TableView.
 func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChild {
     val w = tableWidthAt(widths, idx)
     return LayoutChild(Constraint = w,
         Widget = CellTextStyled(header, DefaultStyle().WithBold()))
-}
-
-// renderTableRow builds a Row of body cells. When `selected` is true the
-// whole row highlights — including the inter-column gaps.
-//
-// Drawing each cell with reverse-video was not enough to achieve that: a
-// cell's text styles only the columns it occupies, so the padding between
-// columns and the tail of the row stayed unstyled and the highlight
-// rendered as one chip per column. The row is restyled after it is drawn
-// instead, which covers the gaps.
-func renderTableRow(row Array[string], widths Array[Constraint], selected bool) Widget {
-    val rowStyle = if (selected) DefaultStyle().WithReverse() else DefaultStyle()
-    val cells = RowSpaced(row.ZipWithIndex().Map((pair) =>
-        tableBodyCell(pair.V1, pair.V2, widths, rowStyle)), tableColumnSpacing())
-    return if (selected) Highlighted(cells, rowStyle) else cells
 }
 
 // tableBodyCell lays one cell through `CellText`, which caps it to its
