@@ -562,6 +562,7 @@ RenderTo(ToastView(toasts1), area, buf)
 | `Scrollbar(total, visible, offset)` | `(int, int, int) Widget` | Vertical scroll-thumb track on the right edge. Pass `visible = 0` to derive the viewport from the bar's own area. With nothing to scroll it draws track only, not a full thumb. |
 | `ScrollbarStyled(total, visible, offset, style)` | `(int, int, int, Style) Widget` | …with explicit fg/bg. |
 | `ScrollbarAt(total, visible, offset, style, orientation)` | `(int, int, int, Style, ScrollbarOrientation) Widget` | Pick the edge: `ScrollbarVerticalRight` / `…Left` / `ScrollbarHorizontalBottom` / `…Top`. |
+| `ScrollbarWith(total, visible, offset, style, orientation, symbols)` | `(…, ScrollbarSymbols) Widget` | Draw it your way. `ScrollbarArrows(orientation)` adds `▲ ▼` (or `◄ ►`) at the ends, and the thumb travels between them; `DefaultScrollbarSymbols(orientation)` is the plain bar. Both take `.WithTrack(r)`, `.WithThumb(r)`, `.WithTrackStyle(s)` and `.WithArrows(begin, end)`. |
 | `ScrollableViewport(inner, offset, contentHeight)` | `(Widget, int, int) Widget` | Vertically scroll a tall widget; clip to the area. |
 
 ## Markdown & code

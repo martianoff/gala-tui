@@ -79,13 +79,8 @@ func ScrollPaneViewStyled(body Widget, state ScrollPaneState, contentH int, show
     // branch: the thumb was a solid full-height block that never moved,
     // regardless of Offset. The comment claiming the renderer overrode it
     // was wrong — nothing did.
-    val bar = ScrollbarW(
-        Total       = contentH,
-        Visible     = 0,
-        Offset      = state.Offset,
-        Style       = DefaultStyle().WithFg(BrightWhite()),
-        Orientation = ScrollbarVerticalRight(),
-    )
+    val bar = ScrollbarAt(contentH, 0, state.Offset,
+        DefaultStyle().WithFg(BrightWhite()), ScrollbarVerticalRight())
     return Row(ArrayOf[LayoutChild](
         Flex(1, viewport),
         Fixed(1, bar),

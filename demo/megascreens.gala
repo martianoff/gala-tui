@@ -406,10 +406,12 @@ func megaQuotaTable(m MegaModel) Widget {
                 .ScrollTo(m.DataScroll)
                 .WithHighlightSymbol("▶ ", HighlightAlways()))),
             // Beside the body rows only: the thumb measures the rows, and a bar
-            // running past the header and footer overstates the window.
+            // running past the header and footer overstates the window. The
+            // arrows mark the ends, so a thumb at the top reads as "at the top".
             Fixed(1, Column(ArrayOf[LayoutChild](
                 Fixed(2, Empty()),
-                Fixed(visible, Scrollbar(rows.Length(), visible, m.DataScroll)),
+                Fixed(visible, ScrollbarWith(rows.Length(), visible, m.DataScroll, DefaultStyle(),
+                    ScrollbarVerticalRight(), ScrollbarArrows(ScrollbarVerticalRight()))),
                 Flex(1, Empty()),
             ))),
         ))),

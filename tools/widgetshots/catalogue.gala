@@ -286,7 +286,12 @@ func shotNavigation() Widget =
                 NewMenuItem("production"),
                 NewMenuItemDisabled("archived"),
             )), true), " MenuView ")),
-            Fixed(3, Scrollbar(40, 8, 12)),
+            // The plain bar, then the same position with arrows at the ends.
+            Fixed(4, Row(ArrayOf[LayoutChild](
+                Fixed(2, Scrollbar(40, 8, 12)),
+                Fixed(2, ScrollbarWith(40, 8, 12, DefaultStyle(), ScrollbarVerticalRight(),
+                    ScrollbarArrows(ScrollbarVerticalRight()))),
+            ))),
         ))),
     ))
 
