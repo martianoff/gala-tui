@@ -38,7 +38,7 @@ func fvScreen(w int, h int, cursor Tuple[int, int]) *vt {
 func TestFixedPaintLandsInsideItsRectangleOnly(t T) T {
     val tm = fvScreen(12, 5, (0, 4))
     tm.feed(fixedPaintString(fvBuf(4, 2, "ABCD", "EFGH"), nil,
-                             Rect(X = 5, Y = 1, Width = 4, Height = 2), (12, 5)))
+                             Rect(X = 5, Y = 1, Width = 4, Height = 2), (12, 5), false))
     return Eq(t, screenText(tm), "............/.....ABCD.../.....EFGH.../............/............")
 }
 
@@ -47,8 +47,8 @@ func TestFixedDiffRepaintsTheChangedCellInPlace(t T) T {
     val tm = fvScreen(12, 3, (0, 2))
     val area = Rect(X = 5, Y = 1, Width = 4, Height = 1)
     val prev = fvBuf(4, 1, "ABCD")
-    tm.feed(fixedPaintString(prev, nil, area, (12, 3)))
-    tm.feed(fixedPaintString(fvBuf(4, 1, "AXCD"), prev, area, (12, 3)))
+    tm.feed(fixedPaintString(prev, nil, area, (12, 3), false))
+    tm.feed(fixedPaintString(fvBuf(4, 1, "AXCD"), prev, area, (12, 3), false))
     return Eq(t, screenText(tm), "............/.....AXCD.../............")
 }
 
@@ -56,7 +56,7 @@ func TestFixedDiffRepaintsTheChangedCellInPlace(t T) T {
 // writes next lands in its own place, not inside the panel.
 func TestFixedPaintRestoresTheCursor(t T) T {
     val tm = fvScreen(12, 3, (2, 2))
-    tm.feed(fixedPaintString(fvBuf(4, 1, "ABCD"), nil, Rect(X = 5, Y = 0, Width = 4, Height = 1), (12, 3)))
+    tm.feed(fixedPaintString(fvBuf(4, 1, "ABCD"), nil, Rect(X = 5, Y = 0, Width = 4, Height = 1), (12, 3), false))
     tm.feed("zz")
     return Eq(t, screenText(tm), ".....ABCD.../............/..zz........")
 }
@@ -64,7 +64,7 @@ func TestFixedPaintRestoresTheCursor(t T) T {
 // A rectangle off the screen draws nothing: the terminal would clamp its
 // moves onto cells the app does not own.
 func TestOffScreenRectangleDrawsNothing(t T) T =
-    Eq(t, fixedPaintString(fvBuf(2, 1, "AB"), nil, Rect(X = 20, Y = 0, Width = 2, Height = 1), (12, 3)), "")
+    Eq(t, fixedPaintString(fvBuf(2, 1, "AB"), nil, Rect(X = 20, Y = 0, Width = 2, Height = 1), (12, 3), false), "")
 
 // At the origin the default backend's bytes did not change: a diff is the
 // same whether asked for through DiffString or DiffStringAt(0, 0), and moves

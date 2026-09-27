@@ -41,6 +41,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 - **`PrintAbove`** — put lines in the scrollback above an inline viewport, where they survive the app
 - **Fixed viewport** — `FixedBackend(rect)` renders into one rectangle of the screen and leaves the rest alone
 - **Focus events** — know when the terminal window gains or loses focus
+- **Real terminal cursor** — a focused Input (or `CursorAt`) places the terminal's own cursor, so IME composition and screen readers land in the right field
 - **Kitty keyboard protocol** — tells Ctrl+I from Tab, Ctrl+M from Enter, Esc from an escape sequence
 - OSC 8 hyperlinks · OSC 52 clipboard · OSC 2 terminal title
 

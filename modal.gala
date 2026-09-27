@@ -73,7 +73,10 @@ func ModalOverStyled(
     body Widget,
     border BorderKind,
 ) Widget = Overlay(
-    Restyled(below, (st) => st.WithDim()),
+    // The screen below loses its cursor: a field under the dialog is not
+    // the one being typed into, and a cursor blinking beside the dialog
+    // points an IME and a screen reader at it.
+    withoutCursor(Restyled(below, (st) => st.WithDim())),
     centerPanel(width, height, opaquePanel(BorderOf(body, border))))
 
 // centerPanel wraps `body` in an AlignWidget that centers it horizontally
@@ -142,3 +145,8 @@ func AlertDialog(title string, message string) Widget {
     ))
     return PaddingHV(0, 1, body)
 }
+
+// withoutCursor draws `inner` and withdraws any real-cursor request it made —
+// for a layer that something is about to be drawn over.
+func withoutCursor(inner Widget) Widget =
+    Stack(ArrayOf[Widget](inner, Custom(0, 0, (area, buf, hits) => buf.ClearCursor())))

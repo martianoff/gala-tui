@@ -140,6 +140,7 @@ gala_test(
         "cmd_helpers_test.gala",
         "compact_widgets_test.gala",
         "conversation_log_test.gala",
+        "cursor_test.gala",
         "datatable_sort_filter_test.gala",
         "datatable_test.gala",
         "dev_ux_test.gala",

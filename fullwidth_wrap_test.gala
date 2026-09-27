@@ -75,8 +75,20 @@ func (tm *vt) feed(s string) {
             // The sequence runs to its final byte; an unterminated one
             // swallows the rest of the input.
             val fin = runeIndexWhere(rs, i + 2, (j) => isFinalByte(rs[j])).GetOrElse(n)
-            if fin < n && rs[fin] == 'H' {
-                tm.cursorTo(runeRange(rs, i + 2, fin))
+            if fin < n {
+                val body = runeRange(rs, i + 2, fin)
+                val f = rs[fin]
+                if f == 'H' { tm.cursorTo(body) }
+                // Relative moves (CUU / CUD / CUF / CUB), which the
+                // inline backend positions by. An empty count means 1.
+                if f == 'A' || f == 'B' || f == 'C' || f == 'D' {
+                    val k = if (body == "") 1 else decodeInt(body)
+                    if f == 'A' { tm.Cy = MaxInt(0, tm.Cy - k) }
+                    if f == 'B' { tm.Cy = MinInt(tm.Screen.Height - 1, tm.Cy + k) }
+                    if f == 'C' { tm.Cx = MinInt(tm.Screen.Width - 1, tm.Cx + k) }
+                    if f == 'D' { tm.Cx = MaxInt(0, tm.Cx - k) }
+                    tm.Pending = false
+                }
             }
             i = fin + 1
             continue

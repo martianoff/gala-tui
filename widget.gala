@@ -38,6 +38,9 @@ sealed type Widget {
     // because it modifies rather than replaces cells it also lets an
     // Overlay's content keep the background it was drawn over.
     case RestyleW(Inner Widget, Restyle func(Style) Style)
+    // CursorW asks for the real terminal cursor at (X, Y) inside its area
+    // once the frame is painted — see `Buffer.SetCursor`.
+    case CursorW(Inner Widget, X int, Y int)
     // CanvasW draws Shapes in the caller's coordinate space at sub-cell
     // resolution. See canvas.gala.
     case CanvasW(
@@ -507,6 +510,12 @@ func borderHeightOverhead(sides BorderSides) int =
 // gaps between a layout's children falling through unstyled.
 func Restyled(inner Widget, f func(Style) Style) Widget =
     RestyleW(Inner = inner, Restyle = f)
+
+// CursorAt puts the real terminal cursor at (x, y) inside `inner`'s area —
+// ratatui's `Frame::set_cursor_position`, as a widget. A focused `Input`
+// already does this at its caret; reach for it when a custom widget has an
+// insertion point of its own (a canvas you type on, a cell editor).
+func CursorAt(inner Widget, x int, y int) Widget = CursorW(Inner = inner, X = x, Y = y)
 
 // Highlighted is the selection case: paint the whole area in `style`,
 // whatever the inner widget drew.
@@ -1329,6 +1338,12 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderText(content, style, area, buf)
         case RichTextW(text) =>
             renderRichText(text, area, buf)
+        case CursorW(inner, cx, cy) => {
+            renderToInternal(inner, area, buf, hits)
+            if cx >= 0 && cy >= 0 && cx < area.Width && cy < area.Height {
+                buf.SetCursor(area.X + cx, area.Y + cy)
+            }
+        }
         case RestyleW(inner, restyle) => {
             renderToInternal(inner, area, buf, hits)
             buf.RestyleRegion(area, restyle)
@@ -1510,6 +1525,17 @@ func renderViewport(inner Widget, offset int, contentHeight int, area Rect, buf 
     RenderTo(inner, Rect(X = 0, Y = 0, Width = area.Width, Height = ch), hidden)
     val clampedOffset = clampInt(offset, 0, MaxInt(0, ch - area.Height))
     buf.blit(hidden, 0, clampedOffset, area)
+    // The cursor the content asked for is carried out of the scratch buffer
+    // when its row is in the window — a focused field in a scrolled pane is
+    // still where an IME and a screen reader have to find it.
+    hidden.Cursor() match {
+        case Some(p) => {
+            if p.V2 >= clampedOffset && p.V2 < clampedOffset + area.Height {
+                buf.SetCursor(area.X + p.V1, area.Y + p.V2 - clampedOffset)
+            }
+        }
+        case None() => {}
+    }
 }
 
 // renderScrollbar paints a vertical track of the given area.Height with a
@@ -1806,7 +1832,10 @@ func renderInput(
     val visible = string(SliceFrom(SliceTo(rs, n), start))
     renderText(visible, style, area, buf)
     if focused {
-        drawInputCaret(area.X + runesCellWidth(rs, start, cur), area.Y, style, buf)
+        // Clamped to the field: in a field one column wide the end-of-text
+        // caret would otherwise sit on — and put the real cursor in — the
+        // neighbouring widget's cell.
+        drawInputCaret(MinInt(area.X + runesCellWidth(rs, start, cur), area.Right() - 1), area.Y, style, buf)
     }
 }
 
@@ -1924,6 +1953,9 @@ func inputClickPayload[T any](
 func drawInputCaret(x int, y int, style Style, buf *Buffer) {
     val ch = buf.CharAt(x, y)
     buf.Set(x, y, Cell(Ch = ch, St = style.WithReverse()))
+    // The real cursor too, on the same cell: the reverse-video caret is for
+    // the eye, the terminal cursor is what an IME and a screen reader follow.
+    buf.SetCursor(x, y)
 }
 
 // renderRow walks children left-to-right, handing each a Rect whose width
@@ -2119,6 +2151,8 @@ func drawClipped(content string, style Style, x int, y int, maxX int, buf *Buffe
 // renderFill paints the whole area with the fill cell.
 func renderFill(ch rune, style Style, area Rect, buf *Buffer) {
     buf.Fill(area, Cell(Ch = ch, St = style))
+    // A fill covers what is under it, the cursor it asked for included.
+    buf.clearCursorIn(area)
 }
 
 // renderBorder paints a 4-corner + 4-edge frame using the glyph set chosen
@@ -2379,6 +2413,7 @@ func defaultRenderWidth(w Widget) int {
         case TextWidget(content, _)            => RuneCount(content)
         case RichTextW(text)                   => text.CellWidth()
         case RestyleW(inner, _)                => defaultRenderWidth(inner)
+        case CursorW(inner, _, _)              => defaultRenderWidth(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(content, _)             => StringCellWidth(content)
         case CellRichW(lines, _, _)            => RichTextOf(lines).CellWidth()
@@ -2430,6 +2465,7 @@ func defaultRenderHeight(w Widget) int {
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => defaultRenderHeight(inner)
+        case CursorW(inner, _, _)              => defaultRenderHeight(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(_, _)                   => 1
         case CellRichW(lines, _, _)            => MaxInt(1, lines.Length())
@@ -2500,6 +2536,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => IntrinsicHeightAt(inner, width)
+        case CursorW(inner, _, _)              => IntrinsicHeightAt(inner, width)
         // A canvas has no natural size — it fills whatever it is given.
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(_, _)                   => 1

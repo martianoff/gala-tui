@@ -1,0 +1,126 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+    "strings"
+)
+
+// ============================================================================
+// The real terminal cursor — Buffer.SetCursor, CursorAt, focused Input
+// ============================================================================
+
+// A focused Input asks for the real cursor at its caret, so an IME and a
+// screen reader find the insertion point.
+func TestFocusedInputPlacesTheRealCursorAtItsCaret(t T) T {
+    val buf = renderAt(Input("abc", 2, "", true), 10, 1)
+    return buf.Cursor() match {
+        case Some(p) => Eq(Eq(t, p.V1, 2), p.V2, 0)
+        case None()  => IsTrue(t, false)
+    }
+}
+
+// An unfocused Input asks for nothing: the cursor belongs to whichever
+// field the keyboard is driving.
+func TestUnfocusedInputLeavesTheCursorAlone(t T) T =
+    IsTrue(t, renderAt(Input("abc", 2, "", false), 10, 1).Cursor().IsEmpty())
+
+// CursorAt is relative to the widget's own area.
+func TestCursorAtIsRelativeToItsArea(t T) T {
+    val w = Row(ArrayOf[LayoutChild](Fixed(4, Text("left")), Flex(1, CursorAt(Text("right"), 1, 0))))
+    return renderAt(w, 12, 1).Cursor() match {
+        case Some(p) => Eq(t, p.V1, 5)
+        case None()  => IsTrue(t, false)
+    }
+}
+
+// Outside the widget's area the request is dropped rather than clamped onto
+// a cell the widget does not own.
+func TestCursorAtOutsideItsAreaIsIgnored(t T) T =
+    IsTrue(t, renderAt(CursorAt(Text("x"), 5, 0), 3, 1).Cursor().IsEmpty())
+
+// The cursor follows a paint: placed and shown while asked for, hidden once
+// when the frame stops asking, and nothing while it keeps not asking.
+func TestCursorTailFollowsTheFrame(t T) T {
+    val asking = renderAt(Input("ab", 1, "", true), 5, 1)
+    val quiet = renderAt(Text("ab"), 5, 1)
+    val t1 = IsTrue(t, strings.HasSuffix(cursorTail(asking, nil, "x", false, 0, 0), ansiMoveTo(1, 2) + ansiCursorShow()))
+    val t2 = Eq(t1, cursorTail(quiet, nil, "", true, 0, 0), ansiCursorHide())
+    return Eq(t2, cursorTail(quiet, nil, "", false, 0, 0), "")
+}
+
+// In a fixed viewport the cursor lands on the field's SCREEN cell.
+func TestFixedViewportPlacesTheCursorInsideItsRectangle(t T) T {
+    val tm = fvScreen(12, 3, (0, 2))
+    tm.feed(fixedPaintString(renderAt(Input("ab", 1, "", true), 4, 1), nil,
+                             Rect(X = 5, Y = 1, Width = 4, Height = 1), (12, 3), false))
+    return Eq(Eq(t, tm.Cx, 6), tm.Cy, 1)
+}
+
+// In an inline viewport the cursor moves out from the block's top-left and
+// the next paint returns there first — every inline write assumes it.
+func TestInlineCursorReturnsBeforeTheNextPaint(t T) T {
+    val frame = renderAt(Column(ArrayOf[LayoutChild](Fixed(1, Text("top")),
+        Fixed(1, Input("ab", 2, "", true)))), 6, 2)
+    val tm = newTerm(8, 4)
+    tm.feed(inlineFrameString(frame, 2) + inlineCursorString(frame))
+    val t1 = Eq(Eq(t, tm.Cx, 2), tm.Cy, 1)
+    tm.feed(ansiCursorHide() + "\x1b8")
+    return Eq(Eq(t1, tm.Cx, 0), tm.Cy, 0)
+}
+
+// An idle paint — nothing redrawn, cursor already shown where it is asked for
+// — sends nothing: a move every tick would restart the cursor's blink.
+func TestIdlePaintLeavesAShownCursorAlone(t T) T {
+    val frame = renderAt(Input("ab", 1, "", true), 5, 1)
+    val t1 = Eq(t, cursorTail(frame, frame.Clone(), "", true, 0, 0), "")
+    // …but it is placed again after anything was drawn, which moved it.
+    return IsTrue(t1, cursorTail(frame, frame.Clone(), "x", true, 0, 0) != "")
+}
+
+// The run loop hands the frame's cursor to the backend: a scripted run with a
+// focused field ends with the test backend holding the caret's position.
+func TestRunLoopReportsTheCursorToTheBackend(t T) T {
+    val (backend, st) = NewTestBackend(10, 1, "")
+    paintFrame(Input("abc", 3, "", true), backend)
+    val t1 = IsTrue(t, st.CursorShown)
+    return Eq(t1, st.CursorX, 3)
+}
+
+// Across paints the other program's cursor survives the app holding the
+// cursor: saved once when a field takes it, never overwritten while the app
+// keeps it, restored when the field lets go.
+func TestFixedViewportGivesTheOtherProgramsCursorBack(t T) T {
+    val tm = fvScreen(12, 3, (1, 2))
+    val area = Rect(X = 5, Y = 0, Width = 4, Height = 1)
+    val a = renderAt(Input("ab", 1, "", true), 4, 1)
+    val b = renderAt(Input("abc", 2, "", true), 4, 1)
+    val c = renderAt(Text("abc"), 4, 1)
+    tm.feed(fixedPaintString(a, nil, area, (12, 3), false))
+    tm.feed(fixedPaintString(b, a, area, (12, 3), true))
+    tm.feed(fixedPaintString(c, b, area, (12, 3), true))
+    return Eq(Eq(t, tm.Cx, 1), tm.Cy, 2)
+}
+
+// A scrolled pane carries its focused field's cursor out, shifted by the
+// scroll.
+func TestScrolledViewportCarriesTheCursorOut(t T) T {
+    val content = Column(ArrayOf[LayoutChild](Fixed(1, Text("a")), Fixed(1, Text("b")),
+                                              Fixed(1, Input("xy", 1, "", true))))
+    return renderAt(ScrollableViewport(content, 1, 3), 5, 2).Cursor() match {
+        case Some(p) => Eq(Eq(t, p.V1, 1), p.V2, 1)
+        case None()  => IsTrue(t, false)
+    }
+}
+
+// A dialog drawn over a focused field takes the cursor away from it.
+func TestModalOverAFocusedFieldDropsItsCursor(t T) T =
+    IsTrue(t, renderAt(ModalOver(Input("ab", 1, "", true), 6, 3, Text("ok?")), 12, 5).Cursor().IsEmpty())
+
+// A one-column field keeps its caret — and the real cursor — inside itself.
+func TestOneColumnInputKeepsTheCursorInside(t T) T =
+    renderAt(Row(ArrayOf[LayoutChild](Fixed(1, Input("a", 1, "", true)), Flex(1, Text("next")))), 6, 1)
+        .Cursor() match {
+        case Some(p) => Eq(t, p.V1, 0)
+        case None()  => IsTrue(t, false)
+    }

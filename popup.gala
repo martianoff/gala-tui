@@ -69,7 +69,7 @@ func PopupBelow(anchorX int, anchorY int, w int, h int, screenW int, body Widget
 // `PopupBelow`. Equivalent to `Stack([below, popup])` but reads
 // declaratively at the call site.
 func PopupOver(below Widget, popup Widget) Widget =
-    Stack(ArrayOf[Widget](below, popup))
+    Stack(ArrayOf[Widget](withoutCursor(below), popup))
 
 // popupAtAbsolute places `inner` at (x, y) with size (w, h) by
 // composing Column/Row spacers around it. It's a flexible-but-cheap

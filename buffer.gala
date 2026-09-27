@@ -186,6 +186,12 @@ type Buffer struct {
     Width  int
     Height int
     var cells []Cell
+    // The real terminal cursor this frame asks for, in buffer cells —
+    // see `SetCursor`. Off by default: a frame that asks for nothing gets a
+    // hidden cursor.
+    var cursorX  int
+    var cursorY  int
+    var cursorOn bool
 }
 
 // NewBuffer allocates a w×h buffer whose cells are all EmptyCell. Panics on
@@ -380,11 +386,43 @@ func (b *Buffer) DrawText(x int, y int, s string, style Style) int {
     return cx - x
 }
 
+// SetCursor asks for the REAL terminal cursor at (x, y) once this frame is
+// on screen — ratatui's `Frame::set_cursor_position`. A text field's caret
+// drawn as a reverse-video cell is enough for the eye, but an IME places its
+// composition window at the terminal's cursor, and a screen reader follows
+// it: without this, CJK input pops up in a corner and a reader announces
+// the wrong line. Out-of-bounds positions are ignored; the last call in a
+// frame wins.
+func (b *Buffer) SetCursor(x int, y int) {
+    if x >= 0 && y >= 0 && x < b.Width && y < b.Height {
+        b.cursorX = x
+        b.cursorY = y
+        b.cursorOn = true
+    }
+}
+
+// ClearCursor withdraws the cursor request — for a layer drawn over a field
+// that asked for it, so the cursor does not blink under a dialog covering it.
+func (b *Buffer) ClearCursor() {
+    b.cursorOn = false
+}
+
+// clearCursorIn withdraws the request when it falls inside `r`: whatever
+// fills `r` covers the cell the cursor was asked for.
+func (b *Buffer) clearCursorIn(r Rect) {
+    if b.cursorOn && r.Contains(b.cursorX, b.cursorY) { b.cursorOn = false }
+}
+
+// Cursor is the cursor this frame asked for, if any.
+func (b *Buffer) Cursor() Option[Tuple[int, int]] =
+    if (b.cursorOn) Some((b.cursorX, b.cursorY)) else None[Tuple[int, int]]()
+
 // Clone returns a deep copy — same dimensions, same cell contents, independent
 // underlying slice. Required by the differential renderer so the previous
 // frame isn't clobbered when the new one is rendered.
 func (b *Buffer) Clone() *Buffer =
-    &Buffer{Width: b.Width, Height: b.Height, cells: SliceCopy(b.cells)}
+    &Buffer{Width: b.Width, Height: b.Height, cells: SliceCopy(b.cells),
+             cursorX: b.cursorX, cursorY: b.cursorY, cursorOn: b.cursorOn}
 
 // ContentsEqual is a true cell-by-cell comparison — used mainly in tests and
 // by the differential renderer. Not named `Equal` because GALA auto-generates
