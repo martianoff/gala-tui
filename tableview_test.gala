@@ -274,7 +274,7 @@ func TestUniformScrollPaddingMatchesTheListRule(t T) T {
 // Table renders through TableView, so a selection below the pane scrolls into
 // view instead of vanishing past the bottom edge.
 func TestTableScrollsToKeepTheSelectionVisible(t T) T {
-    val rows = ArrayTabulate(10, (i) => ArrayOf[string](s"r$i"))
+    val rows = ArrayTabulate(10, (i) => ArrayOf(s"r$i"))
     val buf = renderAt(Table(NewTable(ArrayOf[Constraint](Length(4)), rows, 8)), 4, 3)
     val t1 = Eq(t, RowText(buf, 2), "r8  ")
     return IsTrue(t1, buf.StyleAt(0, 2).Reverse)
