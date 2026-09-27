@@ -124,3 +124,44 @@ func TestOneColumnInputKeepsTheCursorInside(t T) T =
         case Some(p) => Eq(t, p.V1, 0)
         case None()  => IsTrue(t, false)
     }
+
+// ---- Cursor shape ----------------------------------------------------------
+
+func TestCursorShapeCodesAreDecscusr(t T) T {
+    val codes = ArrayOf[CursorShape](
+        CursorDefault(), CursorBlock(true), CursorBlock(false),
+        CursorUnderline(true), CursorUnderline(false), CursorBar(true), CursorBar(false),
+    ).Map((s) => cursorShapeCode(s))
+    return Eq(t, codes.MkString(","), "0,1,2,3,4,5,6")
+}
+
+// A shape asked for with CursorAt is sent with the cursor, once: a paint
+// that already told the terminal this shape does not send it again.
+func TestCursorAtSendsItsShapeOnce(t T) T {
+    val frame = renderAt(CursorAt(Text("ab"), 1, 0, CursorBar(false)), 4, 1)
+    val first = cursorTail(frame, nil, "x", false, 0, 0, 0)
+    val t1 = IsTrue(t, strings.Contains(first, ansiCursorShape(6)))
+    val again = cursorTail(frame, frame.Clone(), "x", true, 0, 0, 6)
+    return IsFalse(t1, strings.Contains(again, "q"))
+}
+
+// A shape change alone is not idle: same place, new shape, and the tail
+// still goes out.
+func TestCursorShapeChangeIsNotAnIdlePaint(t T) T {
+    val frame = renderAt(CursorAt(Text("ab"), 1, 0, CursorUnderline(true)), 4, 1)
+    return IsTrue(t, strings.Contains(cursorTail(frame, frame.Clone(), "", true, 0, 0, 6), ansiCursorShape(3)))
+}
+
+// A frame that asks for no shape leaves the terminal's own alone.
+func TestDefaultCursorShapeSendsNothing(t T) T =
+    IsFalse(t, strings.Contains(cursorTail(renderAt(Input("ab", 1, "", true), 5, 1), nil, "x", false, 0, 0, 0), " q"))
+
+// Closing a session hands the terminal its own shape back — but only when
+// the app changed it; an app that never asked leaves the shell's alone.
+func TestSessionCloseResetsAChangedCursorShape(t T) T {
+    val t1 = Eq(t, cursorShapeReset(5), ansiCursorShape(0))
+    val t2 = Eq(t1, cursorShapeReset(0), "")
+    var closed = 0
+    withCursorShapeReset(BackendSession(Close = () => { closed = closed + 1 }), () => 0).Close()
+    return Eq(t2, closed, 1)
+}

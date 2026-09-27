@@ -96,17 +96,17 @@ struct Backend(
     // protocols — see `currentTermModes`.
     Open         func(bool) BackendSession,
     Paint        func(*Buffer, *Buffer),
-    InsertBefore func(Array[string]) bool,
+    InsertBefore func(Array[string]) bool = nil,
     // Origin is where the viewport's top-left cell sits on the screen, for
     // a backend that does not start at (0, 0). Mouse events arrive in SCREEN
     // cells and hit regions are in buffer cells, so the run loop shifts every
     // mouse event by it. Optional, like InsertBefore: nil is (0, 0).
-    Origin       func() Tuple[int, int],
+    Origin       func() Tuple[int, int] = nil,
     // CursorReport receives the terminal's answer to a cursor-position
     // query (`ESC[6n` → `ESC[row;colR`, 1-based) the backend wrote. The run
     // loop takes the reply out of the input stream before it can be read as
     // a key. Optional: a backend that never asks has nothing to receive.
-    CursorReport func(int, int),
+    CursorReport func(int, int) = nil,
 )
 
 // ----------------------------------------------------------------------------
@@ -117,16 +117,18 @@ struct Backend(
 // probed from whichever of the three standard fds is a tty.
 func TerminalBackend() Backend {
     var shown = false
+    var shape = 0
     return Backend(
         Name  = "terminal",
         Size  = () => TermSize(),
         Write = (s) => stdoutWrite(s),
         Read  = (buf) => stdinRead(buf),
         ReadAsync = () => terminalReadFuture(),
-        Open  = (mouse) => terminalOpen(mouse),
+        Open  = (mouse) => withCursorShapeReset(terminalOpen(mouse), () => shape),
         Paint = (frame, prev) => {
-            stdoutWrite(terminalPaintString(frame, prev, shown))
+            stdoutWrite(terminalPaintString(frame, prev, shown, shape))
             shown = frame.Cursor().IsDefined()
+            if shown { shape = frame.cursorShape }
         },
         // The alternate screen has no scrollback — it is a second screen
         // that is thrown away on exit, which is the whole reason a
@@ -139,32 +141,64 @@ func TerminalBackend() Backend {
 
 // terminalPaintString is what one full-screen paint writes: the whole frame
 // on the first paint, the cells that changed after that, then the cursor —
-// as one synchronized update.
-func terminalPaintString(frame *Buffer, prev *Buffer, shown bool) string {
+// as one synchronized update. `shape` is the cursor shape the terminal was
+// last told.
+func terminalPaintString(frame *Buffer, prev *Buffer, shown bool, shape int = 0) string {
     val body = if (prev == nil) ansiHome() + frame.String() else frame.DiffString(prev)
-    return synchronized(body + cursorTail(frame, prev, body, shown, 0, 0))
+    return synchronized(body + cursorTail(frame, prev, body, shown, 0, 0, shape))
 }
+
+// cursorShapeChange tells the terminal the frame's cursor shape when it is
+// not `shape`, the one it was last told — and nothing when it is, so a
+// steady caret does not re-send its shape every tick.
+func cursorShapeChange(frame *Buffer, shape int) string =
+    if (frame.cursorShape == shape) "" else ansiCursorShape(frame.cursorShape)
+
+// withCursorShapeReset hands the terminal its own cursor shape back when the
+// session closes, if the app ever changed it (`shape()` is the last shape
+// sent). The shape is the terminal's, not the screen's: left as a bar, the
+// shell's prompt would inherit it.
+func withCursorShapeReset(session BackendSession, shape func() int) BackendSession =
+    BackendSession(Close = () => {
+        stdoutWrite(cursorShapeReset(shape()))
+        session.Close()
+    })
+
+// cursorShapeReset is what closing writes when the last shape sent was
+// `shape`: the terminal's own shape back, or nothing if it never changed.
+func cursorShapeReset(shape int) string = if (shape != 0) ansiCursorShape(0) else ""
 
 // cursorTail follows a paint to leave the real terminal cursor where the
 // frame asked, in screen cells offset by (ox, oy):
 //
 //   - asked for: placed and shown — after any paint that wrote something,
-//     since drawing moved the cursor, and whenever it moved or was hidden.
-//     An idle paint with the cursor already there sends nothing: a move per
-//     tick restarts the blink on terminals that tie blinking to movement.
+//     since drawing moved the cursor, and whenever it moved, changed shape
+//     or was hidden. An idle paint with the cursor already there sends
+//     nothing: a move per tick restarts the blink on terminals that tie
+//     blinking to movement.
 //   - not asked for: hidden once, when the last frame had it showing.
-func cursorTail(frame *Buffer, prev *Buffer, painted string, shown bool, ox int, oy int) string =
+//
+// `shape` is the cursor shape the terminal was last told.
+func cursorTail(
+    frame *Buffer,
+    prev *Buffer,
+    painted string,
+    shown bool,
+    ox int,
+    oy int,
+    shape int = 0,
+) string =
     frame.Cursor() match {
         case Some(p) =>
-            if (painted == "" && shown && prev != nil && cursorAt(prev, p)) ""
-            else ansiMoveTo(oy + p.V2 + 1, ox + p.V1 + 1) + ansiCursorShow()
+            if (painted == "" && shown && prev != nil && cursorAt(prev, p) && frame.cursorShape == shape) ""
+            else ansiMoveTo(oy + p.V2 + 1, ox + p.V1 + 1) + cursorShapeChange(frame, shape) + ansiCursorShow()
         case None() => if (shown) ansiCursorHide() else ""
     }
 
-// sameCursor is whether two frames asked for the same cursor, or both for
-// none.
+// sameCursor is whether two frames asked for the same cursor — place and
+// shape — or both for none.
 func sameCursor(a *Buffer, b *Buffer) bool = a.Cursor() match {
-    case Some(p) => cursorAt(b, p)
+    case Some(p) => cursorAt(b, p) && a.cursorShape == b.cursorShape
     case None()  => b.Cursor().IsEmpty()
 }
 
@@ -492,6 +526,7 @@ func InlineBackend(height int) Backend {
     var pending = 0
     var ask = true
     var lastTerm = (0, 0)
+    var shape = 0
     val home = () => {
         val s = if (shown) ansiCursorHide() + ansiCursorRestore() else ""
         shown = false
@@ -508,11 +543,11 @@ func InlineBackend(height int) Backend {
         ReadAsync = () => terminalReadFuture(),
         Open  = (mouse) => {
             val session = inlineOpen(h, mouse)
-            return BackendSession(Close = () => {
+            return withCursorShapeReset(BackendSession(Close = () => {
                 stdoutWrite(home())
                 if pending > 0 { drainCursorReport() }
                 session.Close()
-            })
+            }), () => shape)
         },
         Paint = (frame, prev) => {
             val term = TermSize()
@@ -528,11 +563,12 @@ func InlineBackend(height int) Backend {
             val body = if (redraw) home() + inlineFrameString(frame, h) else ""
             val query = if (ask) ansiCursorQuery() else ""
             if redraw || ask {
-                stdoutWrite(synchronized(body + query + (if (redraw) inlineCursorString(frame) else "")))
+                stdoutWrite(synchronized(body + query + (if (redraw) inlineCursorString(frame, shape) else "")))
             }
             if ask { pending = pending + 1 }
             ask = false
             if redraw { shown = frame.Cursor().IsDefined() }
+            if redraw && shown { shape = frame.cursorShape }
         },
         InsertBefore = (lines) => {
             stdoutWrite(synchronized(home() + inlineInsertBeforeString(lines, h)))
@@ -560,10 +596,11 @@ func drainCursorReport() {
 // inlineCursorString moves from the block's top-left — where every inline
 // paint leaves the cursor — to the frame's cursor, saving the top-left on
 // the way so the next write can come back to it. Nothing when the frame
-// asked for no cursor.
-func inlineCursorString(frame *Buffer) string = frame.Cursor() match {
+// asked for no cursor. `shape` is the cursor shape the terminal was last
+// told.
+func inlineCursorString(frame *Buffer, shape int = 0) string = frame.Cursor() match {
     case Some(p) => ansiCursorSave() + ansiCursorDown(p.V2) + "\r" +
-                    ansiCursorForward(p.V1) + ansiCursorShow()
+                    ansiCursorForward(p.V1) + cursorShapeChange(frame, shape) + ansiCursorShow()
     case None()  => ""
 }
 
@@ -754,21 +791,25 @@ func FixedBackend(area Rect) Backend {
     val a = fixedArea(area)
     var lastTerm = (0, 0)
     var shown = false
+    var shape = 0
     return Backend(
         Name  = "fixed",
         Size  = () => fixedSize(a, TermSize()),
         Write = (s) => stdoutWrite(s),
         Read  = (buf) => stdinRead(buf),
         ReadAsync = () => terminalReadFuture(),
-        Open  = (mouse) => fixedOpen(a, mouse),
+        Open  = (mouse) => withCursorShapeReset(fixedOpen(a, mouse), () => shape),
         Paint = (frame, prev) => {
             val term = TermSize()
             val resized = term != lastTerm
             lastTerm = term
-            stdoutWrite(synchronized(fixedPaintString(frame, if (resized) nil else prev, a, term, shown)))
+            stdoutWrite(synchronized(fixedPaintString(frame, if (resized) nil else prev, a, term, shown, shape)))
             // An off-screen paint drew nothing — hid nothing — so it must not
             // record a cursor state the terminal never saw.
-            if !fixedOffScreen(a, term) { shown = frame.Cursor().IsDefined() }
+            if !fixedOffScreen(a, term) {
+                shown = frame.Cursor().IsDefined()
+                if shown { shape = frame.cursorShape }
+            }
         },
         // The rows above a fixed rectangle belong to someone else, so lines
         // have nowhere to go — the same answer the alternate screen gives.
@@ -815,11 +856,12 @@ func fixedPaintString(
     area Rect,
     term Tuple[int, int],
     shown bool,
+    shape int = 0,
 ) string {
     if fixedOffScreen(area, term) { return "" }
     val diff = frame.DiffStringAt(prev, area.X, area.Y)
     val asking = frame.Cursor().IsDefined()
-    val tail = cursorTail(frame, prev, diff, shown, area.X, area.Y)
+    val tail = cursorTail(frame, prev, diff, shown, area.X, area.Y, shape)
     return if (asking && !shown) ansiCursorSave() + diff + tail
     else if (asking) diff + tail
     else if (shown) diff + ansiCursorRestore() + tail
