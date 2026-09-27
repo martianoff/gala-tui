@@ -4,6 +4,7 @@ import (
     "martianoff/gala/stream"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
 )
 
 // ============================================================================

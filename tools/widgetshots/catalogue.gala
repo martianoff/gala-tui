@@ -4,6 +4,7 @@ import (
     . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
+    . "martianoff/gala/time_utils"
 )
 
 // ============================================================================
