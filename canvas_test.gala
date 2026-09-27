@@ -172,6 +172,43 @@ func TestHalfBlockPicksUpperLowerAndFull(t T) T {
     return Eq(t2, canvasBuf(both, 1, 1).CharAt(0, 0), '█')
 }
 
+// pointsAt draws `pts` into a 1x1 canvas over the unit square with `m`.
+func pointsAt(m CanvasMarker, pts Array[CanvasPoint]) rune =
+    canvasBuf(Canvas(unitBounds(), unitBounds(), m,
+        ArrayOf[Shape](ShapePoints(Pts = pts, Style = DefaultStyle()))), 1, 1).CharAt(0, 0)
+
+func TestQuadrantPicksEachCornerAndTheDiagonal(t T) T {
+    val tl = CanvasPoint(X = 0.1, Y = 0.9)
+    val br = CanvasPoint(X = 0.9, Y = 0.1)
+    val t1 = Eq(t, pointsAt(QuadrantMarker(), ArrayOf(tl)), '▘')
+    val t2 = Eq(t1, pointsAt(QuadrantMarker(), ArrayOf(CanvasPoint(X = 0.9, Y = 0.9))), '▝')
+    val t3 = Eq(t2, pointsAt(QuadrantMarker(), ArrayOf(CanvasPoint(X = 0.1, Y = 0.1))), '▖')
+    val t4 = Eq(t3, pointsAt(QuadrantMarker(), ArrayOf(br)), '▗')
+    return Eq(t4, pointsAt(QuadrantMarker(), ArrayOf(tl, br)), '▚')
+}
+
+// Six single dots give six different glyphs, and a whole column is the
+// half block the Legacy Computing block leaves out.
+func TestSextantResolvesSixDotsAndReusesTheHalfBlocks(t T) T {
+    val dots = ArrayOf(0.9, 0.5, 0.1).FlatMap((y) =>
+        ArrayOf(0.1, 0.9).Map((x) => CanvasPoint(X = x, Y = y)))
+    val singles = dots.Map((p) => pointsAt(SextantMarker(), ArrayOf(p)))
+    val t1 = Eq(t, singles.Distinct().Length(), 6)
+    val t2 = Eq(t1, singles.Get(0), rune(0x1FB00))
+    val left = dots.ZipWithIndex().Collect({ case (p, i) if i % 2 == 0 => p })
+    return Eq(t2, pointsAt(SextantMarker(), left), '▌')
+}
+
+// Every 2x3 pattern has its own glyph, and the Legacy Computing block is
+// used end to end: its first and last code points, nothing past them.
+func TestSextantGlyphsCoverEveryPatternOnce(t T) T {
+    val glyphs = ArrayTabulate(64, (bits) => sextantGlyph(bits))
+    val block = glyphs.Filter((r) => r >= rune(0x1FB00))
+    val t1 = Eq(t, glyphs.Distinct().Length(), 64)
+    val t2 = Eq(t1, block.Length(), 60)
+    return Eq(t2, block.FoldLeft(rune(0), (a, r) => if (r > a) r else a), rune(0x1FB3B))
+}
+
 func TestDotAndBlockMarkersAreOneCellResolution(t T) T {
     val dot = Canvas(unitBounds(), unitBounds(), DotMarker(),
         ArrayOf[Shape](ShapePoints(

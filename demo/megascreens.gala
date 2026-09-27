@@ -110,7 +110,11 @@ func megaChartsMain(m MegaModel, th Theme) Widget {
         // out of MultiLineChart's flex — which absorbed all of it and came
         // out one row tall, a chart showing nothing.
         Fixed(8, Titled(LineChart(series), " LineChart ")),
-        Fixed(7, Titled(megaAreaChart(series), " Canvas — live filled area, braille 2x4 ")),
+        Fixed(7, Row(ArrayOf[LayoutChild](
+            Flex(2, Titled(megaAreaChart(series, BrailleMarker()), " Canvas — live filled area, braille 2x4 ")),
+            Flex(1, Titled(megaAreaChart(series, SextantMarker()), " sextant 2x3 ")),
+            Flex(1, Titled(megaAreaChart(series, QuadrantMarker()), " quadrant 2x2 ")),
+        ))),
         Fixed(6, Titled(megaGaugeStack(pct), " Gauges ")),
         Fixed(5, Titled(megaSparklines(series, offset),
                         " Sparkline — left-to-right, right-to-left, and gaps ")),
@@ -123,14 +127,16 @@ func megaChartsMain(m MegaModel, th Theme) Widget {
 
 // megaAreaChart plots the series as a filled area on a Canvas. Braille cells
 // are 2x4, so the canvas resolves finer than one glyph per sample — which is
-// the reason to reach for it over LineChart.
-func megaAreaChart(series Array[int]) Widget {
+// the reason to reach for it over LineChart. The block markers draw the same
+// area solid, at 2x3 and 2x2.
+func megaAreaChart(series Array[int], marker CanvasMarker) Widget {
     val n = series.Length()
     val xs = ArrayTabulate(n, (i) => float64(i))
     val ys = series.Map((v) => float64(v))
-    return CanvasOf(
+    return Canvas(
         XBounds(0.0, float64(n - 1)),
         YBounds(0.0, 100.0),
+        marker,
         FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan())))
 }
 

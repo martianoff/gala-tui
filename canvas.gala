@@ -37,11 +37,16 @@ import (
 // CanvasMarker picks the glyph family, and with it the sub-cell resolution.
 //
 // Braille is the highest resolution and the usual choice. Its drawback is
-// that the glyphs are small and some terminals render them in a fallback
-// font; HalfBlock trades resolution for weight, and the two 1x1 markers are
-// there for fonts where neither looks right.
+// that the glyphs are small dots and some terminals render them in a
+// fallback font. The block markers fill whole sub-cells instead, so a shape
+// reads as solid: Sextant is 2x3, Quadrant 2x2 and HalfBlock 1x2. Sextants
+// are Unicode 13 and need a recent font; quadrants and half blocks are in
+// every font that draws boxes. The two 1x1 markers are there for fonts where
+// none of these looks right.
 sealed type CanvasMarker {
     case BrailleMarker()     // 2 x 4 dots per cell — U+2800 block
+    case SextantMarker()     // 2 x 3 per cell — U+1FB00 block, ▌ ▐ █
+    case QuadrantMarker()    // 2 x 2 per cell — ▘ ▝ ▖ ▗ ▚ ▞ ▛ ▜ ▙ ▟ …
     case HalfBlockMarker()   // 1 x 2 per cell — ▀ ▄ █
     case DotMarker()         // 1 x 1 per cell — •
     case BlockMarker()       // 1 x 1 per cell — █
@@ -147,6 +152,8 @@ func PointsOf(xs Array[float64], ys Array[float64], style Style) Shape {
 // markerSubCells is the (columns, rows) of dots each marker packs per cell.
 func markerSubCells(m CanvasMarker) Tuple[int, int] = m match {
     case BrailleMarker()   => (2, 4)
+    case SextantMarker()   => (2, 3)
+    case QuadrantMarker()  => (2, 2)
     case HalfBlockMarker() => (1, 2)
     case DotMarker()       => (1, 1)
     case BlockMarker()     => (1, 1)
@@ -599,6 +606,19 @@ func canvasGlyph(g *canvasGrid, marker CanvasMarker, cx int, cy int) rune {
                 brailleDotBit(g, gx, gy, 0, 3) + brailleDotBit(g, gx, gy, 1, 3)
             if (bits == 0) ' ' else rune(0x2800 + bits)
         }
+        case SextantMarker() => {
+            val gx = cx * 2
+            val gy = cy * 3
+            sextantGlyph(blockDotBit(g, gx, gy, 0) + blockDotBit(g, gx + 1, gy, 1) +
+                blockDotBit(g, gx, gy + 1, 2) + blockDotBit(g, gx + 1, gy + 1, 3) +
+                blockDotBit(g, gx, gy + 2, 4) + blockDotBit(g, gx + 1, gy + 2, 5))
+        }
+        case QuadrantMarker() => {
+            val gx = cx * 2
+            val gy = cy * 2
+            quadrantGlyphs.Get(blockDotBit(g, gx, gy, 0) + blockDotBit(g, gx + 1, gy, 1) +
+                blockDotBit(g, gx, gy + 1, 2) + blockDotBit(g, gx + 1, gy + 1, 3))
+        }
         case HalfBlockMarker() => {
             // One cell is two vertical dots: both, upper, lower, neither.
             val top = canvasDotAt(g, cx, cy*2)
@@ -617,6 +637,33 @@ func canvasGlyph(g *canvasGrid, marker CanvasMarker, cx int, cy int) rune {
 // (gx, gy): its bit when lit, 0 when not.
 func brailleDotBit(g *canvasGrid, gx int, gy int, col int, row int) int =
     if (canvasDotAt(g, gx + col, gy + row)) brailleBit(col, row) else 0
+
+// blockDotBit is bit `bit` of a block-marker cell — the sub-cells numbered
+// row-major from the top left — when the dot at (gx, gy) is lit, 0 when not.
+func blockDotBit(g *canvasGrid, gx int, gy int, bit int) int =
+    if (canvasDotAt(g, gx, gy)) 1 << bit else 0
+
+// quadrantGlyphs is the glyph for each 2x2 pattern, indexed by its bits:
+// 1 top left, 2 top right, 4 bottom left, 8 bottom right.
+val quadrantGlyphs = ArrayOf(
+    ' ', '▘', '▝', '▀', '▖', '▌', '▞', '▛',
+    '▗', '▚', '▐', '▜', '▄', '▙', '▟', '█',
+)
+
+// sextantGlyph is the glyph for a 2x3 pattern, bits numbered row-major from
+// the top left (1, 2 / 4, 8 / 16, 32).
+//
+// The Legacy Computing block U+1FB00 holds the 60 patterns that had no
+// glyph already, in bit order: empty and full are space and █, and the two
+// whole columns are the existing ▌ (21) and ▐ (42), so the block's index
+// skips past each of those.
+func sextantGlyph(bits int) rune = bits match {
+    case 0  => ' '
+    case 21 => '▌'
+    case 42 => '▐'
+    case 63 => '█'
+    case _  => rune(0x1FB00 + bits - 1 - (if (bits > 21) 1 else 0) - (if (bits > 42) 1 else 0))
+}
 
 func canvasDotAt(g *canvasGrid, gx int, gy int) bool {
     if gx < 0 || gy < 0 || gx >= g.W || gy >= g.H {
