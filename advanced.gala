@@ -160,7 +160,8 @@ func SparklineStyled(
     values Array[int],
     style Style,
     dir SparkDirection = SparkLeftToRight(),
-) Widget = SparklineOf(values.Map((v) => Some(v)), style, dir)
+    max int = 0,
+) Widget = SparklineOf(values.Map((v) => Some(v)), style, dir, max)
 
 // SparklineOf plots a series that can have gaps. `None` is a sample that does
 // not exist — no reading, a dropped scrape — and renders as a blank column.
@@ -173,13 +174,20 @@ func SparklineStyled(
 // of the last 40 minutes" drew exactly what "no telemetry at all" drew. Only
 // an absent sample blanks, which is what makes the two readable apart, and
 // passing 0 for a missing reading claims a measurement nobody took.
+//
+// `max` fixes the top of the scale; a sample at or above it draws a full
+// block. Left at 0 the scale is the series' own maximum, which suits a
+// shape read on its own and misleads on a quantity with a known ceiling:
+// a CPU feed idling at 3% fills the strip exactly as a saturated one does.
+// Pass 100 there, and a quiet minute reads as quiet.
 func SparklineOf(
     values Array[Option[int]],
     style Style,
     dir SparkDirection = SparkLeftToRight(),
+    max int = 0,
 ) Widget {
     if values.IsEmpty() { return Empty() }
-    return SparklineW(Values = values, Style = style, Dir = dir)
+    return SparklineW(Values = values, Style = style, Dir = dir, Max = max)
 }
 
 // sparklineMax is the series maximum over the samples that exist, floored at
@@ -210,12 +218,12 @@ func sparklineMax(values Array[Option[int]]) int =
 // a gap carries the caller's background and a strip on a coloured panel stays
 // one strip.
 func renderSparkline(values Array[Option[int]], style Style,
-                     dir SparkDirection, area Rect, buf *Buffer) {
+                     dir SparkDirection, max int, area Rect, buf *Buffer) {
     if area.Height <= 0 { return }
     // `cols` already floors at zero for an empty area, so the width needs no
     // guard of its own.
     val cols = MinInt(values.Length(), area.Width)
-    val maxV = sparklineMax(values)
+    val maxV = if (max > 0) max else sparklineMax(values)
     val reversed = sparkReversed(dir)
     val rightEdge = area.Right() - 1
     values.Take(cols).ZipWithIndex().ForEach((t) => {

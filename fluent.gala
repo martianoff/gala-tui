@@ -358,8 +358,8 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
                            Count = n, RowH = h, Payloads = p)
         // A sparkline carries its style as a field, so it restyles like any
         // other leaf — which is the whole reason it is not a CustomW.
-        case SparklineW(values, style, dir)    =>
-            SparklineW(Values = values, Style = f(style), Dir = dir)
+        case SparklineW(values, style, dir, max) =>
+            SparklineW(Values = values, Style = f(style), Dir = dir, Max = max)
         case BarChartW(groups, style, geom, max, dir) =>
             BarChartW(Groups = barChartRestyle(groups, f), Style = f(style),
                       Geom = geom, Max = max, Dir = dir)
