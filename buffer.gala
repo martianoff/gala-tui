@@ -387,12 +387,11 @@ func (b *Buffer) DrawText(x int, y int, s string, style Style) int {
 }
 
 // SetCursor asks for the REAL terminal cursor at (x, y) once this frame is
-// on screen — ratatui's `Frame::set_cursor_position`. A text field's caret
-// drawn as a reverse-video cell is enough for the eye, but an IME places its
-// composition window at the terminal's cursor, and a screen reader follows
-// it: without this, CJK input pops up in a corner and a reader announces
-// the wrong line. Out-of-bounds positions are ignored; the last call in a
-// frame wins.
+// on screen. A text field's caret drawn as a reverse-video cell is enough
+// for the eye, but an IME places its composition window at the terminal's
+// cursor, and a screen reader follows it: without this, CJK input pops up
+// in a corner and a reader announces the wrong line. Out-of-bounds
+// positions are ignored; the last call in a frame wins.
 func (b *Buffer) SetCursor(x int, y int) {
     if x >= 0 && y >= 0 && x < b.Width && y < b.Height {
         b.cursorX = x

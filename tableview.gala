@@ -10,7 +10,7 @@ import (
 // ----------------------------------------------------------------------------
 //
 // `Table` takes rows of strings and highlights a whole row. That covers a
-// list with columns and nothing else. ratatui's Table is what a dashboard
+// list with columns and nothing else. `TableView` is what a dashboard
 // grid needs: a cell coloured by its own value ("failed" in red), a footer
 // with the totals, rows that wrap to two lines, a `▶` marking the cursor so
 // the selection is visible without colour, and a cursor that can pick a
@@ -28,11 +28,11 @@ import (
 //         .Select(0)
 //         .WithHighlightSymbol("▶ "))
 //
-// Styles layer the way ratatui's do, each patched over the last (see
-// `Style.Patch`): table, row, cell, then the text's own spans; and when
-// selected, the row highlight, the column highlight, and the cell highlight
-// on top. Patching rather than replacing is what keeps a red "failed" red
-// inside a highlighted row that only sets a background.
+// Styles layer, each patched over the last (see `Style.Patch`): table,
+// row, cell, then the text's own spans; and when selected, the row
+// highlight, the column highlight, and the cell highlight on top. Patching
+// rather than replacing is what keeps a red "failed" red inside a
+// highlighted row that only sets a background.
 //
 // Built by composition — Row, Column, `CellRichW`, `AutoScrollW` — so a
 // restyle of the table (`.WithDim()`, a theme) reaches every cell.
@@ -215,8 +215,8 @@ val emptyTableCell = CellOf("")
 // and `selCol` the highlighted column, -1 for none.
 //
 // The columns are the spec's `Widths`: a row with more cells than that drops
-// the extra ones, as ratatui does, rather than growing a column of its own
-// that would squeeze its neighbours out of line with every other row.
+// the extra ones rather than growing a column of its own that would
+// squeeze its neighbours out of line with every other row.
 func tableRowWidget(t TableSpec, r TableRow, selected bool, selCol int, symW int) Widget {
     val base = t.Style.Patch(r.Style)
     val band = base.Patch(tableHighlight(t, selected, false))

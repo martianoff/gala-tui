@@ -11,7 +11,7 @@ import (
 //
 // `Paragraph` wraps one string in one style from the top-left, and a caller
 // that wanted anything else hand-wrapped its text into `Fixed(1, Text(...))`
-// rows sized for one terminal width. ratatui's Paragraph is the general
+// rows sized for one terminal width. `ParagraphView` is the general
 // block of text: styled runs that keep their styles across the wrap, an
 // alignment, wrapping that can be turned off for text whose lines matter
 // (code, a log, a table rendered as text), and a scroll offset in both

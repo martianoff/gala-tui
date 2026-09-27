@@ -34,12 +34,11 @@ import (
 // without a terminal.
 //
 // Needs `InlineBackend(n)`. The default backend runs on the alternate
-// screen, which has no scrollback to insert into — the same limitation
-// ratatui's `insert_before` has — so there the lines are dropped. Nothing
-// warns about it at runtime because the only channels available are the
-// screen the app is drawing on and a stderr the app has no reason to
-// expect; a print that quietly does nothing is better than one that
-// corrupts the frame to complain.
+// screen, which has no scrollback to insert into, so there the lines are
+// dropped. Nothing warns about it at runtime because the only channels
+// available are the screen the app is drawing on and a stderr the app has
+// no reason to expect; a print that quietly does nothing is better than
+// one that corrupts the frame to complain.
 sealed type Cmd[T any] {
     case NoCmd()
     case QuitCmd()

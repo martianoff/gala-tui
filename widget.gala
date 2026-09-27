@@ -276,7 +276,7 @@ sealed type BorderKind {
     case RoundedBorder()
     case ThickBorder()
     case AsciiBorder()
-    // Half-block frames (ratatui's QUADRANT_OUTSIDE / QUADRANT_INSIDE):
+    // Half-block frames:
     // outside sits flush against what surrounds the box, inside against its
     // content — the latter reads as a solid edge around a block of colour.
     case QuadrantOutsideBorder()
@@ -440,9 +440,9 @@ func FillCh(ch rune) Widget = FillWidget(Ch = ch, Style = DefaultStyle())
 func FillChStyled(ch rune, style Style) Widget =
     FillWidget(Ch = ch, Style = style)
 
-// Clear resets its area to blank cells in the default style — ratatui's
-// `Clear`. Stack it under a popup so whatever the screen drew there does not
-// show through the popup's own blank cells:
+// Clear resets its area to blank cells in the default style. Stack it under
+// a popup so whatever the screen drew there does not show through the
+// popup's own blank cells:
 //
 //     PopupOver(screen, Popup(x, y, 40, 8, Stack(ArrayOf[Widget](Clear(), card))))
 func Clear() Widget = FillCh(' ')
@@ -518,10 +518,10 @@ func borderHeightOverhead(sides BorderSides) int =
 func Restyled(inner Widget, f func(Style) Style) Widget =
     RestyleW(Inner = inner, Restyle = f)
 
-// CursorAt puts the real terminal cursor at (x, y) inside `inner`'s area —
-// ratatui's `Frame::set_cursor_position`, as a widget. A focused `Input`
-// already does this at its caret; reach for it when a custom widget has an
-// insertion point of its own (a canvas you type on, a cell editor).
+// CursorAt puts the real terminal cursor at (x, y) inside `inner`'s area.
+// A focused `Input` already does this at its caret; reach for it when a
+// custom widget has an insertion point of its own (a canvas you type on, a
+// cell editor).
 func CursorAt(inner Widget, x int, y int) Widget = CursorW(Inner = inner, X = x, Y = y)
 
 // Highlighted is the selection case: paint the whole area in `style`,
@@ -1174,7 +1174,7 @@ func tabHeaderRowClick[T any](
     return OverflowRow(tabDivided(cells, divider))
 }
 
-// tabDivided puts `divider` — ratatui's `│`, say — before every title but
+// tabDivided puts `divider` — `│`, say — before every title but
 // the first, dim so it reads as structure rather than as a tab. Empty, the
 // titles sit side by side as they always have.
 //
@@ -2013,8 +2013,8 @@ func renderColumn(
 // totalGaps is the space consumed by inter-child spacing: one gap between
 // each adjacent pair, none at the edges.
 //
-// Negative spacing OVERLAPS neighbours — ratatui's `Spacing::Overlap` — and
-// gives the children that much more room between them. Its use is collapsing
+// Negative spacing OVERLAPS neighbours and gives the children that much
+// more room between them. Its use is collapsing
 // borders: two bordered panes in a row with spacing -1 share the line between
 // them instead of drawing two side by side.
 func totalGaps(n int, spacing int) int =
