@@ -15,21 +15,21 @@ import (
 func TestNegativeSpacingCollapsesBorders(t T) T {
     val w = RowSpaced(ArrayOf[LayoutChild](Fixed(3, Border(Empty())), Fixed(3, Border(Empty()))), -1)
     val buf = renderAt(w, 5, 3)
-    val t1 = Eq(t, BufferText(buf, 0), "┌─┬─┐")
-    val t2 = Eq(t1, BufferText(buf, 1), "│ │ │")
-    return Eq(t2, BufferText(buf, 2), "└─┴─┘")
+    val t1 = Eq(t, bufferLines(buf).Get(0), "┌─┬─┐")
+    val t2 = Eq(t1, bufferLines(buf).Get(1), "│ │ │")
+    return Eq(t2, bufferLines(buf).Get(2), "└─┴─┘")
 }
 
 // Overlap gives the children the room it takes back: two Fill children in 5
 // columns with spacing -1 are 3 wide each and end exactly at the edge.
 func TestOverlapChildrenFillTheArea(t T) T {
     val w = RowSpaced(ArrayOf[LayoutChild](Flex(1, FillCh('a')), Flex(1, FillCh('b'))), -1)
-    return Eq(t, BufferText(renderAt(w, 5, 1), 0), "aabbb")
+    return Eq(t, bufferLines(renderAt(w, 5, 1)).Get(0), "aabbb")
 }
 
 func TestQuadrantBorders(t T) T {
-    val out = BufferText(renderAt(BorderOf(Empty(), QuadrantOutsideBorder()), 4, 3), 0)
-    val inside = BufferText(renderAt(BorderOf(Empty(), QuadrantInsideBorder()), 4, 3), 2)
+    val out = RowText(renderAt(BorderOf(Empty(), QuadrantOutsideBorder()), 4, 3), 0)
+    val inside = RowText(renderAt(BorderOf(Empty(), QuadrantInsideBorder()), 4, 3), 2)
     val t1 = Eq(t, out, "▛▀▀▜")
     return Eq(t1, inside, "▝▀▀▘")
 }
@@ -37,9 +37,9 @@ func TestQuadrantBorders(t T) T {
 func TestCustomBorderUsesItsGlyphs(t T) T {
     val g = BorderGlyphs(TL = '1', TR = '2', BL = '3', BR = '4', Top = 't', Bottom = 'b', Left = 'l', Right = 'r')
     val buf = renderAt(BorderOf(Empty(), CustomBorder(g)), 3, 3)
-    val t1 = Eq(t, BufferText(buf, 0), "1t2")
-    val t2 = Eq(t1, BufferText(buf, 1), "l r")
-    return Eq(t2, BufferText(buf, 2), "3b4")
+    val t1 = Eq(t, bufferLines(buf).Get(0), "1t2")
+    val t2 = Eq(t1, bufferLines(buf).Get(1), "l r")
+    return Eq(t2, bufferLines(buf).Get(2), "3b4")
 }
 
 func TestHiddenAndRapidBlinkSgr(t T) T {
@@ -71,19 +71,19 @@ func TestLargeOverlapStaysInsideTheRow(t T) T {
         Fixed(4, RowSpaced(ArrayOf[LayoutChild](Fixed(1, FillCh('a')), Fixed(1, FillCh('b'))), -5)),
         Fixed(2, FillCh('y')),
     ))
-    return IsTrue(t, strings.HasPrefix(BufferText(renderAt(w, 8, 1), 0), "xx"))
+    return IsTrue(t, strings.HasPrefix(bufferLines(renderAt(w, 8, 1)).Get(0), "xx"))
 }
 
 // A full-width glyph in a custom set falls back rather than breaking the
 // frame.
 func TestCustomBorderRejectsWideGlyphs(t T) T {
     val g = BorderGlyphs(TL = '中', TR = '2', BL = '3', BR = '4', Top = 't', Bottom = 'b', Left = 'l', Right = 'r')
-    return Eq(t, BufferText(renderAt(BorderOf(Empty(), CustomBorder(g)), 3, 3), 0), "┌t2")
+    return Eq(t, RowText(renderAt(BorderOf(Empty(), CustomBorder(g)), 3, 3), 0), "┌t2")
 }
 
 // A modal's frame drawn over a bordered screen does not merge with it: the
 // modal clears its panel first.
 func TestModalFrameDoesNotMergeWithTheScreenBelow(t T) T {
-    val out = BufferText(renderAt(ModalOver(Border(Empty()), 5, 3, Empty()), 9, 5), 1)
+    val out = RowText(renderAt(ModalOver(Border(Empty()), 5, 3, Empty()), 9, 5), 1)
     return IsFalse(t, strings.Contains(out, "┼"))
 }
