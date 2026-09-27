@@ -30,10 +30,10 @@ sealed type CdMsg {
 func cdFallback() func(InputEvent) CdMsg = (ev) => CdNone()
 
 func cdLeftClick(x int, y int) InputEvent =
-    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true, Motion = false))
+    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true))
 
 func cdLeftRelease(x int, y int) InputEvent =
-    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = false, Motion = false))
+    MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = false))
 
 func cdLeftDrag(x int, y int) InputEvent =
     MouseInput(Ev = MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = true, Motion = true))

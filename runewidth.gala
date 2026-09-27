@@ -247,36 +247,12 @@ func cellPad(n int) string = repeatRune(' ', n)
 // indexing and sub-slicing it is free, where Array.Slice / Drop copy.
 // ----------------------------------------------------------------------------
 
-// stringRunes splits `s` into its runes (invalid UTF-8 bytes become
-// U+FFFD, as `range` yields them).
-//
-// Not `S(s).ToChars()`: importing martianoff/gala/strings anywhere in this
-// package makes GALA 0.80 reject buffer.gala's `*strings.Builder` parameter
-// (GALA-E0025).
-func stringRunes(s string) Array[rune] = ArrayFromSlice(ToRunes(s))
-
-// runeSplitAt returns (lhs, rhs) such that lhs has `col` runes and rhs has
-// the remainder. Out-of-range cols clamp to the string boundaries.
-func runeSplitAt(s string, col int) Tuple[string, string] {
-    val rs = stringRunes(s)
-    return (string(rs.Take(col).ToGoSlice()), string(rs.Drop(col).ToGoSlice()))
-}
-
-// dropLastRune strips the last rune from `s`; "" stays "".
-func dropLastRune(s string) string {
-    val rs = stringRunes(s)
-    return string(rs.Take(rs.Length() - 1).ToGoSlice())
-}
-
-// dropRunes is `s` without its first `k` runes (k ≥ 0).
-func dropRunes(s string, k int) string = string(SliceDrop(ToRunes(s), k))
-
 // runeRange is the string of rs[lo:hi].
 func runeRange(rs []rune, lo int, hi int) string = string(Slice(rs, lo, hi))
 
 // runeIndexFrom is the index of the first `target` at or after `start`, if any.
 func runeIndexFrom(rs []rune, target rune, start int) Option[int] {
-    if start >= rs.Size() { return None[int]() }
+    if start >= rs.Size() { return None() }
     val idx = slices.Index(SliceFrom(rs, start), target)
     return When(idx >= 0, start + idx)
 }
@@ -295,5 +271,5 @@ func runeIndexWhere(rs []rune, start int, p func(int) bool) Option[int] {
         if p(k) { return Some(k) }
         k = k + 1
     }
-    return None[int]()
+    return None()
 }

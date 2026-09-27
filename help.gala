@@ -65,6 +65,6 @@ func HelpModalView[T any](entries Array[HelpSpec[T]], termW int, termH int) Widg
 func helpRow[T any](h HelpSpec[T], specWidth int) Widget =
     Row(ArrayOf[LayoutChild](
         Fixed(specWidth + 2, TextStyled(h.Spec,
-            DefaultStyle().WithBold().WithFg(BrightCyan()))),
+            DefaultStyle().WithBold().WithFg(BrightCyan))),
         Flex(1, CellText(h.Desc)),
     ))

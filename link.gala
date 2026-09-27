@@ -22,7 +22,7 @@ package gala_tui
 // Link renders `label` as a clickable hyperlink to `url`. Visible
 // styling: underlined + bright cyan, the conventional hyperlink look.
 func Link(label string, url string) Widget =
-    LinkStyled(label, url, DefaultStyle().WithUnderline().WithFg(BrightCyan()))
+    LinkStyled(label, url, DefaultStyle().WithUnderline().WithFg(BrightCyan))
 
 // LinkStyled lets callers override the visible style.
 //

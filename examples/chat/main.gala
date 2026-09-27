@@ -327,8 +327,8 @@ func messageHeight(wrapped Array[string]) int =
 
 func messageView(who Author, wrapped Array[string]) Widget {
     val (label, color) = who match {
-        case ChUser()      => ("You", BrightCyan())
-        case ChAssistant() => ("AI",  BrightGreen())
+        case ChUser()      => ("You", BrightCyan)
+        case ChAssistant() => ("AI",  BrightGreen)
     }
     val header = TextStyled("  " + label + " ",
         DefaultStyle().WithBold().WithFg(color))
@@ -359,7 +359,7 @@ func toolCallEntry(tc ToolCall, termW int) ConversationEntry {
     val width = bodyTextWidth(termW)
     val outputWrapped = WrapParagraph(tc.Output, width)
     val headerText = "  " + DisclosureMarker(tc.Expanded) + "$ " + tc.Command
-    val headerStyle = DefaultStyle().WithBold().WithFg(BrightYellow())
+    val headerStyle = DefaultStyle().WithBold().WithFg(BrightYellow)
     val headerW = TextStyled(headerText, headerStyle)
     val outputRows = outputWrapped.Map((line) =>
         Fixed(1, TextStyled("  " + line, DefaultStyle().WithDim())))
@@ -457,7 +457,7 @@ func view(m Model) Widget {
     val streamingPane = if (m.InFlight)
                             BorderOf(StreamingTextStyled(
                                 m.Streaming, m.Tick,
-                                DefaultStyle().WithFg(BrightGreen())),
+                                DefaultStyle().WithFg(BrightGreen)),
                                 SingleBorder())
                         else Empty()
     val composerBorder = if (m.InFlight) th_dim() else th_focus()
@@ -508,7 +508,7 @@ func slashPopupBody(cmds Array[SlashCommand], selected int) Widget {
 
 func slashRowWidget(cmd SlashCommand, selected bool) Widget {
     val style = if (selected)
-                    DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow())
+                    DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow)
                 else
                     DefaultStyle()
     val label = " " + cmd.Name + "  " + cmd.Hint + " "
@@ -517,7 +517,7 @@ func slashRowWidget(cmd SlashCommand, selected bool) Widget {
 
 func headerWidget(m Model) Widget {
     val title = TextStyled(" gala-tui chat — Ctrl+C quits, Tab newline, ↑/↓ history, PgUp/PgDn scroll ",
-        DefaultStyle().WithBold().WithFg(BrightWhite()).On(Blue()))
+        DefaultStyle().WithBold().WithFg(BrightWhite).On(Blue))
     return Column(ArrayOf[LayoutChild](
         Fixed(1, title),
         Fixed(1, FillCh(' ')),

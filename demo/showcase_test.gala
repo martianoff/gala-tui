@@ -21,10 +21,7 @@ import (
 // round-trip, is YES.
 //
 // Lives in a _test.gala because the interactive runtime (raw mode + stdin
-// reader) is pending (Iteration 8+); a runnable example module layout was
-// attempted in examples/dashboard/ but hit BUG-gala_tui-012 where
-// `gala build` ignores the `replace` directive and tries to fetch the
-// local module over HTTPS.
+// reader) is pending (Iteration 8+).
 // ============================================================================
 
 sealed type DashMsg {
@@ -137,7 +134,7 @@ func dashView(m DashModel) Widget {
 
     return Column(ArrayOf[LayoutChild](
         Fixed(1, TextStyled(" gala-tui Dashboard",
-            DefaultStyle().WithFg(White()).On(Blue()).WithBold())),
+            DefaultStyle().WithFg(White).On(Blue).WithBold())),
         Fixed(1, Text("")),
         Flex(1, Row(ArrayOf[LayoutChild](
             Fixed(25, Border(listPanel)),
@@ -145,7 +142,7 @@ func dashView(m DashModel) Widget {
         ))),
         Fixed(1, TextStyled(
             s" Up/Dn select  Tab focus  Esc quit  focus=${dashFocusName(m.DFocus)}",
-            DefaultStyle().WithFg(BrightBlack()))),
+            DefaultStyle().WithFg(BrightBlack))),
     ))
 }
 

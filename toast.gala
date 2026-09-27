@@ -107,10 +107,10 @@ func ToastStackView(q ToastQueue) Widget {
 
 func toastStyle(l ToastLevel) Style {
     return l match {
-        case ToastInfo()    => DefaultStyle().WithFg(Black()).On(BrightCyan())
-        case ToastSuccess() => DefaultStyle().WithBold().WithFg(Black()).On(BrightGreen())
-        case ToastWarn()    => DefaultStyle().WithBold().WithFg(Black()).On(BrightYellow())
-        case ToastError()   => DefaultStyle().WithBold().WithFg(BrightWhite()).On(BrightRed())
+        case ToastInfo()    => DefaultStyle().WithFg(Black).On(BrightCyan)
+        case ToastSuccess() => DefaultStyle().WithBold().WithFg(Black).On(BrightGreen)
+        case ToastWarn()    => DefaultStyle().WithBold().WithFg(Black).On(BrightYellow)
+        case ToastError()   => DefaultStyle().WithBold().WithFg(BrightWhite).On(BrightRed)
     }
 }
 
@@ -141,7 +141,7 @@ func NewStatusBar(left Widget, center Widget, right Widget) StatusBar =
         Left   = left,
         Center = center,
         Right  = right,
-        Style  = DefaultStyle().WithFg(Black()).On(BrightCyan()),
+        Style  = DefaultStyle().WithFg(Black).On(BrightCyan),
     )
 
 // NewStatusBarStyled lets callers pick a custom style — useful for themes.

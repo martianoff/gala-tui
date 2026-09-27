@@ -44,8 +44,8 @@ func TestCursorAtOutsideItsAreaIsIgnored(t T) T =
 func TestCursorTailFollowsTheFrame(t T) T {
     val asking = renderAt(Input("ab", 1, "", true), 5, 1)
     val quiet = renderAt(Text("ab"), 5, 1)
-    val t1 = IsTrue(t, strings.HasSuffix(cursorTail(asking, nil, "x", false, 0, 0), ansiMoveTo(1, 2) + ansiCursorShow()))
-    val t2 = Eq(t1, cursorTail(quiet, nil, "", true, 0, 0), ansiCursorHide())
+    val t1 = IsTrue(t, strings.HasSuffix(cursorTail(asking, nil, "x", false, 0, 0), ansiMoveTo(1, 2) + ansiCursorShow))
+    val t2 = Eq(t1, cursorTail(quiet, nil, "", true, 0, 0), ansiCursorHide)
     return Eq(t2, cursorTail(quiet, nil, "", false, 0, 0), "")
 }
 
@@ -65,7 +65,7 @@ func TestInlineCursorReturnsBeforeTheNextPaint(t T) T {
     val tm = newTerm(8, 4)
     tm.feed(inlineFrameString(frame, 2) + inlineCursorString(frame))
     val t1 = Eq(Eq(t, tm.Cx, 2), tm.Cy, 1)
-    tm.feed(ansiCursorHide() + "\x1b8")
+    tm.feed(ansiCursorHide + "\x1b8")
     return Eq(Eq(t1, tm.Cx, 0), tm.Cy, 0)
 }
 

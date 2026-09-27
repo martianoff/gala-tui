@@ -80,7 +80,7 @@ func ScrollPaneViewStyled(body Widget, state ScrollPaneState, contentH int, show
     // regardless of Offset. The comment claiming the renderer overrode it
     // was wrong — nothing did.
     val bar = ScrollbarAt(contentH, 0, state.Offset,
-        DefaultStyle().WithFg(BrightWhite()), ScrollbarVerticalRight())
+        DefaultStyle().WithFg(BrightWhite), ScrollbarVerticalRight())
     return Row(ArrayOf[LayoutChild](
         Flex(1, viewport),
         Fixed(1, bar),

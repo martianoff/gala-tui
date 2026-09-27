@@ -94,7 +94,7 @@ func TestToastViewErrorIsRedBackground(t T) T {
     q = q.PushError("oops", epoch(), Seconds(int64(1)))
     val buf = NewBuffer(20, 1)
     RenderTo(ToastView(q), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Bg, BrightRed()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Bg, BrightRed))
 }
 
 func TestToastStackViewRendersAllToasts(t T) T {
@@ -132,5 +132,5 @@ func TestStatusBarBackgroundStyled(t T) T {
     val buf = NewBuffer(20, 1)
     RenderTo(StatusBarView(bar), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     // Whole row has the cyan background.
-    return IsTrue(t, ColorEq(buf.StyleAt(10, 0).Bg, BrightCyan()))
+    return IsTrue(t, ColorEq(buf.Get(10, 0).St.Bg, BrightCyan))
 }

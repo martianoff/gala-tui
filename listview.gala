@@ -72,7 +72,7 @@ func (l ListSpec) WithScrollPadding(n int) ListSpec = l.Copy(ScrollPadding = n)
 func SelectListView(l ListSpec) Widget = ListW(
     Items            = l.Items,
     Selected         = l.Selected,
-    SelStyle         = if (l.Focused) DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+    SelStyle         = if (l.Focused) DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow)
                        else DefaultStyle().WithReverse(),
     Offset           = l.Offset,
     Direction        = l.Direction,

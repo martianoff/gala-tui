@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
     "strconv"
     . "martianoff/gala/go_interop"
@@ -136,13 +137,13 @@ func isFinalByte(f rune) bool = (f >= 'A' && f <= 'Z') || (f >= 'a' && f <= 'z')
 
 // cursorTo applies `ESC[row;colH`, whose parameters are 1-based.
 func (tm *vt) cursorTo(body string) {
-    val rs = ToRunes(body)
-    val semi = ArrayFromSlice(rs).LastIndexOf(';')
-    if semi > 0 {
-        tm.Cy = decodeInt(runeRange(rs, 0, semi)) - 1
-        tm.Cx = decodeInt(runeRange(rs, semi + 1, rs.Size())) - 1
+    val s = gs.S(body)
+    s.LastIndexOf(";").Filter((semi) => semi > 0).ForEach((semi) => {
+        val (row, col) = s.SplitAt(semi)
+        tm.Cy = decodeInt(row.ToString()) - 1
+        tm.Cx = decodeInt(col.Drop(1).ToString()) - 1
         tm.Pending = false
-    }
+    })
 }
 
 func decodeInt(digits string) int = Try(strconv.Atoi(digits)).GetOrElse(0)

@@ -46,7 +46,7 @@ func HyperlinkEnd() string {
 // widget as `Link`, differing only in its default colour; prefer `Link` in
 // new code.
 func HyperlinkText(label string, url string) Widget =
-    LinkStyled(label, url, DefaultStyle().WithUnderline().WithFg(BrightBlue()))
+    LinkStyled(label, url, DefaultStyle().WithUnderline().WithFg(BrightBlue))
 
 // HyperlinkRaw emits the OSC 8 wrapped string for direct stdout use — e.g.,
 // inside a `Println` call outside the Widget tree, or from a TUI's exit

@@ -10,7 +10,7 @@ import (
 // immutable struct — each builder method returns a new Style with the
 // modified field, so users compose styles fluently:
 //
-//     val s = DefaultStyle().WithFg(Red()).On(Black()).WithBold().WithItalic()
+//     val s = DefaultStyle().WithFg(Red).On(Black).WithBold().WithItalic()
 //
 // Builder methods use a `With` prefix to avoid colliding with the exported
 // fields of the same name (Go forbids a field and a method to share a name
@@ -94,7 +94,7 @@ func DefaultStyle() Style = Style(
     Reverse = false, Dim = false, Blink = false, Strike = false,
     Hidden = false, RapidBlink = false,
     UnderlineColor = DefaultColor(),
-    Link = None[string](),
+    Link = None(),
     Unset = NoAttrs(),
 )
 
@@ -108,7 +108,7 @@ func (s Style) WithFg(c Color) Style = s.Copy(Fg = c)
 // WithBg sets the background color.
 func (s Style) WithBg(c Color) Style = s.Copy(Bg = c)
 
-// On is a readability alias for WithBg: `DefaultStyle().WithFg(Red()).On(Black())`.
+// On is a readability alias for WithBg: `DefaultStyle().WithFg(Red).On(Black)`.
 func (s Style) On(c Color) Style = s.Copy(Bg = c)
 
 // Attribute toggles. Each turns the attribute on, and takes back an earlier
@@ -148,7 +148,7 @@ func (s Style) WithLink(url string) Style = s.Copy(Link = Some(url))
 
 // WithoutLink clears the hyperlink, for deriving an ordinary style from a
 // linked one.
-func (s Style) WithoutLink() Style = s.Copy(Link = None[string]())
+func (s Style) WithoutLink() Style = s.Copy(Link = None())
 
 // Patch layers `over` on top of `s`: every colour `over` sets and every
 // attribute it turns on wins, and everything it leaves at the default keeps
@@ -247,7 +247,7 @@ func (s Style) sgrParts() Array[string] {
 
 // ResetSgr is the universal "reset everything" escape — written before moving
 // to a cell with a radically different style to guarantee a clean slate.
-func ResetSgr() string = "\x1b[0m"
+val ResetSgr = "\x1b[0m"
 
 // StyleEqual reports true when two styles produce identical SGR output.
 // Needed by the buffer renderer to collapse adjacent same-styled cells into

@@ -164,13 +164,13 @@ func TestParseInputMouseRightDragMotion(t T) T {
 // emits motion-while-held packets and drag UX in consumers silently
 // dies.
 func TestAnsiMouseOnIncludesButtonEventTracking(t T) T =
-    IsTrue(t, strings.Contains(ansiMouseOn(), "?1002h"))
+    IsTrue(t, strings.Contains(ansiMouseOn, "?1002h"))
 
 // And ansiMouseOff must disable it on shutdown — orphaned ?1002 mode
 // would leak motion events into whatever shell takes over the
 // terminal after the app exits.
 func TestAnsiMouseOffDisablesButtonEventTracking(t T) T =
-    IsTrue(t, strings.Contains(ansiMouseOff(), "?1002l"))
+    IsTrue(t, strings.Contains(ansiMouseOff, "?1002l"))
 
 // ----------------------------------------------------------------------------
 // MouseButton tag helper — isolates the sealed match so callers don't

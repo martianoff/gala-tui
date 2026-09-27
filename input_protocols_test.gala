@@ -708,7 +708,7 @@ func TestCarryOverCopiesAndIsBounded(t T) T {
     val t1 = Eq(t, ToString(kept), "\x1b[20")
     // Over the ceiling the tail is dropped so a paste that is never closed
     // cannot grow the buffer without bound.
-    val huge = ToBytes(strings.Repeat("x", maxCarryBytes() + 1))
+    val huge = ToBytes(strings.Repeat("x", maxCarryBytes + 1))
     return Eq(t1, carryOver(huge).Size(), 0)
 }
 

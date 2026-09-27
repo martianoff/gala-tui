@@ -51,8 +51,8 @@ func installCleanupGuard(fd int, state *term.State, modesOff string) {
 	go func() {
 		<-sigCh
 		fmt.Fprint(os.Stdout, modesOff)
-		fmt.Fprint(os.Stdout, ansiCursorShow())
-		fmt.Fprint(os.Stdout, ansiAltScreenOff())
+		fmt.Fprint(os.Stdout, ansiCursorShow.Get())
+		fmt.Fprint(os.Stdout, ansiAltScreenOff.Get())
 		_ = term.Restore(fd, state)
 		os.Exit(130)
 	}()

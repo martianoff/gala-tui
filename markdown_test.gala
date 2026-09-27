@@ -119,14 +119,14 @@ func TestMarkdownViewRendersHeading(t T) T {
     val widget = MarkdownView("# Dashboard")
     val buf = NewBuffer(20, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    return IsTrue(t, buf.StyleAt(0, 0).Bold)
+    return IsTrue(t, buf.Get(0, 0).St.Bold)
 }
 
 func TestMarkdownViewHeading1IsCyan(t T) T {
     val widget = MarkdownView("# Title")
     val buf = NewBuffer(10, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, BrightCyan))
 }
 
 func TestMarkdownViewBoldInline(t T) T {
@@ -134,7 +134,7 @@ func TestMarkdownViewBoldInline(t T) T {
     val buf = NewBuffer(30, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
     // "see " → 4 cells, then "important" in bold starting at col 4.
-    return IsTrue(t, buf.StyleAt(4, 0).Bold)
+    return IsTrue(t, buf.Get(4, 0).St.Bold)
 }
 
 func TestMarkdownViewLinkUnderlined(t T) T {
@@ -142,14 +142,14 @@ func TestMarkdownViewLinkUnderlined(t T) T {
     val buf = NewBuffer(30, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
     // "go to " → 6 cells, then "docs" with underline.
-    return IsTrue(t, buf.StyleAt(6, 0).Underline)
+    return IsTrue(t, buf.Get(6, 0).St.Underline)
 }
 
 func TestMarkdownViewBulletHasDotPrefix(t T) T {
     val widget = MarkdownView("- first item")
     val buf = NewBuffer(20, 1)
     RenderTo(widget, Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    return Eq(t, buf.CharAt(1, 0), '•')
+    return Eq(t, buf.Get(1, 0).Ch, '•')
 }
 
 // ----------------------------------------------------------------------------
@@ -279,7 +279,7 @@ func TestBoldSurvivesAWrapOntoTheSecondRow(t T) T {
     // Find "golf" anywhere in the rendered block and assert it is bold.
     val hit = stream.Range(0, 4).Find((y) => strings.Index(RowText(buf, y), "golf") >= 0)
     val found = hit.IsDefined()
-    val bold = hit.Map((y) => buf.StyleAt(strings.Index(RowText(buf, y), "golf"), y).Bold)
+    val bold = hit.Map((y) => buf.Get(strings.Index(RowText(buf, y), "golf"), y).St.Bold)
                   .GetOrElse(false)
     return IsTrue(IsTrue(t, found), bold)
 }
@@ -290,7 +290,7 @@ func TestBoldOnTheFirstRowIsUnaffectedByWrapping(t T) T {
     val src = "**alpha** bravo charlie delta echo foxtrot golf hotel india"
     val buf = NewBuffer(24, 4)
     RenderTo(MarkdownViewAt(src, 24), Rect(X = 0, Y = 0, Width = 24, Height = 4), buf)
-    return IsTrue(t, buf.StyleAt(0, 0).Bold)
+    return IsTrue(t, buf.Get(0, 0).St.Bold)
 }
 
 func TestPlainTextAroundAStyledRunStaysPlain(t T) T {
@@ -298,7 +298,7 @@ func TestPlainTextAroundAStyledRunStaysPlain(t T) T {
     val buf = NewBuffer(24, 4)
     RenderTo(MarkdownViewAt(t1WrapSource(), 24),
              Rect(X = 0, Y = 0, Width = 24, Height = 4), buf)
-    return IsFalse(t, buf.StyleAt(0, 0).Bold)
+    return IsFalse(t, buf.Get(0, 0).St.Bold)
 }
 
 func TestWrappedRowCountStillMatchesTheHeightOracle(t T) T {
@@ -351,5 +351,5 @@ func TestMarkdownLinkCarriesItsUrlAsAHyperlink(t T) T {
              Rect(X = 0, Y = 0, Width = 40, Height = 2), buf)
     val idx = strings.Index(RowText(buf, 0), "docs")
     val t1 = IsTrue(t, idx >= 0)
-    return Eq(t1, LinkUrl(buf.StyleAt(idx, 0)), "https://example.com/x")
+    return Eq(t1, LinkUrl(buf.Get(idx, 0).St), "https://example.com/x")
 }

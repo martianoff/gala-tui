@@ -15,16 +15,16 @@ func TestColorDefaultSgr(t T) T {
 }
 
 func TestColorNamedStandardSgr(t T) T {
-    val t1 = Eq(t, ToSgrFg(Red()), "31")       // 30 + 1
-    val t2 = Eq(t1, ToSgrBg(Red()), "41")      // 40 + 1
-    val t3 = Eq(t2, ToSgrFg(White()), "37")    // 30 + 7
-    return Eq(t3, ToSgrBg(Black()), "40")
+    val t1 = Eq(t, ToSgrFg(Red), "31")       // 30 + 1
+    val t2 = Eq(t1, ToSgrBg(Red), "41")      // 40 + 1
+    val t3 = Eq(t2, ToSgrFg(White), "37")    // 30 + 7
+    return Eq(t3, ToSgrBg(Black), "40")
 }
 
 func TestColorNamedBrightSgr(t T) T {
-    val t1 = Eq(t, ToSgrFg(BrightRed()), "91")    // 90 + 1
-    val t2 = Eq(t1, ToSgrBg(BrightRed()), "101")  // 100 + 1
-    return Eq(t2, ToSgrFg(BrightWhite()), "97")
+    val t1 = Eq(t, ToSgrFg(BrightRed), "91")    // 90 + 1
+    val t2 = Eq(t1, ToSgrBg(BrightRed), "101")  // 100 + 1
+    return Eq(t2, ToSgrFg(BrightWhite), "97")
 }
 
 func TestColorIndexedSgr(t T) T {
@@ -38,8 +38,8 @@ func TestColorRGBSgr(t T) T {
 }
 
 func TestColorEq(t T) T {
-    val t1 = IsTrue(t, ColorEq(Red(), Red()))
-    val t2 = IsFalse(t1, ColorEq(Red(), Green()))
+    val t1 = IsTrue(t, ColorEq(Red, Red))
+    val t2 = IsFalse(t1, ColorEq(Red, Green))
     return IsTrue(t2, ColorEq(RGB(10, 20, 30), RGB(10, 20, 30)))
 }
 
@@ -56,20 +56,20 @@ func TestStyleBoldEmits(t T) T {
 }
 
 func TestStyleFgEmits(t T) T {
-    return Eq(t, DefaultStyle().WithFg(Red()).ToSgr(), "\x1b[31m")
+    return Eq(t, DefaultStyle().WithFg(Red).ToSgr(), "\x1b[31m")
 }
 
 func TestStyleFluentOrderIndependent(t T) T {
-    val a = DefaultStyle().WithBold().WithFg(Red()).WithItalic()
-    val b = DefaultStyle().WithItalic().WithFg(Red()).WithBold()
+    val a = DefaultStyle().WithBold().WithFg(Red).WithItalic()
+    val b = DefaultStyle().WithItalic().WithFg(Red).WithBold()
     // Attribute order in SGR is canonical (Bold;Italic;Fg), so two equivalent
     // styles produce IDENTICAL output regardless of builder-call order.
     return Eq(t, a.ToSgr(), b.ToSgr())
 }
 
 func TestStyleEqualIgnoresBuilderOrder(t T) T {
-    val a = DefaultStyle().WithBold().WithFg(Red()).On(Black()).WithItalic().WithUnderline()
-    val b = DefaultStyle().WithUnderline().WithItalic().On(Black()).WithFg(Red()).WithBold()
+    val a = DefaultStyle().WithBold().WithFg(Red).On(Black).WithItalic().WithUnderline()
+    val b = DefaultStyle().WithUnderline().WithItalic().On(Black).WithFg(Red).WithBold()
     return IsTrue(t, StyleEqual(a, b))
 }
 
@@ -86,29 +86,20 @@ func TestStyleAllAttributes(t T) T {
 
 // ============================================================================
 // Buffer tests — primitive ops and ANSI-rendering correctness.
-//
-// We compare single-rune values by rendering to a single-char string with
-// `CellChar` — avoids an Immutable[rune] vs rune unification issue at the Eq
-// call site (see BUG-gala_tui-009).
 // ============================================================================
-
-// CellChar renders the cell at (x, y) as a one-rune string. Uses the raw-rune
-// accessor CharAt on Buffer to avoid Immutable[rune] unification issues inside
-// Eq (see BUG-gala_tui-009).
-func CellChar(b *Buffer, x int, y int) string = string(b.CharAt(x, y))
 
 func TestNewBufferEmpty(t T) T {
     var b = NewBuffer(5, 3)
     val t1 = Eq(t, b.Width, 5)
     val t2 = Eq(t1, b.Height, 3)
-    return Eq(t2, CellChar(b, 0, 0), " ")
+    return Eq(t2, b.Get(0, 0).Ch, ' ')
 }
 
 func TestBufferSetGetRoundtrip(t T) T {
     var b = NewBuffer(4, 2)
     b.Set(2, 1, Cell(Ch = 'x', St = DefaultStyle().WithBold()))
-    val t1 = Eq(t, CellChar(b, 2, 1), "x")
-    return IsTrue(t1, b.StyleAt(2, 1).Bold)
+    val t1 = Eq(t, b.Get(2, 1).Ch, 'x')
+    return IsTrue(t1, b.Get(2, 1).St.Bold)
 }
 
 func TestBufferSetOutOfBoundsIsNoOp(t T) T {
@@ -119,15 +110,15 @@ func TestBufferSetOutOfBoundsIsNoOp(t T) T {
     b.Set(2, 0, Cell(Ch = 'z', St = DefaultStyle()))
     b.Set(0, 2, Cell(Ch = 'z', St = DefaultStyle()))
     // The buffer must be unchanged.
-    return Eq(t, CellChar(b, 0, 0), " ")
+    return Eq(t, b.Get(0, 0).Ch, ' ')
 }
 
 func TestBufferDrawText(t T) T {
     var b = NewBuffer(10, 1)
     val advanced = b.DrawText(0, 0, "Hello", DefaultStyle())
     val t1 = Eq(t, advanced, 5)
-    val t2 = Eq(t1, CellChar(b, 0, 0), "H")
-    return Eq(t2, CellChar(b, 4, 0), "o")
+    val t2 = Eq(t1, b.Get(0, 0).Ch, 'H')
+    return Eq(t2, b.Get(4, 0).Ch, 'o')
 }
 
 func TestBufferDrawTextClipsRight(t T) T {
@@ -136,8 +127,8 @@ func TestBufferDrawTextClipsRight(t T) T {
     // `advanced` equals the input length even when cells were clipped — the
     // return is "how many columns I wanted to occupy," not "how many I did."
     val t1 = Eq(t, advanced, 5)
-    val t2 = Eq(t1, CellChar(b, 0, 0), "H")
-    val t3 = Eq(t2, CellChar(b, 2, 0), "l")
+    val t2 = Eq(t1, b.Get(0, 0).Ch, 'H')
+    val t3 = Eq(t2, b.Get(2, 0).Ch, 'l')
     // Cell at x=3 would be out of bounds and was dropped silently.
     return Eq(t3, b.Width, 3)
 }
@@ -145,16 +136,16 @@ func TestBufferDrawTextClipsRight(t T) T {
 func TestBufferFillRect(t T) T {
     var b = NewBuffer(5, 3)
     b.Fill(Rect(X = 1, Y = 1, Width = 2, Height = 1), Cell(Ch = '#', St = DefaultStyle()))
-    val t1 = Eq(t, CellChar(b, 0, 0), " ")   // unchanged
-    val t2 = Eq(t1, CellChar(b, 1, 1), "#")
-    val t3 = Eq(t2, CellChar(b, 2, 1), "#")
-    return Eq(t3, CellChar(b, 3, 1), " ")    // outside fill
+    val t1 = Eq(t, b.Get(0, 0).Ch, ' ')   // unchanged
+    val t2 = Eq(t1, b.Get(1, 1).Ch, '#')
+    val t3 = Eq(t2, b.Get(2, 1).Ch, '#')
+    return Eq(t3, b.Get(3, 1).Ch, ' ')    // outside fill
 }
 
 func TestBufferFillZeroRectIsNoOp(t T) T {
     var b = NewBuffer(3, 3)
     b.Fill(Rect(X = 0, Y = 0, Width = 0, Height = 3), Cell(Ch = 'X', St = DefaultStyle()))
-    return Eq(t, CellChar(b, 0, 0), " ")
+    return Eq(t, b.Get(0, 0).Ch, ' ')
 }
 
 func TestBufferCloneIsIndependent(t T) T {
@@ -162,8 +153,8 @@ func TestBufferCloneIsIndependent(t T) T {
     b.DrawText(0, 0, "abc", DefaultStyle())
     val copy = b.Clone()
     b.Set(0, 0, Cell(Ch = 'Z', St = DefaultStyle()))
-    val t1 = Eq(t, CellChar(b, 0, 0), "Z")
-    return Eq(t1, CellChar(copy, 0, 0), "a")
+    val t1 = Eq(t, b.Get(0, 0).Ch, 'Z')
+    return Eq(t1, copy.Get(0, 0).Ch, 'a')
 }
 
 func TestBufferEqual(t T) T {
@@ -186,7 +177,7 @@ func TestBufferStringPlain(t T) T {
 
 func TestBufferStringStyledRun(t T) T {
     var b = NewBuffer(5, 1)
-    val red = DefaultStyle().WithFg(Red())
+    val red = DefaultStyle().WithFg(Red)
     b.DrawText(0, 0, "hello", red)
     val out = b.String()
     // Style change happens exactly once at the start of the row.

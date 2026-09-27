@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     "os"
     "strings"
     . "martianoff/gala/collection_immutable"
@@ -55,7 +56,7 @@ func FileBrowserOpen(path string) FileBrowser {
         Cwd      = path,
         Entries  = entries,
         Selected = 0,
-        Picked   = None[string](),
+        Picked   = None(),
     )
 }
 
@@ -119,7 +120,7 @@ func fbEnter(b FileBrowser) FileBrowser {
         return FileBrowserOpen(joinPath(b.Cwd, entry.Name))
     }
     // File picked — set Picked and leave the rest unchanged.
-    return b.Copy(Picked = Some[string](joinPath(b.Cwd, entry.Name)))
+    return b.Copy(Picked = Some(joinPath(b.Cwd, entry.Name)))
 }
 
 func fbAscend(b FileBrowser) FileBrowser {
@@ -137,7 +138,7 @@ func fbAscend(b FileBrowser) FileBrowser {
 //
 // `focused` (default false) brightens the cursor row.
 func FileBrowserView(b FileBrowser, focused bool = false) Widget {
-    val header = TextStyled(" 📁 " + b.Cwd, DefaultStyle().WithBold().WithFg(BrightCyan()))
+    val header = TextStyled(" 📁 " + b.Cwd, DefaultStyle().WithBold().WithFg(BrightCyan))
     val rows = b.Entries.ZipWithIndex().Map((pair) =>
         Fixed(1, fbRowWidget(pair.V1, pair.V2 == b.Selected, focused)))
     return Column(ArrayOf[LayoutChild](
@@ -150,11 +151,11 @@ func FileBrowserView(b FileBrowser, focused bool = false) Widget {
 func fbRowWidget(entry FileEntry, selected bool, focused bool) Widget {
     val icon = if (entry.IsDir) " 📁 " else "    "
     val nameStyle = if (selected && focused)
-        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow)
     else if (selected)
         DefaultStyle().WithReverse().WithBold()
     else if (entry.IsDir)
-        DefaultStyle().WithBold().WithFg(BrightBlue())
+        DefaultStyle().WithBold().WithFg(BrightBlue)
     else
         DefaultStyle()
     return TextStyled(icon + entry.Name, nameStyle)
@@ -177,7 +178,7 @@ func joinPath(dir string, name string) string {
 // segment after the last separator. Returns the path unchanged if it's
 // already a root.
 func parentPath(path string) string {
-    val rs = stringRunes(path)
+    val rs = gs.S(path).ToChars()
     val lastSep = MaxInt(rs.LastIndexOf('/'), rs.LastIndexOf('\\'))
     if lastSep < 0 { return path }
     if lastSep == 0 { return "/" }

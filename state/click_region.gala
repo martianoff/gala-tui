@@ -134,7 +134,7 @@ func (cm ClickMap[T]) When(
 func (cm ClickMap[T]) HitMsg(px int, py int) Option[T] {
     val hit = cm.Regions.Find((r) => clickContains(r, px, py))
     return hit match {
-        case Some(r) => Some[T](r.Msg)
+        case Some(r) => Some(r.Msg)
         case None()  => None[T]()
     }
 }

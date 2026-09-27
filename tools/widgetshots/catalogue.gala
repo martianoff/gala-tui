@@ -4,6 +4,7 @@ import (
     . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
+    . "martianoff/gala/time_utils"
 )
 
 // ============================================================================
@@ -45,7 +46,7 @@ func shotPrimitives() Widget =
         Fixed(1, Text("Text — plain, unstyled")),
         Fixed(1, TextStyled("TextStyled — bold", DefaultStyle().WithBold())),
         Fixed(1, TextStyled("TextStyled — dim", DefaultStyle().WithDim())),
-        Fixed(1, TextStyled("TextStyled — colour", DefaultStyle().WithFg(BrightCyan()))),
+        Fixed(1, TextStyled("TextStyled — colour", DefaultStyle().WithFg(BrightCyan))),
         Fixed(1, TextStyled(" TextStyled — reverse ", DefaultStyle().WithReverse())),
         Fixed(1, ParagraphStyled(
             "Paragraph wraps on word boundaries when the line runs past the width it was given.",
@@ -85,10 +86,10 @@ func shotRichText() Widget =
                 SpanOf("build "),
                 SpanStyled("#4211", DefaultStyle().WithBold()),
                 SpanOf(" finished "),
-                SpanStyled("green", DefaultStyle().WithFg(BrightGreen()).WithBold())),
+                SpanStyled("green", DefaultStyle().WithFg(BrightGreen).WithBold())),
             LineOfSpans(
                 SpanStyled("one line, ", DefaultStyle().WithDim()),
-                SpanStyled("many styles", DefaultStyle().WithFg(BrightMagenta()))),
+                SpanStyled("many styles", DefaultStyle().WithFg(BrightMagenta))),
         )))),
         Fixed(1, Text("")),
         // ParagraphView: the same kind of styled runs, wrapped to the box and
@@ -96,11 +97,11 @@ func shotRichText() Widget =
         Fixed(5, Titled(ParagraphView(ParagraphOf(RichTextOfLines(LineOfSpans(
             SpanStyled("Deploy blocked. ", DefaultStyle().WithBold()),
             SpanOf("Two checks are failing on "),
-            SpanStyled("main", DefaultStyle().WithFg(BrightCyan())),
+            SpanStyled("main", DefaultStyle().WithFg(BrightCyan)),
             SpanOf(" — "),
-            SpanStyled("lint", DefaultStyle().WithFg(BrightRed())),
+            SpanStyled("lint", DefaultStyle().WithFg(BrightRed)),
             SpanOf(" and "),
-            SpanStyled("integration-tests", DefaultStyle().WithFg(BrightRed())),
+            SpanStyled("integration-tests", DefaultStyle().WithFg(BrightRed)),
             SpanOf(". Re-run them or merge with admin."),
         ))).Aligned(AlignCenter())), " ParagraphView — wrapped, centred ")),
     ))
@@ -112,7 +113,7 @@ func shotCanvas() Widget {
     val xs = ArrayTabulate(n, (i) => float64(i))
     val ys = demoSeries().Map((v) => float64(v))
     val area = (m CanvasMarker) => Canvas(XBounds(0.0, float64(n - 1)), YBounds(0.0, 64.0), m,
-        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan())))
+        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan)))
     return Row(ArrayOf[LayoutChild](
         Flex(2, Titled(area(BrailleMarker()), " FilledSeriesOf — braille 2x4 ")),
         Flex(1, Titled(area(SextantMarker()), " sextant 2x3 ")),
@@ -127,7 +128,7 @@ func shotCharts() Widget =
             // The same samples as amounts: a Chart dataset drawn as bars.
             Flex(1, Titled(Chart(ArrayOf[ChartDataset](DatasetBars("", demoSeries().Drop(18)
                     .ZipWithIndex().Map((p) => CanvasPoint(X = float64(p.V2), Y = float64(p.V1))),
-                    DefaultStyle().WithFg(BrightCyan()))),
+                    DefaultStyle().WithFg(BrightCyan))),
                 AxisBare(XBounds(-0.5, 11.5)), AxisBare(YBounds(0.0, 70.0))), " Chart — bars ")),
         ))),
         Fixed(1, LineGauge(64)),
@@ -160,8 +161,8 @@ func shotCharts() Widget =
     ))
 
 func demoBarGroups() Array[BarGroup] {
-    val pass = DefaultStyle().WithFg(BrightGreen())
-    val fail = DefaultStyle().WithFg(BrightRed())
+    val pass = DefaultStyle().WithFg(BrightGreen)
+    val fail = DefaultStyle().WithFg(BrightRed)
     val team = (name string, passed int, failed int) => BarGroupOf(name, ArrayOf[Bar](
         BarOf("ok", passed).WithStyle(pass),
         BarOf("err", failed).WithStyle(fail)))
@@ -204,9 +205,9 @@ func shotTableSpec() TableSpec {
     return TableSpecOf(
         ArrayOf[Constraint](Length(14), Length(7), Length(7), Fill(1)),
         ArrayOf[TableRow](
-            TableRowOf(CellOf("us-east-1"), num("400"), num("318"), state("ok", BrightGreen())),
-            TableRowOf(CellOf("eu-west-1"), num("250"), num("241"), state("near limit", BrightYellow())),
-            TableRowOf(CellOf("af-south-1"), num("100"), num("0"), state("unused", BrightBlack())),
+            TableRowOf(CellOf("us-east-1"), num("400"), num("318"), state("ok", BrightGreen)),
+            TableRowOf(CellOf("eu-west-1"), num("250"), num("241"), state("near limit", BrightYellow)),
+            TableRowOf(CellOf("af-south-1"), num("100"), num("0"), state("unused", BrightBlack)),
         ))
         .WithHeader(TableRowOf(CellOf("region"), num("quota"), num("used"), CellOf("state")).WithStyle(bold))
         .WithFooter(TableRowOf(CellOf("total"), num("750"), num("559"), CellOf("75% used")).WithStyle(bold))
@@ -282,8 +283,8 @@ func shotNavigation() Widget =
         Fixed(1, Tabs(ArrayOf[string]("Running", "Succeeded", "Failed"),
             ArrayOf[Widget](Empty(), Empty(), Empty()), 1, false, "·",
             DefaultTabBarStyle()
-                .WithSelected(DefaultStyle().WithBold().WithFg(Black()).On(BrightCyan()))
-                .WithNormal(DefaultStyle().WithFg(BrightCyan()))
+                .WithSelected(DefaultStyle().WithBold().WithFg(Black).On(BrightCyan))
+                .WithNormal(DefaultStyle().WithFg(BrightCyan))
                 .WithPadding(2))),
         Fixed(6, Row(ArrayOf[LayoutChild](
             Flex(1, Titled(MenuView(NewMenu(ArrayOf[MenuItem](
@@ -315,9 +316,9 @@ func shotMarkdown() Widget =
 func shotChrome() Widget =
     Column(ArrayOf[LayoutChild](
         Fixed(1, Row(ArrayOf[LayoutChild](
-            Fixed(12, Tag(" passing ", BrightGreen())),
-            Fixed(12, Tag(" 0.12.0 ", BrightCyan())),
-            Fixed(12, Tag(" flaky ", BrightYellow())),
+            Fixed(12, Tag(" passing ", BrightGreen)),
+            Fixed(12, Tag(" 0.12.0 ", BrightCyan)),
+            Fixed(12, Tag(" flaky ", BrightYellow)),
             Flex(1, Empty()),
         ))),
         Fixed(1, Text("")),
@@ -334,7 +335,7 @@ func shotIndicators() Widget =
         Fixed(1, Row(ArrayOf[LayoutChild](
             Fixed(14, Spinner(BrailleSpinner(), 3)),
             Fixed(14, Spinner(DotsSpinner(), 1)),
-            Flex(1, Pulse(4, BrightGreen())),
+            Flex(1, Pulse(4, BrightGreen)),
         ))),
         Fixed(1, Text("")),
         Fixed(3, EmptyStateHinted("(empty)", "No builds yet", "Push a commit to start one")),
@@ -370,8 +371,8 @@ func shotDomain() Widget =
     Row(ArrayOf[LayoutChild](
         // Monday-first, with two release days marked.
         Flex(1, Titled(CalendarView(NewCalendarAt(2026, 9, 22).StartingMonday()
-            .Mark(2026, 9, 8, DefaultStyle().WithFg(BrightGreen()))
-            .Mark(2026, 9, 29, DefaultStyle().WithFg(BrightGreen())), true), " CalendarView ")),
+            .Mark(2026, 9, 8, DefaultStyle().WithFg(BrightGreen))
+            .Mark(2026, 9, 29, DefaultStyle().WithFg(BrightGreen)), true), " CalendarView ")),
         Flex(1, Titled(TreeFocused(shotTree(), 2, true), " Tree ")),
     ))
 

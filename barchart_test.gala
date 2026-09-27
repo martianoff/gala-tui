@@ -83,24 +83,24 @@ func TestZeroBarPrintsItsValueOnTheBaseline(t T) T {
 
 // An unstyled bar takes the chart's style; a styled one keeps its own.
 func TestBarStyleOverridesTheChartStyle(t T) T {
-    val chart = DefaultStyle().WithFg(Blue())
-    val w = BarChartOf(oneGroup(ArrayOf[Bar](BarOf("", 1), BarOf("", 1).WithStyle(DefaultStyle().WithFg(Red())))),
+    val chart = DefaultStyle().WithFg(Blue)
+    val w = BarChartOf(oneGroup(ArrayOf[Bar](BarOf("", 1), BarOf("", 1).WithStyle(DefaultStyle().WithFg(Red)))),
                        chart, narrowBars())
     val buf = renderAt(w, 3, 2)
-    val t1 = Eq(t, buf.StyleAt(0, 1).Fg, Blue())
-    return Eq(t1, buf.StyleAt(2, 1).Fg, Red())
+    val t1 = Eq(t, buf.Get(0, 1).St.Fg, Blue)
+    return Eq(t1, buf.Get(2, 1).St.Fg, Red)
 }
 
 // Dimming a pane dims its bar chart — bars with their own style included —
 // through the fluent path, which is why the chart is a Widget case rather
 // than a CustomW: `restyleLeaves` passes a CustomW through untouched.
 func TestBarChartRestylesWithItsPane(t T) T {
-    val w = BarChartOf(oneGroup(ArrayOf[Bar](BarOf("", 1), BarOf("", 1).WithStyle(DefaultStyle().WithFg(Red())))),
+    val w = BarChartOf(oneGroup(ArrayOf[Bar](BarOf("", 1), BarOf("", 1).WithStyle(DefaultStyle().WithFg(Red)))),
                        DefaultStyle(), narrowBars()).WithDim()
     val buf = renderAt(w, 3, 2)
-    val t1 = IsTrue(t, buf.StyleAt(0, 1).Dim)
-    val t2 = IsTrue(t1, buf.StyleAt(2, 1).Dim)
-    return Eq(t2, buf.StyleAt(2, 1).Fg, Red())
+    val t1 = IsTrue(t, buf.Get(0, 1).St.Dim)
+    val t2 = IsTrue(t1, buf.Get(2, 1).St.Dim)
+    return Eq(t2, buf.Get(2, 1).St.Fg, Red)
 }
 
 func TestEmptyBarChartIsEmpty(t T) T =

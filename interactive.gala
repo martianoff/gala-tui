@@ -125,7 +125,7 @@ func SpinnerGlyph(kind SpinnerKind, frame int) rune {
 // looked like a widget that had failed to render. `Progress` has always
 // drawn its track (`[░░░░░░]`), and two bar widgets in one library should
 // not disagree about whether "nothing done yet" is visible.
-func gaugeTrack() rune = '░'
+val gaugeTrack = '░'
 
 // renderGauge returns a width-wide bar where the last partial cell uses a
 // sub-cell Unicode block — much smoother than the integer-only progress bar
@@ -144,7 +144,7 @@ func renderGauge(percent int, width int) string {
     // would spend a cell on a glyph indistinguishable from the track.
     val partial = if (remainder > 0 && fullCells < width) string(gaugeEighthRune(remainder)) else ""
     val trackCells = width - fullCells - partial.Size()
-    return repeatRune('█', fullCells) + partial + repeatRune(gaugeTrack(), trackCells)
+    return repeatRune('█', fullCells) + partial + repeatRune(gaugeTrack, trackCells)
 }
 
 // gaugeEighthRune maps an eighths-of-cell fill count (1..7) to its Unicode
@@ -153,7 +153,7 @@ func renderGauge(percent int, width int) string {
 // there instead — so callers pass 1..7 and anything at or above 8 is a
 // full block.
 func gaugeEighthRune(eighths int) rune {
-    if eighths <= 0 { return gaugeTrack() }
+    if eighths <= 0 { return gaugeTrack }
     if eighths == 1 { return '▏' }
     if eighths == 2 { return '▎' }
     if eighths == 3 { return '▍' }
@@ -182,7 +182,7 @@ func gaugeEighthRune(eighths int) rune {
 // ----------------------------------------------------------------------------
 
 // lineGaugeFilled is the glyph for the completed run of a LineGauge.
-func lineGaugeFilled() rune = '━'
+val lineGaugeFilled = '━'
 
 // lineGaugeHead is the boundary glyph, drawn when the fill ends inside a
 // cell rather than on its edge: U+257E, heavy on its left half and light on
@@ -194,12 +194,12 @@ func lineGaugeFilled() rune = '━'
 // It is deliberately not the same picture as a full cell: rounding a fill up
 // to `━` would let 99% paint the same rule as 100%, and "done" is the one
 // state a progress widget must never claim early.
-func lineGaugeHead() rune = '╾'
+val lineGaugeHead = '╾'
 
 // lineGaugeTrack is the glyph for the remainder — the same rule, drawn
 // light, so the gauge's full extent is visible at 0% exactly as `Gauge`'s
 // `░` track is.
-func lineGaugeTrack() rune = '─'
+val lineGaugeTrack = '─'
 
 // lineGaugeMinRule is the narrowest rule worth drawing *next to a label*.
 // Below four cells a rule cannot show a position — every percentage rounds
@@ -211,7 +211,7 @@ func lineGaugeTrack() rune = '─'
 // width it is given, because the alternative is a blank row, and a widget
 // that renders as nothing is the failure `gaugeTrack` was introduced to
 // eliminate.
-func lineGaugeMinRule() int = 4
+val lineGaugeMinRule = 4
 
 // lineGaugeCaptionWidth is the fixed slot `LineGauge`'s own percentage is
 // right-aligned into: four columns, enough for "100%".
@@ -223,7 +223,7 @@ func lineGaugeMinRule() int = 4
 // width a terminal can hold, 99% and 100% would paint the same number of
 // heavy cells. The most important transition the widget has would render as
 // a sideways slide with no forward motion.
-func lineGaugeCaptionWidth() int = 4
+val lineGaugeCaptionWidth = 4
 
 // lineGaugeLabelWidth is the columns a label claims, including the single
 // space that separates it from the rule. An empty label claims nothing, so
@@ -233,7 +233,7 @@ func lineGaugeLabelWidth(label string) int =
 
 // lineGaugeCaption right-aligns a percentage into `lineGaugeCaptionWidth`.
 func lineGaugeCaption(percent int) string =
-    padLeftToCells(s"${clampPct(percent)}%", lineGaugeCaptionWidth())
+    padLeftToCells(s"${clampPct(percent)}%", lineGaugeCaptionWidth)
 
 // renderLineGaugeRule paints `area`'s first row as rule: the completed run,
 // then the boundary cell when the fill ends mid-cell, then the track.
@@ -258,11 +258,11 @@ func renderLineGaugeRule(percent int, filled Style, unfilled Style, area Rect, b
     // Cell, so a change to the fill rule cannot reach the glyph and miss the
     // colour.
     buf.Fill(Rect(X = area.X, Y = area.Y, Width = full, Height = 1),
-        Cell(Ch = lineGaugeFilled(), St = filled))
+        Cell(Ch = lineGaugeFilled, St = filled))
     if head {
-        buf.Set(area.X + full, area.Y, Cell(Ch = lineGaugeHead(), St = filled))
+        buf.Set(area.X + full, area.Y, Cell(Ch = lineGaugeHead, St = filled))
     }
     buf.Fill(Rect(X = area.X + full + headCells, Y = area.Y, Width = area.Width - full - headCells, Height = 1),
-        Cell(Ch = lineGaugeTrack(), St = unfilled))
+        Cell(Ch = lineGaugeTrack, St = unfilled))
 }
 

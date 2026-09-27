@@ -54,10 +54,10 @@ func DiffViewStats(lines Array[DiffLine]) Widget {
     val summary = Row(ArrayOf[LayoutChild](
         Fixed(RuneCount(s"+${counts.Added}") + 1,
             TextStyled(s"+${counts.Added} ",
-                DefaultStyle().WithBold().WithFg(BrightGreen()))),
+                DefaultStyle().WithBold().WithFg(BrightGreen))),
         Fixed(RuneCount(s"-${counts.Removed}") + 1,
             TextStyled(s"-${counts.Removed} ",
-                DefaultStyle().WithBold().WithFg(BrightRed()))),
+                DefaultStyle().WithBold().WithFg(BrightRed))),
         Fixed(RuneCount(s"~${counts.Context}") + 1,
             TextStyled(s"~${counts.Context} ",
                 DefaultStyle().WithDim())),
@@ -75,10 +75,10 @@ func diffLineWidget(line DiffLine) Widget {
             TextStyled("  " + text, DefaultStyle().WithDim())
         case DiffAdded(text)    =>
             TextStyled("+ " + text,
-                DefaultStyle().WithFg(BrightGreen()))
+                DefaultStyle().WithFg(BrightGreen))
         case DiffRemoved(text)  =>
             TextStyled("- " + text,
-                DefaultStyle().WithFg(BrightRed()))
+                DefaultStyle().WithFg(BrightRed))
     }
 }
 

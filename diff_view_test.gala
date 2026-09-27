@@ -25,7 +25,7 @@ func TestDiffViewAddedLineIsBrightGreen(t T) T {
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     val row = RowText(buf, 0)
     val t1 = IsTrue(t, strings.Contains(row, "+ added line"))
-    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightGreen()))
+    return IsTrue(t1, ColorEq(buf.Get(0, 0).St.Fg, BrightGreen))
 }
 
 func TestDiffViewRemovedLineIsBrightRed(t T) T {
@@ -36,7 +36,7 @@ func TestDiffViewRemovedLineIsBrightRed(t T) T {
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     val row = RowText(buf, 0)
     val t1 = IsTrue(t, strings.Contains(row, "- removed line"))
-    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightRed()))
+    return IsTrue(t1, ColorEq(buf.Get(0, 0).St.Fg, BrightRed))
 }
 
 func TestDiffViewContextIsDim(t T) T {
@@ -47,7 +47,7 @@ func TestDiffViewContextIsDim(t T) T {
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     val t1 = IsTrue(t, strings.Contains(RowText(buf, 0), "  context line"))
     // Dim attribute on the prefix cell.
-    return IsTrue(t1, buf.StyleAt(2, 0).Dim)
+    return IsTrue(t1, buf.Get(2, 0).St.Dim)
 }
 
 func TestDiffViewMixedRendersAllLines(t T) T {
@@ -90,5 +90,5 @@ func TestDiffViewStatsAddedCountIsGreen(t T) T {
         DiffAdded(Text = "x"),
     )),
         Rect(X = 0, Y = 0, Width = 40, Height = 6), buf)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightGreen()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, BrightGreen))
 }

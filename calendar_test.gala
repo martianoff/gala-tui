@@ -103,7 +103,7 @@ func TestCalendarViewSelectedDayIsReverse(t T) T {
     // Walk the grid until we find a reverse cell — at least one cell
     // (the selected day) should be reverse-styled.
     val found = stream.Range(2, 8).Exists((y) =>
-        stream.Range(0, 30).Exists((x) => buf.StyleAt(x, y).Reverse))
+        stream.Range(0, 30).Exists((x) => buf.Get(x, y).St.Reverse))
     return IsTrue(t, found)
 }
 
@@ -137,17 +137,17 @@ func TestCalendarStartingMondayShiftsTheGrid(t T) T {
 
 // A marked date draws in its own style; an unmarked one does not.
 func TestCalendarMarkedDateTakesItsStyle(t T) T {
-    val buf = calendarAt(NewCalendarAt(2026, 4, 15).Mark(2026, 4, 20, DefaultStyle().WithFg(Red())))
-    val t1 = Eq(t, strings.TrimSpace(string(ArrayTabulate(3, (i) => buf.CharAt(3 + i, 5)).ToGoSlice())), "20")
-    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(4, 5).Fg, Red()))
-    return IsTrue(t2, ColorEq(buf.StyleAt(7, 5).Fg, DefaultColor()))
+    val buf = calendarAt(NewCalendarAt(2026, 4, 15).Mark(2026, 4, 20, DefaultStyle().WithFg(Red)))
+    val t1 = Eq(t, strings.TrimSpace(string(ArrayTabulate(3, (i) => buf.Get(3 + i, 5).Ch).ToGoSlice())), "20")
+    val t2 = IsTrue(t1, ColorEq(buf.Get(4, 5).St.Fg, Red))
+    return IsTrue(t2, ColorEq(buf.Get(7, 5).St.Fg, DefaultColor()))
 }
 
 // The selection is drawn over a mark rather than instead of it.
 func TestCalendarSelectedMarkedDateKeepsItsMark(t T) T {
-    val buf = calendarAt(NewCalendarAt(2026, 4, 15).Mark(2026, 4, 15, DefaultStyle().WithFg(Red())))
-    val t1 = IsTrue(t, buf.StyleAt(10, 4).Reverse)
-    return IsTrue(t1, ColorEq(buf.StyleAt(10, 4).Fg, Red()))
+    val buf = calendarAt(NewCalendarAt(2026, 4, 15).Mark(2026, 4, 15, DefaultStyle().WithFg(Red)))
+    val t1 = IsTrue(t, buf.Get(10, 4).St.Reverse)
+    return IsTrue(t1, ColorEq(buf.Get(10, 4).St.Fg, Red))
 }
 
 // Marks are on dates: paging away and back keeps them, and Unmark drops one.

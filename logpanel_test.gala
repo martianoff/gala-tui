@@ -73,7 +73,7 @@ func TestLogPanelViewEmptyShowsHint(t T) T {
     val buf = NewBuffer(30, 1)
     RenderTo(LogPanelView(NewLogPanel(5)),
         Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
-    return Eq(t, buf.CharAt(0, 0), '(')
+    return Eq(t, buf.Get(0, 0).Ch, '(')
 }
 
 func TestLogPanelViewShowsEachLine(t T) T {
@@ -82,8 +82,8 @@ func TestLogPanelViewShowsEachLine(t T) T {
     p = p.AppendAt(LogError(), "boom",  zeroInstant())
     val buf = NewBuffer(30, 3)
     RenderTo(LogPanelView(p), Rect(X = 0, Y = 0, Width = 30, Height = 3), buf)
-    val t1 = Eq(t, buf.CharAt(0, 0), 'I')          // INFO prefix
-    return Eq(t1, buf.CharAt(0, 1), 'E')           // ERR prefix
+    val t1 = Eq(t, buf.Get(0, 0).Ch, 'I')          // INFO prefix
+    return Eq(t1, buf.Get(0, 1).Ch, 'E')           // ERR prefix
 }
 
 func TestLogPanelViewErrorLineIsBoldRed(t T) T {
@@ -91,8 +91,8 @@ func TestLogPanelViewErrorLineIsBoldRed(t T) T {
     p = p.AppendAt(LogError(), "bad", zeroInstant())
     val buf = NewBuffer(30, 1)
     RenderTo(LogPanelView(p), Rect(X = 0, Y = 0, Width = 30, Height = 1), buf)
-    val t1 = IsTrue(t, buf.StyleAt(0, 0).Bold)
-    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightRed()))
+    val t1 = IsTrue(t, buf.Get(0, 0).St.Bold)
+    return IsTrue(t1, ColorEq(buf.Get(0, 0).St.Fg, BrightRed))
 }
 
 func TestLogPanelViewTailShowsOnlyLastN(t T) T {

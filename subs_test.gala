@@ -7,11 +7,6 @@ import (
 
 // ============================================================================
 // Subscription + KeyBinding tests.
-//
-// The filed BUG-gala_tui-013 previously made this entire subsystem untestable
-// because `go vet` rejected the auto-generated String() on sealed variants
-// with func fields. PR #212 (sealed.go emits `<fn>` for func fields) closed
-// it, and Sub[T] + KeyBinding[T] compile + test cleanly here.
 // ============================================================================
 
 sealed type TestMsg {

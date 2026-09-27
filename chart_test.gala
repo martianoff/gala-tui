@@ -116,8 +116,8 @@ func TestYLabelGutterWidensForLongLabels(t T) T {
 func TestLegendNamesEverySeriesWhenThereAreTwo(t T) T {
     val c = Chart(
         ArrayOf[ChartDataset](
-            DatasetOf("p50", chartPts(), DefaultStyle().WithFg(BrightGreen())),
-            DatasetOf("p99", chartPts(), DefaultStyle().WithFg(BrightRed())),
+            DatasetOf("p50", chartPts(), DefaultStyle().WithFg(BrightGreen)),
+            DatasetOf("p99", chartPts(), DefaultStyle().WithFg(BrightRed)),
         ),
         AxisBare(XBounds(0.0, 10.0)),
         AxisBare(YBounds(0.0, 10.0)),
@@ -171,7 +171,7 @@ func TestPlotAreaActuallyHasInk(t T) T {
     val buf = NewBuffer(30, 10)
     RenderTo(chartSample(), Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
     val lit = stream.Range(1, 8)
-        .FlatMap((y) => stream.Range(6, 30).Map((x) => buf.CharAt(x, y)))
+        .FlatMap((y) => stream.Range(6, 30).Map((x) => buf.Get(x, y).Ch))
         .Filter((c) => c >= '⠀' && c <= '⣿' && c != '⠀')
         .Count()
     return EqMsg(t, lit > 3, true, s"plot area has only $lit lit cells")
@@ -189,7 +189,7 @@ func TestLineGraphConnectsPointsScatterDoesNot(t T) T {
                        AxisBare(XBounds(0.0, 10.0)), AxisBare(YBounds(0.0, 10.0))),
                  Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
         return stream.Range(0, 6)
-            .FlatMap((y) => stream.Range(1, 24).Map((x) => buf.CharAt(x, y)))
+            .FlatMap((y) => stream.Range(1, 24).Map((x) => buf.Get(x, y).Ch))
             .Filter((c) => c != ' ')
             .Count()
     }
@@ -228,7 +228,7 @@ func TestFlatSeriesDoesNotCollapseOntoAnEdge(t T) T {
     val buf = NewBuffer(24, 8)
     RenderTo(c, Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
     val litRow = stream.Range(0, 6)
-        .IndexWhere((y) => stream.Range(4, 24).Exists((x) => buf.CharAt(x, y) != ' '))
+        .IndexWhere((y) => stream.Range(4, 24).Exists((x) => buf.Get(x, y).Ch != ' '))
     val t1 = EqMsg(t, litRow >= 0, true, "flat series rendered nothing")
     return EqMsg(t1, litRow > 0, true, "flat series collapsed onto the top row")
 }
@@ -249,7 +249,7 @@ func TestChartRestylesWithItsPane(t T) T {
     val buf = NewBuffer(30, 10)
     RenderTo(dimmed, Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
     val found = stream.Range(0, 10).Exists((y) => stream.Range(0, 30).Exists((x) =>
-        buf.CharAt(x, y) != ' ' && !buf.StyleAt(x, y).Dim))
+        buf.Get(x, y).Ch != ' ' && !buf.Get(x, y).St.Dim))
     return EqMsg(t, found, false, "a cell escaped the dim pass")
 }
 

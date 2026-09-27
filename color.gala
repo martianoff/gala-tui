@@ -25,27 +25,22 @@ sealed type Color {
 
 // Eight standard ANSI colors (0–7) + eight bright variants (8–15) — the
 // classic 4-bit palette supported by every VT100-compatible terminal.
-//
-// Exposed as zero-arg functions rather than top-level `val` bindings because
-// GALA currently wraps top-level `val` in `std.Immutable[T]`, which is NOT
-// assignable to the un-wrapped `Color` type the renderer expects
-// (see BUG-gala_tui-008). A zero-arg function is the idiomatic workaround.
-func Black() Color         = NamedColor(0)
-func Red() Color           = NamedColor(1)
-func Green() Color         = NamedColor(2)
-func Yellow() Color        = NamedColor(3)
-func Blue() Color          = NamedColor(4)
-func Magenta() Color       = NamedColor(5)
-func Cyan() Color          = NamedColor(6)
-func White() Color         = NamedColor(7)
-func BrightBlack() Color   = NamedColor(8)
-func BrightRed() Color     = NamedColor(9)
-func BrightGreen() Color   = NamedColor(10)
-func BrightYellow() Color  = NamedColor(11)
-func BrightBlue() Color    = NamedColor(12)
-func BrightMagenta() Color = NamedColor(13)
-func BrightCyan() Color    = NamedColor(14)
-func BrightWhite() Color   = NamedColor(15)
+val Black         = NamedColor(0)
+val Red           = NamedColor(1)
+val Green         = NamedColor(2)
+val Yellow        = NamedColor(3)
+val Blue          = NamedColor(4)
+val Magenta       = NamedColor(5)
+val Cyan          = NamedColor(6)
+val White         = NamedColor(7)
+val BrightBlack   = NamedColor(8)
+val BrightRed     = NamedColor(9)
+val BrightGreen   = NamedColor(10)
+val BrightYellow  = NamedColor(11)
+val BrightBlue    = NamedColor(12)
+val BrightMagenta = NamedColor(13)
+val BrightCyan    = NamedColor(14)
+val BrightWhite   = NamedColor(15)
 
 // ToSgrFg renders the color as the fragment of a SGR (Set Graphic Rendition)
 // escape sequence that sets the foreground. It does NOT include the leading
@@ -111,8 +106,8 @@ func namedSgr(idx int, base int, bright int) string {
 func ColorEq(a Color, b Color) bool = ToSgrFg(a) == ToSgrFg(b)
 
 // ColorFromString reads a colour from configuration — a theme file, a flag,
-// an environment variable — or returns `fallback` when `s` names none,
-// including when it is empty (an unset variable):
+// an environment variable — or returns None when `s` names none, including
+// when it is empty (an unset variable):
 //
 //   - `#rrggbb` and `#rgb`                    → RGB
 //   - `0`..`255`                              → Indexed
@@ -124,33 +119,31 @@ func ColorEq(a Color, b Color) bool = ToSgrFg(a) == ToSgrFg(b)
 //
 // Names ignore case, spaces, `-` and `_` (`Light Blue`, `light_blue`), but
 // numbers and hex are read as written: `-1` is not a palette index, it is a
-// typo, and a typo gets the fallback rather than a plausible wrong colour.
-// A fallback rather than an Option because GALA 0.80 cannot lower an Option
-// of a package type.
-func ColorFromString(s string, fallback Color) Color {
+// typo, and a typo gets None rather than a plausible wrong colour.
+func ColorFromString(s string) Option[Color] {
     val raw = strings.TrimSpace(s)
-    if raw == "" { return fallback }
-    if strings.HasPrefix(raw, "#") { return hexColor(raw, fallback) }
+    if raw == "" { return None() }
+    if strings.HasPrefix(raw, "#") { return hexColor(raw) }
     var n, err = strconv.Atoi(raw)
-    if err == nil { return if (n >= 0 && n <= 255) Indexed(n) else fallback }
+    if err == nil { return When(n >= 0 && n <= 255, Indexed(n)) }
     val t = strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(raw))
-    if t == "default" || t == "reset" { return DefaultColor() }
+    if t == "default" || t == "reset" { return Some(DefaultColor()) }
     val names = ArrayOf[string]("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
     val base = strings.TrimPrefix(strings.TrimPrefix(t, "bright"), "light")
     val idx = names.IndexOf(base)
-    if idx >= 0 { return NamedColor(if (base != t) idx + 8 else idx) }
+    if idx >= 0 { return Some(NamedColor(if (base != t) idx + 8 else idx)) }
     val grey = strings.ReplaceAll(t, "grey", "gray")
-    return if (grey == "gray" || grey == "lightgray") NamedColor(7)
-    else if (grey == "darkgray") NamedColor(8)
-    else fallback
+    return if (grey == "gray" || grey == "lightgray") Some(NamedColor(7))
+    else if (grey == "darkgray") Some(NamedColor(8))
+    else None()
 }
 
-// hexColor reads `#rrggbb` or `#rgb` (each digit doubled), or `fallback`.
-func hexColor(t string, fallback Color) Color {
+// hexColor reads `#rrggbb` or `#rgb` (each digit doubled).
+func hexColor(t string) Option[Color] {
     val h = strings.TrimPrefix(t, "#")
     val full = if (h.Size() == 3) strings.Repeat(string(h[0]), 2) + strings.Repeat(string(h[1]), 2) + strings.Repeat(string(h[2]), 2) else h
-    if full.Size() != 6 { return fallback }
+    if full.Size() != 6 { return None() }
     var v, err = strconv.ParseUint(full, 16, 32)
-    if err != nil { return fallback }
-    return RGB(int(v >> 16) & 0xFF, int(v >> 8) & 0xFF, int(v) & 0xFF)
+    if err != nil { return None() }
+    return Some(RGB(int(v >> 16) & 0xFF, int(v >> 8) & 0xFF, int(v) & 0xFF))
 }

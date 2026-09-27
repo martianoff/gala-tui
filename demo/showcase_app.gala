@@ -295,7 +295,7 @@ func ShowcaseView(m ShowcaseModel) Widget {
 func showcaseHeader(m ShowcaseModel) Widget {
     val title = TextStyled(
         " ⛩  gala-tui — system monitor ",
-        DefaultStyle().WithBold().WithFg(BrightCyan()).On(Blue()),
+        DefaultStyle().WithBold().WithFg(BrightCyan).On(Blue),
     )
     val spinLabel = if (m.Paused) "paused" else s"tick $m.Tick"
     val spin = Row(ArrayOf[LayoutChild](
@@ -340,7 +340,7 @@ func showcaseSidebar(m ShowcaseModel) Widget {
 func showcaseCenter(m ShowcaseModel) Widget {
     val spark = Column(ArrayOf[LayoutChild](
         Fixed(1, TextStyled(" CPU (last 40 ticks)", showcaseHeading())),
-        Fixed(1, SparklineStyled(m.Spark, DefaultStyle().WithFg(BrightGreen()))),
+        Fixed(1, SparklineStyled(m.Spark, DefaultStyle().WithFg(BrightGreen))),
     ))
     val bars = Column(ArrayOf[LayoutChild](
         Fixed(1, TextStyled(" Memory by process (MB)", showcaseHeading())),
@@ -363,7 +363,7 @@ func showcaseProcessTable(m ShowcaseModel) Widget {
 }
 
 func showcaseRightPanel(m ShowcaseModel) Widget {
-    val prompt = TextStyled(" » ", DefaultStyle().WithBold().WithFg(BrightYellow()))
+    val prompt = TextStyled(" » ", DefaultStyle().WithBold().WithFg(BrightYellow))
     val input = Input(m.Palette, RuneCount(m.Palette), "type a command…")
     val promptRow = Row(ArrayOf[LayoutChild](
         Fixed(3, prompt),
@@ -394,11 +394,11 @@ func showcaseStatusBar(m ShowcaseModel) Widget {
     val logLen = m.PaletteLog.Length()
     val left = TextStyled(
         s" focus: $focusName  •  row: $m.TableSel  •  entries: $logLen ",
-        DefaultStyle().WithFg(Black()).On(BrightCyan()),
+        DefaultStyle().WithFg(Black).On(BrightCyan),
     )
     val right = TextStyled(
         "↑↓ move  Tab cycle  Space pause  r reset  Enter submit  q quit ",
-        DefaultStyle().WithFg(Black()).On(BrightCyan()),
+        DefaultStyle().WithFg(Black).On(BrightCyan),
     )
     return Row(ArrayOf[LayoutChild](
         Flex(2, left),
@@ -406,7 +406,7 @@ func showcaseStatusBar(m ShowcaseModel) Widget {
     ))
 }
 
-func showcaseHeading() Style = DefaultStyle().WithBold().WithFg(BrightMagenta())
+func showcaseHeading() Style = DefaultStyle().WithBold().WithFg(BrightMagenta)
 
 func ShowcaseFocusTag(f ShowcaseFocus) string {
     return f match {

@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     "strconv"
     "strings"
     . "martianoff/gala/collection_immutable"
@@ -132,7 +133,7 @@ func KeyMatchesAny(ev KeyEvent, specs ...string) bool =
 // means the key itself is '+' (i.e., "ctrl++" = Ctrl-plus). We treat the
 // last non-empty token as the key and everything before as modifiers.
 func splitPlus(s string) Array[string] {
-    val rs = stringRunes(s)
+    val rs = gs.S(s).ToChars()
     val n = rs.Length()
     val (finalOut, finalCur) = rs.ZipWithIndex().FoldLeft(
         (EmptyArray[string](), ""),
@@ -185,7 +186,7 @@ func parseKeyName(name string) Key {
     }
     // Single char.
     if name.Size() == 1 {
-        return Char(stringRunes(name).Head())
+        return Char(gs.S(name).ToChars().Head())
     }
     // "+" literal was preserved by splitPlus — surface it as Char.
     if name == "+" {

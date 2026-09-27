@@ -99,8 +99,8 @@ func TestLinkedWrapsAComposedWidget(t T) T {
     val t1 = Eq(t, RowText(buf, 0), "┌────┐")
     val t2 = IsTrue(t1, strings.Contains(buf.String(), "\x1b]8;;https://example.com\x1b\\"))
     // Every cell of the area carries the link, border glyphs included.
-    return IsTrue(t2, LinkUrl(buf.StyleAt(0, 0)) == "https://example.com"
-                   && LinkUrl(buf.StyleAt(5, 2)) == "https://example.com")
+    return IsTrue(t2, LinkUrl(buf.Get(0, 0).St) == "https://example.com"
+                   && LinkUrl(buf.Get(5, 2).St) == "https://example.com")
 }
 
 func TestUnlinkedCellsEmitNoOsc8(t T) T {

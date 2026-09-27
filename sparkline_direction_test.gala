@@ -13,7 +13,7 @@ import (
 // respelling NewBuffer + RenderTo, which this file did three times over.
 func sparkText(w Widget, width int) string = RowText(renderAt(w, width, 1), 0)
 
-func sparkBg(w Widget, width int, x int) Color = renderAt(w, width, 1).StyleAt(x, 0).Bg
+func sparkBg(w Widget, width int, x int) Color = renderAt(w, width, 1).Get(x, 0).St.Bg
 
 // Right-to-left puts the FIRST sample at the right edge, so a feed that is
 // appended to scrolls older data off the left the way a monitor does.
@@ -85,15 +85,15 @@ func TestSparklineLeftToRightClipsTheTail(t T) T {
 // and punched a default-background hole in the panel it sat on.
 func TestSparklineAllAbsentStillCarriesTheCallersStyle(t T) T {
     val w = SparklineOf(ArrayOf[Option[int]](None(), None()),
-                        DefaultStyle().WithBg(Blue()))
-    return IsTrue(t, ColorEq(sparkBg(w, 2, 0), Blue()))
+                        DefaultStyle().WithBg(Blue))
+    return IsTrue(t, ColorEq(sparkBg(w, 2, 0), Blue))
 }
 
 // And a gap inside a present series carries it too.
 func TestSparklineGapCarriesTheCallersStyle(t T) T {
     val w = SparklineOf(ArrayOf[Option[int]](Some(4), None(), Some(4)),
-                        DefaultStyle().WithBg(Blue()))
-    return IsTrue(t, ColorEq(sparkBg(w, 3, 1), Blue()))
+                        DefaultStyle().WithBg(Blue))
+    return IsTrue(t, ColorEq(sparkBg(w, 3, 1), Blue))
 }
 
 // A sparkline restyles with the tree around it. This is why it is a Widget
@@ -102,8 +102,8 @@ func TestSparklineGapCarriesTheCallersStyle(t T) T {
 // sit at full brightness on a dimmed pane — the same trap `chart.gala` names
 // and `TestChartRestylesWithItsPane` pins for charts.
 func TestSparklineRestylesThroughTheFluentPath(t T) T {
-    val w = Sparkline(ArrayOf[int](1, 8)).WithFg(BrightMagenta())
+    val w = Sparkline(ArrayOf[int](1, 8)).WithFg(BrightMagenta)
     val buf = renderAt(w, 2, 1)
-    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightMagenta()))
-    return IsTrue(t1, ColorEq(buf.StyleAt(1, 0).Fg, BrightMagenta()))
+    val t1 = IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, BrightMagenta))
+    return IsTrue(t1, ColorEq(buf.Get(1, 0).St.Fg, BrightMagenta))
 }

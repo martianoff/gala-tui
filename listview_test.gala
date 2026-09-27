@@ -28,7 +28,7 @@ func TestListSymbolSpacing(t T) T {
 
 // The selected row's highlight covers the symbol column too — one band.
 func TestListSymbolColumnTakesTheSelectionStyle(t T) T =
-    IsTrue(t, renderAt(SelectListView(ListSpecOf(lvItems(2), 0).WithHighlightSymbol("> ")), 5, 2).StyleAt(0, 0).Reverse)
+    IsTrue(t, renderAt(SelectListView(ListSpecOf(lvItems(2), 0).WithHighlightSymbol("> ")), 5, 2).Get(0, 0).St.Reverse)
 
 // Padding scrolls before the cursor reaches the edge: with 2 of padding in a
 // 5-row window, the cursor on item 3 already shows items 4 and 5 below it.

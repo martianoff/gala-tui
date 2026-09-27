@@ -31,7 +31,7 @@ func canvasBuf(w Widget, width int, height int) *Buffer {
 // walk each time.
 func litCellsIn(buf *Buffer, x0 int, x1 int, height int) int =
     stream.Range(0, height)
-        .FlatMap((y) => stream.Range(x0, x1).Map((x) => buf.CharAt(x, y)))
+        .FlatMap((y) => stream.Range(x0, x1).Map((x) => buf.Get(x, y).Ch))
         .Filter((c) => c != ' ')
         .Count()
 
@@ -54,7 +54,7 @@ func TestPointProjectsIntoTheExpectedCell(t T) T {
             Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)),
             Style = DefaultStyle())))
     val buf = canvasBuf(w, 4, 2)
-    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ')
+    val t1 = IsTrue(t, buf.Get(0, 0).Ch != ' ')
     // ...and nothing else is lit.
     return Eq(t1, litCells(buf, 4, 2), 1)
 }
@@ -65,8 +65,8 @@ func TestYAxisIsInvertedForScreenCoordinates(t T) T {
         ArrayOf[Shape](ShapePoints(
             Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 0.0)), Style = DefaultStyle())))
     val buf = canvasBuf(low, 4, 2)
-    val t1 = IsTrue(t, buf.CharAt(0, 1) != ' ')
-    return IsTrue(t1, buf.CharAt(0, 0) == ' ')
+    val t1 = IsTrue(t, buf.Get(0, 1).Ch != ' ')
+    return IsTrue(t1, buf.Get(0, 0).Ch == ' ')
 }
 
 func TestPointsSpreadAcrossTheFullWidth(t T) T {
@@ -80,8 +80,8 @@ func TestPointsSpreadAcrossTheFullWidth(t T) T {
             ),
             Style = DefaultStyle())))
     val buf = canvasBuf(w, 8, 1)
-    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ')
-    return IsTrue(t1, buf.CharAt(7, 0) != ' ')
+    val t1 = IsTrue(t, buf.Get(0, 0).Ch != ' ')
+    return IsTrue(t1, buf.Get(7, 0).Ch != ' ')
 }
 
 // ----------------------------------------------------------------------------
@@ -95,7 +95,7 @@ func TestHorizontalLineConnectsItsEndpoints(t T) T {
         ArrayOf[Shape](ShapeLine(
             X1 = 0.0, Y1 = 0.5, X2 = 1.0, Y2 = 0.5, Style = DefaultStyle())))
     val buf = canvasBuf(w, 10, 1)
-    return stream.Range(0, 10).Fold(t, (acc, x) => IsTrue(acc, buf.CharAt(x, 0) != ' '))
+    return stream.Range(0, 10).Fold(t, (acc, x) => IsTrue(acc, buf.Get(x, 0).Ch != ' '))
 }
 
 func TestVerticalLineConnectsItsEndpoints(t T) T {
@@ -103,7 +103,7 @@ func TestVerticalLineConnectsItsEndpoints(t T) T {
         ArrayOf[Shape](ShapeLine(
             X1 = 0.5, Y1 = 0.0, X2 = 0.5, Y2 = 1.0, Style = DefaultStyle())))
     val buf = canvasBuf(w, 4, 4)
-    return stream.Range(0, 4).Fold(t, (acc, y) => IsTrue(acc, buf.CharAt(2, y) != ' '))
+    return stream.Range(0, 4).Fold(t, (acc, y) => IsTrue(acc, buf.Get(2, y).Ch != ' '))
 }
 
 func TestDiagonalLineTouchesBothCorners(t T) T {
@@ -111,8 +111,8 @@ func TestDiagonalLineTouchesBothCorners(t T) T {
         ArrayOf[Shape](ShapeLine(
             X1 = 0.0, Y1 = 1.0, X2 = 1.0, Y2 = 0.0, Style = DefaultStyle())))
     val buf = canvasBuf(w, 8, 4)
-    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ')
-    return IsTrue(t1, buf.CharAt(7, 3) != ' ')
+    val t1 = IsTrue(t, buf.Get(0, 0).Ch != ' ')
+    return IsTrue(t1, buf.Get(7, 3).Ch != ' ')
 }
 
 func TestRectOutlineLightsCornersAndLeavesTheMiddleEmpty(t T) T {
@@ -122,8 +122,8 @@ func TestRectOutlineLightsCornersAndLeavesTheMiddleEmpty(t T) T {
         ArrayOf[Shape](ShapeRect(
             X = 0.0, Y = 0.0, Width = 1.0, Height = 1.0, Style = DefaultStyle())))
     val buf = canvasBuf(w, 9, 5)
-    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ' && buf.CharAt(8, 4) != ' ')
-    return IsTrue(t1, buf.CharAt(4, 2) == ' ')
+    val t1 = IsTrue(t, buf.Get(0, 0).Ch != ' ' && buf.Get(8, 4).Ch != ' ')
+    return IsTrue(t1, buf.Get(4, 2).Ch == ' ')
 }
 
 func TestCircleIsHollowAndSpansItsDiameter(t T) T {
@@ -132,9 +132,9 @@ func TestCircleIsHollowAndSpansItsDiameter(t T) T {
             X = 0.0, Y = 0.0, Radius = 1.0, Style = DefaultStyle())))
     val buf = canvasBuf(w, 12, 6)
     // Centre is empty...
-    val t1 = IsTrue(t, buf.CharAt(6, 3) == ' ')
+    val t1 = IsTrue(t, buf.Get(6, 3).Ch == ' ')
     // ...and the rim reaches both horizontal extremes.
-    return IsTrue(t1, buf.CharAt(0, 3) != ' ' && buf.CharAt(11, 3) != ' ')
+    return IsTrue(t1, buf.Get(0, 3).Ch != ' ' && buf.Get(11, 3).Ch != ' ')
 }
 
 // ----------------------------------------------------------------------------
@@ -149,7 +149,7 @@ func TestBrailleResolvesFourPointsWithinOneCell(t T) T {
         val w = Canvas(unitBounds(), unitBounds(), BrailleMarker(),
             ArrayOf[Shape](ShapePoints(
                 Pts = ArrayOf(CanvasPoint(X = 0.1, Y = y)), Style = DefaultStyle())))
-        return canvasBuf(w, 1, 1).CharAt(0, 0)
+        return canvasBuf(w, 1, 1).Get(0, 0).Ch
     })
     return Eq(t, seen.Distinct().Length(), 4)
 }
@@ -167,15 +167,15 @@ func TestHalfBlockPicksUpperLowerAndFull(t T) T {
                 CanvasPoint(X = 0.5, Y = 0.9),
                 CanvasPoint(X = 0.5, Y = 0.1),
             ), Style = DefaultStyle())))
-    val t1 = Eq(t, canvasBuf(upper, 1, 1).CharAt(0, 0), '▀')
-    val t2 = Eq(t1, canvasBuf(lower, 1, 1).CharAt(0, 0), '▄')
-    return Eq(t2, canvasBuf(both, 1, 1).CharAt(0, 0), '█')
+    val t1 = Eq(t, canvasBuf(upper, 1, 1).Get(0, 0).Ch, '▀')
+    val t2 = Eq(t1, canvasBuf(lower, 1, 1).Get(0, 0).Ch, '▄')
+    return Eq(t2, canvasBuf(both, 1, 1).Get(0, 0).Ch, '█')
 }
 
 // pointsAt draws `pts` into a 1x1 canvas over the unit square with `m`.
 func pointsAt(m CanvasMarker, pts Array[CanvasPoint]) rune =
     canvasBuf(Canvas(unitBounds(), unitBounds(), m,
-        ArrayOf[Shape](ShapePoints(Pts = pts, Style = DefaultStyle()))), 1, 1).CharAt(0, 0)
+        ArrayOf[Shape](ShapePoints(Pts = pts, Style = DefaultStyle()))), 1, 1).Get(0, 0).Ch
 
 func TestQuadrantPicksEachCornerAndTheDiagonal(t T) T {
     val tl = CanvasPoint(X = 0.1, Y = 0.9)
@@ -216,8 +216,8 @@ func TestDotAndBlockMarkersAreOneCellResolution(t T) T {
     val blk = Canvas(unitBounds(), unitBounds(), BlockMarker(),
         ArrayOf[Shape](ShapePoints(
             Pts = ArrayOf(CanvasPoint(X = 0.5, Y = 0.5)), Style = DefaultStyle())))
-    val t1 = Eq(t, canvasBuf(dot, 1, 1).CharAt(0, 0), '•')
-    return Eq(t1, canvasBuf(blk, 1, 1).CharAt(0, 0), '█')
+    val t1 = Eq(t, canvasBuf(dot, 1, 1).Get(0, 0).Ch, '•')
+    return Eq(t1, canvasBuf(blk, 1, 1).Get(0, 0).Ch, '█')
 }
 
 // ----------------------------------------------------------------------------
@@ -259,8 +259,8 @@ func TestCanvasComposesOverWhatIsUnderneath(t T) T {
                 Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)), Style = DefaultStyle()))),
     )
     val buf = canvasBuf(w, 4, 2)
-    val t1 = IsTrue(t, buf.CharAt(0, 0) != ' ' && buf.CharAt(0, 0) != '.')
-    return Eq(t1, buf.CharAt(3, 1), '.')
+    val t1 = IsTrue(t, buf.Get(0, 0).Ch != ' ' && buf.Get(0, 0).Ch != '.')
+    return Eq(t1, buf.Get(3, 1).Ch, '.')
 }
 
 // ----------------------------------------------------------------------------
@@ -270,13 +270,13 @@ func TestCanvasComposesOverWhatIsUnderneath(t T) T {
 func TestEachShapeKeepsItsOwnStyle(t T) T {
     val w = CanvasOf(unitBounds(), unitBounds(), ArrayOf[Shape](
         ShapePoints(Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)),
-                    Style = DefaultStyle().WithFg(Red())),
+                    Style = DefaultStyle().WithFg(Red)),
         ShapePoints(Pts = ArrayOf(CanvasPoint(X = 1.0, Y = 1.0)),
-                    Style = DefaultStyle().WithFg(Green())),
+                    Style = DefaultStyle().WithFg(Green)),
     ))
     val buf = canvasBuf(w, 8, 1)
-    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
-    return IsTrue(t1, ColorEq(buf.StyleAt(7, 0).Fg, Green()))
+    val t1 = IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, Red))
+    return IsTrue(t1, ColorEq(buf.Get(7, 0).St.Fg, Green))
 }
 
 func TestLabelsDrawOverTheSeriesNotUnderIt(t T) T {
@@ -287,8 +287,8 @@ func TestLabelsDrawOverTheSeriesNotUnderIt(t T) T {
         ShapeLabel(X = 0.0, Y = 1.0, Text = "hi", Style = DefaultStyle()),
     ))
     val buf = canvasBuf(w, 8, 1)
-    val t1 = Eq(t, buf.CharAt(0, 0), 'h')
-    return Eq(t1, buf.CharAt(1, 0), 'i')
+    val t1 = Eq(t, buf.Get(0, 0).Ch, 'h')
+    return Eq(t1, buf.Get(1, 0).Ch, 'i')
 }
 
 func TestRestylingACanvasReachesItsShapes(t T) T {
@@ -296,7 +296,7 @@ func TestRestylingACanvasReachesItsShapes(t T) T {
         ArrayOf[Shape](ShapePoints(
             Pts = ArrayOf(CanvasPoint(X = 0.0, Y = 1.0)),
             Style = DefaultStyle()))).WithBold()
-    return IsTrue(t, canvasBuf(w, 4, 2).StyleAt(0, 0).Bold)
+    return IsTrue(t, canvasBuf(w, 4, 2).Get(0, 0).St.Bold)
 }
 
 // ----------------------------------------------------------------------------
@@ -468,8 +468,8 @@ func TestClippingALineKeepsItOnItsOriginalPath(t T) T {
     // The aimed-at corner is the bottom right. The top right is off a path
     // that descends left to right — a slope refitted to the clipped span
     // would be shallower and would light it.
-    val t1 = IsTrue(t, buf.CharAt(7, 3) != ' ')
-    return IsTrue(t1, buf.CharAt(7, 0) == ' ')
+    val t1 = IsTrue(t, buf.Get(7, 3).Ch != ' ')
+    return IsTrue(t1, buf.Get(7, 0).Ch == ' ')
 }
 
 func TestFilledLineOutsideTheBoundsClips(t T) T {

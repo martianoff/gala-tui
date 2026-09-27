@@ -26,25 +26,28 @@ func TestCursorReportIsTakenAndHandedOver(t T) T {
 
 // Anything else — a key, text — is not a report and is left for the parser.
 func TestNonReportsAreLeftAlone(t T) T {
-    val t1 = Eq(t, takeCursorReport(cprBytes("\x1b[A"), nil), 0)
-    return Eq(t1, takeCursorReport(cprBytes("hello"), nil), 0)
+    val t1 = Eq(t, takeCursorReport(cprBytes("\x1b[A"), ignoreReport), 0)
+    return Eq(t1, takeCursorReport(cprBytes("hello"), ignoreReport), 0)
 }
 
 // A reply split across reads is incomplete, not a report — it waits for the
 // rest like any other sequence.
 func TestSplitCursorReportWaits(t T) T =
-    Eq(t, takeCursorReport(cprBytes("\x1b[17;1"), nil), 0)
+    Eq(t, takeCursorReport(cprBytes("\x1b[17;1"), ignoreReport), 0)
+
+// ignoreReport is the handler for tests that only check what is consumed.
+func ignoreReport(row int, col int) {}
 
 // The inline backend's origin is unknown (0) until the terminal reports, then
 // it is the block's top row — so a click on the block's first row maps to
 // row 0 of the app's frame.
 func TestInlineBackendLearnsItsOriginFromTheReport(t T) T {
     val b = InlineBackend(3)
-    val t1 = Eq(t, backendOrigin(b), (0, 0))
+    val t1 = Eq(t, b.Origin(), (0, 0))
     // The first paint asks; its answer places the block.
     b.Paint(NewBuffer(4, 3), nil)
     b.CursorReport(18, 1)
-    return Eq(t1, backendOrigin(b), (0, 17))
+    return Eq(t1, b.Origin(), (0, 17))
 }
 
 
@@ -67,5 +70,5 @@ func TestRunLoopRoutesCursorReportsToTheBackend(t T) T {
 func TestUnsolicitedReportIsIgnored(t T) T {
     val b = InlineBackend(3)
     b.CursorReport(1, 2)
-    return Eq(t, backendOrigin(b), (0, 0))
+    return Eq(t, b.Origin(), (0, 0))
 }

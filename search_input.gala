@@ -36,7 +36,7 @@ import (
 // Empty query collapses the badge — "Type to search…" placeholder.
 func SearchInput(query string, matched int, total int) Widget =
     SearchInputStyled(query, matched, total,
-        DefaultStyle().WithBold().WithFg(BrightCyan()),
+        DefaultStyle().WithBold().WithFg(BrightCyan),
         DefaultStyle(),
         DefaultStyle().WithDim())
 

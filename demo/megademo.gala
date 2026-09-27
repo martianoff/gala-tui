@@ -279,7 +279,7 @@ func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
         case MegaToggleTreeNode(idx)   => (m.Copy(Pipelines = TreeToggleAt(m.Pipelines, idx),
                                                   PipelinesCursor = idx), NoCmd[MegaMsg]())
         case MegaPalRowClick(idx)      => megaConfirmPalette(m.Copy(
-                                              Palette = megaPalSelected(m.Palette, idx)))
+                                              Palette = m.Palette.Copy(Selected = idx)))
         case MegaSortColumn(col)       => (m.Copy(BuildsTable =
                                               DataTableUpdate(m.BuildsTable, DTSort(Col = col))),
                                               NoCmd[MegaMsg]())
@@ -363,7 +363,8 @@ func insertAtRune(s string, at int, c rune) string {
 
 func deleteBeforeRune(s string, at int) string {
     if at <= 0 { return s }
-    return gs.S(s).Take(at - 1).ToString() + gs.S(s).Drop(at).ToString()
+    val (before, after) = gs.S(s).SplitAt(at)
+    return before.DropRight(1).ToString() + after.ToString()
 }
 
 // megaRouteChar sends a printable character where the screen says it belongs.
@@ -406,17 +407,6 @@ func megaTogglePalette(m MegaModel) MegaModel {
     }
     return m.Copy(PaletteOpen = true, Palette = NewPalette[MegaMsg](megaPaletteActions()))
 }
-
-// megaPalSelected rebuilds a Palette with `Selected = idx`. Generic
-// structs can't use `.Copy(...)` overrides on this transpiler version,
-// so construct the value by hand.
-func megaPalSelected(p Palette[MegaMsg], idx int) Palette[MegaMsg] =
-    Palette[MegaMsg](
-        Actions     = p.Actions,
-        Query       = p.Query,
-        FilteredIdx = p.FilteredIdx,
-        Selected    = idx,
-    )
 
 func megaConfirmPalette(m MegaModel) Tuple[MegaModel, Cmd[MegaMsg]] {
     return m.Palette.Current() match {
@@ -723,7 +713,7 @@ func MegaView(m MegaModel) Widget {
 
 func megaHeader(m MegaModel, th Theme) Widget {
     val title = TextStyled(" ⛩  gala-tui build server ",
-        DefaultStyle().WithBold().WithFg(BrightWhite()).On(Blue()))
+        DefaultStyle().WithBold().WithFg(BrightWhite).On(Blue))
     val spin = Spinner(BrailleSpinner(), m.Tick)
     val activeBuilds = megaCountStatus(m.BuildsTable, "Running")
     val pct = state.TweenAt(m.Progress, m.Now)
@@ -737,7 +727,7 @@ func megaHeader(m MegaModel, th Theme) Widget {
     val breadcrumb = Breadcrumb(m.Screens.BreadcrumbParts())
     // Pulse next to the active-build counter — green dot while builds
     // are running, dim when none.
-    val activeColor = if (activeBuilds > 0) BrightGreen() else BrightBlack()
+    val activeColor = if (activeBuilds > 0) BrightGreen else BrightBlack
     val activeRow = Row(ArrayOf[LayoutChild](
         Fixed(3, Pulse(m.Tick, activeColor)),
         Fixed(20, TextStyled(s"active: $activeBuilds  tick: ${m.Tick} ",
@@ -780,7 +770,7 @@ func megaSidebar(m MegaModel, th Theme) Widget {
     val ui = NewFocusBuilder(m.Focus)
     val focused = ui.IsFocused("sidebar")
     val titleStyle = if (focused)
-        DefaultStyle().WithBold().WithFg(BrightYellow())
+        DefaultStyle().WithBold().WithFg(BrightYellow)
     else
         th.Heading
     val titleLabel = if (focused) " ◆ Nav (Enter to jump) " else " Nav "
@@ -990,9 +980,9 @@ func megaLogLine(line LogLine) Widget {
         case LogDebug() => "DBG  "
     }
     val style = line.Level match {
-        case LogInfo()  => DefaultStyle().WithFg(BrightCyan())
-        case LogWarn()  => DefaultStyle().WithBold().WithFg(BrightYellow())
-        case LogError() => DefaultStyle().WithBold().WithFg(BrightRed())
+        case LogInfo()  => DefaultStyle().WithFg(BrightCyan)
+        case LogWarn()  => DefaultStyle().WithBold().WithFg(BrightYellow)
+        case LogError() => DefaultStyle().WithBold().WithFg(BrightRed)
         case LogDebug() => DefaultStyle().WithDim()
     }
     return Row(ArrayOf[LayoutChild](

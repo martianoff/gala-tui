@@ -74,7 +74,7 @@ val s = h.Start()             // initial Session
     .Click(40, 10)            // SGR mouse click (NewHarnessFull only)
     .Scroll(40, 10, true)     // wheel scroll (NewHarnessFull only)
     .Resize(120, 50)          // window resize
-    .Send(MyMsg.SaveAll())    // skip key decoding, send a Msg directly
+    .SendMsg(MyMsg.SaveAll()) // skip key decoding, send a Msg directly
     .Wait(5)                  // tick the runtime N times (drains tickers)
 ```
 
@@ -90,7 +90,7 @@ IsTrue(t, s.RowContains(2, "Quit"))               // row contains substring
 val ch = s.CharAt(5, 3)                            // rune at (5, 3)
 val st = s.StyleAt(5, 3)                           // Style at (5, 3)
 IsTrue(t, s.HasStyleAt(5, 3, (st) => st.Bold))
-IsTrue(t, s.HasStyleAt(5, 3, (st) => ColorEq(st.Fg, BrightYellow())))
+IsTrue(t, s.HasStyleAt(5, 3, (st) => ColorEq(st.Fg, BrightYellow)))
 
 // Find-by-content
 val pos = s.FindCell('▌')                          // Option[Tuple[int, int]]
@@ -110,14 +110,14 @@ keys, mouse, resize, and direct messages all live in the same script.
 
 ```gala
 val steps = ArrayOf[harness.HarnessStep[Msg]](
-    harness.StepKey[Msg](Ev = PlainKey(Char('a'))),
-    harness.StepType[Msg](Text = "lice"),
-    harness.StepKey[Msg](Ev = Ctrl(Char('s'))),
-    harness.StepClick[Msg](X = 40, Y = 10),       // mouse press at (40,10)
-    harness.StepScroll[Msg](X = 40, Y = 10, Up = false),  // wheel down
-    harness.StepResize[Msg](W = 100, H = 30),     // window resize
-    harness.StepWait[Msg](N = 3),                 // tick 3 times
-    harness.StepMsg[Msg](Msg = SaveAll()),        // skip key decoding,
+    harness.StepKey(Ev = PlainKey(Char('a'))),
+    harness.StepType(Text = "lice"),
+    harness.StepKey(Ev = Ctrl(Char('s'))),
+    harness.StepClick(X = 40, Y = 10),            // mouse press at (40,10)
+    harness.StepScroll(X = 40, Y = 10, Up = false),  // wheel down
+    harness.StepResize(W = 100, H = 30),          // window resize
+    harness.StepWait(N = 3),                      // tick 3 times
+    harness.StepMsg(Msg = SaveAll()),             // skip key decoding,
                                                   //   send a Msg directly
 )
 
@@ -130,12 +130,6 @@ val trace = h.Trace(steps)
 IsFalse(t, trace.Get(0).Contains("Saved"))         // before save
 IsTrue(t,  trace.Get(3).Contains("Saved"))         // after Ctrl-S
 ```
-
-> **Why the `[Msg]` everywhere?** `HarnessStep` is generic over the
-> app's Msg type, but the transpiler currently can't infer that
-> parameter from the surrounding `ArrayOf[HarnessStep[Msg]](...)`
-> context. Spell it out on every case constructor; the workaround is
-> mechanical. (Tracked as BUG-12 in the local bug log.)
 
 ### `RunSequence` + `Snapshot`: the golden-file test pattern
 
@@ -289,8 +283,8 @@ Input.
 
 | Function | Returns | Use |
 |---|---|---|
-| `Buffer.CharAt(x, y)` | `rune` | What's rendered at (x, y)? |
-| `Buffer.StyleAt(x, y)` | `Style` | Color / bold / reverse / etc. |
+| `Buffer.Get(x, y).Ch` | `rune` | What's rendered at (x, y)? |
+| `Buffer.Get(x, y).St` | `Style` | Color / bold / reverse / etc. |
 | `BufferText(buf, y)` | `string` | The whole row, no ANSI |
 | `ColorEq(a, b)` | `bool` | Compare colors (handles indexed + named) |
 
@@ -298,14 +292,14 @@ Combine with the harness:
 
 ```gala
 // Assert the focused row uses BrightYellow foreground at (1, 7).
-IsTrue(t, ColorEq(session.StyleAt(1, 7).Fg, BrightYellow()))
+IsTrue(t, ColorEq(session.StyleAt(1, 7).Fg, BrightYellow))
 
 // Assert the help screen has the title "Key bindings" on row 0.
 IsTrue(t, session.RowContains(0, "Key bindings"))
 
 // Assert no error-color cells appear.
 IsFalse(t, anyCellMatches(session.Buffer(),
-    (st) => ColorEq(st.Fg, BrightRed())))
+    (st) => ColorEq(st.Fg, BrightRed)))
 ```
 
 ## Picking the right layer
@@ -351,7 +345,7 @@ the few the bug did not touch.
 | **One row's** content, where the rest of the frame is noise | `SnapshotLines(...).Get(y)` + `Eq` | Stays stable when unrelated rows change |
 | **Presence** of a label whose exact column genuinely isn't part of the contract | `RowContains` | The weakest form — see "what makes a bad renderer test" |
 | **Colour / attributes** | `SnapshotStyled` for a fixture, or `StyleAt(x, y)` **swept across the region** | Glyph assertions are blind to style, and style is half the UI |
-| **Behaviour over time** — keys, clicks, resize, async msgs | `NewHarness(...).Start()` then `.Press` / `.Type` / `.Click` / `.Wait`, then `.Row` / `.Text` / `.Buffer().StyleAt` | The only path that runs `KeyToMsg` and `Cmd` redispatch |
+| **Behaviour over time** — keys, clicks, resize, async msgs | `NewHarness(...).Start()` then `.Press` / `.Type` / `.Click` / `.Wait`, then `.Row` / `.Text` / `.StyleAt` | The only path that runs `KeyToMsg` and `Cmd` redispatch |
 
 ## Sweep the region you make a claim about
 
@@ -362,7 +356,7 @@ This is the rule that matters most, and it is not stylistic.
 // This shape passed for months while the widget was visibly broken.
 func TestStatusBarIsCyan(t T) T {
     // Whole row has the cyan background
-    return IsTrue(t, ColorEq(buf.StyleAt(10, 0).Bg, BrightCyan()))
+    return IsTrue(t, ColorEq(buf.Get(10, 0).St.Bg, BrightCyan))
 }
 
 // GOOD — the claim is "the whole row", so assert the whole row.
@@ -370,7 +364,7 @@ func TestStatusBarPaintsEveryCell(t T) T {
     var acc = t
     var x = 0
     for x < 28 {
-        acc = IsTrue(acc, ColorEq(buf.StyleAt(x, 0).Bg, BrightCyan()))
+        acc = IsTrue(acc, ColorEq(buf.Get(x, 0).St.Bg, BrightCyan))
         x = x + 1
     }
     return acc
@@ -424,9 +418,9 @@ So `RowContains(y, "日本語")` **fails on correctly-rendered output**. For wid
 text, assert cells:
 
 ```gala
-val t2 = Eq(t1, buf.CharAt(1, 0), rune(0x4E2D))
-val t3 = Eq(t2, buf.CharAt(2, 0), ' ')          // reserved trail
-return Eq(t3, buf.CharAt(3, 0), 'b')
+val t2 = Eq(t1, buf.Get(1, 0).Ch, rune(0x4E2D))
+val t3 = Eq(t2, buf.Get(2, 0).Ch, ' ')          // reserved trail
+return Eq(t3, buf.Get(3, 0).Ch, 'b')
 ```
 
 ## What makes a bad renderer test here

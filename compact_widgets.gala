@@ -29,7 +29,7 @@ func Breadcrumb(parts Array[string], separator string = " › ") Widget =
         parts,
         separator,
         DefaultStyle().WithDim(),
-        DefaultStyle().WithBold().WithFg(BrightCyan()),
+        DefaultStyle().WithBold().WithFg(BrightCyan),
     )
 
 // BreadcrumbStyled lets the caller pick the per-segment styles.
@@ -53,8 +53,8 @@ func BreadcrumbStyled(
 // Common uses: "[Beta]" next to a section title, "[v2]" version chip,
 // "[Failed]" status indicator.
 //
-//     Tag("Beta", BrightYellow())             // dim brackets, bright label
-//     Tag("Failed", BrightRed())              // for errors / red states
+//     Tag("Beta", BrightYellow)             // dim brackets, bright label
+//     Tag("Failed", BrightRed)              // for errors / red states
 //
 // Renders as " label " (single-space-padded) styled with reverse + the
 // chosen colour, so it pops on any background.
@@ -78,7 +78,7 @@ func TagPlain(label string, color Color) Widget =
 // Returns a plain widget; compose with `Row` to assemble the strip.
 func KeyHint(spec string, description string) Widget {
     val specCell = TextStyled(spec,
-        DefaultStyle().WithBold().WithFg(BrightCyan()))
+        DefaultStyle().WithBold().WithFg(BrightCyan))
     val descCell = TextStyled(" " + description,
         DefaultStyle().WithDim())
     return Row(ArrayOf[LayoutChild](
@@ -103,7 +103,7 @@ func KeyHintRow(pairs Array[string]) Widget {
         } else {
             // Odd-length tail: spec alone, no description.
             val spec = pair.Get(0)
-            Fixed(RuneCount(spec), TextStyled(spec, DefaultStyle().WithBold().WithFg(BrightCyan())))
+            Fixed(RuneCount(spec), TextStyled(spec, DefaultStyle().WithBold().WithFg(BrightCyan)))
         })
     val cells = interleave(hints, Fixed(3, TextStyled(" · ", DefaultStyle().WithDim())))
     return Row(cells.Append(Flex(1, Empty())))

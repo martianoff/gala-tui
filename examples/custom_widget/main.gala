@@ -54,7 +54,7 @@ func RatingView[T any](
         val star = i + 1                                      // 1-based score
         val glyph = if (star <= r.Score) "★" else "☆"
         val style = if (star <= r.Score)
-            DefaultStyle().WithBold().WithFg(BrightYellow())
+            DefaultStyle().WithBold().WithFg(BrightYellow)
         else
             DefaultStyle().WithDim()
         val cell = TextStyled(" " + glyph + " ", style).OnClick(OnSet(star))

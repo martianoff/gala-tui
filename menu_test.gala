@@ -95,7 +95,7 @@ func TestMenuSelectedRowIsReverse(t T) T {
     RenderTo(MenuView(threeItemMenu()),
         Rect(X = 0, Y = 0, Width = 12, Height = 3), buf)
     // First row is selected by default → reverse style.
-    return IsTrue(t, buf.StyleAt(0, 0).Reverse)
+    return IsTrue(t, buf.Get(0, 0).St.Reverse)
 }
 
 func TestMenuDisabledRowIsDim(t T) T {
@@ -103,7 +103,7 @@ func TestMenuDisabledRowIsDim(t T) T {
     RenderTo(MenuView(menuWithDisabled()),
         Rect(X = 0, Y = 0, Width = 15, Height = 3), buf)
     // Row 1 is disabled.
-    return IsTrue(t, buf.StyleAt(0, 1).Dim)
+    return IsTrue(t, buf.Get(0, 1).St.Dim)
 }
 
 func TestMenuHorizontalRendersInline(t T) T {

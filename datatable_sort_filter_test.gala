@@ -8,8 +8,8 @@ import (
 // ============================================================================
 // DataTable sort stability and filter case-folding.
 //
-// The sort is a SortWith with an index tie-break (SortWith alone is not
-// stable), and the filter delegates to MatchSubstring. These pin both.
+// The sort relies on SortBy / SortWith being stable, and the filter
+// delegates to MatchSubstring. These pin both.
 // ============================================================================
 
 func dtVisibleNames(dt DataTable) string = dtVisible(dt).Map((r) => r.Get(0)).MkString(",")

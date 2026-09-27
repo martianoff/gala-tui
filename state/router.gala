@@ -78,8 +78,8 @@ func (s ScreenStack) CanGoBack() bool = s.Stack.Length() > 1
 // the root. Useful for "press X to return to list" labels.
 func (s ScreenStack) Previous() Option[string] {
     val n = s.Stack.Length()
-    if n <= 1 { return None[string]() }
-    return Some[string](s.Stack.Get(n - 2))
+    if n <= 1 { return None() }
+    return Some(s.Stack.Get(n - 2))
 }
 
 // Contains reports whether `route` appears anywhere in the stack. Useful

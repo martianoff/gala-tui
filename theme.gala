@@ -65,16 +65,16 @@ func DefaultTheme() Theme = Theme(
 // shells.
 func DarkTheme() Theme = Theme(
     BorderKind = RoundedBorder(),
-    BorderFg   = BrightBlack(),
-    Text       = DefaultStyle().WithFg(BrightWhite()),
-    Muted      = DefaultStyle().WithFg(BrightBlack()),
-    Heading    = DefaultStyle().WithBold().WithFg(BrightCyan()),
-    Accent     = DefaultStyle().WithBold().WithFg(BrightMagenta()),
-    Success    = DefaultStyle().WithFg(BrightGreen()),
-    Warning    = DefaultStyle().WithFg(BrightYellow()),
-    Error      = DefaultStyle().WithBold().WithFg(BrightRed()),
-    Selected   = DefaultStyle().WithReverse().WithFg(BrightWhite()),
-    Focus      = DefaultStyle().WithBold().WithFg(BrightCyan()).WithReverse(),
+    BorderFg   = BrightBlack,
+    Text       = DefaultStyle().WithFg(BrightWhite),
+    Muted      = DefaultStyle().WithFg(BrightBlack),
+    Heading    = DefaultStyle().WithBold().WithFg(BrightCyan),
+    Accent     = DefaultStyle().WithBold().WithFg(BrightMagenta),
+    Success    = DefaultStyle().WithFg(BrightGreen),
+    Warning    = DefaultStyle().WithFg(BrightYellow),
+    Error      = DefaultStyle().WithBold().WithFg(BrightRed),
+    Selected   = DefaultStyle().WithReverse().WithFg(BrightWhite),
+    Focus      = DefaultStyle().WithBold().WithFg(BrightCyan).WithReverse(),
     Background = DefaultColor(),
 )
 
@@ -83,16 +83,16 @@ func DarkTheme() Theme = Theme(
 // contrast stays readable.
 func LightTheme() Theme = Theme(
     BorderKind = SingleBorder(),
-    BorderFg   = BrightBlack(),
-    Text       = DefaultStyle().WithFg(Black()),
-    Muted      = DefaultStyle().WithFg(BrightBlack()),
-    Heading    = DefaultStyle().WithBold().WithFg(Blue()),
-    Accent     = DefaultStyle().WithBold().WithFg(Magenta()),
-    Success    = DefaultStyle().WithFg(Green()),
-    Warning    = DefaultStyle().WithFg(Yellow()),
-    Error      = DefaultStyle().WithBold().WithFg(Red()),
-    Selected   = DefaultStyle().WithBg(BrightYellow()).WithFg(Black()),
-    Focus      = DefaultStyle().WithBold().WithBg(BrightCyan()).WithFg(Black()),
+    BorderFg   = BrightBlack,
+    Text       = DefaultStyle().WithFg(Black),
+    Muted      = DefaultStyle().WithFg(BrightBlack),
+    Heading    = DefaultStyle().WithBold().WithFg(Blue),
+    Accent     = DefaultStyle().WithBold().WithFg(Magenta),
+    Success    = DefaultStyle().WithFg(Green),
+    Warning    = DefaultStyle().WithFg(Yellow),
+    Error      = DefaultStyle().WithBold().WithFg(Red),
+    Selected   = DefaultStyle().WithBg(BrightYellow).WithFg(Black),
+    Focus      = DefaultStyle().WithBold().WithBg(BrightCyan).WithFg(Black),
     Background = DefaultColor(),
 )
 
@@ -100,17 +100,17 @@ func LightTheme() Theme = Theme(
 // everything. Good for demos, projectors, and accessibility-first apps.
 func HighContrastTheme() Theme = Theme(
     BorderKind = ThickBorder(),
-    BorderFg   = BrightWhite(),
-    Text       = DefaultStyle().WithBold().WithFg(BrightWhite()),
-    Muted      = DefaultStyle().WithFg(White()),
-    Heading    = DefaultStyle().WithBold().WithUnderline().WithFg(BrightWhite()),
-    Accent     = DefaultStyle().WithBold().WithFg(BrightYellow()),
-    Success    = DefaultStyle().WithBold().WithFg(BrightGreen()),
-    Warning    = DefaultStyle().WithBold().WithFg(BrightYellow()),
-    Error      = DefaultStyle().WithBold().WithFg(BrightRed()).WithUnderline(),
+    BorderFg   = BrightWhite,
+    Text       = DefaultStyle().WithBold().WithFg(BrightWhite),
+    Muted      = DefaultStyle().WithFg(White),
+    Heading    = DefaultStyle().WithBold().WithUnderline().WithFg(BrightWhite),
+    Accent     = DefaultStyle().WithBold().WithFg(BrightYellow),
+    Success    = DefaultStyle().WithBold().WithFg(BrightGreen),
+    Warning    = DefaultStyle().WithBold().WithFg(BrightYellow),
+    Error      = DefaultStyle().WithBold().WithFg(BrightRed).WithUnderline(),
     Selected   = DefaultStyle().WithBold().WithReverse(),
     Focus      = DefaultStyle().WithBold().WithReverse().WithUnderline(),
-    Background = Black(),
+    Background = Black,
 )
 
 // ----------------------------------------------------------------------------

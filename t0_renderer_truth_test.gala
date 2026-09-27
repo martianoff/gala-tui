@@ -25,8 +25,8 @@ func TestDrawSpansStopsAtOverflowInsteadOfSkipping(t T) T {
     val w = SpansLine(SpanOf("a"), SpanOf("中"), SpanOf("b"))
     val buf = NewBuffer(2, 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 2, Height = 1), buf)
-    val t1 = Eq(t, buf.CharAt(0, 0), 'a')
-    return Eq(t1, buf.CharAt(1, 0), ' ')
+    val t1 = Eq(t, buf.Get(0, 0).Ch, 'a')
+    return Eq(t1, buf.Get(1, 0).Ch, ' ')
 }
 
 func TestRichTextClipMatchesPlainTextClip(t T) T {
@@ -43,8 +43,8 @@ func TestDrawSpansStillFitsAnExactlyFittingWideGlyph(t T) T {
     val buf = NewBuffer(3, 1)
     RenderTo(SpansLine(SpanOf("a"), SpanOf("中")),
         Rect(X = 0, Y = 0, Width = 3, Height = 1), buf)
-    val t1 = Eq(t, buf.CharAt(0, 0), 'a')
-    return Eq(t1, buf.CharAt(1, 0), rune(0x4E2D))
+    val t1 = Eq(t, buf.Get(0, 0).Ch, 'a')
+    return Eq(t1, buf.Get(1, 0).Ch, rune(0x4E2D))
 }
 
 func TestBlockTitleClipsWithoutSlidingGlyphs(t T) T {
@@ -84,7 +84,7 @@ func TestListBottomToTopKeepsCursorZeroOnScreen(t T) T {
         Rect(X = 0, Y = 0, Width = 7, Height = 3), buf)
     val t1 = Eq(t, RowText(buf, 0), "item0  ")
     // The highlight is on screen, spanning the cursor's row.
-    return IsTrue(t1, buf.StyleAt(0, 0).Reverse && buf.StyleAt(6, 0).Reverse)
+    return IsTrue(t1, buf.Get(0, 0).St.Reverse && buf.Get(6, 0).St.Reverse)
 }
 
 func TestListBottomToTopViewportIsMonotonicInSelection(t T) T {

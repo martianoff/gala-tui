@@ -169,7 +169,7 @@ func TestListSelectionHighlightSpansTheFullRow(t T) T {
     // sweep every cell rather than sampling one.
     val buf = NewBuffer(8, 1)
     RenderTo(SelectList(listItems(1), 0), Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
-    return stream.Range(0, 8).Fold(t, (acc, x) => IsTrue(acc, buf.StyleAt(x, 0).Reverse))
+    return stream.Range(0, 8).Fold(t, (acc, x) => IsTrue(acc, buf.Get(x, 0).St.Reverse))
 }
 
 // ----------------------------------------------------------------------------
@@ -180,25 +180,25 @@ func TestScrollbarVerticalLeftUsesLeftEdge(t T) T {
     val w = ScrollbarAt(10, 2, 0, DefaultStyle(), ScrollbarVerticalLeft())
     val buf = NewBuffer(3, 4)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 3, Height = 4), buf)
-    val t1 = Eq(t, buf.CharAt(0, 0), '█')
-    return Eq(t1, buf.CharAt(2, 0), ' ')
+    val t1 = Eq(t, buf.Get(0, 0).Ch, '█')
+    return Eq(t1, buf.Get(2, 0).Ch, ' ')
 }
 
 func TestScrollbarHorizontalBottomRunsAlongTheBottomRow(t T) T {
     val w = ScrollbarAt(10, 2, 0, DefaultStyle(), ScrollbarHorizontalBottom())
     val buf = NewBuffer(4, 2)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 2), buf)
-    val t1 = Eq(t, buf.CharAt(0, 1), '█')
-    val t2 = Eq(t1, buf.CharAt(3, 1), '─')
-    return Eq(t2, buf.CharAt(0, 0), ' ')
+    val t1 = Eq(t, buf.Get(0, 1).Ch, '█')
+    val t2 = Eq(t1, buf.Get(3, 1).Ch, '─')
+    return Eq(t2, buf.Get(0, 0).Ch, ' ')
 }
 
 func TestScrollbarHorizontalThumbMovesWithOffset(t T) T {
     val atEnd = ScrollbarAt(10, 2, 8, DefaultStyle(), ScrollbarHorizontalTop())
     val buf = NewBuffer(4, 1)
     RenderTo(atEnd, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    val t1 = Eq(t, buf.CharAt(3, 0), '█')
-    return Eq(t1, buf.CharAt(0, 0), '─')
+    val t1 = Eq(t, buf.Get(3, 0).Ch, '█')
+    return Eq(t1, buf.Get(0, 0).Ch, '─')
 }
 
 // scrollbarColumn renders a vertical bar `h` cells tall and reads it
@@ -206,7 +206,7 @@ func TestScrollbarHorizontalThumbMovesWithOffset(t T) T {
 func scrollbarColumn(w Widget, h int) string {
     val buf = NewBuffer(1, h)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 1, Height = h), buf)
-    return string(ArrayTabulate(h, (y) => buf.CharAt(0, y)).ToGoSlice())
+    return string(ArrayTabulate(h, (y) => buf.Get(0, y).Ch).ToGoSlice())
 }
 
 // With arrows the thumb travels between them: at the top it sits just
@@ -235,13 +235,13 @@ func TestScrollbarArrowsDropWhenThereIsNoRoom(t T) T =
 
 func TestScrollbarDrawsWithCustomGlyphsAndTrackStyle(t T) T {
     val symbols = DefaultScrollbarSymbols(ScrollbarVerticalRight())
-        .WithTrack('░').WithThumb('▓').WithTrackStyle(DefaultStyle().WithFg(Blue()))
+        .WithTrack('░').WithThumb('▓').WithTrackStyle(DefaultStyle().WithFg(Blue))
     val buf = NewBuffer(1, 4)
     RenderTo(ScrollbarWith(8, 2, 0, DefaultStyle(), ScrollbarVerticalRight(), symbols),
         Rect(X = 0, Y = 0, Width = 1, Height = 4), buf)
-    val t1 = Eq(t, string(ArrayTabulate(4, (y) => buf.CharAt(0, y)).ToGoSlice()), "▓░░░")
-    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(0, 3).Fg, Blue()))
-    return IsFalse(t2, buf.StyleAt(0, 3).Dim)
+    val t1 = Eq(t, string(ArrayTabulate(4, (y) => buf.Get(0, y).Ch).ToGoSlice()), "▓░░░")
+    val t2 = IsTrue(t1, ColorEq(buf.Get(0, 3).St.Fg, Blue))
+    return IsFalse(t2, buf.Get(0, 3).St.Dim)
 }
 
 func TestScrollbarDerivesViewportWhenVisibleIsZero(t T) T {
@@ -249,8 +249,8 @@ func TestScrollbarDerivesViewportWhenVisibleIsZero(t T) T {
     // 5-cell bar must produce a partial thumb, not a full one.
     val buf = NewBuffer(1, 5)
     RenderTo(Scrollbar(10, 0, 0), Rect(X = 0, Y = 0, Width = 1, Height = 5), buf)
-    val t1 = Eq(t, buf.CharAt(0, 0), '█')
-    return Eq(t1, buf.CharAt(0, 4), '│')
+    val t1 = Eq(t, buf.Get(0, 0).Ch, '█')
+    return Eq(t1, buf.Get(0, 4).Ch, '│')
 }
 
 func TestScrollPaneScrollbarThumbMovesWithOffset(t T) T {
@@ -272,8 +272,8 @@ func TestScrollPaneScrollbarThumbMovesWithOffset(t T) T {
     RenderTo(ScrollPaneView(body, ScrollPaneState(Offset = 6), 10),
         Rect(X = 0, Y = 0, Width = 10, Height = 4), botBuf)
     // Thumb pinned to the top at offset 0, to the bottom at max offset.
-    val t1 = Eq(t, topBuf.CharAt(barX, 0), '█')
-    val t2 = Eq(t1, topBuf.CharAt(barX, 3), '│')
-    val t3 = Eq(t2, botBuf.CharAt(barX, 0), '│')
-    return Eq(t3, botBuf.CharAt(barX, 3), '█')
+    val t1 = Eq(t, topBuf.Get(barX, 0).Ch, '█')
+    val t2 = Eq(t1, topBuf.Get(barX, 3).Ch, '│')
+    val t3 = Eq(t2, botBuf.Get(barX, 0).Ch, '│')
+    return Eq(t3, botBuf.Get(barX, 3).Ch, '█')
 }

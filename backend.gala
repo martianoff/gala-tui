@@ -80,12 +80,8 @@ struct BackendSession(
 // `Buffer.DiffString(nil)` — every cell of the terminal, not the empty diff
 // it might sound like — on every frame an app printed.
 //
-// It is the one optional field. Nil means the same as `TerminalBackend`'s
-// `(lines) => false`: this backend has nowhere to put them. That is
-// deliberate rather than lax — `Backend` is public and its fields are plain
-// functions, so a backend written before this field existed still compiles,
-// and a print should no-op there rather than crash the run loop. The other
-// seven fields have no such reading and a nil one is a bug.
+// A backend with nowhere to put them leaves the field out: the default
+// drops the lines and reports `false`.
 struct Backend(
     Name         string,
     Size         func() Tuple[int, int],
@@ -96,17 +92,18 @@ struct Backend(
     // protocols — see `currentTermModes`.
     Open         func(bool) BackendSession,
     Paint        func(*Buffer, *Buffer),
-    InsertBefore func(Array[string]) bool = nil,
-    // Origin is where the viewport's top-left cell sits on the screen, for
-    // a backend that does not start at (0, 0). Mouse events arrive in SCREEN
-    // cells and hit regions are in buffer cells, so the run loop shifts every
-    // mouse event by it. Optional, like InsertBefore: nil is (0, 0).
-    Origin       func() Tuple[int, int] = nil,
+    InsertBefore func(Array[string]) bool = (lines) => false,
+    // Origin is where the viewport's top-left cell sits on the screen:
+    // (0, 0) unless the backend's viewport starts elsewhere. Mouse events
+    // arrive in SCREEN cells and hit regions are in buffer cells, so the run
+    // loop shifts every mouse event by it.
+    Origin       func() Tuple[int, int] = () => (0, 0),
     // CursorReport receives the terminal's answer to a cursor-position
     // query (`ESC[6n` → `ESC[row;colR`, 1-based) the backend wrote. The run
     // loop takes the reply out of the input stream before it can be read as
-    // a key. Optional: a backend that never asks has nothing to receive.
-    CursorReport func(int, int) = nil,
+    // a key. A backend that never asks has nothing to receive and leaves the
+    // field out.
+    CursorReport func(int, int) = (row, col) => {},
 )
 
 // ----------------------------------------------------------------------------
@@ -130,12 +127,8 @@ func TerminalBackend() Backend {
             shown = frame.Cursor().IsDefined()
             if shown { shape = frame.cursorShape }
         },
-        // The alternate screen has no scrollback — it is a second screen
-        // that is thrown away on exit, which is the whole reason a
-        // full-screen app can leave the shell's history untouched. Lines
-        // asked for here have nowhere to go, so they are dropped rather than
-        // written into the frame the app is drawing.
-        InsertBefore = (lines) => false,
+        // InsertBefore keeps its default: the alternate screen has no
+        // scrollback to insert into.
     )
 }
 
@@ -144,7 +137,7 @@ func TerminalBackend() Backend {
 // as one synchronized update. `shape` is the cursor shape the terminal was
 // last told.
 func terminalPaintString(frame *Buffer, prev *Buffer, shown bool, shape int = 0) string {
-    val body = if (prev == nil) ansiHome() + frame.String() else frame.DiffString(prev)
+    val body = if (prev == nil) ansiHome + frame.String() else frame.DiffString(prev)
     return synchronized(body + cursorTail(frame, prev, body, shown, 0, 0, shape))
 }
 
@@ -191,8 +184,8 @@ func cursorTail(
     frame.Cursor() match {
         case Some(p) =>
             if (painted == "" && shown && prev != nil && cursorAt(prev, p) && frame.cursorShape == shape) ""
-            else ansiMoveTo(oy + p.V2 + 1, ox + p.V1 + 1) + cursorShapeChange(frame, shape) + ansiCursorShow()
-        case None() => if (shown) ansiCursorHide() else ""
+            else ansiMoveTo(oy + p.V2 + 1, ox + p.V1 + 1) + cursorShapeChange(frame, shape) + ansiCursorShow
+        case None() => if (shown) ansiCursorHide else ""
     }
 
 // sameCursor is whether two frames asked for the same cursor — place and
@@ -237,7 +230,7 @@ func terminalOpen(mouse bool) BackendSession {
     }
     val session = enterTermSession(fd, state, mouse)
     return BackendSession(Close = () => {
-        val _ = session.Close()
+        FromError(session.Close())
     })
 }
 
@@ -302,7 +295,7 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
         },
         Read  = (buf) => testBackendRead(st, buf),
         ReadAsync = () => {
-            val buf = SliceWithSize[byte](readBufBytes())
+            val buf = SliceWithSize[byte](readBufBytes)
             val (n, ok) = testBackendRead(st, buf)
             if !ok {
                 return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = 0, Err = true))
@@ -392,7 +385,7 @@ func testBackendRead(st *TestBackendState, buf []byte) Tuple[int, bool] {
 // the concurrency boundary at all.
 func terminalReadFuture() concurrent.Future[ReadResult] {
     return concurrent.Future[ReadResult](() => {
-        var buf = SliceWithSize[byte](readBufBytes())
+        var buf = SliceWithSize[byte](readBufBytes)
         var n, err = os.Stdin.Read(buf)
         if err != nil {
             return ReadResult(Buf = buf, N = 0, Err = true)
@@ -438,7 +431,7 @@ func NewTestBackendChunks(
         },
         Read  = read,
         ReadAsync = () => {
-            val buf = SliceWithSize[byte](readBufBytes())
+            val buf = SliceWithSize[byte](readBufBytes)
             val (n, ok) = read(buf)
             if !ok {
                 return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = 0, Err = true))
@@ -528,7 +521,7 @@ func InlineBackend(height int) Backend {
     var lastTerm = (0, 0)
     var shape = 0
     val home = () => {
-        val s = if (shown) ansiCursorHide() + ansiCursorRestore() else ""
+        val s = if (shown) ansiCursorHide + ansiCursorRestore else ""
         shown = false
         return s
     }
@@ -561,7 +554,7 @@ func InlineBackend(height int) Backend {
             // blink. A query that is due still goes out.
             val redraw = prev == nil || !frame.ContentsEqual(prev) || !sameCursor(frame, prev)
             val body = if (redraw) home() + inlineFrameString(frame, h) else ""
-            val query = if (ask) ansiCursorQuery() else ""
+            val query = if (ask) ansiCursorQuery else ""
             if redraw || ask {
                 stdoutWrite(synchronized(body + query + (if (redraw) inlineCursorString(frame, shape) else "")))
             }
@@ -590,7 +583,7 @@ func InlineBackend(height int) Backend {
 // arriving after the terminal is handed back and printing `^[[17;1R` at the
 // shell prompt. Bounded: a terminal that never answers costs this long once.
 func drainCursorReport() {
-    val _ = terminalReadFuture().AwaitFor(Milliseconds(150))
+    terminalReadFuture().AwaitFor(Milliseconds(150))
 }
 
 // inlineCursorString moves from the block's top-left — where every inline
@@ -599,8 +592,8 @@ func drainCursorReport() {
 // asked for no cursor. `shape` is the cursor shape the terminal was last
 // told.
 func inlineCursorString(frame *Buffer, shape int = 0) string = frame.Cursor() match {
-    case Some(p) => ansiCursorSave() + ansiCursorDown(p.V2) + "\r" +
-                    ansiCursorForward(p.V1) + cursorShapeChange(frame, shape) + ansiCursorShow()
+    case Some(p) => ansiCursorSave + ansiCursorDown(p.V2) + "\r" +
+                    ansiCursorForward(p.V1) + cursorShapeChange(frame, shape) + ansiCursorShow
     case None()  => ""
 }
 
@@ -645,7 +638,7 @@ func inlineInsertBeforeString(lines Array[string], height int) string {
         // paint every row after it: `ESC[K` erases with the *current*
         // background in every terminal that matters, so the blanking of the
         // next block would fill its whole width with this line's colour.
-        sb.WriteString(ResetSgr())
+        sb.WriteString(ResetSgr)
         sb.WriteString("\r\n")
     })
     // No per-line erase: every row a line can land on is already blank —
@@ -723,12 +716,12 @@ func openRawSession(
     val modesOff = termModesOff(modes)
     installCleanupGuard(fd, state, modesOff)
     if mouse {
-        val _ = EnableVTInput()
+        EnableVTInput()
     }
     stdoutWrite(enter(termModesOn(modes)))
     return BackendSession(Close = () => {
         stdoutWrite(exit(modesOff))
-        val _ = term.Restore(fd, state)
+        FromError(term.Restore(fd, state))
     })
 }
 
@@ -741,7 +734,7 @@ func openRawSession(
 // scroll; drawing first and scrolling later would push the top of the frame
 // into the scrollback mid-render.
 func inlineEnterString(height int, modesOn string) string =
-    ansiCursorHide() + modesOn + inlineReserveString(height)
+    ansiCursorHide + modesOn + inlineReserveString(height)
 
 // inlineExitString releases it: step past the block so the shell's next
 // prompt lands BELOW the app's final frame rather than overwriting it, then
@@ -756,7 +749,7 @@ func inlineExitString(height int, modesOff string) string {
     sb.WriteString(ansiCursorDown(height - 1))
     sb.WriteString("\r\n")
     sb.WriteString(modesOff)
-    sb.WriteString(ansiCursorShow())
+    sb.WriteString(ansiCursorShow)
     return sb.String()
 }
 
@@ -811,10 +804,9 @@ func FixedBackend(area Rect) Backend {
                 if shown { shape = frame.cursorShape }
             }
         },
-        // The rows above a fixed rectangle belong to someone else, so lines
-        // have nowhere to go — the same answer the alternate screen gives.
-        InsertBefore = (lines) => false,
         Origin = () => (a.X, a.Y),
+        // InsertBefore keeps its default: the rows above a fixed rectangle
+        // belong to someone else.
     )
 }
 
@@ -862,11 +854,11 @@ func fixedPaintString(
     val diff = frame.DiffStringAt(prev, area.X, area.Y)
     val asking = frame.Cursor().IsDefined()
     val tail = cursorTail(frame, prev, diff, shown, area.X, area.Y, shape)
-    return if (asking && !shown) ansiCursorSave() + diff + tail
+    return if (asking && !shown) ansiCursorSave + diff + tail
     else if (asking) diff + tail
-    else if (shown) diff + ansiCursorRestore() + tail
+    else if (shown) diff + ansiCursorRestore + tail
     else if (diff == "") ""
-    else ansiCursorSave() + diff + ansiCursorRestore()
+    else ansiCursorSave + diff + ansiCursorRestore
 }
 
 func fixedOffScreen(area Rect, term Tuple[int, int]) bool =
@@ -876,7 +868,7 @@ func fixedOffScreen(area Rect, term Tuple[int, int]) bool =
 // the screen around the rectangle is not the app's to hide.
 func fixedOpen(area Rect, mouse bool) BackendSession =
     openRawSession(mouse,
-        (modesOn) => ansiCursorHide() + modesOn,
+        (modesOn) => ansiCursorHide + modesOn,
         (modesOff) => fixedExitString(area, TermSize(), modesOff))
 
 // fixedExitString leaves the cursor on the line below the rectangle, so the
@@ -887,5 +879,5 @@ func fixedExitString(area Rect, term Tuple[int, int], modesOff string) string {
     val below = area.Y + MinInt(area.Height, term.V2 - area.Y)
     val move = if (below < term.V2) ansiMoveTo(below + 1, 1)
                else ansiMoveTo(term.V2, 1) + "\r\n"
-    return ResetSgr() + move + modesOff + ansiCursorShow()
+    return ResetSgr + move + modesOff + ansiCursorShow
 }

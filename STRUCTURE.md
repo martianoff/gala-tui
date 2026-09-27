@@ -1,9 +1,8 @@
 # gala-tui — file map
 
-The framework lives in a single `gala_tui` package because the GALA transpiler
-currently panics on library-with-subpackage layouts. Files are organized by
-concern below; a future transpiler release should let us split this into
-real subpackages (`core/`, `widget/`, etc.).
+Most of the framework lives in the root `gala_tui` package; the stateful
+helpers are in the `state/` subpackage and the test harness in `harness/`.
+Files are organized by concern below.
 
 ## Core (Elm-architecture types)
 - `core.gala` — `Program`, `Cmd[T]` (incl. `FutureCmd`), `IsQuit`, `PendingMsgs`, `PendingFutures`, `PollFutures`, `StepAll`

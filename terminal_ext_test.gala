@@ -36,8 +36,8 @@ func TestHyperlinkTextPaintsUnderlineLink(t T) T {
     val buf = NewBuffer(10, 1)
     RenderTo(HyperlinkText("docs", "https://example.com"),
         Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
-    val t1 = IsTrue(t, buf.StyleAt(0, 0).Underline)
-    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, BrightBlue()))
+    val t1 = IsTrue(t, buf.Get(0, 0).St.Underline)
+    return IsTrue(t1, ColorEq(buf.Get(0, 0).St.Fg, BrightBlue))
 }
 
 // ----------------------------------------------------------------------------

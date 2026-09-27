@@ -1,8 +1,8 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
-    "strings"
 )
 
 // ----------------------------------------------------------------------------
@@ -46,7 +46,7 @@ struct TableCell(
 
 // CellOf is a plain cell. A "\n" in the text starts a new line.
 func CellOf(text string) TableCell = TableCell(
-    Lines = ArrayOf[string](strings.Split(text, "\n")...).Map((l) => LineFromString(l, DefaultStyle())),
+    Lines = gs.Split(text, "\n").Map((l) => LineFromString(l, DefaultStyle())),
     Style = DefaultStyle())
 
 // CellSpans is a one-line cell of styled runs.
@@ -122,7 +122,7 @@ func TableSpecOf(widths Array[Constraint], rows Array[TableRow]) TableSpec = Tab
     Header           = noTableRow(),
     Footer           = noTableRow(),
     HeaderRule       = true,
-    ColumnSpacing    = tableColumnSpacing(),
+    ColumnSpacing    = tableColumnSpacing,
     Style            = DefaultStyle(),
     Selected         = -1,
     SelectedCol      = -1,

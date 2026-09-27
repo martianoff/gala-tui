@@ -47,7 +47,7 @@ func TestBreadcrumbActiveSegmentIsBrightCyan(t T) T {
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     // Find "C" — last segment. It should be at the position after
     // the second separator. Just probe each cell for BrightCyan.
-    val found = stream.Range(0, 40).Exists((x) => ColorEq(buf.StyleAt(x, 0).Fg, BrightCyan()))
+    val found = stream.Range(0, 40).Exists((x) => ColorEq(buf.Get(x, 0).St.Fg, BrightCyan))
     return IsTrue(t, found)
 }
 
@@ -65,26 +65,26 @@ func TestBreadcrumbCustomSeparator(t T) T {
 
 func TestTagRendersLabel(t T) T {
     val buf = NewBuffer(20, 1)
-    RenderTo(Tag("Beta", BrightYellow()),
+    RenderTo(Tag("Beta", BrightYellow),
         Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     return IsTrue(t, strings.Contains(RowText(buf, 0), "Beta"))
 }
 
 func TestTagUsesReverseStyle(t T) T {
     val buf = NewBuffer(20, 1)
-    RenderTo(Tag("X", BrightRed()),
+    RenderTo(Tag("X", BrightRed),
         Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     // Cell 1 is the inner "X" character — should be reverse + bold.
-    return IsTrue(t, buf.StyleAt(1, 0).Reverse)
+    return IsTrue(t, buf.Get(1, 0).St.Reverse)
 }
 
 func TestTagPlainUsesBracketsNotReverse(t T) T {
     val buf = NewBuffer(20, 1)
-    RenderTo(TagPlain("v2", BrightCyan()),
+    RenderTo(TagPlain("v2", BrightCyan),
         Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     val row = RowText(buf, 0)
     val t1 = IsTrue(t, strings.Contains(row, "[v2]"))
-    return IsFalse(t1, buf.StyleAt(1, 0).Reverse)
+    return IsFalse(t1, buf.Get(1, 0).St.Reverse)
 }
 
 // ----------------------------------------------------------------------------
@@ -104,8 +104,8 @@ func TestKeyHintSpecIsBrightCyanBold(t T) T {
     val buf = NewBuffer(20, 1)
     RenderTo(KeyHint("Tab", "cycle"),
         Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    val style = buf.StyleAt(0, 0)
-    val t1 = IsTrue(t, ColorEq(style.Fg, BrightCyan()))
+    val style = buf.Get(0, 0).St
+    val t1 = IsTrue(t, ColorEq(style.Fg, BrightCyan))
     return IsTrue(t1, style.Bold)
 }
 

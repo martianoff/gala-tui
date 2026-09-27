@@ -215,7 +215,7 @@ func (w Widget) AsPct(percent int) LayoutChild = Pct(percent, w)
 // inputW-like leaf re-styled with fg color applied. Only affects direct
 // TextWidgets; container widgets descend recursively.
 //
-// Useful for one-off recolors: `TextStyled("ok", theme.Text).WithFg(Green())`.
+// Useful for one-off recolors: `TextStyled("ok", theme.Text).WithFg(Green)`.
 // For anything more complex, build a Style explicitly.
 func (w Widget) WithFg(c Color) Widget = restyleLeaves(w, (s) => s.WithFg(c))
 

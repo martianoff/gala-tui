@@ -141,7 +141,7 @@ func TestPaletteViewRendersHeader(t T) T {
     val buf = NewBuffer(40, 10)
     RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 40, Height = 10), buf)
     // The ">" prompt should appear in row 0.
-    return Eq(t, buf.CharAt(1, 0), '>')
+    return Eq(t, buf.Get(1, 0).Ch, '>')
 }
 
 func TestPaletteViewShowsFilteredResults(t T) T {
@@ -158,7 +158,7 @@ func TestPaletteViewHighlightsSelected(t T) T {
     val buf = NewBuffer(30, 10)
     RenderTo(PaletteView(p), Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
     // Selected row is at y=2 (after header and separator).
-    return IsTrue(t, buf.StyleAt(0, 2).Reverse)
+    return IsTrue(t, buf.Get(0, 2).St.Reverse)
 }
 
 func TestPaletteViewNoMatches(t T) T {

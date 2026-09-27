@@ -96,13 +96,13 @@ func TestFixedSizeClipsToTheTerminal(t T) T {
 // lands on the frame's last line.
 func TestFixedExitLeavesTheFrameVisible(t T) T {
     val t1 = Eq(t, fixedExitString(Rect(X = 0, Y = 2, Width = 5, Height = 3), (80, 24), ""),
-                ResetSgr() + ansiMoveTo(6, 1) + ansiCursorShow())
+                ResetSgr + ansiMoveTo(6, 1) + ansiCursorShow)
     return Eq(t1, fixedExitString(Rect(X = 0, Y = 20, Width = 5, Height = 6), (80, 24), ""),
-              ResetSgr() + ansiMoveTo(24, 1) + "\r\n" + ansiCursorShow())
+              ResetSgr + ansiMoveTo(24, 1) + "\r\n" + ansiCursorShow)
 }
 
 func fvMouse(x int, y int, pressed bool) InputEvent =
-    MouseInput(MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = pressed, Motion = false))
+    MouseInput(MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = pressed))
 
 // Inside the viewport a mouse event moves into viewport cells; outside, a
 // press is dropped and a release is kept, clamped, so a drag still ends.
@@ -120,4 +120,4 @@ func TestMouseEventsAreMappedIntoTheViewport(t T) T {
 }
 
 func TestFixedBackendReportsItsOrigin(t T) T =
-    Eq(t, backendOrigin(FixedBackend(Rect(X = 4, Y = 7, Width = 10, Height = 3))), (4, 7))
+    Eq(t, FixedBackend(Rect(X = 4, Y = 7, Width = 10, Height = 3)).Origin(), (4, 7))

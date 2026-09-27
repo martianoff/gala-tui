@@ -137,7 +137,7 @@ func megaAreaChart(series Array[int], marker CanvasMarker) Widget {
         XBounds(0.0, float64(n - 1)),
         YBounds(0.0, 100.0),
         marker,
-        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan())))
+        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan)))
 }
 
 // megaGaugeStack shows the three gauge shapes against one value, which is the
@@ -184,7 +184,7 @@ func megaGappedSeries(series Array[int], offset int) Array[Option[int]] =
 func megaBarsChart(series Array[int]) Widget {
     val tail = series.Drop(MaxInt(0, series.Length() - 12))
     val pts = tail.ZipWithIndex().Map((p) => CanvasPoint(X = float64(p.V2), Y = float64(p.V1)))
-    return Chart(ArrayOf[ChartDataset](DatasetBars("", pts, DefaultStyle().WithFg(BrightCyan()))),
+    return Chart(ArrayOf[ChartDataset](DatasetBars("", pts, DefaultStyle().WithFg(BrightCyan))),
                  AxisBare(XBounds(-0.5, 11.5)), AxisBare(YBounds(0.0, 100.0)))
 }
 
@@ -197,8 +197,8 @@ func megaMultiChart(series Array[int]) Widget {
     return MultiLineChart(
         ArrayOf[Array[int]](series, baseline),
         ArrayOf[Style](
-            DefaultStyle().WithFg(BrightGreen()),
-            DefaultStyle().WithFg(BrightMagenta())))
+            DefaultStyle().WithFg(BrightGreen),
+            DefaultStyle().WithFg(BrightMagenta)))
 }
 
 // ----------------------------------------------------------------------------
@@ -227,10 +227,10 @@ func megaFormsMain(m MegaModel, th Theme) Widget =
 // the tour is recorded on.
 func megaReleaseCalendar() Calendar =
     NewCalendarAt(2026, 11, 17).StartingMonday()
-        .Mark(2026, 11, 3, DefaultStyle().WithFg(BrightGreen()))
-        .Mark(2026, 11, 17, DefaultStyle().WithFg(BrightGreen()))
-        .Mark(2026, 11, 13, DefaultStyle().WithFg(BrightRed()))
-        .Mark(2026, 11, 16, DefaultStyle().WithFg(BrightRed()))
+        .Mark(2026, 11, 3, DefaultStyle().WithFg(BrightGreen))
+        .Mark(2026, 11, 17, DefaultStyle().WithFg(BrightGreen))
+        .Mark(2026, 11, 13, DefaultStyle().WithFg(BrightRed))
+        .Mark(2026, 11, 16, DefaultStyle().WithFg(BrightRed))
 
 // megaCredentialsForm is the whole input story on one screen: a plain field,
 // a masked one, and a button. Both fields are built with `InputClick`, so a
@@ -273,7 +273,7 @@ func megaSubmitRow(m MegaModel) Widget =
 
 func megaFormStatus(m MegaModel) Widget {
     if m.FormSubmitted {
-        return Tag(" signed in ", BrightGreen())
+        return Tag(" signed in ", BrightGreen)
     }
     if RuneCount(m.FormPass) == 0 {
         return TextStyled(" password required", DefaultStyle().WithDim())
@@ -296,7 +296,7 @@ func megaSearchHits(m MegaModel) Widget {
     if hits.IsEmpty() {
         return TextStyled(" no matches", DefaultStyle().WithDim())
     }
-    return TextStyled(s" ${hits.MkString(" · ")}", DefaultStyle().WithFg(BrightCyan()))
+    return TextStyled(s" ${hits.MkString(" · ")}", DefaultStyle().WithFg(BrightCyan))
 }
 
 func megaSearchCorpus() Array[string] = ArrayOf[string](
@@ -313,7 +313,7 @@ func megaSearchMatches(q string) Array[string] =
 // in a wider one.
 func megaFormNotes() Widget {
     val dim = DefaultStyle().WithDim()
-    val code = DefaultStyle().WithFg(BrightCyan())
+    val code = DefaultStyle().WithFg(BrightCyan)
     val bold = DefaultStyle().WithBold()
     return PaddingHV(1, 1, ParagraphView(ParagraphOf(RichTextOfLines(
         LineOfSpans(
@@ -436,12 +436,12 @@ func megaQuotaTable(m MegaModel) Widget {
 // megaQuotaState colours a region's state by what it asks of the reader:
 // nothing, attention, or a question about why it exists.
 func megaQuotaState(state string) TableCell = state match {
-    case "near limit" => CellOf(state).WithStyle(DefaultStyle().WithFg(BrightYellow()))
+    case "near limit" => CellOf(state).WithStyle(DefaultStyle().WithFg(BrightYellow))
     case "unused"     => CellOf(state).WithStyle(DefaultStyle().WithDim())
-    case _            => CellOf(state).WithStyle(DefaultStyle().WithFg(BrightGreen()))
+    case _            => CellOf(state).WithStyle(DefaultStyle().WithFg(BrightGreen))
 }
 
-func megaAtoi(s string) int = Try(() => strconv.Atoi(s)).GetOrElse(0)
+func megaAtoi(s string) int = Try(strconv.Atoi(s)).GetOrElse(0)
 
 // megaQuotaVisible is the window the table shows and the scrollbar reports.
 // One number, used by the view and by the update that scrolls it — two copies
@@ -508,11 +508,11 @@ func megaLinkRow() Widget =
         // The underline in its own colour (SGR 58): a dim rule under bright
         // text, where the terminal supports it, and a plain underline where not.
         Fixed(1, LinkStyled("gala-tui on GitHub", "https://github.com/martianoff/gala-tui",
-            DefaultStyle().WithFg(BrightCyan()).WithUnderlineColor(BrightBlack()))),
+            DefaultStyle().WithFg(BrightCyan).WithUnderlineColor(BrightBlack))),
         Fixed(1, Text("")),
         Fixed(1, Row(ArrayOf[LayoutChild](
-            Fixed(12, Tag(" passing ", BrightGreen())),
-            Fixed(12, Tag(" 0.12.0 ", BrightCyan())),
-            Flex(1, Tag(" opus ", BrightMagenta())),
+            Fixed(12, Tag(" passing ", BrightGreen)),
+            Fixed(12, Tag(" 0.12.0 ", BrightCyan)),
+            Flex(1, Tag(" opus ", BrightMagenta)),
         ))),
     )))

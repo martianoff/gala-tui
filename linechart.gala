@@ -29,7 +29,7 @@ import (
 // height ≥ 1. For explicit control over bounds (so two charts share a
 // y-axis) use LineChartBounded.
 func LineChart(values Array[int]) Widget =
-    LineChartStyled(values, DefaultStyle().WithFg(BrightGreen()))
+    LineChartStyled(values, DefaultStyle().WithFg(BrightGreen))
 
 // LineChartStyled renders with a caller-chosen style.
 func LineChartStyled(values Array[int], style Style) Widget =
@@ -216,8 +216,8 @@ func multiBounds(series Array[Array[int]]) LineChartBounds {
 // defaultSeriesStyle cycles through a handful of distinct colors for callers
 // that didn't pass a styles array.
 func defaultSeriesStyle(i int) Style {
-    val colors = ArrayOf[Color](BrightGreen(), BrightCyan(), BrightYellow(),
-                                 BrightMagenta(), BrightRed(), BrightBlue())
+    val colors = ArrayOf[Color](BrightGreen, BrightCyan, BrightYellow,
+                                 BrightMagenta, BrightRed, BrightBlue)
     val c = colors.Get(i % colors.Length())
     return DefaultStyle().WithFg(c)
 }

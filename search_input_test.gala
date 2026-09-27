@@ -39,7 +39,7 @@ func TestSearchInputIconIsBrightCyan(t T) T {
     RenderTo(SearchInput("x", 1, 1),
         Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     // Icon at column 1 (after leading space).
-    return IsTrue(t, ColorEq(buf.StyleAt(1, 0).Fg, BrightCyan()))
+    return IsTrue(t, ColorEq(buf.Get(1, 0).St.Fg, BrightCyan))
 }
 
 // ----------------------------------------------------------------------------

@@ -28,24 +28,24 @@ import (
 // wrapped in a Future so the loop can interleave input with timers and
 // user-supplied async Cmds without blocking.
 
-// ansi control sequences as named helpers — no magic escape strings
+// ansi control sequences as named constants — no magic escape strings
 // scattered through the file.
-func ansiAltScreenOn() string  = "\x1b[?1049h"
-func ansiAltScreenOff() string = "\x1b[?1049l"
-func ansiCursorHide() string   = "\x1b[?25l"
-func ansiCursorShow() string   = "\x1b[?25h"
+val ansiAltScreenOn  = "\x1b[?1049h"
+val ansiAltScreenOff = "\x1b[?1049l"
+val ansiCursorHide   = "\x1b[?25l"
+val ansiCursorShow   = "\x1b[?25h"
 
 // ansiCursorSave / ansiCursorRestore are DECSC / DECRC: remember the cursor
 // and come back to it. The fixed and inline backends bracket their writes
 // with them so the cursor they leave behind is the one that was there.
-func ansiCursorSave() string    = "\x1b7"
-func ansiCursorRestore() string = "\x1b8"
+val ansiCursorSave    = "\x1b7"
+val ansiCursorRestore = "\x1b8"
 
 // ansiCursorQuery asks the terminal where the cursor is (DSR 6). It answers
 // on stdin with `ESC[row;colR` — see `takeCursorReport`.
-func ansiCursorQuery() string = "\x1b[6n"
-func ansiClear() string        = "\x1b[2J"
-func ansiHome() string         = "\x1b[H"
+val ansiCursorQuery = "\x1b[6n"
+val ansiClear        = "\x1b[2J"
+val ansiHome         = "\x1b[H"
 
 // ansiMoveTo moves the cursor to 1-indexed (row, col) — absolute screen cells.
 func ansiMoveTo(row int, col int) string = s"\x1b[${row};${col}H"
@@ -58,8 +58,8 @@ func ansiCursorShape(code int) string = s"[${code} q"
 // ansiSyncBegin / ansiSyncEnd bracket a synchronized update (DEC private
 // mode 2026): the terminal holds what it receives in between and presents
 // it in one go. See `synchronized`.
-func ansiSyncBegin() string = "\x1b[?2026h"
-func ansiSyncEnd() string   = "\x1b[?2026l"
+val ansiSyncBegin = "\x1b[?2026h"
+val ansiSyncEnd   = "\x1b[?2026l"
 
 // synchronized wraps one frame's bytes so the terminal shows the frame
 // whole. A frame is written in several chunks, and a terminal that renders
@@ -67,7 +67,7 @@ func ansiSyncEnd() string   = "\x1b[?2026l"
 // one — tearing, most visible on a full repaint or a fast scroll. Terminals
 // without the mode ignore both sequences and draw as the bytes arrive, as
 // they always did. An empty frame stays empty: an idle tick sends nothing.
-func synchronized(s string) string = if (s == "") "" else ansiSyncBegin() + s + ansiSyncEnd()
+func synchronized(s string) string = if (s == "") "" else ansiSyncBegin + s + ansiSyncEnd
 
 // ----------------------------------------------------------------------------
 // Modern input-protocol modes.
@@ -85,12 +85,12 @@ func synchronized(s string) string = if (s == "") "" else ansiSyncBegin() + s + 
 //          terminal's stack and `CSI < u` pops it, which is why the disable
 //          string carries no flags. Popping a stack we never pushed to is
 //          harmless on terminals that implement it and ignored elsewhere.
-func ansiPasteOn() string  = "\x1b[?2004h"
-func ansiPasteOff() string = "\x1b[?2004l"
-func ansiFocusOn() string  = "\x1b[?1004h"
-func ansiFocusOff() string = "\x1b[?1004l"
-func ansiKittyOn() string  = "\x1b[>1u"
-func ansiKittyOff() string = "\x1b[<u"
+val ansiPasteOn  = "\x1b[?2004h"
+val ansiPasteOff = "\x1b[?2004l"
+val ansiFocusOn  = "\x1b[?1004h"
+val ansiFocusOff = "\x1b[?1004l"
+val ansiKittyOn  = "\x1b[>1u"
+val ansiKittyOff = "\x1b[<u"
 
 // installCleanupGuard is provided by `cleanup_guard.go` — Go-side
 // because signal handling, channels, and goroutines aren't expressible
@@ -118,19 +118,19 @@ struct TermModes(
 // their shell see Esc as `CSI 27 u`.
 func termModesOn(m TermModes) string {
     var s = ""
-    if m.Mouse { s = s + ansiMouseOn() }
-    if m.Paste { s = s + ansiPasteOn() }
-    if m.Focus { s = s + ansiFocusOn() }
-    if m.Kitty { s = s + ansiKittyOn() }
+    if m.Mouse { s = s + ansiMouseOn }
+    if m.Paste { s = s + ansiPasteOn }
+    if m.Focus { s = s + ansiFocusOn }
+    if m.Kitty { s = s + ansiKittyOn }
     return s
 }
 
 func termModesOff(m TermModes) string {
     var s = ""
-    if m.Kitty { s = s + ansiKittyOff() }
-    if m.Focus { s = s + ansiFocusOff() }
-    if m.Paste { s = s + ansiPasteOff() }
-    if m.Mouse { s = s + ansiMouseOff() }
+    if m.Kitty { s = s + ansiKittyOff }
+    if m.Focus { s = s + ansiFocusOff }
+    if m.Paste { s = s + ansiPasteOff }
+    if m.Mouse { s = s + ansiMouseOff }
     return s
 }
 
@@ -178,8 +178,8 @@ struct TermSession(
 // binding requires; the error is term.Restore's.
 func (s TermSession) Close() error {
     fmt.Fprint(os.Stdout, s.ModesOff)
-    fmt.Fprint(os.Stdout, ansiCursorShow())
-    fmt.Fprint(os.Stdout, ansiAltScreenOff())
+    fmt.Fprint(os.Stdout, ansiCursorShow)
+    fmt.Fprint(os.Stdout, ansiAltScreenOff)
     return term.Restore(s.Fd, s.State)
 }
 
@@ -202,8 +202,8 @@ func enterTermSession(fd int, state *term.State, mouse bool) TermSession {
         val _ = EnableVTInput()
     }
     // Enter the alt screen so our UI doesn't trash the user's shell history.
-    fmt.Fprint(os.Stdout, ansiAltScreenOn())
-    fmt.Fprint(os.Stdout, ansiCursorHide())
+    fmt.Fprint(os.Stdout, ansiAltScreenOn)
+    fmt.Fprint(os.Stdout, ansiCursorHide)
     fmt.Fprint(os.Stdout, termModesOn(modes))
     return TermSession(Fd = fd, State = state, ModesOff = modesOff)
 }
@@ -310,7 +310,7 @@ func Run[M any, T any](
     // First paint — the initial model before any input.
     paintFrame(program.View(model), backend)
 
-    var readBuf = SliceWithSize[byte](readBufBytes())
+    var readBuf = SliceWithSize[byte](readBufBytes)
     // Bytes left over from the previous read because they were the start of
     // an escape sequence whose tail had not arrived yet. See carryOver.
     var carry = SliceEmpty[byte]()
@@ -463,16 +463,16 @@ struct ReadResult(
 // opens a paste and never closes it — or emits an endless CSI body — cannot
 // grow the buffer without bound. On overflow the tail is dropped, which
 // resyncs the stream on the next read.
-func maxCarryBytes() int = 1048576      // 1 MiB
+val maxCarryBytes = 1048576      // 1 MiB
 
 // readBufBytes is how much stdin is drained per read.
 //
 // A key or a mouse packet fits in a handful of bytes, so this was 64 — but
 // bracketed paste made read size quadratic rather than merely inefficient.
-// A paste arrives over `P / readBufBytes()` reads, and each read rebuilds
+// A paste arrives over `P / readBufBytes` reads, and each read rebuilds
 // the whole accumulated buffer (`carry ++ new`) and re-scans it from the
 // opener looking for the closing marker. Total work is therefore
-// `P² / readBufBytes()`, all of it inside the read loop with no frame
+// `P² / readBufBytes`, all of it inside the read loop with no frame
 // painted and no `update` run: at 64 bytes a 100 KB paste copied ~164 MB
 // and a 1 MiB paste — the cap below, meant to be the limit — copied ~17 GB,
 // so the guard was unreachable because the loop became unusable long
@@ -482,10 +482,10 @@ func maxCarryBytes() int = 1048576      // 1 MiB
 // the invisible range and makes the 1 MiB cap the thing that actually
 // bounds the buffer. It does not change the asymptote; making the scan
 // resumable would, and is the real fix if pastes ever need to be larger.
-func readBufBytes() int = 8192
+val readBufBytes = 8192
 
 func carryOver(rest []byte) []byte {
-    if rest.Size() > maxCarryBytes() {
+    if rest.Size() > maxCarryBytes {
         return resyncOverlongCarry(rest)
     }
     return SliceCopy(rest)
@@ -574,7 +574,7 @@ func RunWithSub[M any, T any](
 
         // 3. Ensure a stdin read future is in flight.
         if readFut.IsEmpty() {
-            readFut = Some[concurrent.Future[ReadResult]](backend.ReadAsync())
+            readFut = Some(backend.ReadAsync())
         }
 
         // 4. Wait up to 50ms for it to complete.
@@ -589,7 +589,7 @@ func RunWithSub[M any, T any](
         // The read completed — clear the slot so a fresh read is launched
         // next time.
         val tr = got.Get()
-        readFut = None[concurrent.Future[ReadResult]]()
+        readFut = None()
         if tr.IsFailure() {
             fmt.Fprintln(os.Stderr, "gala-tui: stdin read future failed:", tr.GetError())
             return model
@@ -753,14 +753,14 @@ func RunWithMouse[M any, T any](
 
         // 4. Ensure a stdin read future is in flight and wait briefly for it.
         if readFut.IsEmpty() {
-            readFut = Some[concurrent.Future[ReadResult]](backend.ReadAsync())
+            readFut = Some(backend.ReadAsync())
         }
         val got = readFut.Get().AwaitFor(Milliseconds(50))
         if got.IsEmpty() {
             continue
         }
         val tr = got.Get()
-        readFut = None[concurrent.Future[ReadResult]]()
+        readFut = None()
         if tr.IsFailure() {
             fmt.Fprintln(os.Stderr, "gala-tui: stdin read future failed:", tr.GetError())
             return model
@@ -910,10 +910,10 @@ struct ClickPending(
 // enough for terminal-mediated input where the second click can
 // arrive a bit later than on a desktop GUI (the original 400 ms was
 // too tight for typical real-world double-clicks).
-func doubleClickWindow() Duration = Milliseconds(int64(500))
+val doubleClickWindow = Milliseconds(int64(500))
 
 func pendingActive(p ClickPending, x int, y int, t Instant) bool =
-    t.IsBefore(p.At.Plus(doubleClickWindow())) &&
+    t.IsBefore(p.At.Plus(doubleClickWindow)) &&
     pendingNear(p.X, x) && pendingNear(p.Y, y)
 
 func pendingNear(a int, b int) bool {
@@ -995,7 +995,7 @@ func ResolveClickEventWithDrag[T any](
                     return DragResolution[T](
                         Msgs    = ArrayOf[T](msg),
                         Pending = pending,
-                        Drag    = None[DragActive](),
+                        Drag    = None(),
                     )
                 }
                 return DragResolution[T](
@@ -1099,7 +1099,7 @@ func resolveNonClick[T any](
         }
     }
     out = out.Append(fallback(ev))
-    return (out, None[ClickPending]())
+    return (out, None())
 }
 
 func resolveLeftClick[T any](
@@ -1119,7 +1119,7 @@ func resolveLeftClick[T any](
         if dblHit.IsDefined() {
             // Suppress pending's deferred single — fire double instead.
             out = out.Append(castPayloadOrSkip[T](dblHit.Get(), fallback(ev)))
-            return (out, None[ClickPending]())
+            return (out, None())
         }
         // Second click in window but no double registered here — fire
         // pending's deferred single first, then handle this click as a
@@ -1128,7 +1128,7 @@ func resolveLeftClick[T any](
         if def.IsDefined() {
             out = out.Append(castPayloadOrSkip[T](def.Get(), fallback(ev)))
         }
-        pend = None[ClickPending]()
+        pend = None()
     } else if pend.IsDefined() {
         // Pending exists but this click is too far / too late. Flush its
         // deferred single, then handle this click fresh.
@@ -1136,7 +1136,7 @@ func resolveLeftClick[T any](
         if def.IsDefined() {
             out = out.Append(castPayloadOrSkip[T](def.Get(), fallback(ev)))
         }
-        pend = None[ClickPending]()
+        pend = None()
     }
 
     // First-click logic for the current event.
@@ -1145,7 +1145,7 @@ func resolveLeftClick[T any](
     if dblHit.IsDefined() {
         // A double could fire on the next click. Defer any single hit
         // and remember the position + time.
-        pend = Some[ClickPending](ClickPending(
+        pend = Some(ClickPending(
             X = x, Y = y, At = t, Deferred = singleHit,
         ))
     } else if singleHit.IsDefined() {
@@ -1167,7 +1167,7 @@ func DrainExpiredPending[T any](
 ) Tuple[Array[T], Option[ClickPending]] {
     if !pending.IsDefined() { return (EmptyArray[T](), pending) }
     val p = pending.Get()
-    if !now.IsBefore(p.At.Plus(doubleClickWindow())) {
+    if !now.IsBefore(p.At.Plus(doubleClickWindow)) {
         var out = EmptyArray[T]()
         if p.Deferred.IsDefined() {
             // No fallback message available here — if the cast fails,
@@ -1179,7 +1179,7 @@ func DrainExpiredPending[T any](
                 case _      => {}
             }
         }
-        return (out, None[ClickPending]())
+        return (out, None())
     }
     return (EmptyArray[T](), pending)
 }
@@ -1224,7 +1224,7 @@ func ResolveClickOrInput[T any](
             // press of any drag-only target).
             val dragHit = hits.HitAtDrag(m.X, m.Y)
             val dragMsg = dragHit match {
-                case Some(payload) => Some[T](invokeDragPayload[T](payload, DragPress(), fallback(ev)))
+                case Some(payload) => Some(invokeDragPayload[T](payload, DragPress(), fallback(ev)))
                 case None()        => None[T]()
             }
             if dragMsg.IsDefined() { return dragMsg.Get() }
@@ -1417,20 +1417,14 @@ func takeCursorReport(buf []byte, onCursorReport func(int, int)) int {
     if !isCsiStart(buf) { return 0 }
     val scan = scanCsi(buf)
     if scan.Final <= 2 || int(buf[scan.Final]) != 0x52 { return 0 }
-    if onCursorReport != nil {
-        onCursorReport(csiParam(buf, scan.Final, 0, 1), csiParam(buf, scan.Final, 1, 1))
-    }
+    onCursorReport(csiParam(buf, scan.Final, 0, 1), csiParam(buf, scan.Final, 1, 1))
     return scan.Final + 1
 }
-
-// backendOrigin is the backend's `Origin`, or (0, 0) for one that has none.
-func backendOrigin(b Backend) Tuple[int, int] =
-    if (b.Origin == nil) (0, 0) else b.Origin()
 
 // backendViewport is where the app's cells are on the screen: the backend's
 // origin, at the size it renders.
 func backendViewport(b Backend) Rect {
-    val (x, y) = backendOrigin(b)
+    val (x, y) = b.Origin()
     val (w, h) = b.Size()
     return Rect(X = x, Y = y, Width = w, Height = h)
 }
@@ -1453,7 +1447,7 @@ func toViewport(ev InputEvent, vp Rect) Option[InputEvent] = ev match {
                else if (!m.Pressed) Some(MouseInput(m.Copy(
                    X = clampInt(x, 0, MaxInt(0, vp.Width - 1)),
                    Y = clampInt(y, 0, MaxInt(0, vp.Height - 1)))))
-               else None[InputEvent]()
+               else None()
     }
     case _ => Some(ev)
 }
@@ -1476,16 +1470,8 @@ func toViewport(ev InputEvent, vp Rect) Option[InputEvent] = ev match {
 // somewhere: on the alternate screen they are dropped, nothing on screen
 // moved, and a repaint there would be `DiffString(nil)` — every cell of the
 // terminal — on every frame that printed.
-//
-// `Backend` is a public struct of plain function fields, so a caller can
-// build one without `InsertBefore` and gala will compile it — the nil check
-// is what turns "this backend predates PrintAbove" into a no-op instead of
-// a crash inside the run loop the first time an app prints.
 func emitPrints(backend Backend, lines Array[string], repaint func()) {
-    if lines.IsEmpty() || backend.InsertBefore == nil {
-        return
-    }
-    if backend.InsertBefore(lines) {
+    if lines.NonEmpty() && backend.InsertBefore(lines) {
         repaint()
     }
 }

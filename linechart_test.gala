@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -58,8 +59,8 @@ func TestLineChartRowsAscendingLine(t T) T {
     // Sanity: first column empty, last column full-height.
     val row0 = rows.Get(0)  // topmost row
     val rowN = rows.Get(3)  // bottommost row
-    val t1 = IsTrue(t, stringRunes(row0).HeadOption().GetOrElse(' ') == ' ')    // column 0, topmost → empty
-    return IsTrue(t1, stringRunes(rowN).LastOption().GetOrElse(' ') == '█')      // column 5, bottommost → full
+    val t1 = IsTrue(t, gs.S(row0).ToChars().HeadOption().GetOrElse(' ') == ' ')    // column 0, topmost → empty
+    return IsTrue(t1, gs.S(rowN).ToChars().LastOption().GetOrElse(' ') == '█')      // column 5, bottommost → full
 }
 
 // ----------------------------------------------------------------------------
@@ -73,17 +74,17 @@ func TestLineChartRendersCells(t T) T {
     val buf = NewBuffer(3, 3)
     RenderTo(chart, Rect(X = 0, Y = 0, Width = 3, Height = 3), buf)
     // At height 3, max value column should have all three rows filled with █.
-    val t1 = Eq(t, buf.CharAt(2, 0), '█')
-    val t2 = Eq(t1, buf.CharAt(2, 1), '█')
-    return Eq(t2, buf.CharAt(2, 2), '█')
+    val t1 = Eq(t, buf.Get(2, 0).Ch, '█')
+    val t2 = Eq(t1, buf.Get(2, 1).Ch, '█')
+    return Eq(t2, buf.Get(2, 2).Ch, '█')
 }
 
 func TestLineChartPicksStyle(t T) T {
     val chart = LineChartStyled(ArrayOf(10),
-        DefaultStyle().WithFg(BrightCyan()))
+        DefaultStyle().WithFg(BrightCyan))
     val buf = NewBuffer(1, 3)
     RenderTo(chart, Rect(X = 0, Y = 0, Width = 1, Height = 3), buf)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, BrightCyan))
 }
 
 func TestLineChartEmptyIsNoOp(t T) T {
@@ -91,7 +92,7 @@ func TestLineChartEmptyIsNoOp(t T) T {
     val buf = NewBuffer(5, 3)
     RenderTo(chart, Rect(X = 0, Y = 0, Width = 5, Height = 3), buf)
     // Buffer stays blank — no glyphs painted.
-    return Eq(t, buf.CharAt(0, 0), ' ')
+    return Eq(t, buf.Get(0, 0).Ch, ' ')
 }
 
 // ----------------------------------------------------------------------------
@@ -101,13 +102,13 @@ func TestLineChartEmptyIsNoOp(t T) T {
 func TestMultiLineChartSharesBounds(t T) T {
     val series = ArrayOf[Array[int]](ArrayOf(0, 5), ArrayOf(5, 10))
     val chart = MultiLineChartAtHeight(series,
-        ArrayOf[Style](DefaultStyle().WithFg(Green()),
-                       DefaultStyle().WithFg(Red())),
+        ArrayOf[Style](DefaultStyle().WithFg(Green),
+                       DefaultStyle().WithFg(Red)),
         3)
     val buf = NewBuffer(2, 3)
     RenderTo(chart, Rect(X = 0, Y = 0, Width = 2, Height = 3), buf)
     // Column 1 of series-2 carries value 10 (shared max) → last row full █.
-    return Eq(t, buf.CharAt(1, 2), '█')
+    return Eq(t, buf.Get(1, 2).Ch, '█')
 }
 
 // The defect this widget shipped with: a chart row is a string and its empty
@@ -123,25 +124,25 @@ func TestMultiLineChartKeepsEverySeriesVisible(t T) T {
     val short = ArrayOf(2, 2)
     val chart = MultiLineChartAtHeight(
         ArrayOf[Array[int]](tall, short),
-        ArrayOf[Style](DefaultStyle().WithFg(Green()), DefaultStyle().WithFg(Red())),
+        ArrayOf[Style](DefaultStyle().WithFg(Green), DefaultStyle().WithFg(Red)),
         4)
     val buf = NewBuffer(2, 4)
     RenderTo(chart, Rect(X = 0, Y = 0, Width = 2, Height = 4), buf)
     // Top row belongs to the tall series alone; the bottom to the short one,
     // which is drawn later and so wins the cells they share.
-    val t1 = Eq(t, StyleEqual(buf.StyleAt(0, 0), DefaultStyle().WithFg(Green())), true)
-    return Eq(t1, StyleEqual(buf.StyleAt(0, 3), DefaultStyle().WithFg(Red())), true)
+    val t1 = Eq(t, StyleEqual(buf.Get(0, 0).St, DefaultStyle().WithFg(Green)), true)
+    return Eq(t1, StyleEqual(buf.Get(0, 3).St, DefaultStyle().WithFg(Red)), true)
 }
 
 // A column no series reaches stays blank rather than borrowing a style.
 func TestMultiLineChartLeavesUnreachedCellsBlank(t T) T {
     val chart = MultiLineChartAtHeight(
         ArrayOf[Array[int]](ArrayOf(1, 1)),
-        ArrayOf[Style](DefaultStyle().WithFg(Green())),
+        ArrayOf[Style](DefaultStyle().WithFg(Green)),
         4)
     val buf = NewBuffer(2, 4)
     RenderTo(chart, Rect(X = 0, Y = 0, Width = 2, Height = 4), buf)
-    return Eq(t, buf.CharAt(0, 0), ' ')
+    return Eq(t, buf.Get(0, 0).Ch, ' ')
 }
 
 func TestMultiLineChartEmpty(t T) T {
