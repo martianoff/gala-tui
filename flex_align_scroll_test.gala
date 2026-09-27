@@ -201,6 +201,49 @@ func TestScrollbarHorizontalThumbMovesWithOffset(t T) T {
     return Eq(t1, buf.CharAt(0, 0), '─')
 }
 
+// scrollbarColumn renders a vertical bar `h` cells tall and reads it
+// top to bottom.
+func scrollbarColumn(w Widget, h int) string {
+    val buf = NewBuffer(1, h)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 1, Height = h), buf)
+    return string(ArrayTabulate(h, (y) => buf.CharAt(0, y)).ToGoSlice())
+}
+
+// With arrows the thumb travels between them: at the top it sits just
+// under ▲, at the end just above ▼, never on an arrow.
+func TestScrollbarArrowsBracketTheThumb(t T) T {
+    val arrows = ScrollbarArrows(ScrollbarVerticalRight())
+    val bar = (offset int) =>
+        ScrollbarWith(10, 2, offset, DefaultStyle(), ScrollbarVerticalRight(), arrows)
+    val t1 = Eq(t, scrollbarColumn(bar(0), 6), "▲█│││▼")
+    return Eq(t1, scrollbarColumn(bar(8), 6), "▲│││█▼")
+}
+
+func TestScrollbarHorizontalArrowsPointSideways(t T) T {
+    val w = ScrollbarWith(10, 2, 0, DefaultStyle(), ScrollbarHorizontalBottom(),
+        ScrollbarArrows(ScrollbarHorizontalBottom()))
+    val buf = NewBuffer(5, 1)
+    RenderTo(w, Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
+    return Eq(t, RowText(buf, 0), "◄█──►")
+}
+
+// A bar too short to leave a track cell between the arrows drops them
+// rather than drawing nothing but arrows.
+func TestScrollbarArrowsDropWhenThereIsNoRoom(t T) T =
+    Eq(t, scrollbarColumn(ScrollbarWith(10, 0, 0, DefaultStyle(), ScrollbarVerticalRight(),
+        ScrollbarArrows(ScrollbarVerticalRight())), 2), "█│")
+
+func TestScrollbarDrawsWithCustomGlyphsAndTrackStyle(t T) T {
+    val symbols = DefaultScrollbarSymbols(ScrollbarVerticalRight())
+        .WithTrack('░').WithThumb('▓').WithTrackStyle(DefaultStyle().WithFg(Blue()))
+    val buf = NewBuffer(1, 4)
+    RenderTo(ScrollbarWith(8, 2, 0, DefaultStyle(), ScrollbarVerticalRight(), symbols),
+        Rect(X = 0, Y = 0, Width = 1, Height = 4), buf)
+    val t1 = Eq(t, string(ArrayTabulate(4, (y) => buf.CharAt(0, y)).ToGoSlice()), "▓░░░")
+    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(0, 3).Fg, Blue()))
+    return IsFalse(t2, buf.StyleAt(0, 3).Dim)
+}
+
 func TestScrollbarDerivesViewportWhenVisibleIsZero(t T) T {
     // Visible = 0 means "the viewport is this bar". 10 rows of content in a
     // 5-cell bar must produce a partial thumb, not a full one.

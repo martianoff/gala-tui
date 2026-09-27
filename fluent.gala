@@ -335,9 +335,9 @@ func restyleLeaves(w Widget, f func(Style) Style) Widget {
         case ParagraphRichW(p)                 => ParagraphRichW(Spec = paragraphRestyle(p, f))
         case ViewportW(inner, off, ch)         =>
             ViewportW(Inner = restyleLeaves(inner, f), Offset = off, ContentHeight = ch)
-        case ScrollbarW(tot, vis, off, s, or)  =>
+        case ScrollbarW(tot, vis, off, s, or, sym) =>
             ScrollbarW(Total = tot, Visible = vis, Offset = off, Style = f(s),
-                       Orientation = or)
+                       Orientation = or, Symbols = sym)
         case ClickableW(inner, payload)        =>
             ClickableW(Inner = restyleLeaves(inner, f), Payload = payload)
         case ClickableRowsW(inner, n, h, p)    =>
