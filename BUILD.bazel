@@ -151,6 +151,7 @@ gala_test(
         "form_test.gala",
         "fullwidth_wrap_test.gala",
         "help_test.gala",
+        "inline_mouse_test.gala",
         "input_protocols_test.gala",
         "input_render_test.gala",
         "input_test.gala",

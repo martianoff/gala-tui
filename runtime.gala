@@ -40,6 +40,10 @@ func ansiCursorShow() string   = "\x1b[?25h"
 // with them so the cursor they leave behind is the one that was there.
 func ansiCursorSave() string    = "\x1b7"
 func ansiCursorRestore() string = "\x1b8"
+
+// ansiCursorQuery asks the terminal where the cursor is (DSR 6). It answers
+// on stdin with `ESC[row;colR` — see `takeCursorReport`.
+func ansiCursorQuery() string = "\x1b[6n"
 func ansiClear() string        = "\x1b[2J"
 func ansiHome() string         = "\x1b[H"
 
@@ -309,6 +313,12 @@ func Run[M any, T any](
         val total = avail.Size()
         var consumed = 0
         for consumed < total {
+            // A cursor-position reply is the backend's — see processInputBytesWithHits.
+            val cpr = takeCursorReport(Slice(avail, consumed, total), backend.CursorReport)
+            if cpr > 0 {
+                consumed = consumed + cpr
+                continue
+            }
             val (ev, c) = ParseKey(Slice(avail, consumed, total))
             if c == 0 {
                 // Incomplete escape sequence at the tail — hold the bytes
@@ -578,7 +588,7 @@ func RunWithSub[M any, T any](
         val avail = SliceAppendAll(carry, Slice(rr.Buf, 0, rr.N))
         var keyPrints = EmptyArray[string]()
         val (exitNow, leftover) = processKeyBytes(
-            program, &model, &pending, &keyPrints, avail, makeKeyMsg,
+            program, &model, &pending, &keyPrints, avail, makeKeyMsg, backend.CursorReport,
         )
         carry = leftover
         // Flushed before the exit check so a keystroke that prints on its
@@ -754,7 +764,7 @@ func RunWithMouse[M any, T any](
         var inputPrints = EmptyArray[string]()
         val (exitNow, leftover) = processInputBytesWithHits(
             program, &model, &pending, &inputPrints, &pendingClick, &dragActive,
-            avail, makeInputMsg, hits, backendViewport(backend),
+            avail, makeInputMsg, hits, () => backendViewport(backend), backend.CursorReport,
         )
         carry = leftover
         // Flushed before the exit check so an event that prints on its way
@@ -787,13 +797,23 @@ func processInputBytesWithHits[M any, T any](
     buf []byte,
     makeInputMsg func(InputEvent) T,
     hits *HitRegistry,
-    viewport Rect,
+    // Read per event, not once per batch: a cursor report earlier in the
+    // same read can move the viewport the next mouse event is mapped into.
+    viewport func() Rect,
+    onCursorReport func(int, int),
 ) Tuple[bool, []byte] {
     val n = buf.Size()
     var consumed = 0
     for consumed < n {
+        // A cursor-position reply is the backend's, not the app's: it is taken
+        // out of the stream here, before it could be decoded as a key.
+        val cpr = takeCursorReport(Slice(buf, consumed, n), onCursorReport)
+        if cpr > 0 {
+            consumed = consumed + cpr
+            continue
+        }
         val (parsed, c) = ParseInput(Slice(buf, consumed, n))
-        val shifted = toViewport(parsed, viewport)
+        val shifted = toViewport(parsed, viewport())
         if c == 0 {
             return (false, carryOver(Slice(buf, consumed, n)))
         }
@@ -1337,10 +1357,16 @@ func processKeyBytes[M any, T any](
     prints *Array[string],
     buf []byte,
     makeKeyMsg func(KeyEvent) T,
+    onCursorReport func(int, int),
 ) Tuple[bool, []byte] {
     val n = buf.Size()
     var consumed = 0
     for consumed < n {
+        val cpr = takeCursorReport(Slice(buf, consumed, n), onCursorReport)
+        if cpr > 0 {
+            consumed = consumed + cpr
+            continue
+        }
         val (ev, c) = ParseKey(Slice(buf, consumed, n))
         if c == 0 {
             return (false, carryOver(Slice(buf, consumed, n)))
@@ -1376,6 +1402,26 @@ func processKeyBytes[M any, T any](
         }
     }
     return (false, SliceEmpty[byte]())
+}
+
+// takeCursorReport recognises a complete reply to `ansiCursorQuery` at the
+// start of `buf` — `ESC [ row ; col R` — hands it to the backend if it
+// listens, and returns how many bytes it was, or 0 when `buf` does not start
+// with one. The input loops call it before decoding a key or a mouse event,
+// so a reply never reaches the app.
+//
+// Every `ESC [ … R` is taken, not only the ones this library asked for:
+// `ParseKey` already refuses to decode that shape as F3 for exactly this
+// reason — it collides with the report — so nothing is lost. A reply split
+// across reads is incomplete here and waits, like any other sequence.
+func takeCursorReport(buf []byte, onCursorReport func(int, int)) int {
+    if !isCsiStart(buf) { return 0 }
+    val scan = scanCsi(buf)
+    if scan.Final <= 2 || int(buf[scan.Final]) != 0x52 { return 0 }
+    if onCursorReport != nil {
+        onCursorReport(csiParam(buf, scan.Final, 0, 1), csiParam(buf, scan.Final, 1, 1))
+    }
+    return scan.Final + 1
 }
 
 // backendOrigin is the backend's `Origin`, or (0, 0) for one that has none.

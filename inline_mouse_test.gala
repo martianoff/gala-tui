@@ -1,0 +1,71 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/test"
+    "strings"
+)
+
+// ============================================================================
+// Inline viewport: learning where the block is, so mouse hits line up
+// ============================================================================
+
+func cprBytes(s string) []byte = ToBytes(s)
+
+// A complete reply to the cursor query is taken whole and handed over.
+func TestCursorReportIsTakenAndHandedOver(t T) T {
+    var row = 0
+    var col = 0
+    val cb = (r int, c int) => {
+        row = r
+        col = c
+    }
+    val n = takeCursorReport(cprBytes("\x1b[17;3Rx"), cb)
+    return Eq(Eq(Eq(t, row, 17), col, 3), n, 7)
+}
+
+// Anything else — a key, text — is not a report and is left for the parser.
+func TestNonReportsAreLeftAlone(t T) T {
+    val t1 = Eq(t, takeCursorReport(cprBytes("\x1b[A"), nil), 0)
+    return Eq(t1, takeCursorReport(cprBytes("hello"), nil), 0)
+}
+
+// A reply split across reads is incomplete, not a report — it waits for the
+// rest like any other sequence.
+func TestSplitCursorReportWaits(t T) T =
+    Eq(t, takeCursorReport(cprBytes("\x1b[17;1"), nil), 0)
+
+// The inline backend's origin is unknown (0) until the terminal reports, then
+// it is the block's top row — so a click on the block's first row maps to
+// row 0 of the app's frame.
+func TestInlineBackendLearnsItsOriginFromTheReport(t T) T {
+    val b = InlineBackend(3)
+    val t1 = Eq(t, backendOrigin(b), (0, 0))
+    // The first paint asks; its answer places the block.
+    b.Paint(NewBuffer(4, 3), nil)
+    b.CursorReport(18, 1)
+    return Eq(t1, backendOrigin(b), (0, 17))
+}
+
+
+// End to end: a report arriving between keystrokes goes to the backend and
+// never reaches the app as a key.
+func TestRunLoopRoutesCursorReportsToTheBackend(t T) T {
+    val (base, _) = NewTestBackend(40, 3, "a\x1b[5;1Rb")
+    var reported = 0
+    val onReport = (row int, col int) => {
+        reported = row
+    }
+    val backend = base.Copy(CursorReport = onReport)
+    val final = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    val t1 = Eq(t, strings.Join(final.Keys.ToGoSlice(), ","), "a,b")
+    return Eq(t1, reported, 5)
+}
+
+// A report nobody asked for — xterm's Shift+F3 has the same bytes — does not
+// move the block; an answer to an outstanding query does.
+func TestUnsolicitedReportIsIgnored(t T) T {
+    val b = InlineBackend(3)
+    b.CursorReport(1, 2)
+    return Eq(t, backendOrigin(b), (0, 0))
+}
