@@ -10,7 +10,7 @@ import (
 //
 // `BarChart` (advanced.gala) is a list of labelled gauges: one horizontal bar
 // per datum, whole-cell resolution, one colour. That is enough for "top N" and
-// nothing else. ratatui's BarChart is the shape dashboards actually reach for:
+// nothing else. The shape dashboards actually reach for is a chart of
 // columns standing on a baseline, grouped so that "p50 / p95 / p99 for each
 // service" reads as three bars per service rather than nine unrelated rows,
 // each bar in its own colour and carrying its value.

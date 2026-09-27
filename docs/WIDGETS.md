@@ -59,7 +59,7 @@ val tree  = ui.Tree("pipelines", m.Pipelines, m.Cursor)
 | `TextStyled(content, style)` | `(string, Style) Widget` | Text with explicit style. |
 | `FillCh(ch)` | `(rune) Widget` | Fill the area with a single character. |
 | `FillChStyled(ch, style)` | `(rune, Style) Widget` | Filled background block. |
-| `Clear()` | → `Widget` | Resets its area to blank default-style cells — ratatui's `Clear`. Stack it under a popup or a toast so what the screen drew there cannot show through the popup's own blank cells. |
+| `Clear()` | → `Widget` | Resets its area to blank default-style cells. Stack it under a popup or a toast so what the screen drew there cannot show through the popup's own blank cells. |
 | `Paragraph(content)` | `(string) Widget` | Word-wrapped paragraph. |
 | `ParagraphStyled(content, style)` | `(string, Style) Widget` | Same with explicit style. |
 
@@ -103,7 +103,7 @@ Also `.WithHidden()` (SGR 8 — in the cell, not shown) and `.WithRapidBlink()`
 | `BorderStyled(inner, kind, style)` | `(Widget, BorderKind, Style) Widget` | Colour the frame itself, independent of its contents. |
 | `Block(inner, kind, sides, style, titles)` | `(Widget, BorderKind, BorderSides, Style, Array[BlockTitle]) Widget` | Full form. `AllSides()` / `NoSides()` / `SidesOf(t, r, b, l)` pick edges — a lone left rule is how two panes share one column instead of butting two walls together. Several titles per edge, bucketed by position and alignment. |
 | `RowFlex(children, flex, spacing)` | `(Array[LayoutChild], FlexMode, int) Widget` | Distribute slack: `FlexStart` / `FlexEnd` / `FlexCenter` / `FlexSpaceBetween` / `FlexSpaceAround` / `FlexSpaceEvenly`. `FlexLegacy` is the default and matches pre-0.12 behaviour. `ColumnFlex` is the vertical twin. |
-| `RowSpaced(children, n)` | `(Array[LayoutChild], int) Widget` | n cells between adjacent children; gaps come out of the axis before the solver runs. **Negative n overlaps** them (ratatui's `Spacing::Overlap`): two bordered panes with `-1` share one border line. The overlap holds while the children fill the axis — a `FlexSpace*` mode adds slack back into each gap. |
+| `RowSpaced(children, n)` | `(Array[LayoutChild], int) Widget` | n cells between adjacent children; gaps come out of the axis before the solver runs. **Negative n overlaps** them: two bordered panes with `-1` share one border line. The overlap holds while the children fill the axis — a `FlexSpace*` mode adds slack back into each gap. |
 | `AutoScroll(rows, selected)` | `(Array[Widget], int) Widget` | Stack composed row widgets and scroll so `selected` stays visible. What `SelectList` does, for rows that are more than a label. |
 
 ### Rich text
@@ -442,7 +442,7 @@ TableView(TableSpecOf(
 | Widget | Signature | Notes |
 |---|---|---|
 | `Input(value, cursor, placeholder)` | `(string, int, string) Widget` | Single-line text field; cursor is the **rune index** of the caret, clamped to the value's length. Focused, it also places the **real terminal cursor** at the caret, which is what an IME composition window and a screen reader follow. |
-| `CursorAt(inner, x, y)` | `(Widget, int, int) Widget` | Places the real terminal cursor at `(x, y)` inside `inner`'s area — ratatui's `Frame::set_cursor_position`, for a custom widget with an insertion point of its own. A frame that asks for no cursor gets a hidden one. |
+| `CursorAt(inner, x, y)` | `(Widget, int, int) Widget` | Places the real terminal cursor at `(x, y)` inside `inner`'s area, for a custom widget with an insertion point of its own. A frame that asks for no cursor gets a hidden one. |
 | `InputMasked(value, cursor, placeholder)` | `(string, int, string) Widget` | The same field for a secret — one `•` per code point. For another glyph, compose: `Input(MaskValue(v, '*'), cursor, ph)`. |
 | `Button(label, focused)` | `(string, bool) Widget` | Reverse style when focused. |
 | `FormView(f)` | `(FormState) Widget` | Multi-field form. State in `FormState`. |
@@ -762,8 +762,7 @@ A line printed alongside `QuitCmd` in the same `Batch` still lands — an app
 whose last act is to print a summary and exit means both, and the viewport is
 repainted on the way out so the final frame survives in the scrollback below
 it. On the full-screen backend the lines are dropped: the alternate screen has
-no scrollback to insert into, which is the same limitation ratatui's
-`insert_before` has.
+no scrollback to insert into.
 
 Each element is one row — with one exception worth knowing. A string carrying
 its own `\n` is split, because in raw mode a bare newline moves down without
@@ -781,8 +780,8 @@ itself.
 
 ### Fixed viewport
 
-`FixedBackend(rect)` renders into a fixed rectangle of the normal screen —
-ratatui's `Viewport::Fixed`. The app owns that rectangle and nothing else: the
+`FixedBackend(rect)` renders into a fixed rectangle of the normal screen. The
+app owns that rectangle and nothing else: the
 cells around it keep whatever the shell or another program drew, and the last
 frame stays where it was when the program exits.
 

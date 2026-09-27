@@ -16,10 +16,8 @@ import (
 // ----------------------------------------------------------------------------
 // Selectable list.
 //
-// Bubble Tea's list.Model is ~400 lines of state-carrying mutation.
-// Ratatui's List is ~350 lines of builder struct. Our list is:
-// a value with items, a selection index, two styles. The renderer handles
-// scrolling automatically based on the viewport height.
+// A list is a value with items, a selection index and two styles. The
+// renderer handles scrolling automatically based on the viewport height.
 // ----------------------------------------------------------------------------
 
 // ListItem is a single row of a list. Style lets individual rows carry
@@ -117,8 +115,7 @@ func SpinnerGlyph(kind SpinnerKind, frame int) rune {
 
 // ----------------------------------------------------------------------------
 // Gauge — like a progress bar, but renders with a half-block character at
-// the boundary for sub-cell fill resolution. Matches Ratatui's Gauge and
-// Bubble Tea's progress.Model when called with `ProgressOption.WithGradient`.
+// the boundary for sub-cell fill resolution.
 // ----------------------------------------------------------------------------
 
 // gaugeTrack is the glyph the unfilled part of a Gauge is drawn with.

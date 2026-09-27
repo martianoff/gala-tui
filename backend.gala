@@ -720,10 +720,10 @@ func inlineExitString(height int, modesOff string) string {
 // Fixed viewport
 // ----------------------------------------------------------------------------
 
-// FixedBackend renders into a fixed rectangle of the normal screen —
-// ratatui's `Viewport::Fixed`. The app owns `area` and nothing else: the
-// terminal around it keeps whatever the shell or another program drew
-// there, and on exit the frame stays where it was drawn.
+// FixedBackend renders into a fixed rectangle of the normal screen. The
+// app owns `area` and nothing else: the terminal around it keeps whatever
+// the shell or another program drew there, and on exit the frame stays
+// where it was drawn.
 //
 // It is the shape for a TUI that is one panel of a larger screen — a status
 // strip pinned to the top rows, a pane beside output another process owns.

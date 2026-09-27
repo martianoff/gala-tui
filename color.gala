@@ -118,7 +118,7 @@ func ColorEq(a Color, b Color) bool = ToSgrFg(a) == ToSgrFg(b)
 //   - `0`..`255`                              → Indexed
 //   - `black`, `red`, … `white`, and their `bright` / `light` forms
 //                                             → NamedColor 0..15
-//   - `gray` / `grey` (7) and `dark gray` (8), ratatui's names for the two
+//   - `gray` / `grey` (7) and `dark gray` (8), the names for the two
 //     greys of the 16-colour palette
 //   - `default` / `reset`                     → DefaultColor
 //

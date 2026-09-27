@@ -12,7 +12,7 @@ import (
 //
 // These are the widgets that let gala-tui claim it's more than a toy
 // framework: together with the foundation set (Text, List, Input, etc.)
-// they cover every common pattern in Bubble Tea, Ratatui, and Textual.
+// they cover every common pattern in a terminal dashboard.
 
 // ----------------------------------------------------------------------------
 // Table

@@ -9,7 +9,7 @@ import (
 // ----------------------------------------------------------------------------
 //
 // `SelectList` marks its selection with colour alone, and scrolls only once
-// the cursor reaches the very last visible row. ratatui's List adds the two
+// the cursor reaches the very last visible row. `SelectListView` adds the two
 // things a list you actually navigate needs:
 //
 //   - a highlight SYMBOL (`▶ `) beside the selected item, in a column of its

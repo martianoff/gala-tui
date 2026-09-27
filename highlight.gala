@@ -6,7 +6,7 @@ package gala_tui
 
 // HighlightSpacing is when the highlight symbol's column is reserved.
 //
-// `HighlightWhenSelected` — ratatui's default — shifts every column sideways
+// `HighlightWhenSelected` — the default — shifts every column sideways
 // the moment a selection appears and back when it clears, which is right for
 // a widget that is only sometimes interactive and jarring for one that always
 // has a cursor. `HighlightAlways` keeps the column still.
