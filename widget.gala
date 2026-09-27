@@ -1153,20 +1153,58 @@ func Custom(minW int, minH int, render func(Rect, *Buffer, *HitRegistry)) Widget
 // (constrained to 1 line) and the selected body widget below. `Tabs` is a
 // plain helper; apps wire it in directly.
 
+// TabBarStyle is how a tab bar looks: the selected title, the selected title
+// while the bar has focus, every other title, the divider between them, and
+// the blank columns padding each title on both sides.
+struct TabBarStyle(
+    Selected Style,
+    Focused  Style,
+    Normal   Style,
+    Divider  Style,
+    Padding  int,
+)
+
+// DefaultTabBarStyle is the stock bar: the selected title bold-reverse (and
+// bright yellow while focused), the others and the divider dim, one blank
+// column either side of each title.
+func DefaultTabBarStyle() TabBarStyle = TabBarStyle(
+    Selected = DefaultStyle().WithBold().WithReverse(),
+    Focused  = DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow()),
+    Normal   = DefaultStyle().WithDim(),
+    Divider  = DefaultStyle().WithDim(),
+    Padding  = 1,
+)
+
+func (s TabBarStyle) WithSelected(st Style) TabBarStyle = s.Copy(Selected = st)
+func (s TabBarStyle) WithFocused(st Style) TabBarStyle  = s.Copy(Focused = st)
+func (s TabBarStyle) WithNormal(st Style) TabBarStyle   = s.Copy(Normal = st)
+func (s TabBarStyle) WithDivider(st Style) TabBarStyle  = s.Copy(Divider = st)
+func (s TabBarStyle) WithPadding(n int) TabBarStyle     = s.Copy(Padding = MaxInt(0, n))
+
+// titleStyle is the style of one title in the bar.
+func (s TabBarStyle) titleStyle(selected bool, focused bool) Style =
+    if (selected && focused) s.Focused
+    else if (selected) s.Selected
+    else s.Normal
+
 // Tabs builds a two-row layout: a one-line tab bar on top, then `bodies[sel]`
-// below. The non-selected titles render dim, the selected one bold-reverse.
-// `sel` is the selected index — callers bump it on Tab/arrow keys.
+// below. `sel` is the selected index — callers bump it on Tab/arrow keys.
 //
 // `focused` (default false) brightens the selected tab so the user can
-// see at a glance which tab bar the keyboard is driving.
+// see at a glance which tab bar the keyboard is driving. `style` sets the
+// bar's look — `DefaultTabBarStyle()` with the parts you want changed:
+//
+//     Tabs(titles, bodies, sel, true, "│",
+//         DefaultTabBarStyle().WithSelected(DefaultStyle().WithFg(Black()).On(Cyan())))
 func Tabs(
     titles Array[string],
     bodies Array[Widget],
     sel int,
     focused bool = false,
     divider string = "",
+    style TabBarStyle = DefaultTabBarStyle(),
 ) Widget {
-    val header = tabHeaderRow(titles, sel, focused, divider)
+    val header = tabHeaderRow(titles, sel, focused, divider, style)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
     return Column(ArrayOf(
         Fixed(1, header),
@@ -1187,8 +1225,9 @@ func TabsClick[T any](
     focused bool,
     onTabClick func(int) T,
     divider string = "",
+    style TabBarStyle = DefaultTabBarStyle(),
 ) Widget {
-    val header = tabHeaderRowClick[T](titles, sel, focused, onTabClick, divider)
+    val header = tabHeaderRowClick[T](titles, sel, focused, onTabClick, divider, style)
     val body = if (sel >= 0 && sel < bodies.Length()) bodies.Get(sel) else Empty()
     return Column(ArrayOf(
         Fixed(1, header),
@@ -1196,10 +1235,16 @@ func TabsClick[T any](
     ))
 }
 
-func tabHeaderRow(titles Array[string], sel int, focused bool, divider string) Widget {
+func tabHeaderRow(
+    titles Array[string],
+    sel int,
+    focused bool,
+    divider string,
+    style TabBarStyle,
+) Widget {
     val cells = titles.ZipWithIndex().Map((pair) =>
-        tabHeaderCell(pair.V1, pair.V2 == sel, focused))
-    return OverflowRow(tabDivided(cells, divider))
+        tabHeaderCell(pair.V1, style.titleStyle(pair.V2 == sel, focused), style.Padding))
+    return OverflowRow(tabDivided(cells, divider, style.Divider))
 }
 
 // tabHeaderRowClick attaches a click contract to every title cell so
@@ -1212,28 +1257,30 @@ func tabHeaderRowClick[T any](
     focused bool,
     onTabClick func(int) T,
     divider string,
+    style TabBarStyle,
 ) Widget {
     val cells = titles.ZipWithIndex().Map((pair) => {
-        val rawCell = tabHeaderCell(pair.V1, pair.V2 == sel, focused)
+        val rawCell = tabHeaderCell(pair.V1, style.titleStyle(pair.V2 == sel, focused), style.Padding)
         return LayoutChild(
             Constraint = rawCell.Constraint,
             Widget     = rawCell.Widget.OnClick(onTabClick(pair.V2)),
         )
     })
-    return OverflowRow(tabDivided(cells, divider))
+    return OverflowRow(tabDivided(cells, divider, style.Divider))
 }
 
 // tabDivided puts `divider` — `│`, say — before every title but
-// the first, dim so it reads as structure rather than as a tab. Empty, the
+// the first, in `style` — dim by default, so it reads as structure rather
+// than as a tab. Empty, the
 // titles sit side by side as they always have.
 //
 // Each divider travels WITH the title after it, as one cell: the bar is an
 // `OverflowRow`, and a divider laid out on its own could be the last thing
 // that fits, dangling before the `›` with nothing after it.
-func tabDivided(cells Array[LayoutChild], divider string) Array[LayoutChild] {
+func tabDivided(cells Array[LayoutChild], divider string, style Style) Array[LayoutChild] {
     if divider == "" { return cells }
     val dw = StringCellWidth(divider)
-    val sep = TextStyled(divider, DefaultStyle().WithDim())
+    val sep = TextStyled(divider, style)
     return cells.Take(1).AppendAll(cells.Drop(1).Map((c) => c.Constraint match {
         case Length(w) => Fixed(dw + w, Row(ArrayOf[LayoutChild](Fixed(dw, sep), c)))
         case _         => c
@@ -1246,14 +1293,9 @@ func tabDivided(cells Array[LayoutChild], divider string) Array[LayoutChild] {
 func interleave(cells Array[LayoutChild], sep LayoutChild) Array[LayoutChild] =
     cells.Take(1).AppendAll(cells.Drop(1).FlatMap((c) => ArrayOf[LayoutChild](sep, c)))
 
-func tabHeaderCell(title string, selected bool, focused bool) LayoutChild {
-    val style = if (selected && focused)
-        DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow())
-    else if (selected)
-        DefaultStyle().WithBold().WithReverse()
-    else
-        DefaultStyle().WithDim()
-    val padded = " " + title + " "
+func tabHeaderCell(title string, style Style, padding int) LayoutChild {
+    val pad = strings.Repeat(" ", padding)
+    val padded = pad + title + pad
     // Cell width, not rune count: a CJK tab title is two columns per
     // glyph, and a slot sized by rune count clips half of it away.
     return Fixed(StringCellWidth(padded), TextStyled(padded, style))

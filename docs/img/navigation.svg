@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="221.00" viewBox="0 0 537.60 221.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
 <rect width="100%" height="100%" fill="#121314"/>
 <rect x="0.00" y="34.00" width="75.60" height="17.00" fill="#ddaf3c"/>
+<rect x="100.80" y="68.00" width="109.20" height="17.00" fill="#54e1b9"/>
 <rect x="8.40" y="102.00" width="487.20" height="17.00" fill="#ddaf3c"/>
 <text x="0.00" y="13.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" opacity="0.65">home</text>
 <text x="42.00" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">›</text>
@@ -14,6 +15,11 @@
 <text x="193.20" y="47.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">Failed</text>
 <text x="8.40" y="64.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">3</text>
 <text x="25.20" y="64.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">builds</text>
+<text x="16.80" y="81.00" fill="#54e1b9" textLength="58.80" lengthAdjust="spacingAndGlyphs">Running</text>
+<text x="92.40" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">·</text>
+<text x="117.60" y="81.00" fill="#000000" textLength="75.60" lengthAdjust="spacingAndGlyphs" font-weight="bold">Succeeded</text>
+<text x="210.00" y="81.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">·</text>
+<text x="235.20" y="81.00" fill="#54e1b9" textLength="50.40" lengthAdjust="spacingAndGlyphs">Failed</text>
 <text x="0.00" y="98.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">┌</text>
 <text x="16.80" y="98.00" fill="#cccccc" textLength="67.20" lengthAdjust="spacingAndGlyphs">MenuView</text>
 <text x="92.40" y="98.00" fill="#cccccc" textLength="411.60" lengthAdjust="spacingAndGlyphs">────────────────────────────────────────────────┐</text>

@@ -278,7 +278,13 @@ func shotNavigation() Widget =
         // Tabs with a divider between the titles; the body is the selected one.
         Fixed(2, Tabs(ArrayOf[string]("Running", "Succeeded", "Failed"),
             ArrayOf[Widget](Text(" 3 builds"), Text(" 41 builds"), Text(" 2 builds")), 0, true, "│")),
-        Fixed(1, Text("")),
+        // The same bar in a TabBarStyle of its own: colours and wider padding.
+        Fixed(1, Tabs(ArrayOf[string]("Running", "Succeeded", "Failed"),
+            ArrayOf[Widget](Empty(), Empty(), Empty()), 1, false, "·",
+            DefaultTabBarStyle()
+                .WithSelected(DefaultStyle().WithBold().WithFg(Black()).On(BrightCyan()))
+                .WithNormal(DefaultStyle().WithFg(BrightCyan()))
+                .WithPadding(2))),
         Fixed(6, Row(ArrayOf[LayoutChild](
             Flex(1, Titled(MenuView(NewMenu(ArrayOf[MenuItem](
                 NewMenuItemWithHint("staging", "auto"),

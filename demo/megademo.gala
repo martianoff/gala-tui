@@ -902,10 +902,20 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
         ArrayOf[Widget](table, table, table),
         m.BuildTab,
         "│",
+        megaTabBarStyle(th),
     )
     val borderKind = if (focused) ThickBorder() else th.BorderKind
     return BorderOf(PaddingHV(0, 1, tabs), borderKind)
 }
+
+// megaTabBarStyle draws the tab bar in the theme's own selection colours,
+// so switching theme restyles the tabs with the rest of the screen.
+func megaTabBarStyle(th Theme) TabBarStyle =
+    DefaultTabBarStyle()
+        .WithSelected(th.Selected.WithBold())
+        .WithFocused(th.Focus)
+        .WithNormal(th.Muted)
+        .WithDivider(th.Muted)
 
 func megaPipelinesBody(m MegaModel, th Theme) Widget {
     val ui = NewFocusBuilder(m.Focus)
