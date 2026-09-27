@@ -34,6 +34,12 @@ func ansiAltScreenOn() string  = "\x1b[?1049h"
 func ansiAltScreenOff() string = "\x1b[?1049l"
 func ansiCursorHide() string   = "\x1b[?25l"
 func ansiCursorShow() string   = "\x1b[?25h"
+
+// ansiCursorSave / ansiCursorRestore are DECSC / DECRC: remember the cursor
+// and come back to it. The fixed and inline backends bracket their writes
+// with them so the cursor they leave behind is the one that was there.
+func ansiCursorSave() string    = "\x1b7"
+func ansiCursorRestore() string = "\x1b8"
 func ansiClear() string        = "\x1b[2J"
 func ansiHome() string         = "\x1b[H"
 
