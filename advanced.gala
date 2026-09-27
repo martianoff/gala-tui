@@ -69,7 +69,7 @@ func Table(data TableData) Widget {
 // declared widths are honoured and a column that exactly fits its value
 // still gets separated from its neighbour — the case a zero gutter alone
 // leaves running together as `Alicex`.
-func tableColumnSpacing() int = 1
+val tableColumnSpacing = 1
 
 // tableWidthAt is column `idx`'s constraint; a column the caller gave no
 // width for shares the slack with `Fill(1)`.

@@ -56,7 +56,7 @@ func FileBrowserOpen(path string) FileBrowser {
         Cwd      = path,
         Entries  = entries,
         Selected = 0,
-        Picked   = None[string](),
+        Picked   = None(),
     )
 }
 
@@ -120,7 +120,7 @@ func fbEnter(b FileBrowser) FileBrowser {
         return FileBrowserOpen(joinPath(b.Cwd, entry.Name))
     }
     // File picked — set Picked and leave the rest unchanged.
-    return b.Copy(Picked = Some[string](joinPath(b.Cwd, entry.Name)))
+    return b.Copy(Picked = Some(joinPath(b.Cwd, entry.Name)))
 }
 
 func fbAscend(b FileBrowser) FileBrowser {

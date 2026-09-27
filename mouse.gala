@@ -107,8 +107,8 @@ sealed type InputEvent {
 //            needs). Skipping ?1003h (any-motion) because its hover-flood
 //            isn't worth the input-pump cost for most apps.
 //   ?1006h — SGR encoding (arbitrary coordinates).
-func ansiMouseOn() string  = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
-func ansiMouseOff() string = "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
+val ansiMouseOn  = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
+val ansiMouseOff = "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
 
 // ----------------------------------------------------------------------------
 // Parsing
@@ -157,7 +157,7 @@ func ParseInput(buf []byte) Tuple[InputEvent, int] {
                 return (FocusInput(Gained = false), 3)
             }
             // Bracketed-paste opener: ESC [ 200 ~
-            if fb == 0x7E && csiParam(buf, scan.Final, 0, 0) == pasteStartParam() {
+            if fb == 0x7E && csiParam(buf, scan.Final, 0, 0) == pasteStartParam {
                 return parseBracketedPaste(buf, scan.Final + 1)
             }
         }
@@ -183,13 +183,13 @@ func isMouseSgrPrefix(buf []byte) bool =
 // literal six-byte closer safe rather than a heuristic.
 // ----------------------------------------------------------------------------
 
-func pasteStartParam() int = 200
+val pasteStartParam = 200
 
 // pasteCloser is the `ESC [ 201 ~` that ends a paste.
 func pasteCloser() []byte = ToBytes("\x1b[201~")
 
 // pasteCloserLen is the byte length of `ESC [ 201 ~`.
-func pasteCloserLen() int = 6
+val pasteCloserLen = 6
 
 // parseBracketedPaste consumes `ESC [ 200 ~ <text> ESC [ 201 ~` and returns
 // the text as one PasteInput. `from` is the index just past the opener.
@@ -200,7 +200,7 @@ func pasteCloserLen() int = 6
 // keypress-burst problem again, just at a coarser grain.
 func parseBracketedPaste(buf []byte, from int) Tuple[InputEvent, int] {
     return pasteCloserIndex(buf, from) match {
-        case Some(end) => (PasteInput(Content = ToString(Slice(buf, from, end))), end + pasteCloserLen())
+        case Some(end) => (PasteInput(Content = ToString(Slice(buf, from, end))), end + pasteCloserLen)
         case _ => (UnknownInput(), 0)
     }
 }
@@ -217,7 +217,7 @@ func pasteCloserIndex(buf []byte, from int) Option[int] {
 // isPasteOpenerAt reports whether `ESC [ 200 ~` starts at `i`. The runtime
 // uses it to resync a paste that was opened and never closed.
 func isPasteOpenerAt(buf []byte, i int) bool =
-    isPasteMarkerAt(buf, i, pasteStartParam())
+    isPasteMarkerAt(buf, i, pasteStartParam)
 
 func isPasteMarkerAt(buf []byte, i int, param int) bool {
     if int(buf[i]) != 0x1B || int(buf[i + 1]) != 0x5B || int(buf[i + 5]) != 0x7E {

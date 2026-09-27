@@ -122,28 +122,28 @@ func ColorEq(a Color, b Color) bool = ToSgrFg(a) == ToSgrFg(b)
 // typo, and a typo gets None rather than a plausible wrong colour.
 func ColorFromString(s string) Option[Color] {
     val raw = strings.TrimSpace(s)
-    if raw == "" { return None[Color]() }
+    if raw == "" { return None() }
     if strings.HasPrefix(raw, "#") { return hexColor(raw) }
     var n, err = strconv.Atoi(raw)
-    if err == nil { return if (n >= 0 && n <= 255) Some[Color](Indexed(n)) else None[Color]() }
+    if err == nil { return When(n >= 0 && n <= 255, Indexed(n)) }
     val t = strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(raw))
-    if t == "default" || t == "reset" { return Some[Color](DefaultColor()) }
+    if t == "default" || t == "reset" { return Some(DefaultColor()) }
     val names = ArrayOf[string]("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
     val base = strings.TrimPrefix(strings.TrimPrefix(t, "bright"), "light")
     val idx = names.IndexOf(base)
-    if idx >= 0 { return Some[Color](NamedColor(if (base != t) idx + 8 else idx)) }
+    if idx >= 0 { return Some(NamedColor(if (base != t) idx + 8 else idx)) }
     val grey = strings.ReplaceAll(t, "grey", "gray")
-    return if (grey == "gray" || grey == "lightgray") Some[Color](NamedColor(7))
-    else if (grey == "darkgray") Some[Color](NamedColor(8))
-    else None[Color]()
+    return if (grey == "gray" || grey == "lightgray") Some(NamedColor(7))
+    else if (grey == "darkgray") Some(NamedColor(8))
+    else None()
 }
 
 // hexColor reads `#rrggbb` or `#rgb` (each digit doubled).
 func hexColor(t string) Option[Color] {
     val h = strings.TrimPrefix(t, "#")
     val full = if (h.Size() == 3) strings.Repeat(string(h[0]), 2) + strings.Repeat(string(h[1]), 2) + strings.Repeat(string(h[2]), 2) else h
-    if full.Size() != 6 { return None[Color]() }
+    if full.Size() != 6 { return None() }
     var v, err = strconv.ParseUint(full, 16, 32)
-    if err != nil { return None[Color]() }
-    return Some[Color](RGB(int(v >> 16) & 0xFF, int(v >> 8) & 0xFF, int(v) & 0xFF))
+    if err != nil { return None() }
+    return Some(RGB(int(v >> 16) & 0xFF, int(v >> 8) & 0xFF, int(v) & 0xFF))
 }

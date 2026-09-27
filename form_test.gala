@@ -236,7 +236,7 @@ func TestMaskCharDefaultsToMaskRune(t T) T {
 }
 
 func TestExplicitZeroMaskCharStillMasks(t T) T {
-    // The zero rune is documented to mean `MaskRune()`. A caller that sets
+    // The zero rune is documented to mean `MaskRune`. A caller that sets
     // it explicitly must get the default bullet, not a run of NULs.
     val field = NewFieldRequired("pass", "Password", "").Copy(Masked = true, MaskChar = rune(0))
     val f = ArrayOf[FormEvent](FEChar(C = 'a'), FEChar(C = 'b'))

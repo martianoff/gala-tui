@@ -74,7 +74,7 @@ val s = h.Start()             // initial Session
     .Click(40, 10)            // SGR mouse click (NewHarnessFull only)
     .Scroll(40, 10, true)     // wheel scroll (NewHarnessFull only)
     .Resize(120, 50)          // window resize
-    .Send(MyMsg.SaveAll())    // skip key decoding, send a Msg directly
+    .SendMsg(MyMsg.SaveAll()) // skip key decoding, send a Msg directly
     .Wait(5)                  // tick the runtime N times (drains tickers)
 ```
 

@@ -109,9 +109,9 @@ func palWrap(idx int, length int) int {
 
 // Current returns the currently-selected action, or None if no results.
 func (p Palette[T]) Current() Option[PaletteAction[T]] {
-    if p.FilteredIdx.IsEmpty() { return None[PaletteAction[T]]() }
+    if p.FilteredIdx.IsEmpty() { return None() }
     val idx = p.FilteredIdx.Get(p.Selected)
-    return Some[PaletteAction[T]](p.Actions.Get(idx))
+    return Some(p.Actions.Get(idx))
 }
 
 // FilteredActions returns the ranked list, best first — useful for custom

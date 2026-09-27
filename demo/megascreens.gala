@@ -441,7 +441,7 @@ func megaQuotaState(state string) TableCell = state match {
     case _            => CellOf(state).WithStyle(DefaultStyle().WithFg(BrightGreen))
 }
 
-func megaAtoi(s string) int = Try(() => strconv.Atoi(s)).GetOrElse(0)
+func megaAtoi(s string) int = Try(strconv.Atoi(s)).GetOrElse(0)
 
 // megaQuotaVisible is the window the table shows and the scrollbar reports.
 // One number, used by the view and by the update that scrolls it — two copies

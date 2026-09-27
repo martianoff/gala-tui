@@ -363,7 +363,8 @@ func insertAtRune(s string, at int, c rune) string {
 
 func deleteBeforeRune(s string, at int) string {
     if at <= 0 { return s }
-    return gs.S(s).Take(at - 1).ToString() + gs.S(s).Drop(at).ToString()
+    val (before, after) = gs.S(s).SplitAt(at)
+    return before.DropRight(1).ToString() + after.ToString()
 }
 
 // megaRouteChar sends a printable character where the screen says it belongs.

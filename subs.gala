@@ -107,11 +107,7 @@ func CollectTickers[T any](s Sub[T], start Instant) Array[TickerState[T]] {
             ))
         case BatchSub(ss)      => ss.FlatMap((sub) => CollectTickers(sub, start))
         case MapSub(inner, tf) =>
-            CollectTickers(inner, start).Map((st) => TickerState[T](
-                Interval = st.Interval,
-                Make     = () => tf(st.Make()),
-                NextDue  = st.NextDue,
-            ))
+            CollectTickers(inner, start).Map((st) => st.Copy(Make = () => tf(st.Make())))
     }
 }
 

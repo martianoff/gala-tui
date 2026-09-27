@@ -211,26 +211,26 @@ func mdInlineAt(rs []rune, i int) Option[Tuple[MdInline, int]] {
     val c = rs[i]
     if c == '`' {
         return runeIndexFrom(rs, '`', i + 1) match {
-            case Some(end) => Some[Tuple[MdInline, int]]((MdCode(Text = runeRange(rs, i + 1, end)), end + 1))
+            case Some(end) => Some((MdCode(Text = runeRange(rs, i + 1, end)), end + 1))
             case _ => None()
         }
     }
     if c == '*' && i + 1 < n && rs[i + 1] == '*' {
         return runeIndexWhere(rs, i + 2, (k) => k + 1 < n && rs[k] == '*' && rs[k + 1] == '*') match {
-            case Some(end) => Some[Tuple[MdInline, int]]((MdBold(Text = runeRange(rs, i + 2, end)), end + 2))
+            case Some(end) => Some((MdBold(Text = runeRange(rs, i + 2, end)), end + 2))
             case _ => None()
         }
     }
     if c == '_' || c == '*' {
         return runeIndexFrom(rs, c, i + 1) match {
-            case Some(end) => Some[Tuple[MdInline, int]]((MdItalic(Text = runeRange(rs, i + 1, end)), end + 1))
+            case Some(end) => Some((MdItalic(Text = runeRange(rs, i + 1, end)), end + 1))
             case _ => None()
         }
     }
     if c == '[' {
         return runeIndexFrom(rs, ']', i + 1).Filter((e) => e + 1 < n && rs[e + 1] == '(') match {
             case Some(linkEnd) => runeIndexFrom(rs, ')', linkEnd + 2) match {
-                case Some(urlEnd) => Some[Tuple[MdInline, int]]((MdLink(
+                case Some(urlEnd) => Some((MdLink(
                     Label = runeRange(rs, i + 1, linkEnd),
                     Url   = runeRange(rs, linkEnd + 2, urlEnd),
                 ), urlEnd + 1))

@@ -46,8 +46,8 @@ struct FormField(
     Masked    bool = false,
     // MaskChar is the glyph `Masked` draws. See `MaskRune` for why a CJK
     // locale may want `*` instead of the default bullet. An explicit zero
-    // rune also means `MaskRune()` — see `MaskValue`.
-    MaskChar  rune = MaskRune(),
+    // rune also means `MaskRune` — see `MaskValue`.
+    MaskChar  rune = MaskRune,
 )
 
 // NewField builds a field with no validator — always valid.
@@ -57,7 +57,7 @@ func NewField(name string, label string, placeholder string) FormField =
         Label       = label,
         Value       = "",
         Placeholder = placeholder,
-        Validator   = (_) => None[string](),
+        Validator   = (_) => None(),
     )
 
 // NewFieldRequired marks the field as "non-empty required".
@@ -72,9 +72,9 @@ func NewFieldRequired(name string, label string, placeholder string) FormField =
 
 func requiredValidator(v string) Option[string] {
     if v == "" {
-        return Some[string]("required")
+        return Some("required")
     }
-    return None[string]()
+    return None()
 }
 
 // NewFieldValidated lets callers plug in any predicate-plus-message pair.

@@ -202,8 +202,8 @@ func ConversationLogViewDrag[T any](
 func ConversationLogEntryAt(
     c ConversationLog, viewportH int, rowInViewport int,
 ) Option[int] {
-    if c.Entries.IsEmpty() { return None[int]() }
-    if rowInViewport < 0 || rowInViewport >= viewportH { return None[int]() }
+    if c.Entries.IsEmpty() { return None() }
+    if rowInViewport < 0 || rowInViewport >= viewportH { return None() }
     val total = cvTotalLines(c.Entries)
     val viewportTop = if (c.StickToBottom) MaxInt(0, total - viewportH)
                       else c.Offset

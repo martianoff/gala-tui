@@ -224,7 +224,7 @@ func csiParam(buf []byte, final int, idx int, def int) int {
 // Carrying only a NON-empty body is the right split because a terminal
 // emits an escape sequence in one write. A sequence can therefore only be
 // torn across two reads when it is longer than the read buffer, and at
-// `readBufBytes()` = 8 KiB the only thing that long is a bracketed paste —
+// `readBufBytes` = 8 KiB the only thing that long is a bracketed paste —
 // which has its own resumable scan. An empty body means the bytes are all
 // the terminal had to say, so they are a key, not a fragment.
 func parseCsi(buf []byte) Tuple[KeyEvent, int] {

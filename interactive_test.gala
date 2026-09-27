@@ -138,8 +138,8 @@ func TestLineGaugeCaptionKeepsTheRuleOriginFixed(t T) T {
     RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 20, Height = 1), big)
     val t1 = Eq(t, small.Get(4, 0).Ch, ' ')
     val t2 = Eq(t1, big.Get(4, 0).Ch, ' ')
-    val t3 = Eq(t2, small.Get(5, 0).Ch, lineGaugeHead())
-    return Eq(t3, big.Get(5, 0).Ch, lineGaugeFilled())
+    val t3 = Eq(t2, small.Get(5, 0).Ch, lineGaugeHead)
+    return Eq(t3, big.Get(5, 0).Ch, lineGaugeFilled)
 }
 
 func TestLineGaugeStillGrowsFrom99To100(t T) T {
@@ -153,8 +153,8 @@ func TestLineGaugeStillGrowsFrom99To100(t T) T {
     RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 24, Height = 1), done)
     // Same last cell, two different glyphs: 99% ends on the head, 100% on a
     // full cell. Nothing short of done paints the done picture.
-    val t1 = Eq(t, nearly.Get(23, 0).Ch, lineGaugeHead())
-    return Eq(t1, done.Get(23, 0).Ch, lineGaugeFilled())
+    val t1 = Eq(t, nearly.Get(23, 0).Ch, lineGaugeHead)
+    return Eq(t1, done.Get(23, 0).Ch, lineGaugeFilled)
 }
 
 func TestLineGaugeDrawsAHeadOnlyWhenTheFillEndsMidCell(t T) T {

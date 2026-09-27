@@ -147,7 +147,7 @@ func PollFutures[T any](pending Array[Future[T]]) Tuple[Array[T], Array[Future[T
 func pollSuccessValue[T any](fut Future[T]) Option[T] {
     val tr = fut.Value().Get()
     if tr.IsSuccess() {
-        return Some[T](tr.Get())
+        return Some(tr.Get())
     }
     return None[T]()
 }

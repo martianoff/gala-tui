@@ -269,7 +269,7 @@ func DataTableViewClickable[T any](
 func dtHeaderRow(dt DataTable) Widget =
     RowSpaced(dt.Headers.ZipWithIndex().Map((p) =>
         tableHeaderCell(dtHeaderLabel(dt, p.V2), p.V2, dt.Widths)),
-        tableColumnSpacing())
+        tableColumnSpacing)
 
 // dtHeaderRowClick wraps each header cell with `.OnClick` so clicking
 // a header dispatches `onHeaderClick(colIdx)`.
@@ -278,7 +278,7 @@ func dtHeaderRowClick[T any](dt DataTable, onHeaderClick func(int) T) Widget =
         val cell = tableHeaderCell(dtHeaderLabel(dt, p.V2), p.V2, dt.Widths)
         return LayoutChild(Constraint = cell.Constraint,
                            Widget = cell.Widget.OnClick[T](onHeaderClick(p.V2)))
-    }), tableColumnSpacing())
+    }), tableColumnSpacing)
 
 func dtHeaderLabel(dt DataTable, col int) string {
     val base = dt.Headers.Get(col)
@@ -356,7 +356,7 @@ func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) W
     else
         DefaultStyle()
     val cells = RowSpaced(row.ZipWithIndex().Map((p) =>
-        tableBodyCell(p.V1, p.V2, dt.Widths, rowStyle)), tableColumnSpacing())
+        tableBodyCell(p.V1, p.V2, dt.Widths, rowStyle)), tableColumnSpacing)
     // Restyle the whole row so the highlight spans the inter-column padding
     // as well as the text; styling the cells alone left it in fragments.
     return if (selected) Highlighted(cells, rowStyle) else cells

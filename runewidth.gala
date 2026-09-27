@@ -252,7 +252,7 @@ func runeRange(rs []rune, lo int, hi int) string = string(Slice(rs, lo, hi))
 
 // runeIndexFrom is the index of the first `target` at or after `start`, if any.
 func runeIndexFrom(rs []rune, target rune, start int) Option[int] {
-    if start >= rs.Size() { return None[int]() }
+    if start >= rs.Size() { return None() }
     val idx = slices.Index(SliceFrom(rs, start), target)
     return When(idx >= 0, start + idx)
 }
@@ -271,5 +271,5 @@ func runeIndexWhere(rs []rune, start int, p func(int) bool) Option[int] {
         if p(k) { return Some(k) }
         k = k + 1
     }
-    return None[int]()
+    return None()
 }

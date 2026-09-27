@@ -155,7 +155,7 @@ func (h *HitRegistry) lastPayloadAt(
         }
         i = i - 1
     }
-    return None[any]()
+    return None()
 }
 
 // HitAtDouble is the double-click counterpart of HitAt. Returns the

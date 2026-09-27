@@ -356,8 +356,8 @@ struct ScrollbarSymbols(
 func DefaultScrollbarSymbols(o ScrollbarOrientation) ScrollbarSymbols = ScrollbarSymbols(
     Track      = if (scrollbarHorizontal(o)) '─' else '│',
     Thumb      = '█',
-    Begin      = None[rune](),
-    End        = None[rune](),
+    Begin      = None(),
+    End        = None(),
     TrackStyle = DefaultStyle().WithDim(),
 )
 
@@ -809,11 +809,11 @@ func Input(value string, cursor int, placeholder string, focused bool = false) W
 // draws it in two. One column of error in a toast is nothing; twenty-four
 // on a password smears the frame. Pass `*` — unambiguously narrow — as the
 // `mask` argument where that matters.
-func MaskRune() rune = '•'
+val MaskRune = '•'
 
 // MaskValue replaces every code point of `v` with `mask`.
 //
-// The zero rune means `MaskRune()`, and the resolution lives here rather
+// The zero rune means `MaskRune`, and the resolution lives here rather
 // than in a helper each caller remembers to apply, because a Go-shaped
 // struct (a `type X struct { ... }` or an `X{...}` literal) zero-fills an
 // omitted field. A mask glyph threaded out of such a config or theme struct
@@ -832,8 +832,8 @@ func MaskRune() rune = '•'
 // The count itself is published, visually and to the layout. Every password
 // field does this, and per-keystroke feedback is what makes backspace
 // usable. For a constant-width mask: `Input(MaskValue("········"), …)`.
-func MaskValue(v string, mask rune = MaskRune()) string =
-    repeatRune(if (mask == rune(0)) MaskRune() else mask, v.Size())
+func MaskValue(v string, mask rune = MaskRune) string =
+    repeatRune(if (mask == rune(0)) MaskRune else mask, v.Size())
 
 // InputMasked is `Input` for a secret — a password, a token, an API key.
 //
@@ -888,7 +888,7 @@ func ProgressLabeled(percent int) Widget = ProgressLabeledStyled(percent, Defaul
 
 // ProgressLabeledStyled is ProgressLabeled with an explicit bar style.
 func ProgressLabeledStyled(percent int, style Style) Widget =
-    CustomW(MinW = progressLabeledMinWidth(), MinH = 1, Render = (area, buf, hits) => {
+    CustomW(MinW = progressLabeledMinWidth, MinH = 1, Render = (area, buf, hits) => {
         if area.Width <= 0 || area.Height <= 0 {
             return
         }
@@ -896,28 +896,28 @@ func ProgressLabeledStyled(percent int, style Style) Widget =
         // Below the threshold the label would leave a bar too short to
         // convey anything, and a caller who asked for a progress bar
         // should still get one.
-        if area.Width < progressLabeledMinWidth() {
+        if area.Width < progressLabeledMinWidth {
             renderToInternal(bar, area, buf, hits)
         } else {
-            val barW = area.Width - progressLabelWidth()
+            val barW = area.Width - progressLabelWidth
             renderToInternal(bar,
                 Rect(X = area.X, Y = area.Y, Width = barW, Height = 1), buf, hits)
             renderText(progressLabelText(percent), style,
                 Rect(X = area.X + barW, Y = area.Y,
-                     Width = progressLabelWidth(), Height = 1), buf)
+                     Width = progressLabelWidth, Height = 1), buf)
         }
     })
 
 // progressLabeledMinWidth is the label slot plus the eight columns of bar
 // below which the label is dropped instead.
-func progressLabeledMinWidth() int = progressLabelWidth() + 8
+val progressLabeledMinWidth = progressLabelWidth + 8
 
 // progressLabelWidth is the fixed slot the label occupies: two spaces plus
 // a right-aligned "100%".
-func progressLabelWidth() int = 6
+val progressLabelWidth = 6
 
 func progressLabelText(percent int) string =
-    padLeftToCells(s"${clampPct(percent)}%", progressLabelWidth())
+    padLeftToCells(s"${clampPct(percent)}%", progressLabelWidth)
 
 // Gauge renders a smooth-edged bar using Unicode partial blocks, over a
 // `░` track that stays visible at 0% so an empty gauge still looks like a
@@ -967,7 +967,7 @@ func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Wi
     // four times on every paint.
     val labelW = lineGaugeLabelWidth(label)
     return CustomW(
-        MinW = labelW + lineGaugeMinRule(),
+        MinW = labelW + lineGaugeMinRule,
         MinH = 1,
         Render = (area, buf, _) => {
             if area.Width <= 0 || area.Height <= 0 {
@@ -983,7 +983,7 @@ func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Wi
             // out whatever put it in a taller area.
             renderFill(' ', filled, row, buf)
             // Room for the caption, its separator, and a rule worth reading.
-            if area.Width >= labelW + lineGaugeMinRule() {
+            if area.Width >= labelW + lineGaugeMinRule {
                 if labelW > 0 {
                     renderText(
                         label,
@@ -1312,11 +1312,11 @@ func tabHeaderCell(title string, style Style, padding int) LayoutChild {
 // when it could not draw every cell. It points along the axis the missing
 // cells lie on, which distinguishes it from the `…` that marks a single
 // label cut short.
-func OverflowMarker() rune = '›'
+val OverflowMarker = '›'
 
 // OverflowRow lays `cells` left-to-right at the widths their constraints
 // declare and, when the row is too narrow to hold them all, paints
-// `OverflowMarker()` in its last column instead of pretending the tail
+// `OverflowMarker` in its last column instead of pretending the tail
 // does not exist.
 //
 // A plain `Row` cannot do this. `Solve` clamps the tail, so the first cell
@@ -1391,7 +1391,7 @@ func renderOverflowRow(
             ), buf, hits)
         }
         buf.Set(area.X + area.Width - 1, area.Y,
-                Cell(Ch = OverflowMarker(), St = DefaultStyle()))
+                Cell(Ch = OverflowMarker, St = DefaultStyle()))
     }
 }
 
@@ -1481,7 +1481,7 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
         case InputW(value, cursor, placeholder, style, phStyle, focused) =>
             renderInput(value, cursor, placeholder, style, phStyle, focused, area, buf)
         case ProgressW(pct, style) => {
-            val bar = renderProgressBar(pct, area.Width, '█', gaugeTrack())
+            val bar = renderProgressBar(pct, area.Width, '█', gaugeTrack)
             renderText(bar, style, area, buf)
         }
         case GaugeW(pct, style) => {
