@@ -479,3 +479,35 @@ func TestEmitPrintsRepaintsOnlyWhenTheLinesLanded(t T) T {
     emitPrints(TerminalBackend(), ArrayOf[string]("x"), () => { dropped = true })
     return EqMsg(t1, dropped, false, "a dropped insert repainted anyway")
 }
+
+// ---- Synchronized output ---------------------------------------------------
+
+// A paint is one synchronized update: the frame and its cursor between
+// ?2026h and ?2026l, so the terminal never shows half of it.
+func TestTerminalPaintIsOneSynchronizedUpdate(t T) T {
+    val frame = NewBuffer(4, 2)
+    frame.DrawText(0, 0, "ab", DefaultStyle())
+    val out = terminalPaintString(frame, nil, false)
+    val t1 = IsTrue(t, strings.HasPrefix(out, ansiSyncBegin()))
+    val t2 = IsTrue(t1, strings.HasSuffix(out, ansiSyncEnd()))
+    return Eq(t2, strings.Count(out, ansiSyncBegin()), 1)
+}
+
+// An idle paint sends nothing — not even an empty synchronized update.
+func TestIdleTerminalPaintSendsNothing(t T) T {
+    val frame = NewBuffer(4, 2)
+    frame.DrawText(0, 0, "ab", DefaultStyle())
+    return Eq(t, terminalPaintString(frame, frame.Clone(), false), "")
+}
+
+// The brackets do not move anything: replayed through a terminal, a
+// synchronized first paint and diff land exactly where the bare ones did.
+func TestSynchronizedPaintLandsTheSameCells(t T) T {
+    val first = fullWidthRows(6, 3)
+    val second = first.Clone()
+    second.DrawText(0, 1, "  xy  ", DefaultStyle())
+    val tm = newTerm(6, 3)
+    tm.feed(terminalPaintString(first, nil, false))
+    tm.feed(terminalPaintString(second, first, false))
+    return Eq(t, screenText(tm), "aaaaaa/  xy  /cccccc")
+}

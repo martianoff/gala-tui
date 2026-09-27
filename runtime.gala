@@ -50,6 +50,20 @@ func ansiHome() string         = "\x1b[H"
 // ansiMoveTo moves the cursor to 1-indexed (row, col) — absolute screen cells.
 func ansiMoveTo(row int, col int) string = s"\x1b[${row};${col}H"
 
+// ansiSyncBegin / ansiSyncEnd bracket a synchronized update (DEC private
+// mode 2026): the terminal holds what it receives in between and presents
+// it in one go. See `synchronized`.
+func ansiSyncBegin() string = "\x1b[?2026h"
+func ansiSyncEnd() string   = "\x1b[?2026l"
+
+// synchronized wraps one frame's bytes so the terminal shows the frame
+// whole. A frame is written in several chunks, and a terminal that renders
+// between them shows the top of the new frame over the bottom of the old
+// one — tearing, most visible on a full repaint or a fast scroll. Terminals
+// without the mode ignore both sequences and draw as the bytes arrive, as
+// they always did. An empty frame stays empty: an idle tick sends nothing.
+func synchronized(s string) string = if (s == "") "" else ansiSyncBegin() + s + ansiSyncEnd()
+
 // ----------------------------------------------------------------------------
 // Modern input-protocol modes.
 //

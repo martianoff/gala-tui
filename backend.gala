@@ -125,8 +125,7 @@ func TerminalBackend() Backend {
         ReadAsync = () => terminalReadFuture(),
         Open  = (mouse) => terminalOpen(mouse),
         Paint = (frame, prev) => {
-            val body = if (prev == nil) ansiHome() + frame.String() else frame.DiffString(prev)
-            stdoutWrite(body + cursorTail(frame, prev, body, shown, 0, 0))
+            stdoutWrite(terminalPaintString(frame, prev, shown))
             shown = frame.Cursor().IsDefined()
         },
         // The alternate screen has no scrollback — it is a second screen
@@ -136,6 +135,14 @@ func TerminalBackend() Backend {
         // written into the frame the app is drawing.
         InsertBefore = (lines) => false,
     )
+}
+
+// terminalPaintString is what one full-screen paint writes: the whole frame
+// on the first paint, the cells that changed after that, then the cursor —
+// as one synchronized update.
+func terminalPaintString(frame *Buffer, prev *Buffer, shown bool) string {
+    val body = if (prev == nil) ansiHome() + frame.String() else frame.DiffString(prev)
+    return synchronized(body + cursorTail(frame, prev, body, shown, 0, 0))
 }
 
 // cursorTail follows a paint to leave the real terminal cursor where the
@@ -521,14 +528,14 @@ func InlineBackend(height int) Backend {
             val body = if (redraw) home() + inlineFrameString(frame, h) else ""
             val query = if (ask) ansiCursorQuery() else ""
             if redraw || ask {
-                stdoutWrite(body + query + (if (redraw) inlineCursorString(frame) else ""))
+                stdoutWrite(synchronized(body + query + (if (redraw) inlineCursorString(frame) else "")))
             }
             if ask { pending = pending + 1 }
             ask = false
             if redraw { shown = frame.Cursor().IsDefined() }
         },
         InsertBefore = (lines) => {
-            stdoutWrite(home() + inlineInsertBeforeString(lines, h))
+            stdoutWrite(synchronized(home() + inlineInsertBeforeString(lines, h)))
             ask = true
             return true
         },
@@ -758,7 +765,7 @@ func FixedBackend(area Rect) Backend {
             val term = TermSize()
             val resized = term != lastTerm
             lastTerm = term
-            stdoutWrite(fixedPaintString(frame, if (resized) nil else prev, a, term, shown))
+            stdoutWrite(synchronized(fixedPaintString(frame, if (resized) nil else prev, a, term, shown)))
             // An off-screen paint drew nothing — hid nothing — so it must not
             // record a cursor state the terminal never saw.
             if !fixedOffScreen(a, term) { shown = frame.Cursor().IsDefined() }

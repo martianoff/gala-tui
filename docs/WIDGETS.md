@@ -709,6 +709,15 @@ compare against a fixture. See [GETTING_STARTED.md](GETTING_STARTED.md)
 | `SnapshotsEqual(got, want)` | `bool` |
 | `SnapshotDiff(got, want)` | `Option[string]` (human-readable diff) |
 
+## Synchronized frames
+
+Every backend writes each frame as one synchronized update (DEC private mode
+2026): the terminal holds the frame's bytes and presents them together, so a
+full repaint or a fast scroll never shows the top of the new frame over the
+bottom of the old one. Terminals without the mode — it is widely but not
+universally supported — ignore it and draw as the bytes arrive. An idle tick
+still writes nothing at all.
+
 ## Inline viewport
 
 By default an app owns the whole terminal on the alternate screen. That is
