@@ -368,7 +368,10 @@ func shotThemeRow(name string, th Theme) Widget =
 
 func shotDomain() Widget =
     Row(ArrayOf[LayoutChild](
-        Flex(1, Titled(CalendarView(NewCalendarAt(2026, 9, 22), true), " CalendarView ")),
+        // Monday-first, with two release days marked.
+        Flex(1, Titled(CalendarView(NewCalendarAt(2026, 9, 22).StartingMonday()
+            .Mark(2026, 9, 8, DefaultStyle().WithFg(BrightGreen()))
+            .Mark(2026, 9, 29, DefaultStyle().WithFg(BrightGreen())), true), " CalendarView ")),
         Flex(1, Titled(TreeFocused(shotTree(), 2, true), " Tree ")),
     ))
 

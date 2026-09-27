@@ -688,7 +688,7 @@ Built-in themes: `DefaultTheme()`, `DarkTheme()`, `LightTheme()`,
 
 | Widget | Signature | Notes |
 |---|---|---|
-| `CalendarView(c)` | `(Calendar) Widget` | One-month grid + cursor. |
+| `CalendarView(c)` | `(Calendar) Widget` | One-month grid + cursor. `c.Mark(y, m, d, style)` gives a date a style of its own — release days, holidays — drawn under the today and selection highlights, and kept as the cursor pages through months; `c.Unmark(y, m, d)` drops it. `c.StartingMonday()` lays the weeks out Monday to Sunday. |
 | `FileBrowserView(b)` | `(FileBrowser) Widget` | Directory listing + breadcrumb. |
 | `HelpView(entries)` | `(Array[HelpSpec[T]]) Widget` | Auto-formatted shortcut sheet. |
 | `HelpModalView(entries, w, h)` | `(Array[HelpSpec[T]], int, int) Widget` | Centered modal version. |
