@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    . "martianoff/gala/collection_immutable"
     "martianoff/gala/stream"
     "strings"
     . "martianoff/gala/test"
@@ -113,3 +114,46 @@ func TestDaysInMonthFebLeap(t T) T {
 }
 
 func TestDaysInMonthApril(t T) T = Eq(t, daysInMonth(2026, 4), 30)
+
+// ---- Marks and week start ---------------------------------------------------
+
+// calendarAt renders `c` into the 30x8 area the view tests use.
+func calendarAt(c Calendar) *Buffer {
+    val buf = NewBuffer(30, 8)
+    RenderTo(CalendarView(c), Rect(X = 0, Y = 0, Width = 30, Height = 8), buf)
+    return buf
+}
+
+// April 2026 starts on a Wednesday: the 4th column Sunday-first, the 3rd
+// Monday-first, with the labels rotated to match.
+func TestCalendarStartingMondayShiftsTheGrid(t T) T {
+    val sunday = calendarAt(NewCalendarAt(2026, 4, 15))
+    val monday = calendarAt(NewCalendarAt(2026, 4, 15).StartingMonday())
+    val t1 = IsTrue(t, strings.HasPrefix(RowText(sunday, 1), " Su Mo"))
+    val t2 = IsTrue(t1, strings.HasPrefix(RowText(sunday, 2), "          1  2  3  4"))
+    val t3 = IsTrue(t2, strings.HasPrefix(RowText(monday, 1), " Mo Tu We Th Fr Sa Su"))
+    return IsTrue(t3, strings.HasPrefix(RowText(monday, 2), "       1  2  3  4  5"))
+}
+
+// A marked date draws in its own style; an unmarked one does not.
+func TestCalendarMarkedDateTakesItsStyle(t T) T {
+    val buf = calendarAt(NewCalendarAt(2026, 4, 15).Mark(2026, 4, 20, DefaultStyle().WithFg(Red())))
+    val t1 = Eq(t, strings.TrimSpace(string(ArrayTabulate(3, (i) => buf.CharAt(3 + i, 5)).ToGoSlice())), "20")
+    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(4, 5).Fg, Red()))
+    return IsTrue(t2, ColorEq(buf.StyleAt(7, 5).Fg, DefaultColor()))
+}
+
+// The selection is drawn over a mark rather than instead of it.
+func TestCalendarSelectedMarkedDateKeepsItsMark(t T) T {
+    val buf = calendarAt(NewCalendarAt(2026, 4, 15).Mark(2026, 4, 15, DefaultStyle().WithFg(Red())))
+    val t1 = IsTrue(t, buf.StyleAt(10, 4).Reverse)
+    return IsTrue(t1, ColorEq(buf.StyleAt(10, 4).Fg, Red()))
+}
+
+// Marks are on dates: paging away and back keeps them, and Unmark drops one.
+func TestCalendarMarksSurvivePagingAndUnmark(t T) T {
+    val c = NewCalendarAt(2026, 4, 15).Mark(2026, 4, 20, DefaultStyle().WithBold())
+    val back = CalendarUpdate(CalendarUpdate(CalendarUpdate(c, CalMonthNext()), CalDayRight()), CalMonthPrev())
+    val t1 = IsTrue(t, back.Marks.Contains(calKey(2026, 4, 20)))
+    return IsFalse(t1, back.Unmark(2026, 4, 20).Marks.Contains(calKey(2026, 4, 20)))
+}

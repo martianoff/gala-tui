@@ -213,10 +213,24 @@ func megaFormsBody(m MegaModel, th Theme) Widget =
 
 func megaFormsMain(m MegaModel, th Theme) Widget =
     Column(ArrayOf[LayoutChild](
-        Fixed(12, Titled(megaCredentialsForm(m), " Sign in ")),
+        Fixed(12, Row(ArrayOf[LayoutChild](
+            Flex(1, Titled(megaCredentialsForm(m), " Sign in ")),
+            Fixed(23, Titled(CalendarView(megaReleaseCalendar()), " Releases ")),
+        ))),
         Fixed(7, Titled(megaSearchRow(m), " SearchInput ")),
         Flex(1, Titled(megaFormNotes(), " What the tour is doing ")),
     ))
+
+// megaReleaseCalendar is the month the production push lands in, with the
+// release days marked and the change freeze before the push in red. A fixed
+// month rather than this one, so the picture does not change with the date
+// the tour is recorded on.
+func megaReleaseCalendar() Calendar =
+    NewCalendarAt(2026, 11, 17).StartingMonday()
+        .Mark(2026, 11, 3, DefaultStyle().WithFg(BrightGreen()))
+        .Mark(2026, 11, 17, DefaultStyle().WithFg(BrightGreen()))
+        .Mark(2026, 11, 13, DefaultStyle().WithFg(BrightRed()))
+        .Mark(2026, 11, 16, DefaultStyle().WithFg(BrightRed()))
 
 // megaCredentialsForm is the whole input story on one screen: a plain field,
 // a masked one, and a button. Both fields are built with `InputClick`, so a

@@ -9,9 +9,11 @@ import (
 // ============================================================================
 // Calendar / DatePicker widget.
 //
-// Displays a one-month grid (Sun-Mon-…-Sat columns by default) with a
-// movable selection cursor. Apps drive Up/Down/Left/Right + Enter and read
-// `Selected()` to retrieve the chosen date.
+// Displays a one-month grid (Sun-Mon-…-Sat columns by default, Mon-…-Sun
+// with `StartingMonday`) with a movable selection cursor. Apps drive
+// Up/Down/Left/Right + Enter and read `Selected()` to retrieve the chosen
+// date. `Mark` gives a date a style of its own — the days with a deploy
+// scheduled, the holidays.
 //
 //     ↑ ↓ ← →    move cursor by week / day
 //     PgUp/PgDn  previous / next month
@@ -25,7 +27,29 @@ struct Calendar(
     Year   int,
     Month  int,                        // 1..12
     SelDay int,                        // currently-selected day-of-month (1..31)
+    // Marks holds the style of each marked date, keyed by `calKey`. They
+    // stay put as the cursor pages through months: a mark is on a date,
+    // not on a cell of the grid.
+    Marks  HashMap[string, Style] = EmptyHashMap[string, Style](),
+    // MondayFirst starts each week on Monday instead of Sunday.
+    MondayFirst bool = false,
 )
+
+// Mark gives the date `year-month-day` a style of its own, drawn under the
+// today and selection highlights — so a marked day that is also selected
+// still reads as marked. Marking a date again replaces its style.
+func (c Calendar) Mark(year int, month int, day int, style Style) Calendar =
+    c.Copy(Marks = c.Marks.Put(calKey(year, month, day), style))
+
+// Unmark removes a date's mark.
+func (c Calendar) Unmark(year int, month int, day int) Calendar =
+    c.Copy(Marks = c.Marks.Remove(calKey(year, month, day)))
+
+// StartingMonday lays the weeks out Monday to Sunday.
+func (c Calendar) StartingMonday() Calendar = c.Copy(MondayFirst = true)
+
+// calKey is the Marks key for a date.
+func calKey(year int, month int, day int) string = s"$year-$month-$day"
 
 // NewCalendar builds a calendar focused on today.
 func NewCalendar() Calendar {
@@ -76,7 +100,7 @@ func CalendarUpdate(c Calendar, ev CalendarEvent) Calendar {
 func calStep(c Calendar, delta int) Calendar {
     val current = c.Selected()
     val moved = current.AddDate(0, 0, delta)
-    return Calendar(
+    return c.Copy(
         Year   = moved.Year(),
         Month  = int(moved.Month()),
         SelDay = moved.Day(),
@@ -98,7 +122,7 @@ func calMonth(c Calendar, delta int) Calendar {
     }
     val maxDay = daysInMonth(newYear, newMonth)
     val day = if (c.SelDay > maxDay) maxDay else c.SelDay
-    return Calendar(Year = newYear, Month = newMonth, SelDay = day)
+    return c.Copy(Year = newYear, Month = newMonth, SelDay = day)
 }
 
 // daysInMonth: 28-31 depending on month. Uses time.Date's normalisation.
@@ -111,9 +135,10 @@ func daysInMonth(year int, month int) int {
 // View
 // ----------------------------------------------------------------------------
 
-// CalendarView renders the calendar as a header (Month YYYY) + Sun..Sat
+// CalendarView renders the calendar as a header (Month YYYY) + weekday
 // column labels + 6 rows × 7 columns of day numbers. The selected day is
-// reverse-highlighted; today is bold.
+// reverse-highlighted; today is bold; a marked day keeps its own style
+// underneath both.
 // `focused` (default false) brightens the selected day so it pops as
 // "the cursor", as opposed to the just-highlighted active selection.
 func CalendarView(c Calendar, focused bool = false) Widget {
@@ -121,15 +146,9 @@ func CalendarView(c Calendar, focused bool = false) Widget {
         " " + monthName(c.Month) + " " + strconv.Itoa(c.Year) + " ",
         DefaultStyle().WithBold().WithFg(BrightCyan()),
     )
-    val dayLabels = Row(ArrayOf[LayoutChild](
-        Fixed(3, TextStyled(" Su", calLabelStyle())),
-        Fixed(3, TextStyled(" Mo", calLabelStyle())),
-        Fixed(3, TextStyled(" Tu", calLabelStyle())),
-        Fixed(3, TextStyled(" We", calLabelStyle())),
-        Fixed(3, TextStyled(" Th", calLabelStyle())),
-        Fixed(3, TextStyled(" Fr", calLabelStyle())),
-        Fixed(3, TextStyled(" Sa", calLabelStyle())),
-    ))
+    val labels = ArrayOf(" Su", " Mo", " Tu", " We", " Th", " Fr", " Sa")
+    val dayLabels = Row(ArrayTabulate(7, (col) =>
+        Fixed(3, TextStyled(labels.Get((col + calWeekStart(c)) % 7), calLabelStyle()))))
     val today = time.Now()
     val rows = calBuildGrid(c, today, focused)
     return Column(ArrayOf[LayoutChild](
@@ -141,10 +160,15 @@ func CalendarView(c Calendar, focused bool = false) Widget {
 
 func calLabelStyle() Style = DefaultStyle().WithDim().WithBold()
 
+// calWeekStart is the weekday of the grid's first column: 0 Sunday, 1 Monday.
+func calWeekStart(c Calendar) int = if (c.MondayFirst) 1 else 0
+
 // calBuildGrid produces 6 rows × 7 day-cells representing the month grid.
 // Empty cells (before the first / after the last) render as blanks.
 func calBuildGrid(c Calendar, today time.Time, focused bool) Array[LayoutChild] {
-    val firstWeekday = int(time.Date(c.Year, time.Month(c.Month), 1, 0, 0, 0, 0, time.UTC).Weekday())
+    // How many columns the 1st sits in from the week's first day.
+    val weekday = int(time.Date(c.Year, time.Month(c.Month), 1, 0, 0, 0, 0, time.UTC).Weekday())
+    val firstWeekday = (weekday - calWeekStart(c) + 7) % 7
     val totalDays = daysInMonth(c.Year, c.Month)
     return ArrayTabulate(6, (week) => {
         val cells = ArrayTabulate(7, (col) => {
@@ -163,7 +187,7 @@ func calDayCell(c Calendar, today time.Time, day int, totalDays int, focused boo
     val isToday = c.Year == today.Year() &&
                   c.Month == int(today.Month()) &&
                   day == today.Day()
-    val style = if (isSel && focused)
+    val highlight = if (isSel && focused)
         DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
     else if (isSel)
         DefaultStyle().WithReverse().WithBold()
@@ -171,7 +195,8 @@ func calDayCell(c Calendar, today time.Time, day int, totalDays int, focused boo
         DefaultStyle().WithBold().WithFg(BrightYellow())
     else
         DefaultStyle()
-    return TextStyled(calPad(day), style)
+    val mark = c.Marks.GetOrElse(calKey(c.Year, c.Month, day), DefaultStyle())
+    return TextStyled(calPad(day), mark.Patch(highlight))
 }
 
 // calPad formats a day number into a 3-cell string (" D " or " DD").
