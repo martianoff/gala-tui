@@ -16,7 +16,7 @@ func TestListSelectionHighlight(t T) T {
     val t1 = Eq(t, RowText(buf, 0), "apple ")
     val t2 = Eq(t1, RowText(buf, 1), "banana")   // selected row filled to width
     // Selected row style should be reverse.
-    return IsTrue(t2, buf.StyleAt(0, 1).Reverse)
+    return IsTrue(t2, buf.Get(0, 1).St.Reverse)
 }
 
 func TestListHandlesEmpty(t T) T {
@@ -58,8 +58,8 @@ func TestInputShowsPlaceholderWhenEmpty(t T) T {
     // the field style inverted rather than the placeholder's dim. Before,
     // the empty+placeholder case returned early and drew no caret at all,
     // which is the state every form starts in.
-    val t2 = IsTrue(t1, buf.StyleAt(1, 0).Dim)
-    return IsTrue(t2, buf.StyleAt(0, 0).Reverse)
+    val t2 = IsTrue(t1, buf.Get(1, 0).St.Dim)
+    return IsTrue(t2, buf.Get(0, 0).St.Reverse)
 }
 
 func TestInputShowsValueAndCursor(t T) T {
@@ -68,7 +68,7 @@ func TestInputShowsValueAndCursor(t T) T {
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val t1 = Eq(t, RowText(buf, 0), "hello     ")
     // Cursor at column 3 → that cell should be reversed.
-    return IsTrue(t1, buf.StyleAt(3, 0).Reverse)
+    return IsTrue(t1, buf.Get(3, 0).St.Reverse)
 }
 
 // ============================================================================
@@ -136,10 +136,10 @@ func TestLineGaugeCaptionKeepsTheRuleOriginFixed(t T) T {
     RenderTo(LineGauge(5), Rect(X = 0, Y = 0, Width = 20, Height = 1), small)
     val big = NewBuffer(20, 1)
     RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 20, Height = 1), big)
-    val t1 = Eq(t, small.CharAt(4, 0), ' ')
-    val t2 = Eq(t1, big.CharAt(4, 0), ' ')
-    val t3 = Eq(t2, small.CharAt(5, 0), lineGaugeHead())
-    return Eq(t3, big.CharAt(5, 0), lineGaugeFilled())
+    val t1 = Eq(t, small.Get(4, 0).Ch, ' ')
+    val t2 = Eq(t1, big.Get(4, 0).Ch, ' ')
+    val t3 = Eq(t2, small.Get(5, 0).Ch, lineGaugeHead())
+    return Eq(t3, big.Get(5, 0).Ch, lineGaugeFilled())
 }
 
 func TestLineGaugeStillGrowsFrom99To100(t T) T {
@@ -153,8 +153,8 @@ func TestLineGaugeStillGrowsFrom99To100(t T) T {
     RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 24, Height = 1), done)
     // Same last cell, two different glyphs: 99% ends on the head, 100% on a
     // full cell. Nothing short of done paints the done picture.
-    val t1 = Eq(t, nearly.CharAt(23, 0), lineGaugeHead())
-    return Eq(t1, done.CharAt(23, 0), lineGaugeFilled())
+    val t1 = Eq(t, nearly.Get(23, 0).Ch, lineGaugeHead())
+    return Eq(t1, done.Get(23, 0).Ch, lineGaugeFilled())
 }
 
 func TestLineGaugeDrawsAHeadOnlyWhenTheFillEndsMidCell(t T) T {
@@ -204,7 +204,7 @@ func TestLineGaugeOwnsEveryCellWhenTheRuleIsDropped(t T) T {
     )
     RenderTo(LineGaugeLabeled("Sync", 50), Rect(X = 0, Y = 0, Width = 8, Height = 1), buf)
     val t1 = Eq(t, RowText(buf, 0), "Sync    ")
-    return IsTrue(t1, !buf.StyleAt(7, 0).Reverse)
+    return IsTrue(t1, !buf.Get(7, 0).St.Reverse)
 }
 
 func TestLineGaugePaintsTheSeparatorCell(t T) T {
@@ -221,8 +221,8 @@ func TestLineGaugePaintsTheSeparatorCell(t T) T {
         Rect(X = 0, Y = 0, Width = 16, Height = 1),
         buf,
     )
-    val t1 = Eq(t, buf.CharAt(4, 0), ' ')
-    return IsTrue(t1, !buf.StyleAt(4, 0).Reverse)
+    val t1 = Eq(t, buf.Get(4, 0).Ch, ' ')
+    return IsTrue(t1, !buf.Get(4, 0).St.Reverse)
 }
 
 func TestLineGaugeBareRuleDrawsBelowTheMinimumRuleWidth(t T) T {
@@ -283,28 +283,28 @@ func TestLineGaugeFallsBackToTheRuleWhenTheLabelCannotFit(t T) T {
 
 func TestLineGaugeStylesTheFilledRunAndTheTrackApart(t T) T {
     val buf = NewBuffer(8, 1)
-    val filled = DefaultStyle().WithFg(Green())
-    val track = DefaultStyle().WithFg(BrightBlack())
+    val filled = DefaultStyle().WithFg(Green)
+    val track = DefaultStyle().WithFg(BrightBlack)
     RenderTo(
         LineGaugeStyled("", 50, filled, track),
         Rect(X = 0, Y = 0, Width = 8, Height = 1),
         buf,
     )
-    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Green()))
-    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(3, 0).Fg, Green()))
-    return IsTrue(t2, ColorEq(buf.StyleAt(4, 0).Fg, BrightBlack()))
+    val t1 = IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, Green))
+    val t2 = IsTrue(t1, ColorEq(buf.Get(3, 0).St.Fg, Green))
+    return IsTrue(t2, ColorEq(buf.Get(4, 0).St.Fg, BrightBlack))
 }
 
 func TestLineGaugeLabelCarriesTheFilledStyle(t T) T {
     val buf = NewBuffer(12, 1)
-    val filled = DefaultStyle().WithFg(Green())
+    val filled = DefaultStyle().WithFg(Green)
     RenderTo(
         LineGaugeStyled("Sync", 50, filled, DefaultStyle().WithDim()),
         Rect(X = 0, Y = 0, Width = 12, Height = 1),
         buf,
     )
     // The caption is the value, not chrome — it must not read as disabled.
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Green()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, Green))
 }
 
 func TestLineGaugeRendersNothingIntoAZeroArea(t T) T {
@@ -349,5 +349,5 @@ func TestFocusedButtonIsReversed(t T) T {
     val w = Button("OK", true)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     val t1 = Eq(t, RowText(buf, 0), "[ OK ]    ")
-    return IsTrue(t1, buf.StyleAt(0, 0).Reverse)
+    return IsTrue(t1, buf.Get(0, 0).St.Reverse)
 }

@@ -424,15 +424,15 @@ func (s Session[M, T]) dispatchMsg(msg T) Session[M, T] {
     if s.HasQuit { return s }
     val (newModel, cmd) = s.H.Program.Update(s.Model, msg)
     if IsQuit(cmd) {
-        return Session[M, T](H = s.H, Model = newModel, HasQuit = true)
+        return s.Copy(Model = newModel, HasQuit = true)
     }
     // Once a redispatched Msg quits, the rest are skipped (the guard makes
     // each remaining step free).
-    val start = Session[M, T](H = s.H, Model = newModel, HasQuit = false)
+    val start = s.Copy(Model = newModel, HasQuit = false)
     return PendingMsgs(cmd).FoldLeft(start, (cur Session[M, T], next T) => {
         if cur.HasQuit { return cur }
         val (m, c) = s.H.Program.Update(cur.Model, next)
-        return Session[M, T](H = s.H, Model = m, HasQuit = IsQuit(c))
+        return cur.Copy(Model = m, HasQuit = IsQuit(c))
     })
 }
 
@@ -445,7 +445,7 @@ func (s Session[M, T]) dispatchMsg(msg T) Session[M, T] {
 // non-text rendering (border glyphs, color SGRs, …).
 //
 //     val buf = session.Buffer()
-//     IsTrue(t, buf.StyleAt(0, 0).Bold)
+//     IsTrue(t, buf.Get(0, 0).St.Bold)
 func (s Session[M, T]) Buffer() *Buffer {
     var buf = NewBuffer(s.H.Width, s.H.Height)
     RenderTo(s.H.Program.View(s.Model),
@@ -471,10 +471,10 @@ func (s Session[M, T]) Row(y int) string {
 }
 
 // CharAt returns the rune at (x, y), or ' ' for out-of-bounds.
-func (s Session[M, T]) CharAt(x int, y int) rune = s.Buffer().CharAt(x, y)
+func (s Session[M, T]) CharAt(x int, y int) rune = s.Buffer().Get(x, y).Ch
 
 // StyleAt returns the Style at (x, y).
-func (s Session[M, T]) StyleAt(x int, y int) Style = s.Buffer().StyleAt(x, y)
+func (s Session[M, T]) StyleAt(x int, y int) Style = s.Buffer().Get(x, y).St
 
 // ----------------------------------------------------------------------------
 // Built-in matchers.
@@ -497,7 +497,7 @@ func (s Session[M, T]) RowContains(y int, needle string) bool =
     HarnessContains(s.Row(y), needle)
 
 // HasStyleAt returns true if the Style at (x, y) satisfies `pred`. Common
-// uses: `(s) => s.Bold`, `(s) => s.Reverse`, `(s) => ColorEq(s.Fg, Red())`.
+// uses: `(s) => s.Bold`, `(s) => s.Reverse`, `(s) => ColorEq(s.Fg, Red)`.
 func (s Session[M, T]) HasStyleAt(x int, y int, pred func(Style) bool) bool =
     pred(s.StyleAt(x, y))
 
@@ -574,7 +574,7 @@ func HarnessContains(rendered string, needle string) bool = strings.Contains(ren
 func HarnessFindCellWith(buf *Buffer, target rune) Option[Tuple[int, int]] {
     val w = buf.Width
     return stream.Range(0, w * buf.Height)
-        .Find((i) => buf.CharAt(i % w, i / w) == target)
+        .Find((i) => buf.Get(i % w, i / w).Ch == target)
         .Map((i) => (i % w, i / w))
 }
 

@@ -52,7 +52,7 @@ func highlightCodeLine(line string, lang string) Widget {
     ).AppendAll(cells).Append(Flex(1, FillChStyled(' ', codeBaseStyle()))))
 }
 
-func codeBaseStyle() Style = DefaultStyle().WithFg(BrightWhite()).On(Black())
+func codeBaseStyle() Style = DefaultStyle().WithFg(BrightWhite).On(Black)
 
 func tokenWidget(tok SyntaxToken) LayoutChild {
     val text = tokenText(tok)
@@ -74,12 +74,12 @@ func tokenText(tok SyntaxToken) string {
 func tokenStyle(tok SyntaxToken) Style {
     val base = codeBaseStyle()
     return tok match {
-        case TokKeyword(_)  => base.WithFg(BrightMagenta()).WithBold()
-        case TokString(_)   => base.WithFg(BrightGreen())
-        case TokNumber(_)   => base.WithFg(BrightYellow())
-        case TokComment(_)  => base.WithFg(BrightBlack()).WithItalic()
+        case TokKeyword(_)  => base.WithFg(BrightMagenta).WithBold()
+        case TokString(_)   => base.WithFg(BrightGreen)
+        case TokNumber(_)   => base.WithFg(BrightYellow)
+        case TokComment(_)  => base.WithFg(BrightBlack).WithItalic()
         case TokIdent(_)    => base
-        case TokPunct(_)    => base.WithFg(BrightCyan())
+        case TokPunct(_)    => base.WithFg(BrightCyan)
     }
 }
 

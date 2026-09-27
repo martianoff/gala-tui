@@ -47,7 +47,7 @@ func TestTableSelectionHighlight(t T) T {
     RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 7, Height = 2), buf)
     val t1 = Eq(t, RowText(buf, 0), "one  1 ")
     // Second row should be reverse-video (the selected row).
-    return IsTrue(t1, buf.StyleAt(0, 1).Reverse)
+    return IsTrue(t1, buf.Get(0, 1).St.Reverse)
 }
 
 func TestExactFitColumnsStaySeparated(t T) T {
@@ -65,7 +65,7 @@ func TestExactFitColumnsStaySeparated(t T) T {
     RenderTo(Table(data), Rect(X = 0, Y = 0, Width = 11, Height = 1), buf)
     val t1 = Eq(t, RowText(buf, 0), "Alice Bobby")
     // Neither value was shortened to pay for the gap.
-    return Eq(t1, buf.CharAt(4, 0), 'e')
+    return Eq(t1, buf.Get(4, 0).Ch, 'e')
 }
 
 func TestTableEmpty(t T) T {

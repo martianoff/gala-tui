@@ -37,7 +37,7 @@ func TestEmptyFieldCarriesItsFieldStyle(t T) T {
                    Focused = true,
                    Style = focus, PlaceholderStyle = DefaultStyle())
     val buf = inputBuf(w, 6)
-    return stream.Range(0, 6).Fold(t, (acc, x) => IsTrue(acc, buf.StyleAt(x, 0).Bold))
+    return stream.Range(0, 6).Fold(t, (acc, x) => IsTrue(acc, buf.Get(x, 0).St.Bold))
 }
 
 func TestFocusedEmptyFieldWithPlaceholderDrawsACaret(t T) T {
@@ -45,14 +45,14 @@ func TestFocusedEmptyFieldWithPlaceholderDrawsACaret(t T) T {
     // `Input("", 0, "type here")` — focused defaults to false — and so
     // asserted that an unfocused field draws a caret, codifying the very
     // behaviour that put four carets on a four-field form.
-    return IsTrue(t, inputBuf(Input("", 0, "type here", true), 12).StyleAt(0, 0).Reverse)
+    return IsTrue(t, inputBuf(Input("", 0, "type here", true), 12).Get(0, 0).St.Reverse)
 }
 
 func TestUnfocusedFieldDrawsNoCaret(t T) T {
     // The other half, which nothing asserted: a field the keyboard is not
     // driving must not claim to be.
     val buf = inputBuf(Input("abc", 1, "", false), 8)
-    val any = stream.Range(0, 8).Exists((x) => buf.StyleAt(x, 0).Reverse)
+    val any = stream.Range(0, 8).Exists((x) => buf.Get(x, 0).St.Reverse)
     return IsTrue(t, !any)
 }
 
@@ -61,14 +61,14 @@ func TestUnfocusedFieldDoesNotEraseTheSurfaceUnderIt(t T) T {
     // otherwise an unfocused input stamps its style over whatever a parent
     // painted, which is how the palette's query row lost its background.
     val surface = Overlay(
-        FillChStyled(' ', DefaultStyle().On(Blue())),
+        FillChStyled(' ', DefaultStyle().On(Blue)),
         Input("ab", 0, "", false),
     )
     // Swept, not sampled: columns 0-1 legitimately lose the surface because
     // renderText paints the two glyph cells, which is how every text widget
     // here behaves. Everything the field did not write must survive.
     val buf = inputBuf(surface, 10)
-    return stream.Range(2, 10).Fold(t, (acc, x) => IsTrue(acc, ColorEq(buf.StyleAt(x, 0).Bg, Blue())))
+    return stream.Range(2, 10).Fold(t, (acc, x) => IsTrue(acc, ColorEq(buf.Get(x, 0).St.Bg, Blue)))
 }
 
 func TestPaletteQueryCaretFollowsThePalettesFocus(t T) T {
@@ -96,8 +96,8 @@ func TestFocusedAndUnfocusedEmptyFieldsAreDistinguishable(t T) T {
                        PlaceholderStyle = DefaultStyle().WithDim(), Focused = false)
     // Compare a cell past the placeholder text, where only the field style
     // is in play.
-    val a = inputBuf(focused, 10).StyleAt(8, 0).Bold
-    val b = inputBuf(plain, 10).StyleAt(8, 0).Bold
+    val a = inputBuf(focused, 10).Get(8, 0).St.Bold
+    val b = inputBuf(plain, 10).Get(8, 0).St.Bold
     return IsTrue(t, a && !b)
 }
 
@@ -114,7 +114,7 @@ func TestValueScrollsToKeepTheCaretVisible(t T) T {
     val caretX = caretColumn(buf, 20)
     val t1 = IsTrue(t, caretX >= 0)
     // ...and sits on the character the cursor indexes.
-    return Eq(t1, buf.CharAt(caretX, 0), '4')
+    return Eq(t1, buf.Get(caretX, 0).Ch, '4')
 }
 
 func TestShortValueIsNotScrolled(t T) T {
@@ -122,7 +122,7 @@ func TestShortValueIsNotScrolled(t T) T {
     val buf = inputBuf(Input("abc", 3, "", true), 10)
     val t1 = Eq(t, RowText(buf, 0), "abc       ")
     // Caret sits just past the text, in the column reserved for it.
-    return IsTrue(t1, buf.StyleAt(3, 0).Reverse)
+    return IsTrue(t1, buf.Get(3, 0).St.Reverse)
 }
 
 func TestCaretAtEndOfAFullFieldStaysOnScreen(t T) T {
@@ -138,7 +138,7 @@ func TestCaretAtEndOfAFullFieldStaysOnScreen(t T) T {
 
 // caretColumn is the column carrying the caret, or -1 if none does.
 func caretColumn(buf *Buffer, width int) int =
-    stream.Range(0, width).ToArray().FindLast((x) => buf.StyleAt(x, 0).Reverse).GetOrElse(-1)
+    stream.Range(0, width).ToArray().FindLast((x) => buf.Get(x, 0).St.Reverse).GetOrElse(-1)
 
 func TestCaretPositionIsClampedToTheValue(t T) T {
     // An out-of-range cursor must not read past the end or vanish. The
@@ -171,7 +171,7 @@ func TestCaretLandsOnTheGlyphNotItsPaddingCell(t T) T {
     // character. Cursor 1 of "日本語" is the start of 本, which is column 2.
     val buf = inputBuf(Input("日本語", 1, "", true), 10)
     val t1 = Eq(t, caretColumn(buf, 10), 2)
-    return Eq(t1, buf.CharAt(2, 0), rune(0x672C))
+    return Eq(t1, buf.Get(2, 0).Ch, rune(0x672C))
 }
 
 func TestWideTextScrollsOnCellWidthNotRuneCount(t T) T {
@@ -183,17 +183,17 @@ func TestWideTextScrollsOnCellWidthNotRuneCount(t T) T {
     val col = caretColumn(buf, 10)
     val t1 = IsTrue(t, col >= 0 && col < 10)
     // ...and the window has scrolled, so the first glyph is no longer 日.
-    return IsTrue(t1, buf.CharAt(0, 0) != rune(0x65E5))
+    return IsTrue(t1, buf.Get(0, 0).Ch != rune(0x65E5))
 }
 
 func TestWideGlyphsAreNotSplitAtTheCaret(t T) T {
     // Whatever the window, a wide glyph is followed by its reserved blank —
     // never by another glyph sliding into the padding cell.
     val buf = inputBuf(Input("日本", 2, "", true), 6)
-    val t1 = Eq(t, buf.CharAt(0, 0), rune(0x65E5))
-    val t2 = Eq(t1, buf.CharAt(1, 0), ' ')
-    val t3 = Eq(t2, buf.CharAt(2, 0), rune(0x672C))
-    return Eq(t3, buf.CharAt(3, 0), ' ')
+    val t1 = Eq(t, buf.Get(0, 0).Ch, rune(0x65E5))
+    val t2 = Eq(t1, buf.Get(1, 0).Ch, ' ')
+    val t3 = Eq(t2, buf.Get(2, 0).Ch, rune(0x672C))
+    return Eq(t3, buf.Get(3, 0).Ch, ' ')
 }
 
 // ============================================================================
@@ -233,7 +233,7 @@ func TestMaskValueCountsCodePointsNotCellsOrGraphemes(t T) T {
 func TestMaskValueTakesTheCallersGlyph(t T) T {
     // U+2022 is East Asian Ambiguous; `*` is unambiguously narrow.
     val t1 = Eq(t, MaskValue("abc", '*'), "***")
-    // The zero rune is what an omitted struct field carries, and NUL has
+    // The zero rune is what a zero-filled struct field carries, and NUL has
     // cell width 0 — a field that looks empty while holding a secret. Every
     // masking path resolves it here, so that outcome is unreachable.
     return Eq(t1, MaskValue("abc", rune(0)), "•••")

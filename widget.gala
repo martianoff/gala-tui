@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
@@ -481,7 +482,7 @@ func ellipsisCap(s string, maxCols int) string =
 func FillCh(ch rune) Widget = FillWidget(Ch = ch, Style = DefaultStyle())
 
 // FillChStyled fills with an explicit style — commonly used for themed
-// backgrounds (e.g., `FillChStyled(' ', DefaultStyle().On(Blue()))`).
+// backgrounds (e.g., `FillChStyled(' ', DefaultStyle().On(Blue))`).
 func FillChStyled(ch rune, style Style) Widget =
     FillWidget(Ch = ch, Style = style)
 
@@ -790,7 +791,7 @@ func SelectListOfPick[T any](
 // `focused` (default false) brightens the typed text when this input is
 // the keyboard target.
 func Input(value string, cursor int, placeholder string, focused bool = false) Widget {
-    val style = if (focused) DefaultStyle().WithBold().WithFg(BrightYellow())
+    val style = if (focused) DefaultStyle().WithBold().WithFg(BrightYellow)
                 else DefaultStyle()
     return InputW(Value = value, Cursor = cursor, Placeholder = placeholder,
                   Style = style,
@@ -813,10 +814,10 @@ func MaskRune() rune = '•'
 // MaskValue replaces every code point of `v` with `mask`.
 //
 // The zero rune means `MaskRune()`, and the resolution lives here rather
-// than in a helper each caller remembers to apply, because a GALA struct
-// literal may omit any field and an omitted field is the zero value. A mask
-// glyph threaded out of a caller's own config or theme struct therefore
-// arrives as NUL whenever that struct was built without it, and NUL has
+// than in a helper each caller remembers to apply, because a Go-shaped
+// struct (a `type X struct { ... }` or an `X{...}` literal) zero-fills an
+// omitted field. A mask glyph threaded out of such a config or theme struct
+// therefore arrives as NUL whenever it was built without one, and NUL has
 // cell width 0 — masking with it draws a field that looks empty while
 // holding a secret. Every masking path in the library goes through this
 // function, so that outcome is unreachable rather than merely documented.
@@ -1171,7 +1172,7 @@ struct TabBarStyle(
 // column either side of each title.
 func DefaultTabBarStyle() TabBarStyle = TabBarStyle(
     Selected = DefaultStyle().WithBold().WithReverse(),
-    Focused  = DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow()),
+    Focused  = DefaultStyle().WithBold().WithReverse().WithFg(BrightYellow),
     Normal   = DefaultStyle().WithDim(),
     Divider  = DefaultStyle().WithDim(),
     Padding  = 1,
@@ -1197,7 +1198,7 @@ func (s TabBarStyle) titleStyle(selected bool, focused bool) Style =
 // bar's look — `DefaultTabBarStyle()` with the parts you want changed:
 //
 //     Tabs(titles, bodies, sel, true, "│",
-//         DefaultTabBarStyle().WithSelected(DefaultStyle().WithFg(Black()).On(Cyan())))
+//         DefaultTabBarStyle().WithSelected(DefaultStyle().WithFg(Black).On(Cyan)))
 func Tabs(
     titles Array[string],
     bodies Array[Widget],
@@ -2055,7 +2056,7 @@ func inputClickPayload[T any](
 // drawInputCaret inverts one cell in place, keeping whatever glyph is there
 // so the caret reads as sitting on the character rather than replacing it.
 func drawInputCaret(x int, y int, style Style, buf *Buffer) {
-    val ch = buf.CharAt(x, y)
+    val ch = buf.Get(x, y).Ch
     buf.Set(x, y, Cell(Ch = ch, St = style.WithReverse()))
     // The real cursor too, on the same cell: the reverse-video caret is for
     // the eye, the terminal cursor is what an IME and a screen reader follow.
@@ -2289,7 +2290,7 @@ func renderBorder(
     // Overlays that must not merge — a modal, a popup — clear their area
     // first, so there is nothing underneath to merge with.
     val put = (x int, y int, glyph rune) => {
-        buf.Set(x, y, Cell(Ch = mergeBorderGlyph(buf.CharAt(x, y), glyph), St = style))
+        buf.Set(x, y, Cell(Ch = mergeBorderGlyph(buf.Get(x, y).Ch, glyph), St = style))
     }
     val x0 = area.X + (if (sides.Left) 1 else 0)
     val x1 = right - (if (sides.Right) 1 else 0)
@@ -2798,7 +2799,7 @@ func intrinsicChildHeight(c LayoutChild, width int) int = c.Constraint match {
 // newlines) — what a fully-expanded Paragraph would want as its natural
 // width before any wrap happens.
 func paragraphIntrinsicWidth(content string) int =
-    ArrayFromSlice(strings.Split(content, "\n")).Map((l) => l.Size()).FoldLeft(0, MaxInt)
+    gs.Split(content, "\n").Map((l) => l.Size()).FoldLeft(0, MaxInt)
 
 // paragraphIntrinsicHeight counts lines: newlines + 1, so "" is one line.
 func paragraphIntrinsicHeight(content string) int = strings.Count(content, "\n") + 1

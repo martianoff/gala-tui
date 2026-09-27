@@ -12,29 +12,29 @@ import (
 
 // Clear wipes what was drawn under it — glyph and style both.
 func TestClearResetsItsArea(t T) T {
-    val w = Stack(ArrayOf[Widget](TextStyled("xyz", DefaultStyle().On(Red())), Clear()))
+    val w = Stack(ArrayOf[Widget](TextStyled("xyz", DefaultStyle().On(Red)), Clear()))
     val buf = renderAt(w, 3, 1)
     val t1 = Eq(t, RowText(buf, 0), "   ")
-    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Bg, DefaultColor()))
+    return IsTrue(t1, ColorEq(buf.Get(0, 0).St.Bg, DefaultColor()))
 }
 
 // An underline colour is SGR 58, emitted only alongside an underline.
 func TestUnderlineColourEmitsSgr58(t T) T {
     val t1 = IsTrue(t, strings.Contains(DefaultStyle().WithUnderlineColor(Indexed(196)).ToSgr(), "58;5;196"))
     val t2 = IsTrue(t1, strings.Contains(DefaultStyle().WithUnderlineColor(RGB(1, 2, 3)).ToSgr(), "58;2;1;2;3"))
-    val noUnderline = DefaultStyle().WithUnderlineColor(Red()).Copy(Underline = false)
+    val noUnderline = DefaultStyle().WithUnderlineColor(Red).Copy(Underline = false)
     return IsFalse(t2, strings.Contains(noUnderline.ToSgr(), "58;"))
 }
 
 // Two styles differing only in underline colour are different styles: the
 // renderer must not merge their runs and drop one colour.
 func TestUnderlineColourIsPartOfStyleEquality(t T) T =
-    IsFalse(t, StyleEqual(DefaultStyle().WithUnderlineColor(Red()),
-                          DefaultStyle().WithUnderlineColor(Blue())))
+    IsFalse(t, StyleEqual(DefaultStyle().WithUnderlineColor(Red),
+                          DefaultStyle().WithUnderlineColor(Blue)))
 
 // A patch keeps the underline colour underneath unless it sets its own.
 func TestPatchCarriesUnderlineColour(t T) T =
-    IsTrue(t, ColorEq(DefaultStyle().WithUnderlineColor(Red()).Patch(DefaultStyle().WithBold()).UnderlineColor, Red()))
+    IsTrue(t, ColorEq(DefaultStyle().WithUnderlineColor(Red).Patch(DefaultStyle().WithBold()).UnderlineColor, Red))
 
 // GraphBar stands each point on the baseline: a bar is a solid column from
 // the bottom of the plot up to its value, not a dot at the value.
@@ -44,7 +44,7 @@ func TestChartBarsStandOnTheBaseline(t T) T {
     val buf = renderAt(w, 6, 5)
     // Some column holds a solid run of blocks at least three rows tall — a
     // column standing on the baseline, not a dot at the value.
-    val runs = ArrayTabulate(6, (x) => ArrayTabulate(5, (y) => if (buf.CharAt(x, y) == '█') 1 else 0)
+    val runs = ArrayTabulate(6, (x) => ArrayTabulate(5, (y) => if (buf.Get(x, y).Ch == '█') 1 else 0)
         .FoldLeft(0, (a, v) => a + v))
     return IsTrue(t, runs.Exists((n) => n >= 3))
 }
@@ -64,25 +64,25 @@ func TestTabBarStyleColoursEachPart(t T) T {
     val titles = ArrayOf[string]("a", "b")
     val bodies = ArrayOf[Widget](Empty(), Empty())
     val look = DefaultTabBarStyle()
-        .WithSelected(DefaultStyle().WithFg(Cyan()))
-        .WithNormal(DefaultStyle().WithFg(Green()))
-        .WithDivider(DefaultStyle().WithFg(Red()))
+        .WithSelected(DefaultStyle().WithFg(Cyan))
+        .WithNormal(DefaultStyle().WithFg(Green))
+        .WithDivider(DefaultStyle().WithFg(Red))
         .WithPadding(2)
     val buf = renderAt(Tabs(titles, bodies, 0, false, "│", look), 12, 1)
     val t1 = Eq(t, RowText(buf, 0), "  a  │  b   ")
-    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(2, 0).Fg, Cyan()))
-    val t3 = IsTrue(t2, ColorEq(buf.StyleAt(5, 0).Fg, Red()))
-    return IsTrue(t3, ColorEq(buf.StyleAt(8, 0).Fg, Green()))
+    val t2 = IsTrue(t1, ColorEq(buf.Get(2, 0).St.Fg, Cyan))
+    val t3 = IsTrue(t2, ColorEq(buf.Get(5, 0).St.Fg, Red))
+    return IsTrue(t3, ColorEq(buf.Get(8, 0).St.Fg, Green))
 }
 
 // Focus swaps the selected title to the focused style; the rest are unchanged.
 func TestTabBarStyleFocusedUsesItsOwnStyle(t T) T {
     val titles = ArrayOf[string]("a", "b")
     val bodies = ArrayOf[Widget](Empty(), Empty())
-    val look = DefaultTabBarStyle().WithFocused(DefaultStyle().WithFg(Magenta()))
+    val look = DefaultTabBarStyle().WithFocused(DefaultStyle().WithFg(Magenta))
     val buf = renderAt(Tabs(titles, bodies, 1, true, "", look), 6, 1)
-    val t1 = IsTrue(t, ColorEq(buf.StyleAt(4, 0).Fg, Magenta()))
-    return IsTrue(t1, buf.StyleAt(1, 0).Dim)
+    val t1 = IsTrue(t, ColorEq(buf.Get(4, 0).St.Fg, Magenta))
+    return IsTrue(t1, buf.Get(1, 0).St.Dim)
 }
 
 

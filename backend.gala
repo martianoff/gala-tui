@@ -80,12 +80,8 @@ struct BackendSession(
 // `Buffer.DiffString(nil)` — every cell of the terminal, not the empty diff
 // it might sound like — on every frame an app printed.
 //
-// It is the one optional field. Nil means the same as `TerminalBackend`'s
-// `(lines) => false`: this backend has nowhere to put them. That is
-// deliberate rather than lax — `Backend` is public and its fields are plain
-// functions, so a backend written before this field existed still compiles,
-// and a print should no-op there rather than crash the run loop. The other
-// seven fields have no such reading and a nil one is a bug.
+// A backend with nowhere to put them leaves the field out: the default
+// drops the lines and reports `false`.
 struct Backend(
     Name         string,
     Size         func() Tuple[int, int],
@@ -96,17 +92,18 @@ struct Backend(
     // protocols — see `currentTermModes`.
     Open         func(bool) BackendSession,
     Paint        func(*Buffer, *Buffer),
-    InsertBefore func(Array[string]) bool = nil,
-    // Origin is where the viewport's top-left cell sits on the screen, for
-    // a backend that does not start at (0, 0). Mouse events arrive in SCREEN
-    // cells and hit regions are in buffer cells, so the run loop shifts every
-    // mouse event by it. Optional, like InsertBefore: nil is (0, 0).
-    Origin       func() Tuple[int, int] = nil,
+    InsertBefore func(Array[string]) bool = (lines) => false,
+    // Origin is where the viewport's top-left cell sits on the screen:
+    // (0, 0) unless the backend's viewport starts elsewhere. Mouse events
+    // arrive in SCREEN cells and hit regions are in buffer cells, so the run
+    // loop shifts every mouse event by it.
+    Origin       func() Tuple[int, int] = () => (0, 0),
     // CursorReport receives the terminal's answer to a cursor-position
     // query (`ESC[6n` → `ESC[row;colR`, 1-based) the backend wrote. The run
     // loop takes the reply out of the input stream before it can be read as
-    // a key. Optional: a backend that never asks has nothing to receive.
-    CursorReport func(int, int) = nil,
+    // a key. A backend that never asks has nothing to receive and leaves the
+    // field out.
+    CursorReport func(int, int) = (row, col) => {},
 )
 
 // ----------------------------------------------------------------------------
@@ -130,12 +127,8 @@ func TerminalBackend() Backend {
             shown = frame.Cursor().IsDefined()
             if shown { shape = frame.cursorShape }
         },
-        // The alternate screen has no scrollback — it is a second screen
-        // that is thrown away on exit, which is the whole reason a
-        // full-screen app can leave the shell's history untouched. Lines
-        // asked for here have nowhere to go, so they are dropped rather than
-        // written into the frame the app is drawing.
-        InsertBefore = (lines) => false,
+        // InsertBefore keeps its default: the alternate screen has no
+        // scrollback to insert into.
     )
 }
 
@@ -811,10 +804,9 @@ func FixedBackend(area Rect) Backend {
                 if shown { shape = frame.cursorShape }
             }
         },
-        // The rows above a fixed rectangle belong to someone else, so lines
-        // have nowhere to go — the same answer the alternate screen gives.
-        InsertBefore = (lines) => false,
         Origin = () => (a.X, a.Y),
+        // InsertBefore keeps its default: the rows above a fixed rectangle
+        // belong to someone else.
     )
 }
 

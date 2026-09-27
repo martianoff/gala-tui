@@ -23,13 +23,13 @@ import (
 //     Loader("Fetching builds…", m.Tick)
 func Loader(text string, frame int) Widget =
     LoaderStyled(text, frame, BrailleSpinner(),
-        DefaultStyle().WithFg(BrightCyan()),
+        DefaultStyle().WithFg(BrightCyan),
         DefaultStyle().WithDim())
 
 // LoaderStyled is `Loader` with caller-picked spinner kind and styles.
 //
 //     LoaderStyled("Saving", m.Tick, DotsSpinner(),
-//         DefaultStyle().WithFg(BrightYellow()),
+//         DefaultStyle().WithFg(BrightYellow),
 //         DefaultStyle())
 func LoaderStyled(text string, frame int, kind SpinnerKind, spinStyle Style, textStyle Style) Widget {
     val glyph = SpinnerGlyph(kind, frame)
@@ -52,7 +52,7 @@ func EmptyState(icon string, text string) Widget =
     Row(ArrayOf[LayoutChild](
         Fixed(RuneCount(icon) + 1,
             TextStyled(icon + " ",
-                DefaultStyle().WithBold().WithFg(BrightCyan()))),
+                DefaultStyle().WithBold().WithFg(BrightCyan))),
         Fixed(RuneCount(text),
             TextStyled(text, DefaultStyle().WithDim())),
     ))
@@ -71,7 +71,7 @@ func EmptyStateHinted(icon string, text string, hint string) Widget =
 // pulses on a clock — full bright on even ticks, dim on odd. Use as a
 // "live"/"connected" indicator next to a status label.
 //
-//     Pulse(m.Tick, BrightGreen())
+//     Pulse(m.Tick, BrightGreen)
 //
 // The animation has period 2 (one tick on, one off). For a smoother
 // 4-frame fade use `PulseFrames` with explicit phase.

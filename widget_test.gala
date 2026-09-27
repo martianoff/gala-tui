@@ -7,11 +7,6 @@ import (
 // ============================================================================
 // Widget rendering tests — each test constructs a widget, renders it into a
 // fixed-size Buffer, and asserts on the resulting cell contents.
-//
-// Using CharAt() (the raw-rune accessor on Buffer) lets us inspect individual
-// glyphs without getting tangled up in Immutable[rune] wrapping. Reading off
-// every other rune of a rendered buffer is how every real TUI library's tests
-// work — this isn't boilerplate specific to GALA.
 // ============================================================================
 
 // ----------------------------------------------------------------------------
@@ -33,11 +28,11 @@ func TestTextWidgetClipsToArea(t T) T {
 
 func TestTextStyledPropagatesStyle(t T) T {
     val buf = NewBuffer(5, 1)
-    val red = DefaultStyle().WithFg(Red())
+    val red = DefaultStyle().WithFg(Red)
     RenderTo(TextStyled("boom!", red), Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
     // The rune is 'b' and its style is red.
     val t1 = Eq(t, RowText(buf, 0), "boom!")
-    return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
+    return IsTrue(t1, ColorEq(buf.Get(0, 0).St.Fg, Red))
 }
 
 func TestFillCoversArea(t T) T {

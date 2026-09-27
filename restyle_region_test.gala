@@ -19,10 +19,10 @@ import (
 // sweepBg reports whether every cell in row `y` from x0..x1 has `want` as
 // its background. The shape every claim in this file is made with.
 func sweepBg(buf *Buffer, y int, x0 int, x1 int, want Color) bool =
-    stream.Range(x0, x1 + 1).ForAll((x) => ColorEq(buf.StyleAt(x, y).Bg, want))
+    stream.Range(x0, x1 + 1).ForAll((x) => ColorEq(buf.Get(x, y).St.Bg, want))
 
 func sweepReverse(buf *Buffer, y int, x0 int, x1 int) bool =
-    stream.Range(x0, x1 + 1).ForAll((x) => buf.StyleAt(x, y).Reverse)
+    stream.Range(x0, x1 + 1).ForAll((x) => buf.Get(x, y).St.Reverse)
 
 func renderAt(w Widget, width int, height int) *Buffer {
     val buf = NewBuffer(width, height)
@@ -38,9 +38,9 @@ func TestRestyleRegionKeepsGlyphs(t T) T {
     // The defining property, and what separates it from Fill: the text
     // survives. Fill would have erased it.
     val buf = renderAt(Restyled(Text("hi"), (s) => s.WithBold()), 4, 1)
-    val t1 = Eq(t, buf.CharAt(0, 0), 'h')
-    val t2 = Eq(t1, buf.CharAt(1, 0), 'i')
-    return IsTrue(t2, buf.StyleAt(0, 0).Bold && buf.StyleAt(3, 0).Bold)
+    val t1 = Eq(t, buf.Get(0, 0).Ch, 'h')
+    val t2 = Eq(t1, buf.Get(1, 0).Ch, 'i')
+    return IsTrue(t2, buf.Get(0, 0).St.Bold && buf.Get(3, 0).St.Bold)
 }
 
 func TestRestyleRegionCoversCellsNoTextTouched(t T) T {
@@ -54,20 +54,20 @@ func TestRestyleRegionIsClippedToTheBuffer(t T) T {
     // An area larger than the buffer must not trap.
     val buf = NewBuffer(3, 1)
     buf.RestyleRegion(Rect(X = 0, Y = 0, Width = 99, Height = 99), (s) => s.WithBold())
-    return IsTrue(t, buf.StyleAt(2, 0).Bold)
+    return IsTrue(t, buf.Get(2, 0).St.Bold)
 }
 
 func TestRestyleRegionCanDeriveFromWhatIsThere(t T) T {
     // It takes a function, not a value, so a region can add a background
     // while leaving each cell's foreground alone.
     val inner = SpansLine(
-        SpanStyled("a", DefaultStyle().WithFg(Red())),
-        SpanStyled("b", DefaultStyle().WithFg(Green())),
+        SpanStyled("a", DefaultStyle().WithFg(Red)),
+        SpanStyled("b", DefaultStyle().WithFg(Green)),
     )
-    val buf = renderAt(Backdrop(inner, Blue()), 4, 1)
-    val t1 = IsTrue(t, sweepBg(buf, 0, 0, 3, Blue()))
-    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
-    return IsTrue(t2, ColorEq(buf.StyleAt(1, 0).Fg, Green()))
+    val buf = renderAt(Backdrop(inner, Blue), 4, 1)
+    val t1 = IsTrue(t, sweepBg(buf, 0, 0, 3, Blue))
+    val t2 = IsTrue(t1, ColorEq(buf.Get(0, 0).St.Fg, Red))
+    return IsTrue(t2, ColorEq(buf.Get(1, 0).St.Fg, Green))
 }
 
 func TestFillStillOverwritesGlyphs(t T) T {
@@ -76,7 +76,7 @@ func TestFillStillOverwritesGlyphs(t T) T {
     buf.DrawText(0, 0, "abc", DefaultStyle())
     buf.Fill(Rect(X = 0, Y = 0, Width = 3, Height = 1),
              Cell(Ch = ' ', St = DefaultStyle()))
-    return Eq(t, buf.CharAt(0, 0), ' ')
+    return Eq(t, buf.Get(0, 0).Ch, ' ')
 }
 
 // ----------------------------------------------------------------------------
@@ -102,7 +102,7 @@ func TestMenuUnselectedRowPreservesTheSurfaceUnderIt(t T) T {
     // surface and sweep instead — an unconditional restyle erases the blue
     // across the menu's full width on every row.
     val surface = Overlay(
-        FillChStyled(' ', DefaultStyle().On(Blue())),
+        FillChStyled(' ', DefaultStyle().On(Blue)),
         MenuView(NewMenu(ArrayOf(
             NewMenuItemWithHint("Open File", "Ctrl+O"),
             NewMenuItem("Close"),
@@ -114,7 +114,7 @@ func TestMenuUnselectedRowPreservesTheSurfaceUnderIt(t T) T {
     // test pins is the REST of the row: an unconditional restyle wiped the
     // surface across the menu's full width, untouched cells included.
     val buf = renderAt(surface, 30, 2)
-    val t1 = IsTrue(t, sweepBg(buf, 1, 10, 29, Blue()))
+    val t1 = IsTrue(t, sweepBg(buf, 1, 10, 29, Blue))
     // ...and the selected row still owns its own row completely.
     return IsTrue(t1, sweepReverse(buf, 0, 0, 29))
 }
@@ -123,7 +123,7 @@ func TestMenuDisabledRowDimsFullWidthWithoutErasingTheSurface(t T) T {
     // A disabled row does get a full-width treatment, but the merging one:
     // dim to the row's end, surface intact.
     val surface = Overlay(
-        FillChStyled(' ', DefaultStyle().On(Blue())),
+        FillChStyled(' ', DefaultStyle().On(Blue)),
         MenuView(NewMenu(ArrayOf(
             NewMenuItem("Open"),
             NewMenuItemDisabled("Save"),
@@ -131,10 +131,10 @@ func TestMenuDisabledRowDimsFullWidthWithoutErasingTheSurface(t T) T {
     )
     val buf = renderAt(surface, 20, 2)
     // Dim reaches the whole row, including past the end of " Save ".
-    val acc = stream.Range(0, 20).Fold(t, (acc, x) => IsTrue(acc, buf.StyleAt(x, 1).Dim))
+    val acc = stream.Range(0, 20).Fold(t, (acc, x) => IsTrue(acc, buf.Get(x, 1).St.Dim))
     // And because it merges rather than flattens, the surface survives on
     // every cell the label did not overwrite.
-    return IsTrue(acc, sweepBg(buf, 1, 6, 19, Blue()))
+    return IsTrue(acc, sweepBg(buf, 1, 6, 19, Blue))
 }
 
 func TestTableSelectionHighlightSpansInterColumnGaps(t T) T {
@@ -173,24 +173,24 @@ func TestStatusBarPaintsEveryCellIncludingItsText(t T) T {
     // one cell inside a gap and passed.
     val bar = NewStatusBarStyled(
         Text(" NORMAL "), Text("build-102"), Text(" 12:04 "),
-        DefaultStyle().WithBg(BrightCyan()),
+        DefaultStyle().WithBg(BrightCyan),
     )
     val buf = renderAt(StatusBarView(bar), 28, 1)
-    return IsTrue(t, sweepBg(buf, 0, 0, 27, BrightCyan()))
+    return IsTrue(t, sweepBg(buf, 0, 0, 27, BrightCyan))
 }
 
 func TestStatusBarKeepsASegmentsOwnForeground(t T) T {
     // The bar's background always wins, but a deliberately-coloured segment
     // must stay itself — a red ERROR should not be flattened to bar colour.
     val bar = NewStatusBarStyled(
-        TextStyled("ERR", DefaultStyle().WithFg(Red())),
+        TextStyled("ERR", DefaultStyle().WithFg(Red)),
         Text("x"),
         Text("y"),
-        DefaultStyle().WithBg(BrightCyan()).WithFg(Black()),
+        DefaultStyle().WithBg(BrightCyan).WithFg(Black),
     )
     val buf = renderAt(StatusBarView(bar), 12, 1)
-    val t1 = IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
-    return IsTrue(t1, sweepBg(buf, 0, 0, 11, BrightCyan()))
+    val t1 = IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, Red))
+    return IsTrue(t1, sweepBg(buf, 0, 0, 11, BrightCyan))
 }
 
 // ----------------------------------------------------------------------------
@@ -211,13 +211,13 @@ func TestBackdropDoesNotEraseAChildsOwnBackground(t T) T {
     // the CHILD lose to the parent, so a coloured chip inside a themed
     // container comes out indistinguishable from plain text. Backdrop fills
     // only where a cell has not claimed a background.
-    val chip = TextStyled("ok", DefaultStyle().On(BrightGreen()))
+    val chip = TextStyled("ok", DefaultStyle().On(BrightGreen))
     val row = Row(ArrayOf[LayoutChild](Fixed(2, chip), Flex(1, Empty())))
-    val buf = renderAt(Backdrop(row, Blue()), 8, 1)
+    val buf = renderAt(Backdrop(row, Blue), 8, 1)
     // The chip keeps green...
-    val t1 = IsTrue(t, sweepBg(buf, 0, 0, 1, BrightGreen()))
+    val t1 = IsTrue(t, sweepBg(buf, 0, 0, 1, BrightGreen))
     // ...and everything it did not claim takes the backdrop.
-    return IsTrue(t1, sweepBg(buf, 0, 2, 7, Blue()))
+    return IsTrue(t1, sweepBg(buf, 0, 2, 7, Blue))
 }
 
 func TestBackgroundTKeepsAToastsLevelColour(t T) T {
@@ -228,7 +228,7 @@ func TestBackgroundTKeepsAToastsLevelColour(t T) T {
     val now = FromUnixNanos(int64(0))
     val q = NewToastQueue(2).PushSuccess("ok", now, Seconds(10))
     val buf = renderAt(BackgroundT(DarkTheme(), ToastView(q)), 10, 1)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Bg, BrightGreen()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Bg, BrightGreen))
 }
 
 func TestStatusBarCarriesEveryAttributeTheBarDeclares(t T) T {
@@ -236,16 +236,16 @@ func TestStatusBarCarriesEveryAttributeTheBarDeclares(t T) T {
     // public constructor: a bar declared .WithUnderline() underlined nothing.
     val bar = NewStatusBarStyled(
         Text("ab"), Empty(), Empty(),
-        DefaultStyle().WithUnderline().WithItalic().On(BrightCyan()),
+        DefaultStyle().WithUnderline().WithItalic().On(BrightCyan),
     )
     val buf = renderAt(StatusBarView(bar), 8, 1)
     return stream.Range(0, 8).Fold(t, (acc, x) =>
-        IsTrue(acc, buf.StyleAt(x, 0).Underline && buf.StyleAt(x, 0).Italic))
+        IsTrue(acc, buf.Get(x, 0).St.Underline && buf.Get(x, 0).St.Italic))
 }
 
 func TestBackgroundTLeavesForegroundAlone(t T) T {
     val themed = BackgroundT(DarkTheme(),
-                             TextStyled("hi", DefaultStyle().WithFg(Red())))
+                             TextStyled("hi", DefaultStyle().WithFg(Red)))
     val buf = renderAt(themed, 4, 1)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, Red))
 }

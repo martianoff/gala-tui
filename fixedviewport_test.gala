@@ -102,7 +102,7 @@ func TestFixedExitLeavesTheFrameVisible(t T) T {
 }
 
 func fvMouse(x int, y int, pressed bool) InputEvent =
-    MouseInput(MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = pressed, Motion = false))
+    MouseInput(MouseEvent(Btn = MouseLeft(), X = x, Y = y, Pressed = pressed))
 
 // Inside the viewport a mouse event moves into viewport cells; outside, a
 // press is dropped and a release is kept, clamped, so a drag still ends.
@@ -120,4 +120,4 @@ func TestMouseEventsAreMappedIntoTheViewport(t T) T {
 }
 
 func TestFixedBackendReportsItsOrigin(t T) T =
-    Eq(t, backendOrigin(FixedBackend(Rect(X = 4, Y = 7, Width = 10, Height = 3))), (4, 7))
+    Eq(t, FixedBackend(Rect(X = 4, Y = 7, Width = 10, Height = 3)).Origin(), (4, 7))

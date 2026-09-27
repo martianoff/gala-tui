@@ -444,27 +444,6 @@ func TestFullScreenBackendReportsThatItDroppedTheLines(t T) T {
     return Eq(t, TerminalBackend().InsertBefore(ArrayOf[string]("nowhere")), false)
 }
 
-func TestEmitPrintsToleratesABackendWithoutInsertBefore(t T) T {
-    // Backend is public and its fields are plain functions, so a consumer's
-    // backend built before PrintAbove existed still compiles against this
-    // version — with a nil field. Without the guard the first PrintAbove in
-    // any app using one would nil-deref inside the run loop.
-    val (complete, _) = NewTestBackend(10, 1, "")
-    val legacy = Backend(
-        Name      = "legacy",
-        Size      = complete.Size,
-        Write     = complete.Write,
-        Read      = complete.Read,
-        ReadAsync = complete.ReadAsync,
-        Open      = complete.Open,
-        Paint     = complete.Paint,
-    )
-    var painted = false
-    emitPrints(legacy, ArrayOf[string]("x"), () => { painted = true })
-    return EqMsg(t, painted, false,
-                 "a backend that cannot insert should not trigger a repaint")
-}
-
 func TestEmitPrintsRepaintsOnlyWhenTheLinesLanded(t T) T {
     // The pairing the whole design rests on: an insert leaves the viewport's
     // rows holding neither the old frame nor the new one, so the repaint is

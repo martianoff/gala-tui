@@ -64,7 +64,7 @@ val tree  = ui.Tree("pipelines", m.Pipelines, m.Cursor)
 | `ParagraphStyled(content, style)` | `(string, Style) Widget` | Same with explicit style. |
 
 ```gala
-TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan()))
+TextStyled(s"  Loading… ${pct}%", DefaultStyle().WithBold().WithFg(BrightCyan))
 ```
 
 A `Style` is built fluently: `.WithFg`, `.WithBg` / `.On`, `.WithBold`, `.WithItalic`,
@@ -77,13 +77,13 @@ without SGR 58 ignore it and draw the ordinary underline. `a.Patch(b)` layers
 `a` as well: a plain `false` means "not mentioned", a `Without` means "remove".
 
 ```gala
-DefaultStyle().WithFg(BrightWhite()).WithUnderlineColor(BrightRed())
+DefaultStyle().WithFg(BrightWhite).WithUnderlineColor(BrightRed)
 ```
 
 Also `.WithHidden()` (SGR 8 — in the cell, not shown) and `.WithRapidBlink()`
-(SGR 6). `ColorFromString(s, fallback)` reads a colour from configuration:
+(SGR 6). `ColorFromString(s)` reads a colour from configuration:
 `#rrggbb`, `#rgb`, `0`..`255`, a name (`red`, `light blue`, `bright-cyan`,
-`gray`), or `default`; anything else is `fallback`.
+`gray`), or `default`, as an `Option[Color]`; anything else is `None`.
 
 ## Layout
 
@@ -125,7 +125,7 @@ Also `.WithHidden()` (SGR 8 — in the cell, not shown) and `.WithRapidBlink()`
 ```gala
 SpansLine(
     SpanOf("build "),
-    SpanStyled("failed", DefaultStyle().WithFg(BrightRed()).WithBold()),
+    SpanStyled("failed", DefaultStyle().WithFg(BrightRed).WithBold()),
     SpanOf(" in 2m13s"),
 )
 ```
@@ -605,7 +605,7 @@ val footer = KeyHintRow(ArrayOf[string](
     "q",      "quit",
 ))
 val crumbs = Breadcrumb(ArrayOf[string]("App", "Builds", "#4211"))
-val beta = Tag("Beta", BrightYellow())
+val beta = Tag("Beta", BrightYellow)
 ```
 
 ## Status indicators
@@ -630,7 +630,7 @@ val sub = TickSub[Msg](Interval = Milliseconds(int64(120)),
 // ...
 val view = Column(ArrayOf[LayoutChild](
     Fixed(1, Loader("Fetching builds…", m.Tick)),
-    Fixed(1, Pulse(m.Tick, BrightGreen())),    // "live" indicator
+    Fixed(1, Pulse(m.Tick, BrightGreen)),    // "live" indicator
     Fixed(2, EmptyStateHinted("📭", "No matches", "Press / to filter")),
 ))
 ```

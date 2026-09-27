@@ -36,29 +36,24 @@ import (
 
 // Bar is one bar: its value, the label printed beside it, how it is filled
 // and the text printed as its value.
+//
+// `Fill` is the bar's own style, or None to take the chart's. "No style of
+// its own" has to be distinguishable from "explicitly the default style", so
+// that an unstyled bar takes the chart's colour and a theme pass over the
+// chart reaches it too.
 struct Bar(
     Label string,
     Value int,
-    Fill  BarFill,
+    Fill  Option[Style],
     Text  Option[string],
 )
 
-// BarFill is where a bar's style comes from. "No style of its own" has to be
-// distinguishable from "explicitly the default style", so that an unstyled
-// bar takes the chart's colour and a theme pass over the chart reaches it
-// too. (A sealed type rather than `Option[Style]`, which GALA 0.80 lowers to
-// an undefined `std.Style`.)
-sealed type BarFill {
-    case BarInherit()
-    case BarOwn(St Style)
-}
-
 // BarOf is a bar in the chart's style that prints its own value.
 func BarOf(label string, value int) Bar =
-    Bar(Label = label, Value = value, Fill = BarInherit(), Text = None[string]())
+    Bar(Label = label, Value = value, Fill = None(), Text = None())
 
 // WithStyle gives the bar its own style instead of the chart's.
-func (b Bar) WithStyle(s Style) Bar = b.Copy(Fill = BarOwn(s))
+func (b Bar) WithStyle(s Style) Bar = b.Copy(Fill = Some(s))
 
 // WithText replaces the printed value — "48ms" rather than "48", or "" to
 // print nothing. The bar's length still comes from `Value`.
@@ -183,10 +178,7 @@ func barEighths(value int, maxV int, cells int) int =
     if (value >= maxV) cells * 8
     else int(float64(MaxInt(0, value)) * float64(cells * 8) / float64(maxV))
 
-func barStyle(b Bar, chart Style) Style = b.Fill match {
-    case BarInherit() => chart
-    case BarOwn(st)   => st
-}
+func barStyle(b Bar, chart Style) Style = b.Fill.GetOrElse(chart)
 
 func barText(b Bar) string = b.Text.GetOrElse(s"${b.Value}")
 
@@ -423,7 +415,4 @@ func barChartIntrinsic(groups Array[BarGroup], geom BarGeometry, dir BarDirectio
 // chart's style is left inheriting — the chart's own style carries the change
 // to it — so only bars with a style of their own are rewritten.
 func barChartRestyle(groups Array[BarGroup], f func(Style) Style) Array[BarGroup] =
-    groups.Map((g) => g.Copy(Bars = g.Bars.Map((b) => b.Fill match {
-        case BarInherit() => b
-        case BarOwn(st)   => b.Copy(Fill = BarOwn(f(st)))
-    })))
+    groups.Map((g) => g.Copy(Bars = g.Bars.Map((b) => b.Copy(Fill = b.Fill.Map(f)))))

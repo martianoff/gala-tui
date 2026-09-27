@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     "strconv"
     "strings"
     . "martianoff/gala/collection_immutable"
@@ -124,12 +125,12 @@ func mdHeadingLevel(line string) int {
 }
 
 // mdStripHeading drops the `level` '#' chars and the mandatory space.
-func mdStripHeading(line string, level int) string = dropRunes(line, level + 1)
+func mdStripHeading(line string, level int) string = gs.S(line).Drop(level + 1).ToString()
 
 func mdIsBullet(line string) bool =
     strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ")
 
-func mdStripBulletPrefix(line string) string = dropRunes(line, 2)
+func mdStripBulletPrefix(line string) string = gs.S(line).Drop(2).ToString()
 
 // mdNumberedPrefix returns the integer prefix for "N. rest" (e.g., "1. Hello"),
 // or None if the line doesn't start with a number followed by ". ".
@@ -156,12 +157,12 @@ func mdIsFenceClose(line string) bool = line == "```"
 
 // mdFenceLang extracts the language tag from a fenced opener (whatever
 // follows the three backticks). Empty string when no tag is present.
-func mdFenceLang(line string) string = dropRunes(line, 3)
+func mdFenceLang(line string) string = gs.S(line).Drop(3).ToString()
 
 // mdSplitLines is strings.Split on '\n' minus the empty last piece that a
 // trailing newline (or empty input) produces: "a\n" is one line, "" none.
 func mdSplitLines(s string) Array[string] {
-    val parts = ArrayFromSlice(strings.Split(s, "\n"))
+    val parts = gs.Split(s, "\n")
     return if (parts.Last() == "") parts.Init() else parts
 }
 
@@ -416,8 +417,8 @@ func renderMdHeading(level int, inlines Array[MdInline]) Widget {
 }
 
 func mdHeadingStyle(level int) Style {
-    if level == 1 { return DefaultStyle().WithBold().WithUnderline().WithFg(BrightCyan()) }
-    if level == 2 { return DefaultStyle().WithBold().WithFg(BrightMagenta()) }
+    if level == 1 { return DefaultStyle().WithBold().WithUnderline().WithFg(BrightCyan) }
+    if level == 2 { return DefaultStyle().WithBold().WithFg(BrightMagenta) }
     return DefaultStyle().WithBold()
 }
 
@@ -451,11 +452,11 @@ func mdInlineStyle(r MdInline, base Style) Style {
         case MdText(_)      => base
         case MdBold(_)      => base.WithBold()
         case MdItalic(_)    => base.WithItalic()
-        case MdCode(_)      => base.WithFg(BrightYellow()).On(Black())
+        case MdCode(_)      => base.WithFg(BrightYellow).On(Black)
         // Carries the URL as an OSC 8 hyperlink, not just link-coloured
         // text: the parser already has the target, and a terminal that
         // supports OSC 8 makes it clickable. One that does not ignores the
         // sequence, so the underline-and-blue still reads as a link.
-        case MdLink(_, url) => base.WithUnderline().WithFg(BrightBlue()).WithLink(url)
+        case MdLink(_, url) => base.WithUnderline().WithFg(BrightBlue).WithLink(url)
     }
 }

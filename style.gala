@@ -10,7 +10,7 @@ import (
 // immutable struct — each builder method returns a new Style with the
 // modified field, so users compose styles fluently:
 //
-//     val s = DefaultStyle().WithFg(Red()).On(Black()).WithBold().WithItalic()
+//     val s = DefaultStyle().WithFg(Red).On(Black).WithBold().WithItalic()
 //
 // Builder methods use a `With` prefix to avoid colliding with the exported
 // fields of the same name (Go forbids a field and a method to share a name
@@ -108,7 +108,7 @@ func (s Style) WithFg(c Color) Style = s.Copy(Fg = c)
 // WithBg sets the background color.
 func (s Style) WithBg(c Color) Style = s.Copy(Bg = c)
 
-// On is a readability alias for WithBg: `DefaultStyle().WithFg(Red()).On(Black())`.
+// On is a readability alias for WithBg: `DefaultStyle().WithFg(Red).On(Black)`.
 func (s Style) On(c Color) Style = s.Copy(Bg = c)
 
 // Attribute toggles. Each turns the attribute on, and takes back an earlier

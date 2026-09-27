@@ -112,8 +112,8 @@ func TestDataTableSelectionHighlightIsOnScreenAfterEnd(t T) T {
     val dt = DataTableUpdate(bigTable(8), DTEnd())
     val buf = NewBuffer(6, 4)
     RenderTo(DataTableView(dt, true), Rect(X = 0, Y = 0, Width = 6, Height = 4), buf)
-    val t1 = IsTrue(t, buf.StyleAt(0, 3).Reverse)
-    return IsTrue(t1, !buf.StyleAt(0, 2).Reverse)
+    val t1 = IsTrue(t, buf.Get(0, 3).St.Reverse)
+    return IsTrue(t1, !buf.Get(0, 2).St.Reverse)
 }
 
 func TestDataTableTopIsUnchangedWhenEverythingFits(t T) T {

@@ -10,5 +10,6 @@ gala_binary(
         "//:gala_tui",
         "@gala//collection_immutable",
         "@gala//stream",
+        "@gala//time_utils",
     ],
 )

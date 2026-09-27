@@ -60,7 +60,7 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] {
 
 func view(m Model) Widget {
     val title = TextStyled(s"  Counter: ${m.N}  ",
-        DefaultStyle().WithBold().WithFg(BrightCyan()))
+        DefaultStyle().WithBold().WithFg(BrightCyan))
     val hint = TextStyled("  +/- to change  ·  q to quit  ",
         DefaultStyle().WithDim())
     return Column(ArrayOf[LayoutChild](
@@ -147,7 +147,7 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] {
 
 func view(m Model) Widget {
     val prompt = TextStyled("  Name: ", DefaultStyle().WithBold())
-    val typed = TextStyled(m.Name + "▎", DefaultStyle().WithFg(BrightCyan()))
+    val typed = TextStyled(m.Name + "▎", DefaultStyle().WithFg(BrightCyan))
     val hello = if (m.Name == "")
         Text("  (type to set the name)")
     else
@@ -250,7 +250,7 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] {
 
 func view(m Model) Widget {
     val title = TextStyled("  Async demo  ",
-        DefaultStyle().WithBold().WithFg(BrightCyan()))
+        DefaultStyle().WithBold().WithFg(BrightCyan))
     val status = if (m.Loading)
         Row(ArrayOf[LayoutChild](
             Fixed(2, Spinner(BrailleSpinner(), m.Tick)),
@@ -259,7 +259,7 @@ func view(m Model) Widget {
     else if (m.Result == "")
         Text("  press SPACE to fetch")
     else
-        TextStyled("  result: " + m.Result, DefaultStyle().WithFg(BrightGreen()))
+        TextStyled("  result: " + m.Result, DefaultStyle().WithFg(BrightGreen))
     return Column(ArrayOf[LayoutChild](
         Fixed(1, title),
         Fixed(1, Text("")),
@@ -528,7 +528,7 @@ func view(m Model) Widget {
 
 func header(m Model) Widget =
     TextStyled(" Contacts — Tab to switch panes ",
-        DefaultStyle().WithBold().WithFg(BrightCyan()))
+        DefaultStyle().WithBold().WithFg(BrightCyan))
 
 func sidebarPane(m Model, ui FocusBuilder) Widget {
     val labels = m.Contacts.Map((c) => c.Name)

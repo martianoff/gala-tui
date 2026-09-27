@@ -217,13 +217,11 @@ func TestMaskedFieldDrawsBulletsNotTheValue(t T) T {
                  "the masked field drew no bullets")
 }
 
-func TestAFieldLiteralWithoutMaskCharStillMasks(t T) T {
-    // A struct-field default does not apply to a literal that omits the
-    // field, so every FormField written before MaskChar existed carries the
-    // zero rune. Without the fallback, switching such a field to Masked
-    // would draw the password as a run of NULs — an invisible field that
-    // looks empty while holding a secret.
-    val legacy = FormField(
+func TestMaskCharDefaultsToMaskRune(t T) T {
+    // A construction that omits MaskChar takes its default. Without it,
+    // switching such a field to Masked would draw the password as a run of
+    // NULs — an invisible field that looks empty while holding a secret.
+    val field = FormField(
         Name        = "pass",
         Label       = "Password",
         Value       = "",
@@ -231,8 +229,21 @@ func TestAFieldLiteralWithoutMaskCharStillMasks(t T) T {
         Validator   = (_) => None[string](),
     ).Copy(Masked = true)
     val f = ArrayOf[FormEvent](FEChar(C = 'a'), FEChar(C = 'b'))
-        .FoldLeft(NewForm(ArrayOf(legacy)), FormUpdate)
+        .FoldLeft(NewForm(ArrayOf(field)), FormUpdate)
     val out = Render(FormView(f, true))
     return EqMsg(t, strings.Contains(out, "••"), true,
                  "a field built without MaskChar drew no visible mask")
+}
+
+func TestExplicitZeroMaskCharStillMasks(t T) T {
+    // The zero rune is documented to mean `MaskRune()`. A caller that sets
+    // it explicitly must get the default bullet, not a run of NULs.
+    val field = NewFieldRequired("pass", "Password", "").Copy(Masked = true, MaskChar = rune(0))
+    val f = ArrayOf[FormEvent](FEChar(C = 'a'), FEChar(C = 'b'))
+        .FoldLeft(NewForm(ArrayOf(field)), FormUpdate)
+    val out = Render(FormView(f, true))
+    val t1 = EqMsg(t, strings.Contains(out, "••"), true,
+                   "an explicit zero MaskChar drew no visible mask")
+    return EqMsg(t1, strings.Contains(out, "ab"), false,
+                 "an explicit zero MaskChar leaked the value")
 }

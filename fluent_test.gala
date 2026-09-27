@@ -29,7 +29,7 @@ func TestFluentBorderedOfPicksKind(t T) T {
     val buf = NewBuffer(5, 3)
     RenderTo(Text("hi").BorderedOf(DoubleBorder()),
         Rect(X = 0, Y = 0, Width = 5, Height = 3), buf)
-    return Eq(t, buf.CharAt(0, 0), '╔')
+    return Eq(t, buf.Get(0, 0).Ch, '╔')
 }
 
 func TestFluentCenteredPositionsChild(t T) T {
@@ -37,8 +37,8 @@ func TestFluentCenteredPositionsChild(t T) T {
     RenderTo(Text("ab").Centered(2, 1),
         Rect(X = 0, Y = 0, Width = 10, Height = 1), buf)
     // 2 chars in a 10 cell area → center = col 4
-    val t1 = Eq(t, buf.CharAt(4, 0), 'a')
-    return Eq(t1, buf.CharAt(5, 0), 'b')
+    val t1 = Eq(t, buf.Get(4, 0).Ch, 'a')
+    return Eq(t1, buf.Get(5, 0).Ch, 'b')
 }
 
 func TestFluentAsFixedProducesLayoutChild(t T) T {
@@ -61,24 +61,24 @@ func TestFluentAsFlexProducesFillConstraint(t T) T {
 
 func TestFluentWithFgAppliesToLeafText(t T) T {
     val buf = NewBuffer(4, 1)
-    RenderTo(Text("ok").WithFg(Red()),
+    RenderTo(Text("ok").WithFg(Red),
         Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, Red()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, Red))
 }
 
 func TestFluentWithBoldAppliesToLeafText(t T) T {
     val buf = NewBuffer(4, 1)
     RenderTo(Text("ok").WithBold(),
         Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    return IsTrue(t, buf.StyleAt(0, 0).Bold)
+    return IsTrue(t, buf.Get(0, 0).St.Bold)
 }
 
 func TestFluentWithFgRecursesThroughBorder(t T) T {
     val buf = NewBuffer(5, 3)
-    RenderTo(Text("ok").Bordered().WithFg(Green()),
+    RenderTo(Text("ok").Bordered().WithFg(Green),
         Rect(X = 0, Y = 0, Width = 5, Height = 3), buf)
     // Inner text at (1, 1) should have green fg.
-    return IsTrue(t, ColorEq(buf.StyleAt(1, 1).Fg, Green()))
+    return IsTrue(t, ColorEq(buf.Get(1, 1).St.Fg, Green))
 }
 
 func TestFluentChainComposesCorrectly(t T) T {
@@ -93,6 +93,6 @@ func TestFluentChainComposesCorrectly(t T) T {
     // affects horizontal here" — it pinned the fact that `Centered` did not
     // centre vertically despite its name and its doc comment. VAlign makes
     // the name true, so the row moves down by one.
-    val t1 = Eq(t, buf.CharAt(2, 1), '┌')
-    return Eq(t1, buf.CharAt(2, 0), ' ')
+    val t1 = Eq(t, buf.Get(2, 1).Ch, '┌')
+    return Eq(t1, buf.Get(2, 0).Ch, ' ')
 }

@@ -212,7 +212,7 @@ func baseMenuStyle(it MenuItem, selected bool, focused bool) Style {
         return DefaultStyle().WithDim()
     }
     if selected && focused {
-        return DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+        return DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow)
     }
     if selected {
         return DefaultStyle().WithReverse().WithBold()

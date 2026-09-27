@@ -23,15 +23,15 @@ func tvBody() Array[TableRow] = ArrayOf[TableRow](
 // keeps the value underneath. A highlight that only sets a background must
 // not strip the bold and the colour a cell drew with.
 func TestPatchKeepsWhatTheOverlayLeavesUnset(t T) T {
-    val base = DefaultStyle().WithFg(Red()).WithBold()
-    val got = base.Patch(DefaultStyle().On(Blue()))
-    val t1 = IsTrue(t, ColorEq(got.Fg, Red()))
-    val t2 = IsTrue(t1, ColorEq(got.Bg, Blue()))
+    val base = DefaultStyle().WithFg(Red).WithBold()
+    val got = base.Patch(DefaultStyle().On(Blue))
+    val t1 = IsTrue(t, ColorEq(got.Fg, Red))
+    val t2 = IsTrue(t1, ColorEq(got.Bg, Blue))
     return IsTrue(t2, got.Bold)
 }
 
 func TestPatchOverlayColourWins(t T) T =
-    IsTrue(t, ColorEq(DefaultStyle().WithFg(Red()).Patch(DefaultStyle().WithFg(Green())).Fg, Green()))
+    IsTrue(t, ColorEq(DefaultStyle().WithFg(Red).Patch(DefaultStyle().WithFg(Green)).Fg, Green))
 
 // A removal is the one way a patch turns an attribute off: a plain `false`
 // means "not mentioned" and keeps the bold, a `WithoutBold` drops it.
@@ -47,7 +47,7 @@ func TestPatchWithoutRemovesTheAttributeUnderneath(t T) T {
 // further layer still takes the attribute away — and a later `With`
 // cancels it.
 func TestPatchRemovalCarriesAndWithCancelsIt(t T) T {
-    val removal = DefaultStyle().On(Blue()).Patch(DefaultStyle().WithoutDim())
+    val removal = DefaultStyle().On(Blue).Patch(DefaultStyle().WithoutDim())
     val t1 = IsFalse(t, DefaultStyle().WithDim().Patch(removal).Dim)
     return IsTrue(t1, DefaultStyle().WithDim().Patch(DefaultStyle().WithoutDim().WithDim()).Dim)
 }
@@ -57,7 +57,7 @@ func TestRowHighlightWithoutDimLiftsADimmedRow(t T) T {
     val spec = TableSpecOf(tvWidths(), ArrayOf[TableRow](
         TableRowOfStrings("a", "1").WithStyle(DefaultStyle().WithDim()),
     )).Select(0).WithHighlights(DefaultStyle().WithReverse().WithoutDim(), DefaultStyle(), DefaultStyle())
-    val st = renderAt(TableView(spec), 7, 1).StyleAt(0, 0)
+    val st = renderAt(TableView(spec), 7, 1).Get(0, 0).St
     val t1 = IsTrue(t, st.Reverse)
     return IsFalse(t1, st.Dim)
 }
@@ -144,32 +144,32 @@ func TestHighlightSpacingDecidesWhenTheColumnIsReserved(t T) T {
 // A selected row is one band: the highlight covers the gap between columns.
 func TestSelectedRowHighlightCoversTheColumnGap(t T) T {
     val buf = renderAt(TableView(TableSpecOf(tvWidths(), tvBody()).Select(0)), 7, 3)
-    val t1 = IsTrue(t, buf.StyleAt(3, 0).Reverse)
-    return IsFalse(t1, buf.StyleAt(3, 1).Reverse)
+    val t1 = IsTrue(t, buf.Get(3, 0).St.Reverse)
+    return IsFalse(t1, buf.Get(3, 1).St.Reverse)
 }
 
 // Highlights patch rather than replace: a red cell stays red inside a
 // selected row, and the row, column and crossing cell each get their own.
 func TestHighlightsLayerOverCellStyles(t T) T {
     val rows = ArrayOf[TableRow](
-        TableRowOf(CellOf("a"), CellOf("x").WithStyle(DefaultStyle().WithFg(Red()))),
+        TableRowOf(CellOf("a"), CellOf("x").WithStyle(DefaultStyle().WithFg(Red))),
         TableRowOfStrings("b", "y"),
     )
     val buf = renderAt(TableView(TableSpecOf(tvWidths(), rows).SelectCell(0, 1)), 7, 2)
-    val t1 = IsTrue(t, ColorEq(buf.StyleAt(4, 0).Fg, Red()))
-    val t2 = IsTrue(t1, buf.StyleAt(4, 0).Reverse)
-    val t3 = IsTrue(t2, buf.StyleAt(4, 0).Underline)
-    val t4 = IsTrue(t3, buf.StyleAt(4, 1).Bold)
-    val t5 = IsFalse(t4, buf.StyleAt(4, 1).Reverse)
-    return IsFalse(t5, buf.StyleAt(0, 0).Underline)
+    val t1 = IsTrue(t, ColorEq(buf.Get(4, 0).St.Fg, Red))
+    val t2 = IsTrue(t1, buf.Get(4, 0).St.Reverse)
+    val t3 = IsTrue(t2, buf.Get(4, 0).St.Underline)
+    val t4 = IsTrue(t3, buf.Get(4, 1).St.Bold)
+    val t5 = IsFalse(t4, buf.Get(4, 1).St.Reverse)
+    return IsFalse(t5, buf.Get(0, 0).St.Underline)
 }
 
 // A column highlight is for data: it skips the header.
 func TestColumnHighlightSkipsTheHeader(t T) T {
     val spec = TableSpecOf(tvWidths(), tvBody()).WithHeader(TableRowOfStrings("k", "v"), false).SelectColumn(0)
     val buf = renderAt(TableView(spec), 7, 2)
-    val t1 = IsFalse(t, buf.StyleAt(0, 0).Bold)
-    return IsTrue(t1, buf.StyleAt(0, 1).Bold)
+    val t1 = IsFalse(t, buf.Get(0, 0).St.Bold)
+    return IsTrue(t1, buf.Get(0, 1).St.Bold)
 }
 
 // A cell of two lines makes its row two rows tall; the other cells in the
@@ -191,9 +191,9 @@ func TestStyledCellIsEllipsized(t T) T {
 
 // A cell's background fills the cell to its edge, not only under its text.
 func TestCellBackgroundFillsTheCell(t T) T {
-    val rows = ArrayOf[TableRow](TableRowOf(CellOf("a").WithStyle(DefaultStyle().On(Blue())), CellOf("1")))
+    val rows = ArrayOf[TableRow](TableRowOf(CellOf("a").WithStyle(DefaultStyle().On(Blue)), CellOf("1")))
     val buf = renderAt(TableView(TableSpecOf(tvWidths(), rows)), 7, 1)
-    return IsTrue(t, ColorEq(buf.StyleAt(2, 0).Bg, Blue()))
+    return IsTrue(t, ColorEq(buf.Get(2, 0).St.Bg, Blue))
 }
 
 // Right-aligned cells — the shape a numeric column wants.
@@ -204,20 +204,20 @@ func TestAlignedCell(t T) T {
 
 // Dimming the table dims every cell, through the fluent path.
 func TestTableViewRestylesWithItsPane(t T) T {
-    val rows = ArrayOf[TableRow](TableRowOf(CellOf("a"), CellOf("x").WithStyle(DefaultStyle().WithFg(Red()))))
+    val rows = ArrayOf[TableRow](TableRowOf(CellOf("a"), CellOf("x").WithStyle(DefaultStyle().WithFg(Red))))
     val buf = renderAt(TableView(TableSpecOf(tvWidths(), rows)).WithDim(), 7, 1)
-    val t1 = IsTrue(t, buf.StyleAt(0, 0).Dim)
-    val t2 = IsTrue(t1, buf.StyleAt(4, 0).Dim)
-    return IsTrue(t2, ColorEq(buf.StyleAt(4, 0).Fg, Red()))
+    val t1 = IsTrue(t, buf.Get(0, 0).St.Dim)
+    val t2 = IsTrue(t1, buf.Get(4, 0).St.Dim)
+    return IsTrue(t2, ColorEq(buf.Get(4, 0).St.Fg, Red))
 }
 
 // A highlight that sets a colour wins over the cell's own: the cursor must
 // stay visible on a cell that paints its own background.
 func TestRowHighlightColourWinsOverTheCellsOwn(t T) T {
-    val rows = ArrayOf[TableRow](TableRowOf(CellOf("a").WithStyle(DefaultStyle().On(Red())), CellOf("1")))
+    val rows = ArrayOf[TableRow](TableRowOf(CellOf("a").WithStyle(DefaultStyle().On(Red)), CellOf("1")))
     val spec = TableSpecOf(tvWidths(), rows).Select(0)
-        .WithHighlights(DefaultStyle().On(Blue()), DefaultStyle(), DefaultStyle())
-    return IsTrue(t, ColorEq(renderAt(TableView(spec), 7, 1).StyleAt(0, 0).Bg, Blue()))
+        .WithHighlights(DefaultStyle().On(Blue), DefaultStyle(), DefaultStyle())
+    return IsTrue(t, ColorEq(renderAt(TableView(spec), 7, 1).Get(0, 0).St.Bg, Blue))
 }
 
 // Only the rows on screen are built: a table far taller than its area asks
@@ -235,10 +235,10 @@ func TestTableViewBuildsOnlyVisibleRows(t T) T {
 // A styled span cannot hide the cursor: the row highlight is patched over the
 // cell's text as well as its background.
 func TestRowHighlightWinsOverAStyledSpan(t T) T {
-    val rows = ArrayOf[TableRow](TableRowOf(CellSpans(SpanStyled("x", DefaultStyle().On(Red()))), CellOf("1")))
+    val rows = ArrayOf[TableRow](TableRowOf(CellSpans(SpanStyled("x", DefaultStyle().On(Red))), CellOf("1")))
     val spec = TableSpecOf(tvWidths(), rows).Select(0)
-        .WithHighlights(DefaultStyle().On(Blue()), DefaultStyle(), DefaultStyle())
-    return IsTrue(t, ColorEq(renderAt(TableView(spec), 7, 1).StyleAt(0, 0).Bg, Blue()))
+        .WithHighlights(DefaultStyle().On(Blue), DefaultStyle(), DefaultStyle())
+    return IsTrue(t, ColorEq(renderAt(TableView(spec), 7, 1).Get(0, 0).St.Bg, Blue))
 }
 
 // A selected row taller than the body is drawn clipped, not left blank.
@@ -306,5 +306,5 @@ func TestTableScrollsToKeepTheSelectionVisible(t T) T {
     val rows = ArrayTabulate(10, (i) => ArrayOf(s"r$i"))
     val buf = renderAt(Table(NewTable(ArrayOf[Constraint](Length(4)), rows, 8)), 4, 3)
     val t1 = Eq(t, RowText(buf, 2), "r8  ")
-    return IsTrue(t1, buf.StyleAt(0, 2).Reverse)
+    return IsTrue(t1, buf.Get(0, 2).St.Reverse)
 }

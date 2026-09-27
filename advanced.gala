@@ -335,7 +335,7 @@ func TreeFocused(root TreeNode, cursor int, focused bool = false) Widget {
         val (line, i) = pair
         val isCursor = i == cursor
         val style = if (isCursor && focused)
-            DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+            DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow)
         else if (isCursor)
             DefaultStyle().WithReverse()
         else

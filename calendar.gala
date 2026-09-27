@@ -144,7 +144,7 @@ func daysInMonth(year int, month int) int {
 func CalendarView(c Calendar, focused bool = false) Widget {
     val title = TextStyled(
         " " + monthName(c.Month) + " " + strconv.Itoa(c.Year) + " ",
-        DefaultStyle().WithBold().WithFg(BrightCyan()),
+        DefaultStyle().WithBold().WithFg(BrightCyan),
     )
     val labels = ArrayOf(" Su", " Mo", " Tu", " We", " Th", " Fr", " Sa")
     val dayLabels = Row(ArrayTabulate(7, (col) =>
@@ -188,11 +188,11 @@ func calDayCell(c Calendar, today time.Time, day int, totalDays int, focused boo
                   c.Month == int(today.Month()) &&
                   day == today.Day()
     val highlight = if (isSel && focused)
-        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow)
     else if (isSel)
         DefaultStyle().WithReverse().WithBold()
     else if (isToday)
-        DefaultStyle().WithBold().WithFg(BrightYellow())
+        DefaultStyle().WithBold().WithFg(BrightYellow)
     else
         DefaultStyle()
     val mark = c.Marks.GetOrElse(calKey(c.Year, c.Month, day), DefaultStyle())

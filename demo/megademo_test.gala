@@ -200,7 +200,7 @@ func TestRegressionDataTableFocusedCursorPaintsBrightYellow(t T) T {
     RenderTo(DataTableView(dt, true),
         Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
     // Row 0 = header, row 1 = horizontal rule, row 2 = data.
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 2).Fg, BrightYellow()))
+    return IsTrue(t, ColorEq(buf.Get(0, 2).St.Fg, BrightYellow))
 }
 
 func TestRegressionDataTableUnfocusedCursorIsNotBrightYellow(t T) T {
@@ -212,7 +212,7 @@ func TestRegressionDataTableUnfocusedCursorIsNotBrightYellow(t T) T {
     val buf = NewBuffer(20, 4)
     RenderTo(DataTableView(dt, false),
         Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
-    return IsFalse(t, ColorEq(buf.StyleAt(0, 2).Fg, BrightYellow()))
+    return IsFalse(t, ColorEq(buf.Get(0, 2).St.Fg, BrightYellow))
 }
 
 // "Same thing in tree view" — TreeFocused must visibly highlight the
@@ -226,7 +226,7 @@ func TestRegressionTreeFocusedHighlightsCursorBrightYellow(t T) T {
     RenderTo(TreeFocused(tree, 1, true),
         Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
     // Cursor at flat row 1 — that's "  • alpha" inside the expanded root.
-    return IsTrue(t, ColorEq(buf.StyleAt(2, 1).Fg, BrightYellow()))
+    return IsTrue(t, ColorEq(buf.Get(2, 1).St.Fg, BrightYellow))
 }
 
 func TestRegressionTreeFocusedUnfocusedCursorIsNotBrightYellow(t T) T {
@@ -237,7 +237,7 @@ func TestRegressionTreeFocusedUnfocusedCursorIsNotBrightYellow(t T) T {
     val buf = NewBuffer(20, 4)
     RenderTo(TreeFocused(tree, 1, false),
         Rect(X = 0, Y = 0, Width = 20, Height = 4), buf)
-    return IsFalse(t, ColorEq(buf.StyleAt(2, 1).Fg, BrightYellow()))
+    return IsFalse(t, ColorEq(buf.Get(2, 1).St.Fg, BrightYellow))
 }
 
 // "Arrows and Enter don't do anything in the table view" — verify in
@@ -631,7 +631,7 @@ func counterUpdate(m CounterModel, msg CounterMsg) Tuple[CounterModel, Cmd[Count
 
 func counterView(m CounterModel) Widget {
     val title = TextStyled(s" Count: ${m.N} ",
-        DefaultStyle().WithBold().WithFg(BrightCyan()))
+        DefaultStyle().WithBold().WithFg(BrightCyan))
     val hint = TextStyled(" + / - to change ", DefaultStyle().WithDim())
     return Column(ArrayOf[LayoutChild](
         Fixed(1, title),
@@ -1463,7 +1463,7 @@ func megaTypeChars(m MegaModel, s string) MegaModel =
 // Returns -1 if no such row is found.
 func megaFindBrightYellowRowAfter(buf *Buffer, w int, h int, startY int) int =
     stream.Range(startY, h)
-        .Find((y) => stream.Range(0, w).Exists((x) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
+        .Find((y) => stream.Range(0, w).Exists((x) => ColorEq(buf.Get(x, y).St.Fg, BrightYellow)))
         .GetOrElse(-1)
 
 // megaCountNonBlankRowsInTreePane counts how many rows in the body area
@@ -1473,7 +1473,7 @@ func megaCountNonBlankRowsInTreePane(buf *Buffer, w int, h int) int {
     // Rows: skip the title bar (rows 0–2) + the body's top border, and the
     // footer. Columns: skip the left border + indent, and the right edge.
     val hasContent = (y int) => stream.Range(2, w - 2).Exists((x) => {
-        val c = buf.CharAt(x, y)
+        val c = buf.Get(x, y).Ch
         return c != ' ' && c != '│'
     })
     return stream.Range(4, h - 2).Filter(hasContent).Count()
@@ -1589,7 +1589,7 @@ func TestMegaFormsNoteWrapsToItsPane(t T) T {
     val rowsUsed = (b *Buffer) => ArrayTabulate(b.Height - 2, (y) => y + 1)
         .Filter((y) => strings.Trim(RowText(b, y), " │") != "").Length()
     val t1 = IsTrue(t, rowsUsed(narrow) > rowsUsed(wide))
-    val t2 = IsTrue(t1, ArrayTabulate(10, (y) => y + 1).ForAll((y) => narrow.CharAt(39, y) == '│'))
+    val t2 = IsTrue(t1, ArrayTabulate(10, (y) => y + 1).ForAll((y) => narrow.Get(39, y).Ch == '│'))
     return IsTrue(t2, strings.Contains(megaStitchRows(narrow), "InputClick"))
 }
 

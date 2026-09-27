@@ -144,16 +144,12 @@ func dtSort(dt DataTable, rows Array[Array[string]]) Array[Array[string]] {
         case SortDesc() => false
         case SortNone() => true
     }
-    // Stable: rows with equal keys keep their input order in both
-    // directions. SortWith is not stable on its own, so ties fall back to
-    // the original index.
-    val key = (r Array[string]) => r.GetOption(col).GetOrElse("")
-    return rows.ZipWithIndex().SortWith((a, b) => {
-        val ka = key(a.V1)
-        val kb = key(b.V1)
-        if ka == kb { return a.V2 < b.V2 }
-        return if (asc) ka < kb else ka > kb
-    }).Map((t) => t.V1)
+    // Each row's key is read once, not once per comparison. Both sorts are
+    // stable, so rows with equal keys keep their input order in either
+    // direction.
+    val keyed = rows.Map((r) => (r.GetOption(col).GetOrElse(""), r))
+    val sorted = if (asc) keyed.SortBy((p) => p.V1) else keyed.SortWith((a, b) => a.V1 > b.V1)
+    return sorted.Map((p) => p.V2)
 }
 
 // ----------------------------------------------------------------------------
@@ -354,7 +350,7 @@ func dtBodyOf(
 
 func dtRowWidget(dt DataTable, row Array[string], selected bool, focused bool) Widget {
     val rowStyle = if (selected && focused)
-        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow)
     else if (selected)
         DefaultStyle().WithReverse()
     else

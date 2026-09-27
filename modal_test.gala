@@ -15,7 +15,7 @@ func TestModalHasDimBackdrop(t T) T {
     RenderTo(Modal(10, 4, Text("hi")),
         Rect(X = 0, Y = 0, Width = 20, Height = 10), buf)
     // Top-left corner is backdrop (not masked by panel).
-    return IsTrue(t, buf.StyleAt(0, 0).Dim)
+    return IsTrue(t, buf.Get(0, 0).St.Dim)
 }
 
 func TestModalCentersPanelHorizontally(t T) T {
@@ -23,7 +23,7 @@ func TestModalCentersPanelHorizontally(t T) T {
     RenderTo(Modal(10, 4, Text("hi")),
         Rect(X = 0, Y = 0, Width = 20, Height = 6), buf)
     // Panel is 10 wide in a 20-wide area → starts at col 5.
-    return Eq(t, buf.CharAt(5, 1), '┌')
+    return Eq(t, buf.Get(5, 1).Ch, '┌')
 }
 
 func TestConfirmDialogRendersBothButtons(t T) T {
@@ -63,7 +63,7 @@ func TestModalOverDimsWhatItCovers(t T) T {
     val w = ModalOver(Text("behind"), 10, 3, Text("hi"))
     val buf = NewBuffer(40, 11)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 40, Height = 11), buf)
-    return Eq(t, buf.StyleAt(0, 0).Dim, true)
+    return Eq(t, buf.Get(0, 0).St.Dim, true)
 }
 
 // Dimming leaves the layer beneath visible, so the panel needs its own floor:
@@ -74,9 +74,9 @@ func TestModalOverPanelIsOpaque(t T) T {
     RenderTo(w, Rect(X = 0, Y = 0, Width = 40, Height = 11), buf)
     // Inside the panel, below the body's single line of text: the backdrop
     // must not show through.
-    val t1 = Eq(t, buf.CharAt(20, 6), ' ')
+    val t1 = Eq(t, buf.Get(20, 6).Ch, ' ')
     // …while outside it the layer beneath is still there.
-    return Eq(t1, buf.CharAt(0, 0), 'x')
+    return Eq(t1, buf.Get(0, 0).Ch, 'x')
 }
 
 // Modal still erases, deliberately — it has nothing to dim.

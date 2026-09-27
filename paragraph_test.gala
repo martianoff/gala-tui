@@ -18,8 +18,8 @@ func TestParagraphViewWrapsAndKeepsStyles(t T) T {
     val buf = renderAt(ParagraphView(ParagraphOf(pvText())), 10, 3)
     val t1 = Eq(t, RowText(buf, 0), "bold words")
     val t2 = Eq(t1, RowText(buf, 1), "wrap here ")
-    val t3 = IsTrue(t2, buf.StyleAt(0, 0).Bold)
-    return IsFalse(t3, buf.StyleAt(5, 0).Bold)
+    val t3 = IsTrue(t2, buf.Get(0, 0).St.Bold)
+    return IsFalse(t3, buf.Get(5, 0).St.Bold)
 }
 
 // Alignment applies to every wrapped row, overriding the lines' own.
@@ -51,10 +51,10 @@ func TestHorizontalScrollThroughAFullWidthCharKeepsColumns(t T) T =
 
 // The paragraph's style fills the whole area, under every span.
 func TestParagraphViewStyleFillsTheArea(t T) T {
-    val buf = renderAt(ParagraphView(ParagraphOf(pvText()).WithStyle(DefaultStyle().On(Blue()))), 12, 3)
-    val t1 = IsTrue(t, ColorEq(buf.StyleAt(11, 2).Bg, Blue()))
-    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Bg, Blue()))
-    return IsTrue(t2, buf.StyleAt(0, 0).Bold)
+    val buf = renderAt(ParagraphView(ParagraphOf(pvText()).WithStyle(DefaultStyle().On(Blue))), 12, 3)
+    val t1 = IsTrue(t, ColorEq(buf.Get(11, 2).St.Bg, Blue))
+    val t2 = IsTrue(t1, ColorEq(buf.Get(0, 0).St.Bg, Blue))
+    return IsTrue(t2, buf.Get(0, 0).St.Bold)
 }
 
 // The line count a scrollbar needs agrees with the rows drawn.
@@ -71,8 +71,8 @@ func TestParagraphViewIntrinsicHeightIsTheWrappedCount(t T) T =
 // Dimming a pane reaches the paragraph's spans through the fluent path.
 func TestParagraphViewRestylesWithItsPane(t T) T {
     val buf = renderAt(ParagraphView(ParagraphOf(pvText())).WithDim(), 10, 1)
-    val t1 = IsTrue(t, buf.StyleAt(0, 0).Dim)
-    return IsTrue(t1, buf.StyleAt(0, 0).Bold)
+    val t1 = IsTrue(t, buf.Get(0, 0).St.Dim)
+    return IsTrue(t1, buf.Get(0, 0).St.Bold)
 }
 
 // "\n" in a plain paragraph starts a new line whether or not it wraps.

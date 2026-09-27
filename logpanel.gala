@@ -131,9 +131,9 @@ func logLevelPrefix(l LogLevel) string {
 
 func logLevelStyle(l LogLevel) Style {
     return l match {
-        case LogInfo()  => DefaultStyle().WithFg(BrightCyan())
-        case LogWarn()  => DefaultStyle().WithBold().WithFg(BrightYellow())
-        case LogError() => DefaultStyle().WithBold().WithFg(BrightRed())
+        case LogInfo()  => DefaultStyle().WithFg(BrightCyan)
+        case LogWarn()  => DefaultStyle().WithBold().WithFg(BrightYellow)
+        case LogError() => DefaultStyle().WithBold().WithFg(BrightRed)
         case LogDebug() => DefaultStyle().WithDim()
     }
 }

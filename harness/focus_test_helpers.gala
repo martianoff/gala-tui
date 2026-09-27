@@ -72,7 +72,7 @@ func AssertFocusedShowsBrightYellow(
     val buf = NewBuffer(width, height)
     RenderTo(widget, area, buf)
     val found = stream.Range(0, height).Exists((y) =>
-        stream.Range(0, width).Exists((x) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
+        stream.Range(0, width).Exists((x) => ColorEq(buf.Get(x, y).St.Fg, BrightYellow)))
     return IsTrue(t, found)
 }
 
@@ -112,9 +112,9 @@ func buffersFullyEqual(a *Buffer, b *Buffer, w int, h int) bool =
 // cellsFullyEqual compares one cell of two buffers — char plus every
 // visible style attribute.
 func cellsFullyEqual(a *Buffer, b *Buffer, x int, y int) bool {
-    val sa = a.StyleAt(x, y)
-    val sb = b.StyleAt(x, y)
-    return a.CharAt(x, y) == b.CharAt(x, y) &&
+    val sa = a.Get(x, y).St
+    val sb = b.Get(x, y).St
+    return a.Get(x, y).Ch == b.Get(x, y).Ch &&
         ColorEq(sa.Fg, sb.Fg) &&
         ColorEq(sa.Bg, sb.Bg) &&
         sa.Bold == sb.Bold &&

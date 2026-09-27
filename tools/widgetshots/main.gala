@@ -93,9 +93,9 @@ func svgBackgroundRow(buf *Buffer, cols int, y int) string {
     var x = 0
     // Run-length scan: each step jumps to the end of the run it just found.
     for x < cols {
-        val bg = effectiveBg(buf.StyleAt(x, y))
+        val bg = effectiveBg(buf.Get(x, y).St)
         val end = stream.Range(x, cols)
-            .Find((i) => effectiveBg(buf.StyleAt(i, y)) != bg)
+            .Find((i) => effectiveBg(buf.Get(i, y).St) != bg)
             .GetOrElse(cols)
         if bg != bgHex() {
             val px = float64(x) * cellW()
@@ -119,20 +119,17 @@ func svgGlyphRow(buf *Buffer, cols int, y int) string {
     var x = 0
     // Run-length scan: each step jumps past the run (or blank) it just found.
     for x < cols {
-        if buf.CharAt(x, y) == ' ' {
+        if buf.Get(x, y).Ch == ' ' {
             x = x + 1
             continue
         }
-        // CharAt / StyleAt rather than Get().Ch: a field read through a
-        // returned struct comes back wrapped in Immutable, which will not
-        // unify with `rune` or `Style` (see buffer.gala).
-        val st = buf.StyleAt(x, y)
-        val rows = blockRows(buf.CharAt(x, y))
+        val st = buf.Get(x, y).St
+        val rows = blockRows(buf.Get(x, y).Ch)
         if rows > 0 {
             // A run of block glyphs on the same sub-cell grid, drawn as
             // shapes rather than text.
             val blockEnd = stream.Range(x, cols)
-                .Find((i) => blockRows(buf.CharAt(i, y)) != rows || !StyleEqual(buf.StyleAt(i, y), st))
+                .Find((i) => blockRows(buf.Get(i, y).Ch) != rows || !StyleEqual(buf.Get(i, y).St, st))
                 .GetOrElse(cols)
             sb.WriteString(svgBlockRun(buf, x, blockEnd, y, rows, st))
             x = blockEnd
@@ -140,10 +137,10 @@ func svgGlyphRow(buf *Buffer, cols int, y int) string {
         }
         // Extend the run while the style holds and the glyphs keep coming.
         val end = stream.Range(x, cols)
-            .Find((i) => buf.CharAt(i, y) == ' ' || blockRows(buf.CharAt(i, y)) > 0 ||
-                !StyleEqual(buf.StyleAt(i, y), st))
+            .Find((i) => buf.Get(i, y).Ch == ' ' || blockRows(buf.Get(i, y).Ch) > 0 ||
+                !StyleEqual(buf.Get(i, y).St, st))
             .GetOrElse(cols)
-        val run = ArrayTabulate(end - x, (k) => buf.CharAt(x + k, y))
+        val run = ArrayTabulate(end - x, (k) => buf.Get(x + k, y).Ch)
         sb.WriteString(svgText(string(run.ToGoSlice()), x, y, st))
         x = end
     }
@@ -222,7 +219,7 @@ func svgBlockRun(buf *Buffer, x int, end int, y int, rows int, st Style) string 
 // blockStretches is sub-row `r` of a block run `n` sub-cells wide starting
 // at cell x, as the [start, stop) stretches of filled sub-cells.
 func blockStretches(buf *Buffer, x int, n int, y int, r int) Array[Tuple[int, int]] {
-    val lit = ArrayTabulate(n, (sx) => (blockBits(buf.CharAt(x + sx / 2, y)) >> (r * 2 + sx % 2)) & 1 == 1)
+    val lit = ArrayTabulate(n, (sx) => (blockBits(buf.Get(x + sx / 2, y).Ch) >> (r * 2 + sx % 2)) & 1 == 1)
     return lit.ZipWithIndex()
         .Collect({ case (true, sx) if sx == 0 || !lit.Get(sx - 1) => sx })
         .Map((sx) => (sx, stream.Range(sx, n).Find((i) => !lit.Get(i)).GetOrElse(n)))

@@ -29,7 +29,7 @@ not have, so the whole pipeline runs inside WSL against the checkout under
 mkdir -p ~/.local/bin          # ~/.profile puts it on PATH for login shells
 # gala: the same version as gala.mod asks for
 curl -sSLo ~/.local/bin/gala \
-  https://github.com/martianoff/gala/releases/download/0.80.0/gala-linux-amd64
+  https://github.com/martianoff/gala/releases/download/0.83.1/gala-linux-amd64
 # Go, which gala build drives: the version in go.mod
 curl -sSL https://go.dev/dl/go1.25.5.linux-amd64.tar.gz | tar -C ~/.local -xz
 ln -sf ~/.local/go/bin/go ~/.local/bin/go

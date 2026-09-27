@@ -132,8 +132,8 @@ func TestRestyleReachesTitleSpans(t T) T {
     val buf = NewBuffer(8, 3)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 8, Height = 3), buf)
     // Columns 1-2 are the caption; column 3 is the rule beside it.
-    val t1 = IsTrue(t, buf.StyleAt(1, 0).Dim && buf.StyleAt(2, 0).Dim)
-    return IsTrue(t1, buf.StyleAt(3, 0).Dim)
+    val t1 = IsTrue(t, buf.Get(1, 0).St.Dim && buf.Get(2, 0).St.Dim)
+    return IsTrue(t1, buf.Get(3, 0).St.Dim)
 }
 
 func TestPartialBorderIntrinsicSizeCountsOnlyDrawnEdges(t T) T {
@@ -166,8 +166,8 @@ func TestBorderStyleSweptAcrossTheWholeFrame(t T) T {
     val buf = NewBuffer(6, 3)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 3), buf)
     val acc = stream.Range(0, 6).Fold(t, (acc, x) =>
-        IsTrue(acc, buf.StyleAt(x, 0).Bold && buf.StyleAt(x, 2).Bold))
-    return IsTrue(acc, buf.StyleAt(0, 1).Bold && buf.StyleAt(5, 1).Bold)
+        IsTrue(acc, buf.Get(x, 0).St.Bold && buf.Get(x, 2).St.Bold))
+    return IsTrue(acc, buf.Get(0, 1).St.Bold && buf.Get(5, 1).St.Bold)
 }
 
 func TestTitledPartialBorderGolden(t T) T {
@@ -224,8 +224,8 @@ func TestRichTextStyleSweptAcrossEachRun(t T) T {
     )
     val buf = NewBuffer(6, 1)
     RenderTo(w, Rect(X = 0, Y = 0, Width = 6, Height = 1), buf)
-    val t1 = IsTrue(t, buf.StyleAt(0, 0).Bold && buf.StyleAt(1, 0).Bold)
-    return IsTrue(t1, !buf.StyleAt(2, 0).Bold && !buf.StyleAt(3, 0).Bold)
+    val t1 = IsTrue(t, buf.Get(0, 0).St.Bold && buf.Get(1, 0).St.Bold)
+    return IsTrue(t1, !buf.Get(2, 0).St.Bold && !buf.Get(3, 0).St.Bold)
 }
 
 func TestRichTextLineAlignment(t T) T {
@@ -272,9 +272,9 @@ func TestRichTextWideCharsRenderWithoutOverlap(t T) T {
     val buf = NewBuffer(4, 1)
     val w = SpansLine(SpanStyled("日", DefaultStyle()), SpanOf("x"))
     RenderTo(w, Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
-    val t1 = Eq(t, buf.CharAt(0, 0), rune(0x65E5))
-    val t2 = Eq(t1, buf.CharAt(1, 0), ' ')
-    return Eq(t2, buf.CharAt(2, 0), 'x')
+    val t1 = Eq(t, buf.Get(0, 0).Ch, rune(0x65E5))
+    val t2 = Eq(t1, buf.Get(1, 0).Ch, ' ')
+    return Eq(t2, buf.Get(2, 0).Ch, 'x')
 }
 
 // ----------------------------------------------------------------------------

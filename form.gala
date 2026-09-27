@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
 )
@@ -44,21 +45,8 @@ struct FormField(
     //     value.
     Masked    bool = false,
     // MaskChar is the glyph `Masked` draws. See `MaskRune` for why a CJK
-    // locale may want `*` instead of the default bullet.
-    //
-    // Two fields rather than one `Mask Option[rune]`, which is the opposite
-    // of the call made for `clippedSegment` in canvas.gala — and for a
-    // reason that does not apply there. `FormField` literals are written by
-    // callers, and an omitted `Option` field is a nil interface that panics
-    // on the first `IsDefined`. An omitted `rune` is NUL, which `MaskValue`
-    // reads as the default. `Style.Link` gets away with `Option` only
-    // because nothing constructs a `Style` literal by hand.
-    //
-    // The zero rune means `MaskRune()` — see `MaskValue`. No `=`
-    // default is declared, because a GALA struct literal may omit any
-    // field and an omitted field is the zero value; a default here would
-    // read as a promise the language does not keep, and would pin a glyph
-    // that `MaskRune` owns.
+    // locale may want `*` instead of the default bullet. An explicit zero
+    // rune also means `MaskRune()` — see `MaskValue`.
     MaskChar  rune = MaskRune(),
 )
 
@@ -70,8 +58,6 @@ func NewField(name string, label string, placeholder string) FormField =
         Value       = "",
         Placeholder = placeholder,
         Validator   = (_) => None[string](),
-        Masked      = false,
-        MaskChar    = MaskRune(),
     )
 
 // NewFieldRequired marks the field as "non-empty required".
@@ -82,8 +68,6 @@ func NewFieldRequired(name string, label string, placeholder string) FormField =
         Value       = "",
         Placeholder = placeholder,
         Validator   = requiredValidator,
-        Masked      = false,
-        MaskChar    = MaskRune(),
     )
 
 func requiredValidator(v string) Option[string] {
@@ -110,8 +94,6 @@ func NewFieldValidated(
         Value       = "",
         Placeholder = placeholder,
         Validator   = validator,
-        Masked      = false,
-        MaskChar    = MaskRune(),
     )
 
 // ----------------------------------------------------------------------------
@@ -185,7 +167,7 @@ func formBackspace(f FormState) FormState {
     if f.Fields.IsEmpty() { return f }
     val fld = f.Fields.Get(f.Focused)
     if fld.Value == "" { return f }
-    val updated = fld.Copy(Value = dropLastRune(fld.Value))
+    val updated = fld.Copy(Value = gs.S(fld.Value).DropRight(1).ToString())
     return f.Copy(Fields = replaceAt(f.Fields, f.Focused, updated))
 }
 
@@ -229,7 +211,7 @@ func FormView(f FormState, formFocused bool = false) Widget {
         val err = fld.Validator(fld.Value)
         val errOrSpacer = err match {
             case Some(msg) => Fixed(1, TextStyled("  " + msg,
-                DefaultStyle().WithFg(BrightRed())))
+                DefaultStyle().WithFg(BrightRed)))
             case None()    => Fixed(1, Text(""))
         }
         return ArrayOf[LayoutChild](
@@ -246,7 +228,7 @@ func FormView(f FormState, formFocused bool = false) Widget {
 // When both are true, the field is rendered with the bright-cursor accent.
 func formInput(fld FormField, active bool, formFocused bool) Widget {
     val style = if (active && formFocused)
-        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow())
+        DefaultStyle().WithReverse().WithBold().WithFg(BrightYellow)
     else if (active)
         DefaultStyle().WithReverse()
     else

@@ -1,7 +1,7 @@
 package gala_tui
 
 import (
-    "strings"
+    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
     . "martianoff/gala/std"
@@ -110,18 +110,18 @@ func taLinesWith(t TextArea, row int, col int) TextArea = TextArea(
 
 func taInsertRune(t TextArea, c rune) TextArea {
     val line = t.Lines.Get(t.Row)
-    val (lhs, rhs) = runeSplitAt(line, t.Col)
-    val newLine = lhs + string(c) + rhs
+    val (lhs, rhs) = gs.S(line).SplitAt(t.Col)
+    val newLine = lhs.ToString() + string(c) + rhs.ToString()
     val newLines = t.Lines.Updated(t.Row, newLine)
     return taLinesAndCursor(t, newLines, t.Row, t.Col + 1)
 }
 
 func taInsertNewline(t TextArea) TextArea {
     val line = t.Lines.Get(t.Row)
-    val (lhs, rhs) = runeSplitAt(line, t.Col)
+    val (lhs, rhs) = gs.S(line).SplitAt(t.Col)
     val before = t.Lines.Slice(0, t.Row)
     val after = t.Lines.Slice(t.Row + 1, t.Lines.Length())
-    val newLines = before.Append(lhs).Append(rhs).AppendAll(after)
+    val newLines = before.Append(lhs.ToString()).Append(rhs.ToString()).AppendAll(after)
     return taLinesAndCursor(t, newLines, t.Row + 1, 0)
 }
 
@@ -129,8 +129,8 @@ func taBackspace(t TextArea) TextArea {
     if t.Col == 0 && t.Row == 0 { return t }
     if t.Col > 0 {
         val line = t.Lines.Get(t.Row)
-        val (lhs, rhs) = runeSplitAt(line, t.Col)
-        val newLine = dropLastRune(lhs) + rhs
+        val (lhs, rhs) = gs.S(line).SplitAt(t.Col)
+        val newLine = lhs.DropRight(1).ToString() + rhs.ToString()
         val newLines = t.Lines.Updated(t.Row, newLine)
         return taLinesAndCursor(t, newLines, t.Row, t.Col - 1)
     }
@@ -148,8 +148,8 @@ func taDelete(t TextArea) TextArea {
     val line = t.Lines.Get(t.Row)
     val n = RuneCount(line)
     if t.Col < n {
-        val (lhs, rhs) = runeSplitAt(line, t.Col)
-        val newLine = lhs + dropRunes(rhs, 1)
+        val (lhs, rhs) = gs.S(line).SplitAt(t.Col)
+        val newLine = lhs.ToString() + rhs.Drop(1).ToString()
         val newLines = t.Lines.Updated(t.Row, newLine)
         return taLinesAndCursor(t, newLines, t.Row, t.Col)
     }
@@ -271,7 +271,7 @@ func taLinesAndCursor(t TextArea, lines Array[string], row int, col int) TextAre
 func TextAreaContent(t TextArea) string = t.Lines.MkString("\n")
 
 func stringToLines(s string) Array[string] =
-    ArrayFromSlice(strings.Split(s, "\n"))
+    gs.Split(s, "\n")
 
 // ----------------------------------------------------------------------------
 // View

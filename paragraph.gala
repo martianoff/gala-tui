@@ -1,8 +1,8 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
-    "strings"
 )
 
 // ----------------------------------------------------------------------------
@@ -39,34 +39,25 @@ struct ParagraphSpec(
     Text    RichText,
     Style   Style,
     Wrap    bool,
-    Align   ParagraphAlign,
+    Align   Option[Align],
     ScrollY int,
     ScrollX int,
 )
 
-// ParagraphAlign is the paragraph-wide alignment, or none to keep each line's
-// own. A sealed type rather than `Option[Align]` for the reason `BarFill`
-// gives: GALA 0.80 lowers an Option of a package type to an undefined one.
-// TODO: when that is fixed, this and `BarFill` both become an `Option`.
-sealed type ParagraphAlign {
-    case LineAligned()
-    case AllAligned(A Align)
-}
-
 func ParagraphOf(text RichText) ParagraphSpec = ParagraphSpec(
     Text = text, Style = DefaultStyle(), Wrap = true,
-    Align = LineAligned(), ScrollY = 0, ScrollX = 0)
+    Align = None(), ScrollY = 0, ScrollX = 0)
 
 // ParagraphOfString is a plain paragraph; "\n" starts a new line, wrapped
 // or not.
 func ParagraphOfString(content string, style Style = DefaultStyle()) ParagraphSpec =
-    ParagraphOf(RichTextOf(ArrayOf(strings.Split(content, "\n")...).Map((l) =>
+    ParagraphOf(RichTextOf(gs.Split(content, "\n").Map((l) =>
         LineFromString(l, DefaultStyle())))).WithStyle(style)
 
 func (p ParagraphSpec) WithStyle(s Style) ParagraphSpec = p.Copy(Style = s)
 
 // Aligned aligns every line, overriding the lines' own alignment.
-func (p ParagraphSpec) Aligned(a Align) ParagraphSpec = p.Copy(Align = AllAligned(a))
+func (p ParagraphSpec) Aligned(a Align) ParagraphSpec = p.Copy(Align = Some(a))
 
 // NoWrap draws each line on one row, clipped at the right edge — for text
 // whose line breaks carry meaning. Pair with `Pan(x)` to scroll sideways.
@@ -122,10 +113,11 @@ func renderParagraphRich(p ParagraphSpec, area Rect, buf *Buffer) {
     if area.Zero() { return }
     val rows = paragraphRowsUpTo(p, area.Width, p.ScrollY + area.Height)
     val top = MinInt(p.ScrollY, MaxInt(0, rows.Length() - area.Height))
-    val visible = rows.Drop(top).Take(area.Height).Map((l) => p.Align match {
-        case LineAligned()  => l
-        case AllAligned(a)  => l.Aligned(a)
-    })
+    val window = rows.Drop(top).Take(area.Height)
+    val visible = p.Align match {
+        case Some(a) => window.Map((l) => l.Aligned(a))
+        case None()  => window
+    }
     val panX = if (p.Wrap) 0 else p.ScrollX
     val shaped = if (panX == 0) visible else visible.Map((l) => paragraphPanned(l, area.Width, panX))
     renderPatchedLines(shaped, p.Style, DefaultStyle(), (spans, _) => spans, area, buf)

@@ -49,18 +49,21 @@ func TestHiddenAndRapidBlinkSgr(t T) T {
 }
 
 func TestColorFromString(t T) T {
-    val fb = Magenta()
-    val t1 = IsTrue(t, ColorEq(ColorFromString("#ff8000", fb), RGB(255, 128, 0)))
-    val t2 = IsTrue(t1, ColorEq(ColorFromString("#f80", fb), RGB(255, 136, 0)))
-    val t3 = IsTrue(t2, ColorEq(ColorFromString("202", fb), Indexed(202)))
-    val t4 = IsTrue(t3, ColorEq(ColorFromString("Light Blue", fb), BrightBlue()))
-    val t5 = IsTrue(t4, ColorEq(ColorFromString("red", fb), Red()))
-    val t6 = IsTrue(t5, ColorEq(ColorFromString("dark_gray", fb), BrightBlack()))
-    val t6b = IsTrue(t6, ColorEq(ColorFromString("gray", fb), White()))
-    val t6c = IsTrue(t6b, ColorEq(ColorFromString("-1", fb), fb))
-    val t6d = IsTrue(t6c, ColorEq(ColorFromString("", fb), fb))
-    val t7 = IsTrue(t6d, ColorEq(ColorFromString("reset", fb), DefaultColor()))
-    return IsTrue(t7, ColorEq(ColorFromString("chartreuse", fb), fb))
+    val cases = ArrayOf(
+        ("#ff8000", Some[Color](RGB(255, 128, 0))),
+        ("#f80", Some[Color](RGB(255, 136, 0))),
+        ("202", Some[Color](Indexed(202))),
+        ("Light Blue", Some[Color](BrightBlue)),
+        ("red", Some[Color](Red)),
+        ("dark_gray", Some[Color](BrightBlack)),
+        ("gray", Some[Color](White)),
+        ("reset", Some[Color](DefaultColor())),
+        ("-1", None[Color]()),
+        ("", None[Color]()),
+        ("chartreuse", None[Color]()),
+    )
+    val sgr = (o Option[Color]) => o.Map((c) => ToSgrFg(c)).GetOrElse("none")
+    return cases.FoldLeft(t, (acc, c) => EqMsg(acc, sgr(ColorFromString(c.V1)), sgr(c.V2), c.V1))
 }
 
 // An overlap wider than a child never places the next child outside the row

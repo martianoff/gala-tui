@@ -20,8 +20,8 @@ import (
 //
 //     Chart(
 //         ArrayOf[ChartDataset](
-//             DatasetOf("p50", p50pts, DefaultStyle().WithFg(BrightGreen())),
-//             DatasetOf("p99", p99pts, DefaultStyle().WithFg(BrightRed())),
+//             DatasetOf("p50", p50pts, DefaultStyle().WithFg(BrightGreen)),
+//             DatasetOf("p99", p99pts, DefaultStyle().WithFg(BrightRed)),
 //         ),
 //         AxisOf("seconds", XBounds(0.0, 60.0), ArrayOf("0", "30", "60")),
 //         AxisOf("ms",      YBounds(0.0, 250.0), ArrayOf("0", "125", "250")),

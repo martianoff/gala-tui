@@ -1417,20 +1417,14 @@ func takeCursorReport(buf []byte, onCursorReport func(int, int)) int {
     if !isCsiStart(buf) { return 0 }
     val scan = scanCsi(buf)
     if scan.Final <= 2 || int(buf[scan.Final]) != 0x52 { return 0 }
-    if onCursorReport != nil {
-        onCursorReport(csiParam(buf, scan.Final, 0, 1), csiParam(buf, scan.Final, 1, 1))
-    }
+    onCursorReport(csiParam(buf, scan.Final, 0, 1), csiParam(buf, scan.Final, 1, 1))
     return scan.Final + 1
 }
-
-// backendOrigin is the backend's `Origin`, or (0, 0) for one that has none.
-func backendOrigin(b Backend) Tuple[int, int] =
-    if (b.Origin == nil) (0, 0) else b.Origin()
 
 // backendViewport is where the app's cells are on the screen: the backend's
 // origin, at the size it renders.
 func backendViewport(b Backend) Rect {
-    val (x, y) = backendOrigin(b)
+    val (x, y) = b.Origin()
     val (w, h) = b.Size()
     return Rect(X = x, Y = y, Width = w, Height = h)
 }
@@ -1476,16 +1470,8 @@ func toViewport(ev InputEvent, vp Rect) Option[InputEvent] = ev match {
 // somewhere: on the alternate screen they are dropped, nothing on screen
 // moved, and a repaint there would be `DiffString(nil)` — every cell of the
 // terminal — on every frame that printed.
-//
-// `Backend` is a public struct of plain function fields, so a caller can
-// build one without `InsertBefore` and gala will compile it — the nil check
-// is what turns "this backend predates PrintAbove" into a no-op instead of
-// a crash inside the run loop the first time an app prints.
 func emitPrints(backend Backend, lines Array[string], repaint func()) {
-    if lines.IsEmpty() || backend.InsertBefore == nil {
-        return
-    }
-    if backend.InsertBefore(lines) {
+    if lines.NonEmpty() && backend.InsertBefore(lines) {
         repaint()
     }
 }

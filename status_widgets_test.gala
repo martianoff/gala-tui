@@ -23,11 +23,11 @@ func TestLoaderRendersTextAndSpinner(t T) T {
 func TestLoaderSpinnerAdvancesOnFrameChange(t T) T {
     val buf1 = NewBuffer(20, 1)
     RenderTo(Loader("X", 0), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf1)
-    val frame0 = buf1.CharAt(0, 0)
+    val frame0 = buf1.Get(0, 0).Ch
 
     val buf2 = NewBuffer(20, 1)
     RenderTo(Loader("X", 1), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf2)
-    val frame1 = buf2.CharAt(0, 0)
+    val frame1 = buf2.Get(0, 0).Ch
 
     return IsTrue(t, frame0 != frame1)
 }
@@ -35,7 +35,7 @@ func TestLoaderSpinnerAdvancesOnFrameChange(t T) T {
 func TestLoaderSpinnerIsBrightCyan(t T) T {
     val buf = NewBuffer(20, 1)
     RenderTo(Loader("X", 0), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    return IsTrue(t, ColorEq(buf.StyleAt(0, 0).Fg, BrightCyan()))
+    return IsTrue(t, ColorEq(buf.Get(0, 0).St.Fg, BrightCyan))
 }
 
 // ----------------------------------------------------------------------------
@@ -56,7 +56,7 @@ func TestEmptyStateTextIsDim(t T) T {
     RenderTo(EmptyState("X", "abc"),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     // The 'a' is at column 2 (icon + space). Dim attribute on the text style.
-    return IsTrue(t, buf.StyleAt(2, 0).Dim)
+    return IsTrue(t, buf.Get(2, 0).St.Dim)
 }
 
 func TestEmptyStateHintedHasTwoRows(t T) T {
@@ -73,35 +73,35 @@ func TestEmptyStateHintedHasTwoRows(t T) T {
 
 func TestPulseEvenFrameIsBold(t T) T {
     val buf = NewBuffer(5, 1)
-    RenderTo(Pulse(0, BrightGreen()),
+    RenderTo(Pulse(0, BrightGreen),
         Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
-    return IsTrue(t, buf.StyleAt(1, 0).Bold)
+    return IsTrue(t, buf.Get(1, 0).St.Bold)
 }
 
 func TestPulseOddFrameIsDim(t T) T {
     val buf = NewBuffer(5, 1)
-    RenderTo(Pulse(1, BrightGreen()),
+    RenderTo(Pulse(1, BrightGreen),
         Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
-    return IsTrue(t, buf.StyleAt(1, 0).Dim)
+    return IsTrue(t, buf.Get(1, 0).St.Dim)
 }
 
 func TestPulseUsesGivenColor(t T) T {
     val buf = NewBuffer(5, 1)
-    RenderTo(Pulse(0, BrightRed()),
+    RenderTo(Pulse(0, BrightRed),
         Rect(X = 0, Y = 0, Width = 5, Height = 1), buf)
-    return IsTrue(t, ColorEq(buf.StyleAt(1, 0).Fg, BrightRed()))
+    return IsTrue(t, ColorEq(buf.Get(1, 0).St.Fg, BrightRed))
 }
 
 // PulseFrames cycles through 4 phases — successive frames must produce
 // different style combinations on at least one frame transition.
 func TestPulseFramesAdvanceProducesStyleChange(t T) T {
     val buf0 = NewBuffer(5, 1)
-    RenderTo(PulseFrames(0, BrightGreen()),
+    RenderTo(PulseFrames(0, BrightGreen),
         Rect(X = 0, Y = 0, Width = 5, Height = 1), buf0)
     val buf2 = NewBuffer(5, 1)
-    RenderTo(PulseFrames(2, BrightGreen()),
+    RenderTo(PulseFrames(2, BrightGreen),
         Rect(X = 0, Y = 0, Width = 5, Height = 1), buf2)
-    val s0 = buf0.StyleAt(1, 0)
-    val s2 = buf2.StyleAt(1, 0)
+    val s0 = buf0.Get(1, 0).St
+    val s2 = buf2.Get(1, 0).St
     return IsTrue(t, s0.Bold != s2.Bold || s0.Dim != s2.Dim)
 }

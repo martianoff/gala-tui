@@ -105,8 +105,8 @@ func TestHighlightLineKeywordIsMagentaBold(t T) T {
     RenderTo(HighlightLine("if cond { 1 }", "go"),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     // ' ' at col 0 (leading pad), 'i' of "if" at col 1 → bold magenta.
-    val t1 = IsTrue(t, buf.StyleAt(1, 0).Bold)
-    return IsTrue(t1, ColorEq(buf.StyleAt(1, 0).Fg, BrightMagenta()))
+    val t1 = IsTrue(t, buf.Get(1, 0).St.Bold)
+    return IsTrue(t1, ColorEq(buf.Get(1, 0).St.Fg, BrightMagenta))
 }
 
 func TestHighlightLineStringIsGreen(t T) T {
@@ -114,7 +114,7 @@ func TestHighlightLineStringIsGreen(t T) T {
     RenderTo(HighlightLine("x = \"hi\"", "go"),
         Rect(X = 0, Y = 0, Width = 40, Height = 1), buf)
     // Find the position of '"'. Assume " starts at col 5 (' x = ').
-    return IsTrue(t, ColorEq(buf.StyleAt(5, 0).Fg, BrightGreen()))
+    return IsTrue(t, ColorEq(buf.Get(5, 0).St.Fg, BrightGreen))
 }
 
 // ----------------------------------------------------------------------------

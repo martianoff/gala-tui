@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    gs "martianoff/gala/strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
 )
@@ -243,7 +244,7 @@ func typedLines(first string, second string) TextArea {
 }
 
 func typeInto(ta TextArea, text string) TextArea =
-    stringRunes(text).FoldLeft(ta, (acc, c) => TextAreaUpdate(acc, TaInsert(C = c)))
+    gs.S(text).Fold(ta, (acc, c) => TextAreaUpdate(acc, TaInsert(C = c)))
 
 func TestTextAreaClickDeliversTheClickedCell(t T) T {
     // The defect this closes: the wrapper used OnPickRow, which carries a
@@ -317,12 +318,12 @@ func TestClickableTextAreaStillRestyles(t T) T {
     // behind a leaf restyleLeaves does not recurse into, so `.WithFg(...)`
     // on a clickable editor silently did nothing — where the same call on
     // a plain TextAreaView worked.
-    val plain = TextAreaView(typedLines("hi", "x"), true, "").WithFg(BrightRed())
+    val plain = TextAreaView(typedLines("hi", "x"), true, "").WithFg(BrightRed)
     val clickable = TextAreaViewClick[TaClick](typedLines("hi", "x"), true, "",
-        (row, col) => TaClick(Row = row, Col = col)).WithFg(BrightRed())
+        (row, col) => TaClick(Row = row, Col = col)).WithFg(BrightRed)
     val a = NewBuffer(6, 2)
     RenderTo(plain, Rect(X = 0, Y = 0, Width = 6, Height = 2), a)
     val b = NewBuffer(6, 2)
     RenderTo(clickable, Rect(X = 0, Y = 0, Width = 6, Height = 2), b)
-    return IsTrue(t, ColorEq(a.StyleAt(0, 0).Fg, b.StyleAt(0, 0).Fg))
+    return IsTrue(t, ColorEq(a.Get(0, 0).St.Fg, b.Get(0, 0).St.Fg))
 }
