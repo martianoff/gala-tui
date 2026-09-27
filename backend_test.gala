@@ -444,6 +444,44 @@ func TestFullScreenBackendReportsThatItDroppedTheLines(t T) T {
     return Eq(t, TerminalBackend().InsertBefore(ArrayOf[string]("nowhere")), false)
 }
 
+// backendWithoutHooks is a consumer's backend that leaves out InsertBefore,
+// Origin and CursorReport. The run loop calls all three unconditionally, so
+// it relies on the fields' defaults being real no-op functions.
+func backendWithoutHooks() Backend {
+    val (complete, _) = NewTestBackend(10, 1, "")
+    return Backend(
+        Name      = "minimal",
+        Size      = complete.Size,
+        Write     = complete.Write,
+        Read      = complete.Read,
+        ReadAsync = complete.ReadAsync,
+        Open      = complete.Open,
+        Paint     = complete.Paint,
+    )
+}
+
+func TestEmitPrintsToleratesABackendWithoutInsertBefore(t T) T {
+    // The default InsertBefore says the lines went nowhere, so PrintAbove on
+    // such a backend neither panics nor throws away the frame diff.
+    var painted = false
+    emitPrints(backendWithoutHooks(), ArrayOf("x"), () => { painted = true })
+    return EqMsg(t, painted, false,
+                 "a backend that cannot insert should not trigger a repaint")
+}
+
+func TestBackendWithoutOriginSitsAtTheTopLeft(t T) T {
+    // Mouse events are shifted by the origin; the default leaves them alone.
+    val vp = backendViewport(backendWithoutHooks())
+    return Eq(Eq(Eq(Eq(t, vp.X, 0), vp.Y, 0), vp.Width, 10), vp.Height, 1)
+}
+
+func TestBackendWithoutCursorReportStillSwallowsTheReply(t T) T {
+    // A reply nobody asked for is still taken out of the input stream — it
+    // must not reach the app as a key — and the default handler drops it.
+    val n = takeCursorReport(cprBytes("\x1b[17;3Rx"), backendWithoutHooks().CursorReport)
+    return Eq(t, n, 7)
+}
+
 func TestEmitPrintsRepaintsOnlyWhenTheLinesLanded(t T) T {
     // The pairing the whole design rests on: an insert leaves the viewport's
     // rows holding neither the old frame nor the new one, so the repaint is
