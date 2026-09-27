@@ -102,6 +102,11 @@ struct Backend(
     // cells and hit regions are in buffer cells, so the run loop shifts every
     // mouse event by it. Optional, like InsertBefore: nil is (0, 0).
     Origin       func() Tuple[int, int],
+    // CursorReport receives the terminal's answer to a cursor-position
+    // query (`ESC[6n` → `ESC[row;colR`, 1-based) the backend wrote. The run
+    // loop takes the reply out of the input stream before it can be read as
+    // a key. Optional: a backend that never asks has nothing to receive.
+    CursorReport func(int, int),
 )
 
 // ----------------------------------------------------------------------------
@@ -461,6 +466,21 @@ func InlineBackend(height int) Backend {
     // that shows the cursor saves that position first (DECSC), and anything
     // that writes next restores it (DECRC) before relying on it.
     var shown = false
+    // Where the block is. Mouse events arrive in screen rows, so without the
+    // block's top row every click missed unless the block happened to start
+    // on the first row of the screen. The terminal is asked (`ESC[6n`) on the
+    // first paint, after an insert, and when the terminal's size changes —
+    // the three things that move the block — and never otherwise: a query
+    // per tick would be a round trip per tick over SSH.
+    //
+    // `pending` counts queries not yet answered. Only an answer to one is
+    // taken: xterm's Shift+F3 is the same bytes as a report, and must not
+    // move the block. It is also what the exit waits on, so a late answer
+    // does not land in the shell after raw mode is released.
+    var top = -1
+    var pending = 0
+    var ask = true
+    var lastTerm = (0, 0)
     val home = () => {
         val s = if (shown) ansiCursorHide() + ansiCursorRestore() else ""
         shown = false
@@ -479,24 +499,51 @@ func InlineBackend(height int) Backend {
             val session = inlineOpen(h, mouse)
             return BackendSession(Close = () => {
                 stdoutWrite(home())
+                if pending > 0 { drainCursorReport() }
                 session.Close()
             })
         },
         Paint = (frame, prev) => {
-            // An idle paint — same cells, same cursor — sends nothing: an inline
-            // repaint is a full one, and hiding, redrawing and re-showing the
-            // cursor every tick flickers it and restarts its blink.
-            if prev == nil || !frame.ContentsEqual(prev) || !sameCursor(frame, prev) {
-                val back = home()
-                stdoutWrite(back + inlineFrameString(frame, h) + inlineCursorString(frame))
-                shown = frame.Cursor().IsDefined()
+            val term = TermSize()
+            if term != lastTerm {
+                lastTerm = term
+                ask = true
             }
+            // An idle paint — same cells, same cursor — sends no frame: an
+            // inline repaint is a full one, and hiding, redrawing and
+            // re-showing the cursor every tick flickers it and restarts its
+            // blink. A query that is due still goes out.
+            val redraw = prev == nil || !frame.ContentsEqual(prev) || !sameCursor(frame, prev)
+            val body = if (redraw) home() + inlineFrameString(frame, h) else ""
+            val query = if (ask) ansiCursorQuery() else ""
+            if redraw || ask {
+                stdoutWrite(body + query + (if (redraw) inlineCursorString(frame) else ""))
+            }
+            if ask { pending = pending + 1 }
+            ask = false
+            if redraw { shown = frame.Cursor().IsDefined() }
         },
         InsertBefore = (lines) => {
             stdoutWrite(home() + inlineInsertBeforeString(lines, h))
+            ask = true
             return true
         },
+        Origin = () => (0, MaxInt(0, top)),
+        CursorReport = (row, col) => {
+            if pending > 0 {
+                pending = pending - 1
+                top = row - 1
+            }
+        },
     )
+}
+
+// drainCursorReport waits briefly for an answer to a query still in flight at
+// exit, so it is read here — in raw mode, and thrown away — rather than
+// arriving after the terminal is handed back and printing `^[[17;1R` at the
+// shell prompt. Bounded: a terminal that never answers costs this long once.
+func drainCursorReport() {
+    val _ = terminalReadFuture().AwaitFor(Milliseconds(150))
 }
 
 // inlineCursorString moves from the block's top-left — where every inline

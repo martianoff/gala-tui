@@ -789,7 +789,7 @@ val _ = RunWithSub[Model, Msg](program, keyToMsg, sub,
 | Screen | alternate | normal, below the prompt | normal, at `rect` |
 | Size | whole terminal | terminal width × `n` | `rect`, clipped to the terminal |
 | Repaint | diffed | full | diffed, offset to `rect` |
-| Mouse | hits line up | **not yet**: clicks arrive in screen rows and the block's screen row is unknown, so hits miss | shifted into `rect`, hits line up |
+| Mouse | hits line up | hits line up: the block asks the terminal where it is (`ESC[6n`) on its first paint, after an insert and on a resize, and events are shifted by its row. A click in the moment between a move and the terminal's answer uses the previous row | shifted into `rect`, hits line up |
 | On exit | output gone | frame stays in scrollback | frame stays; cursor below `rect` |
 
 Frames are written with `Buffer.DiffStringAt(prev, x, y)`, which positions
