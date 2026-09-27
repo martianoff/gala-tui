@@ -182,6 +182,7 @@ gala_test(
         "snapshot_test.gala",
         "sparkline_direction_test.gala",
         "status_widgets_test.gala",
+        "style_layout_test.gala",
         "subs_test.gala",
         "syntax_test.gala",
         "t0_renderer_truth_test.gala",

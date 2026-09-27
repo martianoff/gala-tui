@@ -321,10 +321,12 @@ func megaDataBody(m MegaModel, th Theme) Widget =
 
 func megaDataMain(m MegaModel, th Theme) Widget =
     Column(ArrayOf[LayoutChild](
-        Fixed(12, Row(ArrayOf[LayoutChild](
+        // Spacing -1 overlaps the two panes by a column, so they share one
+        // border line instead of drawing two side by side.
+        Fixed(12, RowSpaced(ArrayOf[LayoutChild](
             Flex(1, Titled(megaRegionList(m), " SelectListView ")),
             Flex(1, Titled(megaEnvDropdown(m), " Dropdown ")),
-        ))),
+        ), -1)),
         Flex(1, Titled(megaQuotaTable(m), " TableView + Scrollbar ")),
     ))
 

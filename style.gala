@@ -26,6 +26,12 @@ struct Style(
     Dim       bool,
     Blink     bool,
     Strike    bool,
+    // Hidden (SGR 8) keeps the text in the cell but does not show it —
+    // a spoiler, an answer revealed on the next frame.
+    Hidden     bool,
+    // RapidBlink (SGR 6) is the fast blink; `Blink` is the slow one. Most
+    // terminals render both the same or not at all.
+    RapidBlink bool,
     // UnderlineColor colours the underline independently of the text —
     // SGR 58, which kitty, WezTerm, iTerm2, foot and VTE honour and other
     // terminals ignore, leaving the ordinary underline. DefaultColor draws
@@ -60,6 +66,7 @@ func DefaultStyle() Style = Style(
     Bg = DefaultColor(),
     Bold = false, Italic = false, Underline = false,
     Reverse = false, Dim = false, Blink = false, Strike = false,
+    Hidden = false, RapidBlink = false,
     UnderlineColor = DefaultColor(),
     Link = None[string](),
 )
@@ -85,6 +92,8 @@ func (s Style) WithReverse() Style   = s.Copy(Reverse = true)
 func (s Style) WithDim() Style       = s.Copy(Dim = true)
 func (s Style) WithBlink() Style     = s.Copy(Blink = true)
 func (s Style) WithStrike() Style    = s.Copy(Strike = true)
+func (s Style) WithHidden() Style    = s.Copy(Hidden = true)
+func (s Style) WithRapidBlink() Style = s.Copy(RapidBlink = true)
 
 // WithUnderlineColor underlines in `c` rather than in the text colour — a
 // red squiggle under an error, a dim rule under a link.
@@ -119,6 +128,8 @@ func (s Style) Patch(over Style) Style = Style(
     Dim       = s.Dim || over.Dim,
     Blink     = s.Blink || over.Blink,
     Strike    = s.Strike || over.Strike,
+    Hidden    = s.Hidden || over.Hidden,
+    RapidBlink = s.RapidBlink || over.RapidBlink,
     UnderlineColor = patchColor(s.UnderlineColor, over.UnderlineColor),
     Link      = over.Link match {
         case Some(_) => over.Link
@@ -157,7 +168,7 @@ func (s Style) sgrParts() Array[string] {
     val flagParts = ArrayOf[Tuple[bool, string]](
         (s.Bold,      "1"), (s.Dim,    "2"), (s.Italic,  "3"),
         (s.Underline, "4"), (s.Blink,  "5"), (s.Reverse, "7"),
-        (s.Strike,    "9"),
+        (s.Strike,    "9"), (s.RapidBlink, "6"), (s.Hidden, "8"),
     ).Collect({ case (true, code) => code })
     val withFg = s.Fg match {
         case DefaultColor() => flagParts
@@ -189,6 +200,8 @@ func StyleEqual(a Style, b Style) bool {
         a.Dim == b.Dim &&
         a.Blink == b.Blink &&
         a.Strike == b.Strike &&
+        a.Hidden == b.Hidden &&
+        a.RapidBlink == b.RapidBlink &&
         // An underline colour only shows on an underlined cell; comparing it
         // otherwise would split runs of cells that look identical.
         (!a.Underline || ColorEq(a.UnderlineColor, b.UnderlineColor)) &&

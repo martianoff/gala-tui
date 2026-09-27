@@ -78,6 +78,11 @@ without SGR 58 ignore it and draw the ordinary underline. `a.Patch(b)` layers
 DefaultStyle().WithFg(BrightWhite()).WithUnderlineColor(BrightRed())
 ```
 
+Also `.WithHidden()` (SGR 8 — in the cell, not shown) and `.WithRapidBlink()`
+(SGR 6). `ColorFromString(s, fallback)` reads a colour from configuration:
+`#rrggbb`, `#rgb`, `0`..`255`, a name (`red`, `light blue`, `bright-cyan`,
+`gray`), or `default`; anything else is `fallback`.
+
 ## Layout
 
 ![Layout widgets](img/layout.svg)
@@ -91,12 +96,12 @@ DefaultStyle().WithFg(BrightWhite()).WithUnderlineColor(BrightRed())
 | `Padding(n, inner)` | `(int, Widget) Widget` | n-cell padding on all sides. |
 | `PaddingHV(v, h, inner)` | `(int, int, Widget) Widget` | Asymmetric padding. |
 | `Border(inner)` | `(Widget) Widget` | Default single-line border. |
-| `BorderOf(inner, kind)` | `(Widget, BorderKind) Widget` | Pick: `SingleBorder()`, `DoubleBorder()`, `ThickBorder()`, `RoundedBorder()`, `AsciiBorder()`. |
+| `BorderOf(inner, kind)` | `(Widget, BorderKind) Widget` | Pick: `SingleBorder()`, `DoubleBorder()`, `ThickBorder()`, `RoundedBorder()`, `AsciiBorder()`, the half-block `QuadrantOutsideBorder()` / `QuadrantInsideBorder()`, or `CustomBorder(BorderGlyphs(TL, TR, BL, BR, Top, Bottom, Left, Right))` for a set of your own. |
 | `Titled(inner, title)` | `(Widget, string) Widget` | Single-line box with a top-left caption. |
 | `BorderStyled(inner, kind, style)` | `(Widget, BorderKind, Style) Widget` | Colour the frame itself, independent of its contents. |
 | `Block(inner, kind, sides, style, titles)` | `(Widget, BorderKind, BorderSides, Style, Array[BlockTitle]) Widget` | Full form. `AllSides()` / `NoSides()` / `SidesOf(t, r, b, l)` pick edges — a lone left rule is how two panes share one column instead of butting two walls together. Several titles per edge, bucketed by position and alignment. |
 | `RowFlex(children, flex, spacing)` | `(Array[LayoutChild], FlexMode, int) Widget` | Distribute slack: `FlexStart` / `FlexEnd` / `FlexCenter` / `FlexSpaceBetween` / `FlexSpaceAround` / `FlexSpaceEvenly`. `FlexLegacy` is the default and matches pre-0.12 behaviour. `ColumnFlex` is the vertical twin. |
-| `RowSpaced(children, n)` | `(Array[LayoutChild], int) Widget` | n cells between adjacent children; gaps come out of the axis before the solver runs. |
+| `RowSpaced(children, n)` | `(Array[LayoutChild], int) Widget` | n cells between adjacent children; gaps come out of the axis before the solver runs. **Negative n overlaps** them (ratatui's `Spacing::Overlap`): two bordered panes with `-1` share one border line. The overlap holds while the children fill the axis — a `FlexSpace*` mode adds slack back into each gap. |
 | `AutoScroll(rows, selected)` | `(Array[Widget], int) Widget` | Stack composed row widgets and scroll so `selected` stays visible. What `SelectList` does, for rows that are more than a label. |
 
 ### Rich text

@@ -276,6 +276,13 @@ sealed type BorderKind {
     case RoundedBorder()
     case ThickBorder()
     case AsciiBorder()
+    // Half-block frames (ratatui's QUADRANT_OUTSIDE / QUADRANT_INSIDE):
+    // outside sits flush against what surrounds the box, inside against its
+    // content — the latter reads as a solid edge around a block of colour.
+    case QuadrantOutsideBorder()
+    case QuadrantInsideBorder()
+    // CustomBorder draws with a glyph set of your own.
+    case CustomBorder(Glyphs BorderGlyphs)
 }
 
 // BorderSides selects which edges a BorderWidget actually draws. All four
@@ -1978,7 +1985,7 @@ func renderRow(
             Y      = area.Y,
             Width  = widths.Get(t.V2),
             Height = area.Height,
-        ), buf, hits))
+        ).Intersection(area), buf, hits))
 }
 
 // renderColumn is the vertical twin of renderRow.
@@ -2000,13 +2007,18 @@ func renderColumn(
             Y      = area.Y + offsets.Get(t.V2),
             Width  = area.Width,
             Height = heights.Get(t.V2),
-        ), buf, hits))
+        ).Intersection(area), buf, hits))
 }
 
 // totalGaps is the space consumed by inter-child spacing: one gap between
 // each adjacent pair, none at the edges.
+//
+// Negative spacing OVERLAPS neighbours — ratatui's `Spacing::Overlap` — and
+// gives the children that much more room between them. Its use is collapsing
+// borders: two bordered panes in a row with spacing -1 share the line between
+// them instead of drawing two side by side.
 func totalGaps(n int, spacing int) int =
-    if (n <= 1) 0 else MaxInt(0, spacing) * (n - 1)
+    if (n <= 1) 0 else spacing * (n - 1)
 
 // flexOffsets turns solved child sizes into start positions along the axis,
 // distributing whatever space the children did not claim according to
@@ -2029,7 +2041,6 @@ func flexOffsets(
     }
     val used = sizes.FoldLeft(0, (acc, s) => acc + s) + totalGaps(n, spacing)
     val slack = MaxInt(0, total - used)
-    val gap = MaxInt(0, spacing)
 
     // Every mode is the same computation over a different weighting of the
     // n+1 slots slack can land in: before the first child, between each
@@ -2044,8 +2055,10 @@ func flexOffsets(
 
     // A running total from the leading slot: each child starts where the
     // previous one ended, plus the spacing and the slack slot after it.
+    // Never backwards: an overlap wider than a child would otherwise place
+    // the next one before it, outside the row.
     return stream.FromArray(sizes.Zip(gaps.Drop(1)))
-        .Scan(gaps.Get(0), (pos, t) => pos + t.V1 + gap + t.V2)
+        .Scan(gaps.Get(0), (pos, t) => MaxInt(pos, pos + t.V1 + spacing + t.V2))
         .Take(n)
         .ToArray()
 }
@@ -2171,21 +2184,37 @@ func renderBorder(
     val right  = area.X + area.Width - 1
     val bottom = area.Y + area.Height - 1
 
-    // Edges. Each runs the full span and lets the corner pass below
-    // overwrite the ends, so a partial border (a lone left rule, say) is a
-    // clean line rather than a box missing three walls.
-    val hEdge = Cell(Ch = g.H, St = style)
-    val vEdge = Cell(Ch = g.V, St = style)
-    if sides.Top    { buf.Fill(Rect(X = area.X, Y = area.Y, Width = area.Width, Height = 1), hEdge) }
-    if sides.Bottom { buf.Fill(Rect(X = area.X, Y = bottom, Width = area.Width, Height = 1), hEdge) }
-    if sides.Left   { buf.Fill(Rect(X = area.X, Y = area.Y, Width = 1, Height = area.Height), vEdge) }
-    if sides.Right  { buf.Fill(Rect(X = right,  Y = area.Y, Width = 1, Height = area.Height), vEdge) }
+    // Every cell is written once — an edge cell or a corner, never both — and
+    // merged with what was already on screen: a light line drawn across the
+    // end of another becomes the junction between them (`┬`, `├`, `┼`), which
+    // is what makes two bordered panes overlapping by one cell (negative
+    // spacing) share a single border rather than meet corner-on-edge.
+    // Overlays that must not merge — a modal, a popup — clear their area
+    // first, so there is nothing underneath to merge with.
+    val put = (x int, y int, glyph rune) => {
+        buf.Set(x, y, Cell(Ch = mergeBorderGlyph(buf.CharAt(x, y), glyph), St = style))
+    }
+    val x0 = area.X + (if (sides.Left) 1 else 0)
+    val x1 = right - (if (sides.Right) 1 else 0)
+    val y0 = area.Y + (if (sides.Top) 1 else 0)
+    val y1 = bottom - (if (sides.Bottom) 1 else 0)
+    if sides.Top    { stream.Range(x0, x1 + 1).ForEach((x) => put(x, area.Y, g.Top)) }
+    if sides.Bottom { stream.Range(x0, x1 + 1).ForEach((x) => put(x, bottom, g.Bottom)) }
+    if sides.Left   { stream.Range(y0, y1 + 1).ForEach((y) => put(area.X, y, g.Left)) }
+    if sides.Right  { stream.Range(y0, y1 + 1).ForEach((y) => put(right, y, g.Right)) }
 
-    // Corners only exist where two edges actually meet.
-    if sides.Top && sides.Left     { buf.Set(area.X, area.Y, Cell(Ch = g.TL, St = style)) }
-    if sides.Top && sides.Right    { buf.Set(right,  area.Y, Cell(Ch = g.TR, St = style)) }
-    if sides.Bottom && sides.Left  { buf.Set(area.X, bottom, Cell(Ch = g.BL, St = style)) }
-    if sides.Bottom && sides.Right { buf.Set(right,  bottom, Cell(Ch = g.BR, St = style)) }
+    // A corner where two edges meet; where only one edge reaches a corner
+    // cell, that edge's own glyph runs to the end, so a partial border (a
+    // lone left rule, say) is a clean line rather than a box missing walls.
+    val corner = (x int, y int, h bool, v bool, c rune, hGlyph rune, vGlyph rune) => {
+        if h && v { put(x, y, c) }
+        else if h { put(x, y, hGlyph) }
+        else if v { put(x, y, vGlyph) }
+    }
+    corner(area.X, area.Y, sides.Top, sides.Left, g.TL, g.Top, g.Left)
+    corner(right, area.Y, sides.Top, sides.Right, g.TR, g.Top, g.Right)
+    corner(area.X, bottom, sides.Bottom, sides.Left, g.BL, g.Bottom, g.Left)
+    corner(right, bottom, sides.Bottom, sides.Right, g.BR, g.Bottom, g.Right)
 
     renderBlockTitles(titles, sides, area, buf)
 
@@ -2377,29 +2406,100 @@ func renderAlign(inner Widget, horiz Align, vert VAlign, cw int, ch int,
     ), buf, hits)
 }
 
-// borderGlyphs is a tuple-ish holder for the six glyphs a border uses.
-type BorderGlyphs struct {
-    TL rune
-    TR rune
-    BL rune
-    BR rune
-    H  rune
-    V  rune
+// narrowGlyphs keeps a custom set to one-cell glyphs: a border is written a
+// cell at a time, so a full-width glyph would push every cell after it one
+// column right and break the frame. Each wide glyph falls back to the single
+// line's.
+func narrowGlyphs(g BorderGlyphs) BorderGlyphs {
+    val one = (r rune, d rune) => if (RuneCellWidth(r) == 1) r else d
+    return BorderGlyphs(TL = one(g.TL, '┌'), TR = one(g.TR, '┐'), BL = one(g.BL, '└'), BR = one(g.BR, '┘'),
+                        Top = one(g.Top, '─'), Bottom = one(g.Bottom, '─'),
+                        Left = one(g.Left, '│'), Right = one(g.Right, '│'))
 }
+
+// mergeBorderGlyph is what a border cell shows when `glyph` is drawn where
+// `under` already is: for two light box-drawing glyphs, the junction that
+// carries the lines of both — `┐` drawn over `┌` is `┬`, `│` over `─` is `┼`
+// — and otherwise simply `glyph`. Rounded corners count as their square
+// equivalents; heavy, double and block glyphs do not merge.
+func mergeBorderGlyph(under rune, glyph rune) rune {
+    val a = lightLineBits(under)
+    val b = lightLineBits(glyph)
+    if a == 0 || b == 0 || (a | b) == b { return glyph }
+    return lightLineGlyph(a | b)
+}
+
+// Direction bits of a light line glyph: up 1, down 2, left 4, right 8.
+func lightLineBits(r rune) int = r match {
+    case '─' => 12
+    case '│' => 3
+    case '┌' => 10
+    case '╭' => 10
+    case '┐' => 6
+    case '╮' => 6
+    case '└' => 9
+    case '╰' => 9
+    case '┘' => 5
+    case '╯' => 5
+    case '├' => 11
+    case '┤' => 7
+    case '┬' => 14
+    case '┴' => 13
+    case '┼' => 15
+    case _   => 0
+}
+
+func lightLineGlyph(bits int) rune = bits match {
+    case 12 => '─'
+    case 3  => '│'
+    case 10 => '┌'
+    case 6  => '┐'
+    case 9  => '└'
+    case 5  => '┘'
+    case 11 => '├'
+    case 7  => '┤'
+    case 14 => '┬'
+    case 13 => '┴'
+    case _  => '┼'
+}
+
+// BorderGlyphs is the eight glyphs a border is drawn with: four corners and
+// one per edge. Box-drawing sets use the same glyph for opposite edges, but
+// block-element sets cannot — a quadrant border's top edge is `▀` and its
+// bottom `▄` — so each edge has its own. Build one for `CustomBorder`.
+type BorderGlyphs struct {
+    TL     rune
+    TR     rune
+    BL     rune
+    BR     rune
+    Top    rune
+    Bottom rune
+    Left   rune
+    Right  rune
+}
+
+// boxGlyphs is a glyph set whose opposite edges match — every box-drawing
+// set.
+func boxGlyphs(tl rune, tr rune, bl rune, br rune, h rune, v rune) BorderGlyphs =
+    BorderGlyphs(TL = tl, TR = tr, BL = bl, BR = br, Top = h, Bottom = h, Left = v, Right = v)
 
 // borderGlyphs maps a BorderKind to its glyph set.
 func borderGlyphs(k BorderKind) BorderGlyphs {
     return k match {
-        case SingleBorder()  =>
-            BorderGlyphs(TL = '┌', TR = '┐', BL = '└', BR = '┘', H = '─', V = '│')
-        case DoubleBorder()  =>
-            BorderGlyphs(TL = '╔', TR = '╗', BL = '╚', BR = '╝', H = '═', V = '║')
-        case RoundedBorder() =>
-            BorderGlyphs(TL = '╭', TR = '╮', BL = '╰', BR = '╯', H = '─', V = '│')
-        case ThickBorder()   =>
-            BorderGlyphs(TL = '┏', TR = '┓', BL = '┗', BR = '┛', H = '━', V = '┃')
-        case AsciiBorder()   =>
-            BorderGlyphs(TL = '+', TR = '+', BL = '+', BR = '+', H = '-', V = '|')
+        case SingleBorder()          => boxGlyphs('┌', '┐', '└', '┘', '─', '│')
+        case DoubleBorder()          => boxGlyphs('╔', '╗', '╚', '╝', '═', '║')
+        case RoundedBorder()         => boxGlyphs('╭', '╮', '╰', '╯', '─', '│')
+        case ThickBorder()           => boxGlyphs('┏', '┓', '┗', '┛', '━', '┃')
+        case AsciiBorder()           => boxGlyphs('+', '+', '+', '+', '-', '|')
+        // Half blocks drawn on the outer half of each edge cell: the frame
+        // sits flush against whatever is outside it.
+        case QuadrantOutsideBorder() => BorderGlyphs(TL = '▛', TR = '▜', BL = '▙', BR = '▟',
+                                                     Top = '▀', Bottom = '▄', Left = '▌', Right = '▐')
+        // …and on the inner half: flush against the content, which reads as a
+        // solid panel edge around a block of colour.
+        case QuadrantInsideBorder()  => BorderGlyphs(TL = '▗', TR = '▖', BL = '▝', BR = '▘',
+                                                     Top = '▄', Bottom = '▀', Left = '▐', Right = '▌')
+        case CustomBorder(g)         => narrowGlyphs(g)
     }
 }
 
