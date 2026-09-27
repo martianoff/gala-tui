@@ -90,6 +90,23 @@ func TestSparklineRendersBlocks(t T) T {
     return Eq(t, RowText(buf, 0), "▁▁▂▄▆█")
 }
 
+// A fixed max keeps a low series low: 2..8 of 16 is the bottom half of the
+// ramp, where the series' own max would stretch 8 to a full block.
+func TestSparklineFixedMaxKeepsTheScale(t T) T {
+    val buf = NewBuffer(4, 1)
+    RenderTo(SparklineStyled(ArrayOf(2, 4, 6, 8), DefaultStyle(), SparkLeftToRight(), 16),
+        Rect(X = 0, Y = 0, Width = 4, Height = 1), buf)
+    return Eq(t, RowText(buf, 0), "▁▂▃▄")
+}
+
+// A sample over the fixed max draws full rather than past the ramp.
+func TestSparklineClampsSamplesAboveTheFixedMax(t T) T {
+    val buf = NewBuffer(3, 1)
+    RenderTo(SparklineOf(ArrayOf(Some(5), Some(10), Some(40)), DefaultStyle(), SparkLeftToRight(), 10),
+        Rect(X = 0, Y = 0, Width = 3, Height = 1), buf)
+    return Eq(t, RowText(buf, 0), "▄██")
+}
+
 func TestSparklineEmptyIsNothing(t T) T {
     val buf = NewBuffer(4, 1)
     val w = Sparkline(EmptyArray[int]())

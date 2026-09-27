@@ -272,8 +272,8 @@ on one edge. Shapes outside the bounds clip; they do not wrap.
 | Widget | Signature | Notes |
 |---|---|---|
 | `Sparkline(values)` | `(Array[int]) Widget` | One-row bar density. A value at the series minimum floors to the smallest visible block; an *empty* series still renders blank. |
-| `SparklineStyled(values, style, dir?)` | `(Array[int], Style, SparkDirection) Widget` | …with custom fg/bg, and which end sample 0 sits at. |
-| `SparklineOf(values, style, dir?)` | `(Array[Option[int]], Style, SparkDirection) Widget` | …where `None` is a sample that does not exist, drawn as a blank column. |
+| `SparklineStyled(values, style, dir?, max?)` | `(Array[int], Style, SparkDirection, int) Widget` | …with custom fg/bg, which end sample 0 sits at, and a fixed top of the scale: `max` 100 keeps a CPU feed idling at 3% near the baseline instead of stretching it to full height. 0 (the default) scales to the series' own maximum. |
+| `SparklineOf(values, style, dir?, max?)` | `(Array[Option[int]], Style, SparkDirection, int) Widget` | …where `None` is a sample that does not exist, drawn as a blank column. |
 | `BarChart(data)` | `(Array[BarChartDatum]) Widget` | Labeled horizontal gauges, one per datum, whole-cell resolution. |
 | `BarChartOf(groups, style?, geom?, max?)` | `(Array[BarGroup], Style, BarGeometry, int) Widget` | Grouped columns on a common baseline, eighth-cell tops, each value above its bar. `max = 0` scales to the data; fix it to keep a live chart's scale still (values past it saturate). |
 | `HBarChartOf(groups, style?, geom?, max?)` | `(Array[BarGroup], Style, BarGeometry, int) Widget` | The same chart lying down: label column, bars from a shared left edge, value just past each bar's end. |
