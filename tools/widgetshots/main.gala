@@ -123,13 +123,25 @@ func svgGlyphRow(buf *Buffer, cols int, y int) string {
             x = x + 1
             continue
         }
-        // Extend the run while the style holds and the glyphs keep coming.
         // CharAt / StyleAt rather than Get().Ch: a field read through a
         // returned struct comes back wrapped in Immutable, which will not
         // unify with `rune` or `Style` (see buffer.gala).
         val st = buf.StyleAt(x, y)
+        val rows = blockRows(buf.CharAt(x, y))
+        if rows > 0 {
+            // A run of block glyphs on the same sub-cell grid, drawn as
+            // shapes rather than text.
+            val blockEnd = stream.Range(x, cols)
+                .Find((i) => blockRows(buf.CharAt(i, y)) != rows || !StyleEqual(buf.StyleAt(i, y), st))
+                .GetOrElse(cols)
+            sb.WriteString(svgBlockRun(buf, x, blockEnd, y, rows, st))
+            x = blockEnd
+            continue
+        }
+        // Extend the run while the style holds and the glyphs keep coming.
         val end = stream.Range(x, cols)
-            .Find((i) => buf.CharAt(i, y) == ' ' || !StyleEqual(buf.StyleAt(i, y), st))
+            .Find((i) => buf.CharAt(i, y) == ' ' || blockRows(buf.CharAt(i, y)) > 0 ||
+                !StyleEqual(buf.StyleAt(i, y), st))
             .GetOrElse(cols)
         val run = ArrayTabulate(end - x, (k) => buf.CharAt(x + k, y))
         sb.WriteString(svgText(string(run.ToGoSlice()), x, y, st))
@@ -152,6 +164,68 @@ func svgText(run string, x int, y int, st Style) string {
     if st.Dim       { attrs = attrs + " opacity=\"0.65\"" }
     val escaped = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(run)
     return s"<text $attrs>$escaped</text>\n"
+}
+
+// quadrantRunes lists the 2x2 block glyphs by pattern — bits 1 top left,
+// 2 top right, 4 bottom left, 8 bottom right. The half blocks and the full
+// block are among them.
+val quadrantRunes = ArrayOf(
+    ' ', '▘', '▝', '▀', '▖', '▌', '▞', '▛',
+    '▗', '▚', '▐', '▜', '▄', '▙', '▟', '█',
+)
+
+// The glyphs a canvas draws with solid blocks are drawn as rectangles rather
+// than as text: few fonts carry the sextants, and even a half block drawn by
+// a font rarely meets the cell edges. Every one is two sub-cells wide;
+// blockRows is how many tall (2 for quadrants, 3 for sextants), or 0 for a
+// glyph that is not a block.
+func blockRows(r rune) int =
+    if (quadrantRunes.IndexOf(r) > 0) 2
+    else if (r >= rune(0x1FB00) && r <= rune(0x1FB3B)) 3
+    else 0
+
+// blockBits is the sub-cells a block glyph fills, numbered row-major from
+// the top left.
+func blockBits(r rune) int {
+    val q = quadrantRunes.IndexOf(r)
+    if q > 0 {
+        return q
+    }
+    // U+1FB00 lists the sextants in bit order, skipping the two whole
+    // columns ▌ (21) and ▐ (42), which already had glyphs.
+    val k = int(r - rune(0x1FB00)) + 1
+    return k + (if (k >= 21) 1 else 0) + (if (k >= 41) 1 else 0)
+}
+
+// svgBlockRun draws the block glyphs in cells [x, end) of row y, all on a
+// grid `rows` sub-cells tall. Each horizontal stretch of filled sub-cells is
+// one rect, stacked with the same stretch in the sub-rows below it: a
+// gauge's run of █ is a single rect, not one per cell or per sub-row. Rects
+// that met on a sub-row boundary — 8.5px or 5.67px down the cell — left a
+// hairline seam there.
+func svgBlockRun(buf *Buffer, x int, end int, y int, rows int, st Style) string {
+    if st.Hidden { return "" }
+    val n = (end - x) * 2
+    val w = cellW() / 2.0
+    val h = cellH() / float64(rows)
+    val opacity = if (st.Dim) " opacity=\"0.65\"" else ""
+    val stretches = ArrayTabulate(rows, (r) => blockStretches(buf, x, n, y, r))
+    return stretches.ZipWithIndex()
+        .FlatMap((t) => t.V1.Filter((s) => t.V2 == 0 || !stretches.Get(t.V2 - 1).Contains(s)).Map((s) => (t.V2, s)))
+        .Map((rs) => {
+            val depth = stream.Range(rs.V1, rows).TakeWhile((r) => stretches.Get(r).Contains(rs.V2)).Count()
+            s"<rect x=\"${fmtF(float64(x) * cellW() + float64(rs.V2.V1) * w)}\" y=\"${fmtF(float64(y) * cellH() + float64(rs.V1) * h)}\" width=\"${fmtF(float64(rs.V2.V2 - rs.V2.V1) * w)}\" height=\"${fmtF(float64(depth) * h)}\" fill=\"${effectiveFg(st)}\"$opacity/>\n"
+        })
+        .MkString("")
+}
+
+// blockStretches is sub-row `r` of a block run `n` sub-cells wide starting
+// at cell x, as the [start, stop) stretches of filled sub-cells.
+func blockStretches(buf *Buffer, x int, n int, y int, r int) Array[Tuple[int, int]] {
+    val lit = ArrayTabulate(n, (sx) => (blockBits(buf.CharAt(x + sx / 2, y)) >> (r * 2 + sx % 2)) & 1 == 1)
+    return lit.ZipWithIndex()
+        .Collect({ case (true, sx) if sx == 0 || !lit.Get(sx - 1) => sx })
+        .Map((sx) => (sx, stream.Range(sx, n).Find((i) => !lit.Get(i)).GetOrElse(n)))
 }
 
 // effectiveFg / effectiveBg fold Reverse in here rather than at every call

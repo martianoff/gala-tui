@@ -105,15 +105,19 @@ func shotRichText() Widget =
         ))).Aligned(AlignCenter())), " ParagraphView — wrapped, centred ")),
     ))
 
+// shotCanvas draws one filled series with each sub-cell marker: braille
+// dots, then the solid sextant and quadrant blocks.
 func shotCanvas() Widget {
     val n = demoSeries().Length()
     val xs = ArrayTabulate(n, (i) => float64(i))
     val ys = demoSeries().Map((v) => float64(v))
-    return Titled(CanvasOf(
-        XBounds(0.0, float64(n - 1)),
-        YBounds(0.0, 64.0),
-        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan()))),
-        " CanvasOf + FilledSeriesOf — braille, 2x4 per cell ")
+    val area = (m CanvasMarker) => Canvas(XBounds(0.0, float64(n - 1)), YBounds(0.0, 64.0), m,
+        FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan())))
+    return Row(ArrayOf[LayoutChild](
+        Flex(2, Titled(area(BrailleMarker()), " FilledSeriesOf — braille 2x4 ")),
+        Flex(1, Titled(area(SextantMarker()), " sextant 2x3 ")),
+        Flex(1, Titled(area(QuadrantMarker()), " quadrant 2x2 ")),
+    ))
 }
 
 func shotCharts() Widget =

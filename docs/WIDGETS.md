@@ -212,7 +212,7 @@ Shapes in your own coordinate space, at sub-cell resolution. Braille packs
 
 | Widget | Signature | Notes |
 |---|---|---|
-| `Canvas(x, y, marker, shapes)` | `(Bounds, Bounds, CanvasMarker, Array[Shape]) Widget` | Full form. Markers: `BrailleMarker` (2×4), `HalfBlockMarker` (1×2), `DotMarker`, `BlockMarker`. |
+| `Canvas(x, y, marker, shapes)` | `(Bounds, Bounds, CanvasMarker, Array[Shape]) Widget` | Full form. Markers: `BrailleMarker` (2×4 dots), the solid blocks `SextantMarker` (2×3, Unicode 13 — needs a recent font), `QuadrantMarker` (2×2) and `HalfBlockMarker` (1×2), then `DotMarker`, `BlockMarker`. |
 | `CanvasOf(x, y, shapes)` | `(Bounds, Bounds, Array[Shape]) Widget` | Braille, the usual choice. |
 | `XBounds(min, max)` / `YBounds(min, max)` | `(float64, float64) Bounds` | The caller's coordinate range per axis. |
 | `PointsOf(xs, ys, style)` | `(Array[float64], Array[float64], Style) Shape` | Build a series from parallel arrays. |

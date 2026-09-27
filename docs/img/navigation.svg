@@ -22,7 +22,7 @@
 <text x="16.80" y="115.00" fill="#121314" textLength="58.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">staging</text>
 <text x="462.00" y="115.00" fill="#121314" textLength="33.60" lengthAdjust="spacingAndGlyphs" font-weight="bold">auto</text>
 <text x="504.00" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
-<text x="529.20" y="115.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">█</text>
+<rect x="529.20" y="102.00" width="8.40" height="17.00" fill="#cccccc"/>
 <text x="0.00" y="132.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="16.80" y="132.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">canary</text>
 <text x="470.40" y="132.00" fill="#cccccc" textLength="25.20" lengthAdjust="spacingAndGlyphs">10%</text>
