@@ -50,6 +50,11 @@ func ansiHome() string         = "\x1b[H"
 // ansiMoveTo moves the cursor to 1-indexed (row, col) — absolute screen cells.
 func ansiMoveTo(row int, col int) string = s"\x1b[${row};${col}H"
 
+// ansiCursorShape is DECSCUSR: draw the cursor in shape `code` — 0 the
+// terminal's own, then blinking and steady block (1, 2), underline (3, 4)
+// and bar (5, 6). See `CursorShape`.
+func ansiCursorShape(code int) string = s"[${code} q"
+
 // ansiSyncBegin / ansiSyncEnd bracket a synchronized update (DEC private
 // mode 2026): the terminal holds what it receives in between and presents
 // it in one go. See `synchronized`.

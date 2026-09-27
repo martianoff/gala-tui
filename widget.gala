@@ -40,7 +40,7 @@ sealed type Widget {
     case RestyleW(Inner Widget, Restyle func(Style) Style)
     // CursorW asks for the real terminal cursor at (X, Y) inside its area
     // once the frame is painted — see `Buffer.SetCursor`.
-    case CursorW(Inner Widget, X int, Y int)
+    case CursorW(Inner Widget, X int, Y int, Shape CursorShape)
     // CanvasW draws Shapes in the caller's coordinate space at sub-cell
     // resolution. See canvas.gala.
     case CanvasW(
@@ -566,8 +566,10 @@ func Restyled(inner Widget, f func(Style) Style) Widget =
 // CursorAt puts the real terminal cursor at (x, y) inside `inner`'s area.
 // A focused `Input` already does this at its caret; reach for it when a
 // custom widget has an insertion point of its own (a canvas you type on, a
-// cell editor).
-func CursorAt(inner Widget, x int, y int) Widget = CursorW(Inner = inner, X = x, Y = y)
+// cell editor). `shape` draws it as a block, underline or bar — `CursorBar`
+// for an insertion point between characters.
+func CursorAt(inner Widget, x int, y int, shape CursorShape = CursorDefault()) Widget =
+    CursorW(Inner = inner, X = x, Y = y, Shape = shape)
 
 // Highlighted is the selection case: paint the whole area in `style`,
 // whatever the inner widget drew.
@@ -1436,10 +1438,11 @@ func renderToInternal(w Widget, area Rect, buf *Buffer, hits *HitRegistry) {
             renderText(content, style, area, buf)
         case RichTextW(text) =>
             renderRichText(text, area, buf)
-        case CursorW(inner, cx, cy) => {
+        case CursorW(inner, cx, cy, shape) => {
             renderToInternal(inner, area, buf, hits)
             if cx >= 0 && cy >= 0 && cx < area.Width && cy < area.Height {
                 buf.SetCursor(area.X + cx, area.Y + cy)
+                buf.SetCursorShape(shape)
             }
         }
         case RestyleW(inner, restyle) => {
@@ -2607,7 +2610,7 @@ func defaultRenderWidth(w Widget) int {
         case TextWidget(content, _)            => RuneCount(content)
         case RichTextW(text)                   => text.CellWidth()
         case RestyleW(inner, _)                => defaultRenderWidth(inner)
-        case CursorW(inner, _, _)              => defaultRenderWidth(inner)
+        case CursorW(inner, _, _, _)           => defaultRenderWidth(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(content, _)             => StringCellWidth(content)
         case CellRichW(lines, _, _)            => RichTextOf(lines).CellWidth()
@@ -2659,7 +2662,7 @@ func defaultRenderHeight(w Widget) int {
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => defaultRenderHeight(inner)
-        case CursorW(inner, _, _)              => defaultRenderHeight(inner)
+        case CursorW(inner, _, _, _)           => defaultRenderHeight(inner)
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(_, _)                   => 1
         case CellRichW(lines, _, _)            => MaxInt(1, lines.Length())
@@ -2730,7 +2733,7 @@ func IntrinsicHeightAt(w Widget, width int) int {
         case TextWidget(_, _)                  => 1
         case RichTextW(text)                   => text.LineCount()
         case RestyleW(inner, _)                => IntrinsicHeightAt(inner, width)
-        case CursorW(inner, _, _)              => IntrinsicHeightAt(inner, width)
+        case CursorW(inner, _, _, _)           => IntrinsicHeightAt(inner, width)
         // A canvas has no natural size — it fills whatever it is given.
         case CanvasW(_, _, _, _, _, _)         => 1
         case CellTextW(_, _)                   => 1

@@ -42,7 +42,7 @@ struct FormField(
     //     too short") puts the secret straight back into the widget tree,
     //     undoing everything masking is for. Describe the rule, never the
     //     value.
-    Masked    bool,
+    Masked    bool = false,
     // MaskChar is the glyph `Masked` draws. See `MaskRune` for why a CJK
     // locale may want `*` instead of the default bullet.
     //
@@ -59,7 +59,7 @@ struct FormField(
     // field and an omitted field is the zero value; a default here would
     // read as a promise the language does not keep, and would pin a glyph
     // that `MaskRune` owns.
-    MaskChar  rune,
+    MaskChar  rune = MaskRune(),
 )
 
 // NewField builds a field with no validator — always valid.

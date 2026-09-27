@@ -192,6 +192,9 @@ type Buffer struct {
     var cursorX  int
     var cursorY  int
     var cursorOn bool
+    // The shape asked for, as its DECSCUSR code — see `SetCursorShape`.
+    // Zero, the default, is the terminal's own shape.
+    var cursorShape int
 }
 
 // NewBuffer allocates a w×h buffer whose cells are all EmptyCell. Panics on
@@ -412,6 +415,33 @@ func (b *Buffer) clearCursorIn(r Rect) {
     if b.cursorOn && r.Contains(b.cursorX, b.cursorY) { b.cursorOn = false }
 }
 
+// CursorShape is how the real cursor is drawn. `CursorDefault` is whatever
+// the terminal's own settings say; the others are a block, an underline or
+// a vertical bar, each blinking or steady. A bar is the usual caret for
+// text entry: it sits between characters, where the next one will go.
+// Terminals that cannot change the shape ignore the request.
+sealed type CursorShape {
+    case CursorDefault()
+    case CursorBlock(Blink bool)
+    case CursorUnderline(Blink bool)
+    case CursorBar(Blink bool)
+}
+
+// cursorShapeCode is the DECSCUSR parameter for `s`.
+func cursorShapeCode(s CursorShape) int = s match {
+    case CursorDefault()        => 0
+    case CursorBlock(blink)     => if (blink) 1 else 2
+    case CursorUnderline(blink) => if (blink) 3 else 4
+    case CursorBar(blink)       => if (blink) 5 else 6
+}
+
+// SetCursorShape asks for the cursor drawn as `shape` — alongside
+// `SetCursor`, which says where. A frame that does not ask gets the
+// terminal's own shape.
+func (b *Buffer) SetCursorShape(shape CursorShape) {
+    b.cursorShape = cursorShapeCode(shape)
+}
+
 // Cursor is the cursor this frame asked for, if any.
 func (b *Buffer) Cursor() Option[Tuple[int, int]] =
     if (b.cursorOn) Some((b.cursorX, b.cursorY)) else None[Tuple[int, int]]()
@@ -421,7 +451,8 @@ func (b *Buffer) Cursor() Option[Tuple[int, int]] =
 // frame isn't clobbered when the new one is rendered.
 func (b *Buffer) Clone() *Buffer =
     &Buffer{Width: b.Width, Height: b.Height, cells: SliceCopy(b.cells),
-             cursorX: b.cursorX, cursorY: b.cursorY, cursorOn: b.cursorOn}
+             cursorX: b.cursorX, cursorY: b.cursorY, cursorOn: b.cursorOn,
+             cursorShape: b.cursorShape}
 
 // ContentsEqual is a true cell-by-cell comparison — used mainly in tests and
 // by the differential renderer. Not named `Equal` because GALA auto-generates

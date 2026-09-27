@@ -51,7 +51,7 @@ struct MouseEvent(
     X       int,                    // 0-indexed column
     Y       int,                    // 0-indexed row
     Pressed bool,                   // true = press OR drag-motion, false = release
-    Motion  bool,                   // true when this is a motion event with a button held (drag)
+    Motion  bool = false,           // true when this is a motion event with a button held (drag)
 )
 
 // DragPhase identifies which step of a click-and-drag gesture a
