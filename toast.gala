@@ -178,18 +178,15 @@ func StatusBarView(bar StatusBar) Widget {
 // declared with `.WithUnderline()` must underline its text, and ORing only
 // Bold/Dim/Reverse silently dropped Italic, Underline, Blink and Strike
 // from a public constructor.
-func statusCellStyle(cell Style, bar Style) Style {
-    val fg = if (ColorEq(cell.Fg, DefaultColor())) bar.Fg else cell.Fg
-    return cell.Copy(
-        Fg        = fg,
-        Bg        = bar.Bg,
-        Bold      = cell.Bold || bar.Bold,
-        Dim       = cell.Dim || bar.Dim,
-        Reverse   = cell.Reverse || bar.Reverse,
-        Italic    = cell.Italic || bar.Italic,
-        Underline = cell.Underline || bar.Underline,
-        Blink     = cell.Blink || bar.Blink,
-        Strike    = cell.Strike || bar.Strike,
+//
+// The cell's style patched over the bar's — every attribute either sets is
+// kept, and the cell's own foreground wins — except that the background is
+// always the bar's, the bar's underline colour wins, and a link stays the
+// cell's own. Built on `Patch`, so a new style attribute reaches the status
+// bar without being added here too.
+func statusCellStyle(cell Style, bar Style) Style =
+    bar.Patch(cell).Copy(
+        Bg             = bar.Bg,
         UnderlineColor = patchColor(cell.UnderlineColor, bar.UnderlineColor),
+        Link           = cell.Link,
     )
-}

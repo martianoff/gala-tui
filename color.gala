@@ -1,5 +1,11 @@
 package gala_tui
 
+import (
+    . "martianoff/gala/collection_immutable"
+    "strconv"
+    "strings"
+)
+
 // Color represents a terminal foreground or background color.
 //
 // Four variants cover the full spectrum of terminal color support:
@@ -103,3 +109,48 @@ func namedSgr(idx int, base int, bright int) string {
 // ColorEq reports whether two colors produce the same SGR output. Useful when
 // diffing cells during incremental render (next iteration).
 func ColorEq(a Color, b Color) bool = ToSgrFg(a) == ToSgrFg(b)
+
+// ColorFromString reads a colour from configuration — a theme file, a flag,
+// an environment variable — or returns `fallback` when `s` names none,
+// including when it is empty (an unset variable):
+//
+//   - `#rrggbb` and `#rgb`                    → RGB
+//   - `0`..`255`                              → Indexed
+//   - `black`, `red`, … `white`, and their `bright` / `light` forms
+//                                             → NamedColor 0..15
+//   - `gray` / `grey` (7) and `dark gray` (8), ratatui's names for the two
+//     greys of the 16-colour palette
+//   - `default` / `reset`                     → DefaultColor
+//
+// Names ignore case, spaces, `-` and `_` (`Light Blue`, `light_blue`), but
+// numbers and hex are read as written: `-1` is not a palette index, it is a
+// typo, and a typo gets the fallback rather than a plausible wrong colour.
+// A fallback rather than an Option because GALA 0.80 cannot lower an Option
+// of a package type.
+func ColorFromString(s string, fallback Color) Color {
+    val raw = strings.TrimSpace(s)
+    if raw == "" { return fallback }
+    if strings.HasPrefix(raw, "#") { return hexColor(raw, fallback) }
+    var n, err = strconv.Atoi(raw)
+    if err == nil { return if (n >= 0 && n <= 255) Indexed(n) else fallback }
+    val t = strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(raw))
+    if t == "default" || t == "reset" { return DefaultColor() }
+    val names = ArrayOf[string]("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
+    val base = strings.TrimPrefix(strings.TrimPrefix(t, "bright"), "light")
+    val idx = names.IndexOf(base)
+    if idx >= 0 { return NamedColor(if (base != t) idx + 8 else idx) }
+    val grey = strings.ReplaceAll(t, "grey", "gray")
+    return if (grey == "gray" || grey == "lightgray") NamedColor(7)
+    else if (grey == "darkgray") NamedColor(8)
+    else fallback
+}
+
+// hexColor reads `#rrggbb` or `#rgb` (each digit doubled), or `fallback`.
+func hexColor(t string, fallback Color) Color {
+    val h = strings.TrimPrefix(t, "#")
+    val full = if (h.Size() == 3) strings.Repeat(string(h[0]), 2) + strings.Repeat(string(h[1]), 2) + strings.Repeat(string(h[2]), 2) else h
+    if full.Size() != 6 { return fallback }
+    var v, err = strconv.ParseUint(full, 16, 32)
+    if err != nil { return fallback }
+    return RGB(int(v >> 16) & 0xFF, int(v >> 8) & 0xFF, int(v) & 0xFF)
+}

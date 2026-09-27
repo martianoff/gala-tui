@@ -78,6 +78,9 @@ func borderKindIs(k BorderKind, name string) bool {
         case RoundedBorder() => name == "rounded"
         case ThickBorder()   => name == "thick"
         case AsciiBorder()   => name == "ascii"
+        case QuadrantOutsideBorder() => name == "quadrant-outside"
+        case QuadrantInsideBorder()  => name == "quadrant-inside"
+        case CustomBorder(_)         => name == "custom"
     }
 }
 

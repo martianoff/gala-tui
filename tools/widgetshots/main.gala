@@ -139,6 +139,8 @@ func svgGlyphRow(buf *Buffer, cols int, y int) string {
 }
 
 func svgText(run string, x int, y int, st Style) string {
+    // Hidden text is in the cell but not shown — nor, then, in the picture.
+    if st.Hidden { return "" }
     val px = float64(x) * cellW()
     // Baseline sits ~78% down the cell for a 13.5px face in a 17px box.
     val py = float64(y) * cellH() + 13.0
