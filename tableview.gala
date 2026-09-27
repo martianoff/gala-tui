@@ -240,15 +240,15 @@ func tableRowWidget(t TableSpec, r TableRow, selected bool, selCol int, symW int
     return Stack(ArrayOf[Widget](FillChStyled(' ', band), row))
 }
 
-// tableHighlight is the overlay a cell is under, in ratatui's order: the row
+// tableHighlight is the overlay a cell is under, in this order: the row
 // highlight, then the column highlight, then — where the cursor row crosses
 // the highlighted column — the cell highlight. It is patched over the cell
 // AND its text's own spans, so a highlight that sets a colour stays visible
 // on a cell that paints its own.
 //
-// Like ratatui's `add_modifier`, a highlight can only add attributes: a cell
-// that is already reversed shows no change under a reverse-video highlight.
-// Give such tables a highlight that sets a colour.
+// A highlight adds attributes and removes only those it names with
+// `Without…`: a cell that is already reversed shows no change under a
+// reverse-video highlight. Give such tables a highlight that sets a colour.
 func tableHighlight(t TableSpec, rowSel bool, colSel bool) Style {
     val withRow = if (rowSel) t.RowHighlight else DefaultStyle()
     val withCol = if (colSel) withRow.Patch(t.ColumnHighlight) else withRow

@@ -72,7 +72,9 @@ A `Style` is built fluently: `.WithFg`, `.WithBg` / `.On`, `.WithBold`, `.WithIt
 and `.WithUnderlineColor(c)` — an underline in its own colour (SGR 58: a red
 rule under an error, a dim rule under bright link text). Terminals
 without SGR 58 ignore it and draw the ordinary underline. `a.Patch(b)` layers
-`b` over `a`, keeping whatever `b` leaves unset.
+`b` over `a`, keeping whatever `b` leaves unset. Each attribute also has a
+`.Without…` form (`.WithoutBold()`, `.WithoutDim()`, …) that turns it off in
+`a` as well: a plain `false` means "not mentioned", a `Without` means "remove".
 
 ```gala
 DefaultStyle().WithFg(BrightWhite()).WithUnderlineColor(BrightRed())
@@ -422,9 +424,10 @@ TableView(TableSpecOf(
   then row, column and cell highlights on top. Patching rather than replacing
   keeps a red "failed" red inside a selected row. The defaults read without
   colour: reverse for the row, bold for the column, bold underline where they
-  cross. Highlights only ever add attributes (like ratatui's `add_modifier`),
-  so on cells that are already reversed or bold, give the table a highlight
-  that sets a colour with `.WithHighlights(row, column, cell)`.
+  cross. Set them with `.WithHighlights(row, column, cell)`. A highlight adds
+  attributes and takes away only what it removes with `Without…` — a row
+  highlight of `DefaultStyle().WithReverse().WithoutDim()` lifts a dimmed row;
+  on cells that are already reversed, give it a colour instead.
 - **Highlight symbol** — `HighlightWhenSelected()` (the default) reserves the
   symbol's column only while a row is selected, so the columns shift when the
   cursor appears; `HighlightAlways()` keeps them still.

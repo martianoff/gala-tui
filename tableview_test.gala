@@ -33,6 +33,35 @@ func TestPatchKeepsWhatTheOverlayLeavesUnset(t T) T {
 func TestPatchOverlayColourWins(t T) T =
     IsTrue(t, ColorEq(DefaultStyle().WithFg(Red()).Patch(DefaultStyle().WithFg(Green())).Fg, Green()))
 
+// A removal is the one way a patch turns an attribute off: a plain `false`
+// means "not mentioned" and keeps the bold, a `WithoutBold` drops it.
+func TestPatchWithoutRemovesTheAttributeUnderneath(t T) T {
+    val base = DefaultStyle().WithBold().WithItalic()
+    val t1 = IsTrue(t, base.Patch(DefaultStyle()).Bold)
+    val got = base.Patch(DefaultStyle().WithoutBold())
+    val t2 = IsFalse(t1, got.Bold)
+    return IsTrue(t2, got.Italic)
+}
+
+// The removal travels with the patched style, so stacking it on a
+// further layer still takes the attribute away — and a later `With`
+// cancels it.
+func TestPatchRemovalCarriesAndWithCancelsIt(t T) T {
+    val removal = DefaultStyle().On(Blue()).Patch(DefaultStyle().WithoutDim())
+    val t1 = IsFalse(t, DefaultStyle().WithDim().Patch(removal).Dim)
+    return IsTrue(t1, DefaultStyle().WithDim().Patch(DefaultStyle().WithoutDim().WithDim()).Dim)
+}
+
+// End to end: a dimmed row under a highlight that lifts the dim.
+func TestRowHighlightWithoutDimLiftsADimmedRow(t T) T {
+    val spec = TableSpecOf(tvWidths(), ArrayOf[TableRow](
+        TableRowOfStrings("a", "1").WithStyle(DefaultStyle().WithDim()),
+    )).Select(0).WithHighlights(DefaultStyle().WithReverse().WithoutDim(), DefaultStyle(), DefaultStyle())
+    val st = renderAt(TableView(spec), 7, 1).StyleAt(0, 0)
+    val t1 = IsTrue(t, st.Reverse)
+    return IsFalse(t1, st.Dim)
+}
+
 // ---- SpansEllipsis ---------------------------------------------------------
 
 // A cut marks itself with "…" in the style of the last character kept, so
