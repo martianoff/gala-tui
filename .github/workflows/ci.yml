@@ -32,5 +32,11 @@ jobs:
           chmod +x /usr/local/bin/gala
           gala version
 
+      # One Go package compiles at a time. Compiling the root package peaks at
+      # ~10 GB of RSS (its generics instantiate heavily), and the demo package
+      # at ~6.5 GB; built in parallel they exceed the 16 GB runner, which then
+      # kills the step with exit 143 and no error.
       - name: Test
+        env:
+          GOFLAGS: -p=1
         run: gala test
