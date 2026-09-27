@@ -954,7 +954,7 @@ func ResolveClickEvent[T any](
     pending Option[ClickPending],
     fallback func(InputEvent) T,
 ) Tuple[Array[T], Option[ClickPending]] {
-    val res = ResolveClickEventWithDrag[T](ev, now, hits, pending, None[DragActive](), fallback)
+    val res = ResolveClickEventWithDrag[T](ev, now, hits, pending, None(), fallback)
     return (res.Msgs, res.Pending)
 }
 
@@ -1222,11 +1222,8 @@ func ResolveClickOrInput[T any](
             // Drag region wins over click region (same precedence
             // as the persistent resolver — DragPress fires on the
             // press of any drag-only target).
-            val dragHit = hits.HitAtDrag(m.X, m.Y)
-            val dragMsg = dragHit match {
-                case Some(payload) => Some(invokeDragPayload[T](payload, DragPress(), fallback(ev)))
-                case None()        => None[T]()
-            }
+            val dragMsg = hits.HitAtDrag(m.X, m.Y)
+                .Map((payload) => invokeDragPayload[T](payload, DragPress(), fallback(ev)))
             if dragMsg.IsDefined() { return dragMsg.Get() }
             val opt = hits.HitAt(m.X, m.Y)
             return opt match {

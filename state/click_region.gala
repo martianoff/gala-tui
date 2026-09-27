@@ -131,13 +131,8 @@ func (cm ClickMap[T]) When(
 // HitMsg returns the message for the first region whose rectangle
 // contains `(px, py)`, or None if no region matches. Coordinates are
 // terminal-cell, 0-indexed (the same coordinate space MouseEvent uses).
-func (cm ClickMap[T]) HitMsg(px int, py int) Option[T] {
-    val hit = cm.Regions.Find((r) => clickContains(r, px, py))
-    return hit match {
-        case Some(r) => Some(r.Msg)
-        case None()  => None[T]()
-    }
-}
+func (cm ClickMap[T]) HitMsg(px int, py int) Option[T] =
+    cm.Regions.Find((r) => clickContains(r, px, py)).Map(_.Msg)
 
 // HitOr returns the message for the first matching region, or `fallback`
 // if no region matches. Convenience for the common "click anywhere → some

@@ -458,7 +458,7 @@ func clipSegment(
         clipEdge(P = dx,  Q = float64(g.W - 1 - x1)),
         clipEdge(P = -dy, Q = float64(y1)),
         clipEdge(P = dy,  Q = float64(g.H - 1 - y1)),
-    ).FoldLeft(Some[Tuple[float64, float64]]((0.0, 1.0)), narrowSpan).Map((r) => {
+    ).FoldLeft(Some((0.0, 1.0)), narrowSpan).Map((r) => {
         val (t0, t1) = r
         return clippedSegment(
             X1 = x1 + int(t0 * dx),
