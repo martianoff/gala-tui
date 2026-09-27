@@ -178,24 +178,24 @@ func Step[M any, T any](p Program[M, T], model M, msg T) Tuple[M, Cmd[T]] =
 // Workhorse test harness: apps that react to counter increments, forms that
 // validate input, FSMs that accept/reject transitions — all exercised here
 // without a terminal.
-func StepAll[M any, T any](p Program[M, T], msgs Array[T]) Tuple[M, Array[Cmd[T]]] {
-    var model = p.Initial
-    var cmds = EmptyArray[Cmd[T]]()
-    var queue = msgs
-    var i = 0
-    for i < queue.Length() {
-        val head = queue.Get(i)
-        i = i + 1
-        val (newModel, cmd) = p.Update(model, head)
-        model = newModel
-        cmds = cmds.Append(cmd)
-        val emitted = PendingMsgs(cmd)
-        if emitted.NonEmpty() {
-            queue = queue.AppendAll(emitted)
-        }
-        if IsQuit(cmd) {
-            return (model, cmds)
-        }
-    }
-    return (model, cmds)
+func StepAll[M any, T any](p Program[M, T], msgs Array[T]) Tuple[M, Array[Cmd[T]]] =
+    stepQueue[M, T](p, p.Initial, msgs, 0, EmptyArray[Cmd[T]]())
+
+// stepQueue works through `queue` from index `i`. The queue grows while it
+// is processed — a command's emitted messages join the back, so dispatch is
+// breadth-first — and a Quit stops it early, which is why this recurses
+// rather than folding over a fixed array. Recursion depth is the number of
+// messages stepped, which is a test's script length.
+func stepQueue[M any, T any](
+    p Program[M, T],
+    model M,
+    queue Array[T],
+    i int,
+    cmds Array[Cmd[T]],
+) Tuple[M, Array[Cmd[T]]] {
+    if i >= queue.Length() { return (model, cmds) }
+    val (next, cmd) = p.Update(model, queue.Get(i))
+    val done = cmds.Append(cmd)
+    if IsQuit(cmd) { return (next, done) }
+    return stepQueue[M, T](p, next, queue.AppendAll(PendingMsgs(cmd)), i + 1, done)
 }

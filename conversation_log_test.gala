@@ -1,6 +1,9 @@
 package gala_tui
 
 import (
+    "martianoff/gala/stream"
+    "strconv"
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
     . "martianoff/gala/test"
@@ -37,36 +40,8 @@ import (
 // exactly N rows (no Flex, no wrapping) so we can assert text exactly.
 func clMakeEntry(prefix string, n int) ConversationEntry {
     val rows = ArrayTabulate(n, (i) =>
-        Fixed(1, Text(prefix + "-" + clIntStr(i))))
+        Fixed(1, Text(prefix + "-" + strconv.Itoa(i))))
     return ConversationEntry(Body = Column(rows), Height = n)
-}
-
-func clIntStr(n int) string {
-    if n == 0 { return "0" }
-    var x = n
-    var digits = ""
-    val negative = x < 0
-    if negative { x = -x }
-    for x > 0 {
-        val d = x % 10
-        digits = clDigit(d) + digits
-        x = x / 10
-    }
-    return if (negative) "-" + digits else digits
-}
-
-func clDigit(d int) string = d match {
-    case 0 => "0"
-    case 1 => "1"
-    case 2 => "2"
-    case 3 => "3"
-    case 4 => "4"
-    case 5 => "5"
-    case 6 => "6"
-    case 7 => "7"
-    case 8 => "8"
-    case 9 => "9"
-    case _ => "?"
 }
 
 // clBuildLog appends `count` entries of height 3 each, stripe text
@@ -74,14 +49,10 @@ func clDigit(d int) string = d match {
 // rendered.
 func clBuildLog(count int, perEntryHeight int) ConversationLog {
     val labels = ArrayOf[string]("A", "B", "C", "D", "E", "F", "G", "H", "I", "J")
-    var log = NewConversationLog()
-    var i = 0
-    for i < count {
+    return stream.Range(0, count).Fold(NewConversationLog(), (log, i) => {
         val prefix = if (i < labels.Length()) labels.Get(i) else "X"
-        log = ConversationLogUpdate(log, CvAppend(Entry = clMakeEntry(prefix, perEntryHeight)))
-        i = i + 1
-    }
-    return log
+        return ConversationLogUpdate(log, CvAppend(Entry = clMakeEntry(prefix, perEntryHeight)))
+    })
 }
 
 // ----------------------------------------------------------------------------
@@ -129,12 +100,12 @@ func TestConversationLogRendersAllRowsAtFullHeight(t T) T {
     val log = clBuildLog(2, 3)
     val view = ConversationLogView(log, 6)        // total = 6, no scrolling
     val rows = SnapshotLines(view, 12, 6)
-    val t1 = Eq(t, clTrimRow(rows.Get(0)), "A-0")
-    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "A-1")
-    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "A-2")
-    val t4 = Eq(t3, clTrimRow(rows.Get(3)), "B-0")
-    val t5 = Eq(t4, clTrimRow(rows.Get(4)), "B-1")
-    return Eq(t5, clTrimRow(rows.Get(5)), "B-2")
+    val t1 = Eq(t, strings.TrimRight(rows.Get(0), " "), "A-0")
+    val t2 = Eq(t1, strings.TrimRight(rows.Get(1), " "), "A-1")
+    val t3 = Eq(t2, strings.TrimRight(rows.Get(2), " "), "A-2")
+    val t4 = Eq(t3, strings.TrimRight(rows.Get(3), " "), "B-0")
+    val t5 = Eq(t4, strings.TrimRight(rows.Get(4), " "), "B-1")
+    return Eq(t5, strings.TrimRight(rows.Get(5), " "), "B-2")
 }
 
 // ----------------------------------------------------------------------------
@@ -146,10 +117,10 @@ func TestConversationLogStickyShowsTrailingRows(t T) T {
     val view = ConversationLogView(log, 4)
     val rows = SnapshotLines(view, 12, 4)
     // Sticky → trailing 4 rows: last 1 of B + all 3 of C.
-    val t1 = Eq(t, clTrimRow(rows.Get(0)), "B-2")
-    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "C-0")
-    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "C-1")
-    return Eq(t3, clTrimRow(rows.Get(3)), "C-2")
+    val t1 = Eq(t, strings.TrimRight(rows.Get(0), " "), "B-2")
+    val t2 = Eq(t1, strings.TrimRight(rows.Get(1), " "), "C-0")
+    val t3 = Eq(t2, strings.TrimRight(rows.Get(2), " "), "C-1")
+    return Eq(t3, strings.TrimRight(rows.Get(3), " "), "C-2")
 }
 
 // ----------------------------------------------------------------------------
@@ -163,10 +134,10 @@ func TestConversationLogScrolledShowsCorrectWindow(t T) T {
     val t1 = Eq(t, scrolled.Offset, 2)
     val view = ConversationLogView(scrolled, 4)
     val rows = SnapshotLines(view, 12, 4)
-    val u1 = Eq(t1, clTrimRow(rows.Get(0)), "A-2")
-    val u2 = Eq(u1, clTrimRow(rows.Get(1)), "B-0")
-    val u3 = Eq(u2, clTrimRow(rows.Get(2)), "B-1")
-    return Eq(u3, clTrimRow(rows.Get(3)), "B-2")
+    val u1 = Eq(t1, strings.TrimRight(rows.Get(0), " "), "A-2")
+    val u2 = Eq(u1, strings.TrimRight(rows.Get(1), " "), "B-0")
+    val u3 = Eq(u2, strings.TrimRight(rows.Get(2), " "), "B-1")
+    return Eq(u3, strings.TrimRight(rows.Get(3), " "), "B-2")
 }
 
 // ----------------------------------------------------------------------------
@@ -178,7 +149,7 @@ func TestConversationLogPageUpShiftsWindow(t T) T {
     val view0 = ConversationLogView(log, 4)
     val rows0 = SnapshotLines(view0, 12, 4)
     // Sticky tail = window [8, 12): C-2, D-0, D-1, D-2.
-    val sticky0 = Eq(t, clTrimRow(rows0.Get(0)), "C-2")
+    val sticky0 = Eq(t, strings.TrimRight(rows0.Get(0), " "), "C-2")
 
     // PgUp(8) moves offset from sticky-bottom 12 down to 4 → window [4, 8):
     // B-1, B-2, C-0, C-1.
@@ -186,10 +157,10 @@ func TestConversationLogPageUpShiftsWindow(t T) T {
     val t1 = Eq(sticky0, pgup.Offset, 4)
     val viewU = ConversationLogView(pgup, 4)
     val rowsU = SnapshotLines(viewU, 12, 4)
-    val u1 = Eq(t1, clTrimRow(rowsU.Get(0)), "B-1")
-    val u2 = Eq(u1, clTrimRow(rowsU.Get(1)), "B-2")
-    val u3 = Eq(u2, clTrimRow(rowsU.Get(2)), "C-0")
-    return Eq(u3, clTrimRow(rowsU.Get(3)), "C-1")
+    val u1 = Eq(t1, strings.TrimRight(rowsU.Get(0), " "), "B-1")
+    val u2 = Eq(u1, strings.TrimRight(rowsU.Get(1), " "), "B-2")
+    val u3 = Eq(u2, strings.TrimRight(rowsU.Get(2), " "), "C-0")
+    return Eq(u3, strings.TrimRight(rowsU.Get(3), " "), "C-1")
 }
 
 // ----------------------------------------------------------------------------
@@ -222,11 +193,11 @@ func TestConversationLogPartialEntryAtTopShowsBottomRows(t T) T {
     // Total = 8. View height 5 sticky → trailing 5 rows: last 2 of A + all 3 of B.
     val view = ConversationLogView(log, 5)
     val rows = SnapshotLines(view, 12, 5)
-    val t1 = Eq(t, clTrimRow(rows.Get(0)), "A-3")
-    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "A-4")
-    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "B-0")
-    val t4 = Eq(t3, clTrimRow(rows.Get(3)), "B-1")
-    return Eq(t4, clTrimRow(rows.Get(4)), "B-2")
+    val t1 = Eq(t, strings.TrimRight(rows.Get(0), " "), "A-3")
+    val t2 = Eq(t1, strings.TrimRight(rows.Get(1), " "), "A-4")
+    val t3 = Eq(t2, strings.TrimRight(rows.Get(2), " "), "B-0")
+    val t4 = Eq(t3, strings.TrimRight(rows.Get(3), " "), "B-1")
+    return Eq(t4, strings.TrimRight(rows.Get(4), " "), "B-2")
 }
 
 // ----------------------------------------------------------------------------
@@ -246,10 +217,10 @@ func TestConversationLogPartialEntryAtBottomShowsTopRows(t T) T {
     val view = ConversationLogView(scrolled, 4)
     val rows = SnapshotLines(view, 12, 4)
     // Window is lines [2, 6): A-2 + B-0..B-2
-    val t1 = Eq(t0, clTrimRow(rows.Get(0)), "A-2")
-    val t2 = Eq(t1, clTrimRow(rows.Get(1)), "B-0")
-    val t3 = Eq(t2, clTrimRow(rows.Get(2)), "B-1")
-    return Eq(t3, clTrimRow(rows.Get(3)), "B-2")
+    val t1 = Eq(t0, strings.TrimRight(rows.Get(0), " "), "A-2")
+    val t2 = Eq(t1, strings.TrimRight(rows.Get(1), " "), "B-0")
+    val t3 = Eq(t2, strings.TrimRight(rows.Get(2), " "), "B-1")
+    return Eq(t3, strings.TrimRight(rows.Get(3), " "), "B-2")
 }
 
 // ----------------------------------------------------------------------------
@@ -390,47 +361,6 @@ func TestWrapParagraphCountMatchesParagraphRender(t T) T {
     val wrapped = WrapParagraph(s, width)
     val n = wrapped.Length()
     val rendered = SnapshotLines(Paragraph(s), width, n)
-    var passed = t
-    var i = 0
-    for i < n {
-        passed = Eq(passed, clTrimRow(rendered.Get(i)), wrapped.Get(i))
-        i = i + 1
-    }
-    return passed
-}
-
-// ----------------------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------------------
-
-// clTrimRow strips trailing spaces from a snapshot row so equality
-// comparisons against the bare body string work regardless of buffer
-// width.
-func clTrimRow(s string) string {
-    var end = RuneCount(s)
-    for end > 0 {
-        val r = clRuneAt(s, end - 1)
-        if r != ' ' { return clRuneSliceTo(s, end) }
-        end = end - 1
-    }
-    return ""
-}
-
-func clRuneAt(s string, idx int) rune {
-    var i = 0
-    for _, c := range s {
-        if i == idx { return c }
-        i = i + 1
-    }
-    return rune(0)
-}
-
-func clRuneSliceTo(s string, end int) string {
-    var out = ""
-    var i = 0
-    for _, c := range s {
-        if i < end { out = out + string(c) }
-        i = i + 1
-    }
-    return out
+    return rendered.Zip(wrapped).FoldLeft(t, (acc, r) =>
+        Eq(acc, strings.TrimRight(r.V1, " "), r.V2))
 }

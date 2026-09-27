@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "martianoff/gala/stream"
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
@@ -36,24 +37,13 @@ func chartSample() Widget =
 func TestChartDrawsAVerticalAxisRule(t T) T {
     val rows = SnapshotLines(chartSample(), 30, 10)
     // The Y title occupies row 0; the rule runs down the plot rows below it.
-    var seen = 0
-    var y = 1
-    for y < 8 {
-        if strings.Contains(rows.Get(y), "│") { seen = seen + 1 }
-        y = y + 1
-    }
+    val seen = stream.Range(1, 8).Filter((y) => strings.Contains(rows.Get(y), "│")).Count()
     return EqMsg(t, seen > 0, true, "no vertical axis rule found in the plot rows")
 }
 
 func TestChartDrawsAHorizontalAxisWithACorner(t T) T {
     val rows = SnapshotLines(chartSample(), 30, 10)
-    var found = false
-    var y = 0
-    for y < 10 {
-        val r = rows.Get(y)
-        if strings.Contains(r, "└") && strings.Contains(r, "─") { found = true }
-        y = y + 1
-    }
+    val found = rows.Exists((r) => strings.Contains(r, "└") && strings.Contains(r, "─"))
     return EqMsg(t, found, true, "no `└───` baseline found")
 }
 
@@ -80,16 +70,11 @@ func TestYLabelsRunHighestFirst(t T) T {
     // backwards produces a plot that is a vertical mirror of its own scale,
     // which reads as plausible data.
     val rows = SnapshotLines(chartSample(), 30, 10)
-    var topIdx = -1
-    var botIdx = -1
-    var y = 1
-    for y < 8 {
-        val r = rows.Get(y)
-        if strings.Contains(r, "10") && topIdx < 0 { topIdx = y }
-        // "0" alone, not the "0" inside "10".
-        if strings.HasPrefix(strings.TrimSpace(r), "0") { botIdx = y }
-        y = y + 1
-    }
+    val plotRows = stream.Range(1, 8).ToArray()
+    val topIdx = plotRows.Find((y) => strings.Contains(rows.Get(y), "10")).GetOrElse(-1)
+    // "0" alone, not the "0" inside "10".
+    val botIdx = plotRows.FindLast((y) => strings.HasPrefix(strings.TrimSpace(rows.Get(y)), "0"))
+                         .GetOrElse(-1)
     val t1 = EqMsg(t, topIdx >= 0, true, "highest Y label not rendered")
     val t2 = EqMsg(t1, botIdx >= 0, true, "lowest Y label not rendered")
     return EqMsg(t2, topIdx < botIdx, true, "Y labels are upside down")
@@ -99,16 +84,9 @@ func TestXLabelsAnchorAtBothEnds(t T) T {
     // First label hard left, last hard right. Centring the ends would put
     // the origin label to the right of the origin it names.
     val rows = SnapshotLines(chartSample(), 30, 10)
-    var labelRow = ""
-    var y = 0
-    for y < 10 {
-        val r = rows.Get(y)
-        if strings.Contains(r, "0") && strings.Contains(r, "10") &&
-           !strings.Contains(r, "│") && !strings.Contains(r, "└") {
-            labelRow = r
-        }
-        y = y + 1
-    }
+    val labelRow = rows.FindLast((r) =>
+        strings.Contains(r, "0") && strings.Contains(r, "10") &&
+        !strings.Contains(r, "│") && !strings.Contains(r, "└")).GetOrElse("")
     val t1 = EqMsg(t, labelRow != "", true, "no X label row found")
     return EqMsg(t1, strings.HasSuffix(strings.TrimRight(labelRow, " "), "10"),
                  true, s"last X label not flush right: [$labelRow]")
@@ -162,14 +140,9 @@ func TestLegendCanBePlacedInAnyCorner(t T) T {
         AxisBare(XBounds(0.0, 10.0)), AxisBare(YBounds(0.0, 10.0)), pos)
     val topRows = SnapshotLines(mk(LegendTopRight()), 24, 8)
     val botRows = SnapshotLines(mk(LegendBottomRight()), 24, 8)
-    var topAt = -1
-    var botAt = -1
-    var y = 0
-    for y < 8 {
-        if strings.Contains(topRows.Get(y), "aa") && topAt < 0 { topAt = y }
-        if strings.Contains(botRows.Get(y), "aa") { botAt = y }
-        y = y + 1
-    }
+    val topAt = stream.FromArray(topRows).IndexWhere((r) => strings.Contains(r, "aa"))
+    val botAt = botRows.ZipWithIndex().FindLast((r) => strings.Contains(r.V1, "aa"))
+                       .Map((r) => r.V2).GetOrElse(-1)
     val t1 = EqMsg(t, topAt >= 0 && botAt >= 0, true, "legend missing in a corner")
     return EqMsg(t1, topAt < botAt, true,
                  s"top legend at row $topAt is not above bottom legend at row $botAt")
@@ -197,17 +170,10 @@ func TestPlotAreaActuallyHasInk(t T) T {
     // stray dot as well as one that renders nothing.
     val buf = NewBuffer(30, 10)
     RenderTo(chartSample(), Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
-    var lit = 0
-    var y = 1
-    for y < 8 {
-        var x = 6
-        for x < 30 {
-            val c = buf.CharAt(x, y)
-            if c >= '⠀' && c <= '⣿' && c != '⠀' { lit = lit + 1 }
-            x = x + 1
-        }
-        y = y + 1
-    }
+    val lit = stream.Range(1, 8)
+        .FlatMap((y) => stream.Range(6, 30).Map((x) => buf.CharAt(x, y)))
+        .Filter((c) => c >= '⠀' && c <= '⣿' && c != '⠀')
+        .Count()
     return EqMsg(t, lit > 3, true, s"plot area has only $lit lit cells")
 }
 
@@ -222,17 +188,10 @@ func TestLineGraphConnectsPointsScatterDoesNot(t T) T {
         RenderTo(Chart(ArrayOf[ChartDataset](d),
                        AxisBare(XBounds(0.0, 10.0)), AxisBare(YBounds(0.0, 10.0))),
                  Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
-        var lit = 0
-        var y = 0
-        for y < 6 {
-            var x = 1
-            for x < 24 {
-                if buf.CharAt(x, y) != ' ' { lit = lit + 1 }
-                x = x + 1
-            }
-            y = y + 1
-        }
-        return lit
+        return stream.Range(0, 6)
+            .FlatMap((y) => stream.Range(1, 24).Map((x) => buf.CharAt(x, y)))
+            .Filter((c) => c != ' ')
+            .Count()
     }
     val lineLit = count(DatasetOf("", pts, DefaultStyle()))
     val scatLit = count(DatasetScatter("", pts, DefaultStyle()))
@@ -268,16 +227,8 @@ func TestFlatSeriesDoesNotCollapseOntoAnEdge(t T) T {
     val c = ChartOfValues("flat", ArrayOf[float64](5.0, 5.0, 5.0), DefaultStyle())
     val buf = NewBuffer(24, 8)
     RenderTo(c, Rect(X = 0, Y = 0, Width = 24, Height = 8), buf)
-    var litRow = -1
-    var y = 0
-    for y < 6 {
-        var x = 4
-        for x < 24 {
-            if buf.CharAt(x, y) != ' ' && litRow < 0 { litRow = y }
-            x = x + 1
-        }
-        y = y + 1
-    }
+    val litRow = stream.Range(0, 6)
+        .IndexWhere((y) => stream.Range(4, 24).Exists((x) => buf.CharAt(x, y) != ' '))
     val t1 = EqMsg(t, litRow >= 0, true, "flat series rendered nothing")
     return EqMsg(t1, litRow > 0, true, "flat series collapsed onto the top row")
 }
@@ -297,16 +248,8 @@ func TestChartRestylesWithItsPane(t T) T {
     val dimmed = Restyled(chartSample(), (s) => s.WithDim())
     val buf = NewBuffer(30, 10)
     RenderTo(dimmed, Rect(X = 0, Y = 0, Width = 30, Height = 10), buf)
-    var found = false
-    var y = 0
-    for y < 10 {
-        var x = 0
-        for x < 30 {
-            if buf.CharAt(x, y) != ' ' && !buf.StyleAt(x, y).Dim { found = true }
-            x = x + 1
-        }
-        y = y + 1
-    }
+    val found = stream.Range(0, 10).Exists((y) => stream.Range(0, 30).Exists((x) =>
+        buf.CharAt(x, y) != ' ' && !buf.StyleAt(x, y).Dim))
     return EqMsg(t, found, false, "a cell escaped the dim pass")
 }
 
@@ -360,13 +303,4 @@ func TestTwoLabelAxisAnchorsBothEnds(t T) T {
 
 // chartGutterOf returns the Y-label gutter of a rendered row: everything
 // left of the axis rule, trimmed.
-func chartGutterOf(row string) string {
-    var out = ""
-    for _, c := range row {
-        if c == '│' {
-            return strings.TrimSpace(out)
-        }
-        out = out + string(c)
-    }
-    return strings.TrimSpace(out)
-}
+func chartGutterOf(row string) string = strings.TrimSpace(strings.Split(row, "│")[0])

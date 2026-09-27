@@ -96,12 +96,7 @@ func TestFormCustomValidator(t T) T {
         if v == "" {
             return Some[string]("required")
         }
-        // Look for '@'.
-        var hasAt = false
-        for _, c := range v {
-            if c == '@' { hasAt = true }
-        }
-        if !hasAt {
+        if !strings.Contains(v, "@") {
             return Some[string]("missing @")
         }
         return None[string]()
@@ -128,21 +123,11 @@ func TestFormViewRendersLabelsAndErrors(t T) T {
     val f = sampleForm()
     val buf = NewBuffer(30, 9)
     RenderTo(FormView(f), Rect(X = 0, Y = 0, Width = 30, Height = 9), buf)
-    val joined = joinAllRows(buf)
+    val joined = allRows(buf)
     val t1 = IsTrue(t, strings.Contains(joined, "Name"))
     val t2 = IsTrue(t1, strings.Contains(joined, "Email"))
     // Required error should appear on the first field (empty).
     return IsTrue(t2, strings.Contains(joined, "required"))
-}
-
-func joinAllRows(buf *Buffer) string {
-    var s = ""
-    var y = 0
-    for y < buf.Height {
-        s = s + BufferText(buf, y) + "\n"
-        y = y + 1
-    }
-    return s
 }
 
 // ============================================================================
@@ -225,7 +210,7 @@ func TestMaskedFieldDrawsBulletsNotTheValue(t T) T {
     val f = ArrayOf[FormEvent](
         FENext(), FEChar(C = 'h'), FEChar(C = 'u'), FEChar(C = 'n'), FEChar(C = 't'),
     ).FoldLeft(maskedForm(), FormUpdate)
-    val out = joinAllRows(renderAt(FormView(f, true), 24, 8))
+    val out = allRows(renderAt(FormView(f, true), 24, 8))
     val t1 = EqMsg(t, strings.Contains(out, "hunt"), false,
                    "the typed password was rendered in clear text")
     return EqMsg(t1, strings.Contains(out, "••••"), true,

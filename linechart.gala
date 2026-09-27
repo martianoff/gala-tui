@@ -68,37 +68,26 @@ func LineChartAtHeight(values Array[int], style Style, bounds LineChartBounds, r
 // varying series a hole in the baseline, both of which read as "no data
 // here" rather than "a low value here". An empty series still renders as
 // nothing: `LineChartAtHeight` returns `Empty()` before this runs.
-func LineChartRows(values Array[int], bounds LineChartBounds, rows int) Array[string] {
+func LineChartRows(values Array[int], bounds LineChartBounds, rows int) Array[string] =
+    lineChartGlyphs(values, bounds, rows).Map((glyphs) => string(glyphs.ToGoSlice()))
+
+// lineChartGlyphs is `LineChartRows` before each row is joined into a
+// string: one glyph per column, which is how the overlay indexes it.
+func lineChartGlyphs(values Array[int], bounds LineChartBounds, rows int) Array[Array[rune]] {
     val lo = bounds.Min
     val hi = bounds.Max
     val span = MaxInt(1, hi - lo)
     val total = rows * 8                          // eighths per column
+    val sampleEighths = values.Map((v) => MaxInt(1, ((clampInt(v, lo, hi) - lo) * total) / span))
     return ArrayTabulate(rows, (y) => {
         // `y = 0` is the top row (height = rows); we convert to a "band
         // threshold" in eighths where `topEighths` is the upper edge of the
-        // row and `bottomEighths` the lower edge.
+        // row and `bottomEighths` the lower edge. A sample at or below the
+        // lower edge is a fraction <= 0, which `chartGlyph` draws blank.
         val topEighths    = (rows - y) * 8
         val bottomEighths = topEighths - 8
-        var line = ""
-        var i = 0
-        val n = values.Length()
-        for i < n {
-            val v = values.Get(i)
-            val clamped = clampIntLC(v, lo, hi)
-            val sampleEighths = MaxInt(1, ((clamped - lo) * total) / span)
-            if sampleEighths >= topEighths {
-                line = line + "█"
-            } else {
-                if sampleEighths <= bottomEighths {
-                    line = line + " "
-                } else {
-                    val frac = sampleEighths - bottomEighths
-                    line = line + string(chartGlyph(frac))
-                }
-            }
-            i = i + 1
-        }
-        return line
+        return sampleEighths.Map((e) =>
+            if (e >= topEighths) '█' else chartGlyph(e - bottomEighths))
     })
 }
 
@@ -113,12 +102,6 @@ func chartGlyph(frac int) rune {
     if frac == 5 { return '▅' }
     if frac == 6 { return '▆' }
     return '▇'
-}
-
-func clampIntLC(v int, lo int, hi int) int {
-    if v < lo { return lo }
-    if v > hi { return hi }
-    return v
 }
 
 // ----------------------------------------------------------------------------
@@ -137,17 +120,8 @@ func LineChartAutoBounds(values Array[int]) LineChartBounds {
     if values.IsEmpty() {
         return LineChartBounds(Min = 0, Max = 1)
     }
-    val first = values.Get(0)
-    var lo = first
-    var hi = first
-    var i = 1
-    val n = values.Length()
-    for i < n {
-        val v = values.Get(i)
-        if v < lo { lo = v }
-        if v > hi { hi = v }
-        i = i + 1
-    }
+    val lo = values.Reduce(MinInt)
+    val hi = values.Reduce(MaxInt)
     if hi == lo {
         return LineChartBounds(Min = lo, Max = lo + 1)
     }
@@ -184,7 +158,7 @@ func MultiLineChart(series Array[Array[int]], styles Array[Style]) Widget =
 func MultiLineChartAtHeight(series Array[Array[int]], styles Array[Style], rows int) Widget {
     if series.IsEmpty() || rows <= 0 { return Empty() }
     val bounds = multiBounds(series)
-    val layers = series.Map((s) => chartRowRunes(LineChartRows(s, bounds, rows)))
+    val layers = series.Map((s) => lineChartGlyphs(s, bounds, rows))
     val width = series.FoldLeft(0, (acc, s) => MaxInt(acc, s.Length()))
     val lines = ArrayTabulate(rows, (y) =>
         LineOf(multiRowSpans(layers, styles, y, width)))
@@ -192,45 +166,26 @@ func MultiLineChartAtHeight(series Array[Array[int]], styles Array[Style], rows 
 }
 
 // multiRowSpans resolves one row of the overlay into styled runs: for each
-// column the last layer holding a glyph wins, and adjacent columns won by the
-// same layer share a Span.
+// column the last layer holding a glyph wins, and adjacent columns of the
+// same style share a Span.
 func multiRowSpans(
     layers Array[Array[Array[rune]]],
     styles Array[Style],
     y int,
     width int,
-) Array[Span] {
-    var spans = EmptyArray[Span]()
-    var run = ""
-    var runOwner = -1
-    var x = 0
-    for x < width {
+) Array[Span] =
+    coalesceSpans(ArrayTabulate(width, (x) => {
         val owner = multiCellOwner(layers, y, x)
-        if owner != runOwner && run != "" {
-            spans = spans.Append(SpanStyled(run, multiStyle(styles, runOwner)))
-            run = ""
-        }
-        runOwner = owner
-        run = run + string(multiCellGlyph(layers, y, x, owner))
-        x = x + 1
-    }
-    if run != "" {
-        spans = spans.Append(SpanStyled(run, multiStyle(styles, runOwner)))
-    }
-    return spans
-}
+        return styledRune(Ch = multiCellGlyph(layers, y, x, owner), St = multiStyle(styles, owner))
+    }))
 
 // multiCellOwner is the highest-indexed layer with a glyph at (x, y), or -1
 // when every layer is blank there.
-func multiCellOwner(layers Array[Array[Array[rune]]], y int, x int) int {
-    var owner = -1
-    var i = 0
-    for i < layers.Length() {
-        if chartCellAt(layers.Get(i), y, x) != ' ' { owner = i }
-        i = i + 1
-    }
-    return owner
-}
+func multiCellOwner(layers Array[Array[Array[rune]]], y int, x int) int =
+    layers.ZipWithIndex()
+        .FindLast((t) => chartCellAt(t.V1, y, x) != ' ')
+        .Map((t) => t.V2)
+        .GetOrElse(-1)
 
 func multiCellGlyph(layers Array[Array[Array[rune]]], y int, x int, owner int) rune =
     if (owner < 0) ' ' else chartCellAt(layers.Get(owner), y, x)
@@ -247,40 +202,15 @@ func chartCellAt(rows Array[Array[rune]], y int, x int) rune {
     return row.Get(x)
 }
 
-// chartRowRunes indexes each row by code point. The glyphs are block
-// characters, so a byte index would land inside one.
-func chartRowRunes(rows Array[string]) Array[Array[rune]] =
-    rows.Map((line) => {
-        var out = EmptyArray[rune]()
-        for _, c := range line {
-            out = out.Append(c)
-        }
-        return out
-    })
-
+// multiBounds spans every non-empty series' own bounds, so a flat series
+// keeps the +1 headroom `LineChartAutoBounds` gives it. Each of those has
+// Max > Min, so the union does too; with no data it is the empty chart's
+// (0, 1).
 func multiBounds(series Array[Array[int]]) LineChartBounds {
-    var lo = 0
-    var hi = 1
-    var first = true
-    var i = 0
-    val n = series.Length()
-    for i < n {
-        val s = series.Get(i)
-        if s.NonEmpty() {
-            val b = LineChartAutoBounds(s)
-            if first {
-                lo = b.Min
-                hi = b.Max
-                first = false
-            } else {
-                if b.Min < lo { lo = b.Min }
-                if b.Max > hi { hi = b.Max }
-            }
-        }
-        i = i + 1
-    }
-    if hi == lo { hi = lo + 1 }
-    return LineChartBounds(Min = lo, Max = hi)
+    return series
+        .Collect({ case s if s.NonEmpty() => LineChartAutoBounds(s) })
+        .ReduceOption((a, b) => LineChartBounds(Min = MinInt(a.Min, b.Min), Max = MaxInt(a.Max, b.Max)))
+        .GetOrElse(LineChartBounds(Min = 0, Max = 1))
 }
 
 // defaultSeriesStyle cycles through a handful of distinct colors for callers

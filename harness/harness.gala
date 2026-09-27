@@ -1,9 +1,12 @@
 package harness
 
 import (
+    "strings"
     . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
+    "martianoff/gala/stream"
+    gs "martianoff/gala/strings"
 )
 
 // ============================================================================
@@ -270,13 +273,8 @@ func (s Session[M, T]) PressShift(k Key) Session[M, T] =
 // filling input fields and stress-testing the command palette.
 //
 //     session.Type("hello\nworld")  // 'h','e','l','l','o',Enter,'w','o','r','l','d'
-func (s Session[M, T]) Type(text string) Session[M, T] {
-    var cur = s
-    for _, r := range text {
-        cur = cur.Press(harnessRuneToKey(r))
-    }
-    return cur
-}
+func (s Session[M, T]) Type(text string) Session[M, T] =
+    gs.S(text).Fold(s, (cur Session[M, T], r rune) => cur.Press(harnessRuneToKey(r)))
 
 // Click delivers a left-button mouse press at (x, y) — the most common
 // mouse interaction in TUI apps.
@@ -417,15 +415,8 @@ func (s Session[M, T]) SendMsg(msg T) Session[M, T] =
 // Wait dispatches `n` consecutive NoOp-ish keypresses (PlainKey(Unknown())).
 // Use it to advance state in apps that count idle ticks (e.g., a spinner
 // frame), or to verify nothing else changes during quiet periods.
-func (s Session[M, T]) Wait(n int) Session[M, T] {
-    var cur = s
-    var i = 0
-    for i < n {
-        cur = cur.Press(PlainKey(Unknown()))
-        i = i + 1
-    }
-    return cur
-}
+func (s Session[M, T]) Wait(n int) Session[M, T] =
+    stream.Range(0, n).Fold(s, (cur Session[M, T], _ int) => cur.Press(PlainKey(Unknown())))
 
 // dispatchMsg is the single-update + synchronous-redispatch pipeline that
 // every input helper funnels through.
@@ -435,17 +426,14 @@ func (s Session[M, T]) dispatchMsg(msg T) Session[M, T] {
     if IsQuit(cmd) {
         return Session[M, T](H = s.H, Model = newModel, HasQuit = true)
     }
-    val emitted = PendingMsgs(cmd)
-    var cur = Session[M, T](H = s.H, Model = newModel, HasQuit = false)
-    var i = 0
-    val n = emitted.Length()
-    for i < n {
+    // Once a redispatched Msg quits, the rest are skipped (the guard makes
+    // each remaining step free).
+    val start = Session[M, T](H = s.H, Model = newModel, HasQuit = false)
+    return PendingMsgs(cmd).FoldLeft(start, (cur Session[M, T], next T) => {
         if cur.HasQuit { return cur }
-        val (m, c) = s.H.Program.Update(cur.Model, emitted.Get(i))
-        cur = Session[M, T](H = s.H, Model = m, HasQuit = IsQuit(c))
-        i = i + 1
-    }
-    return cur
+        val (m, c) = s.H.Program.Update(cur.Model, next)
+        return Session[M, T](H = s.H, Model = m, HasQuit = IsQuit(c))
+    })
 }
 
 // ----------------------------------------------------------------------------
@@ -521,16 +509,8 @@ func (s Session[M, T]) FindCell(target rune) Option[Tuple[int, int]] =
 // FindRow returns the y of the first row containing `needle`, or None.
 //
 //     IsTrue(t, session.FindRow("Quit").IsDefined())
-func (s Session[M, T]) FindRow(needle string) Option[int] {
-    var y = 0
-    for y < s.H.Height {
-        if HarnessContains(s.Row(y), needle) {
-            return Some[int](y)
-        }
-        y = y + 1
-    }
-    return None[int]()
-}
+func (s Session[M, T]) FindRow(needle string) Option[int] =
+    stream.Range(0, s.H.Height).Find((y) => HarnessContains(s.Row(y), needle))
 
 // ----------------------------------------------------------------------------
 // Time-travel: drive a sequence and capture every intermediate state.
@@ -552,11 +532,8 @@ sealed type HarnessStep[T any] {
 
 // RunSequence applies every step in order and returns only the final
 // Session — quickest path when you don't care about intermediate states.
-func (h Harness[M, T]) RunSequence(steps Array[HarnessStep[T]]) Session[M, T] {
-    var cur = h.Start()
-    cur = applySteps(cur, steps)
-    return cur
-}
+func (h Harness[M, T]) RunSequence(steps Array[HarnessStep[T]]) Session[M, T] =
+    steps.FoldLeft(h.Start(), (cur Session[M, T], step HarnessStep[T]) => applyStep(cur, step))
 
 // Trace applies every step in order and returns the Session AFTER each
 // step (length = steps.Length() + 1, with the initial Session at index 0).
@@ -567,17 +544,6 @@ func (h Harness[M, T]) Trace(steps Array[HarnessStep[T]]) Array[Session[M, T]] {
     val initial = ArrayOf[Session[M, T]](h.Start())
     return steps.FoldLeft[Array[Session[M, T]]](initial,
         (acc, step) => acc.Append(applyStep(acc.Last(), step)))
-}
-
-func applySteps[M any, T any](s Session[M, T], steps Array[HarnessStep[T]]) Session[M, T] {
-    var cur = s
-    var i = 0
-    val n = steps.Length()
-    for i < n {
-        cur = applyStep(cur, steps.Get(i))
-        i = i + 1
-    }
-    return cur
 }
 
 func applyStep[M any, T any](s Session[M, T], step HarnessStep[T]) Session[M, T] {
@@ -597,40 +563,19 @@ func applyStep[M any, T any](s Session[M, T], step HarnessStep[T]) Session[M, T]
 // Stand-alone helpers (work without a Session — handy for spot assertions).
 // ----------------------------------------------------------------------------
 
-// HarnessContains is the rune-aware substring scanner used by every
+// HarnessContains is the substring test used by every
 // `.Contains` and `.RowContains` matcher. Exposed because tests sometimes
 // assert against strings that didn't come from a Session.
-func HarnessContains(rendered string, needle string) bool {
-    val h = harnessRunes(rendered)
-    val n = harnessRunes(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        if harnessMatchAt(h, n, i) { return true }
-        i = i + 1
-    }
-    return false
-}
+func HarnessContains(rendered string, needle string) bool = strings.Contains(rendered, needle)
 
 // HarnessFindCellWith scans the buffer for the first cell with the given
-// rune. Stand-alone so tests can use it on a Buffer they assembled by
-// hand (e.g., post-processing a Snapshot).
+// rune, in row-major order. Stand-alone so tests can use it on a Buffer
+// they assembled by hand (e.g., post-processing a Snapshot).
 func HarnessFindCellWith(buf *Buffer, target rune) Option[Tuple[int, int]] {
-    var y = 0
-    for y < buf.Height {
-        var x = 0
-        for x < buf.Width {
-            if buf.CharAt(x, y) == target {
-                return Some[Tuple[int, int]]((x, y))
-            }
-            x = x + 1
-        }
-        y = y + 1
-    }
-    return None[Tuple[int, int]]()
+    val w = buf.Width
+    return stream.Range(0, w * buf.Height)
+        .Find((i) => buf.CharAt(i % w, i / w) == target)
+        .Map((i) => (i % w, i / w))
 }
 
 // PrintHarnessFrame renders `session` and writes a labeled, framed dump
@@ -646,48 +591,15 @@ func HarnessFindCellWith(buf *Buffer, target rune) Option[Tuple[int, int]] {
 func PrintHarnessFrame[M any, T any](session Session[M, T]) {
     val w = session.H.Width
     val h = session.H.Height
-    val border = harnessBorderRow(w)
+    val border = strings.Repeat("─", w + 5)
     Println(s"┌─[ ${w}×${h} ]" + border)
-    var y = 0
-    for y < h {
-        Println("│" + session.Row(y) + "│")
-        y = y + 1
-    }
+    stream.Range(0, h).ForEach((y) => Println("│" + session.Row(y) + "│"))
     Println("└" + border + "─────────")
-}
-
-func harnessBorderRow(w int) string {
-    var s = ""
-    var i = 0
-    val target = w + 5
-    for i < target {
-        s = s + "─"
-        i = i + 1
-    }
-    return s
 }
 
 // ----------------------------------------------------------------------------
 // Internal helpers.
 // ----------------------------------------------------------------------------
-
-func harnessRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
-}
-
-func harnessMatchAt(hay Array[rune], needle Array[rune], offset int) bool {
-    val nn = needle.Length()
-    var j = 0
-    for j < nn {
-        if hay.Get(offset + j) != needle.Get(j) { return false }
-        j = j + 1
-    }
-    return true
-}
 
 func harnessRuneToKey(r rune) KeyEvent {
     if r == '\n' { return PlainKey(Enter()) }

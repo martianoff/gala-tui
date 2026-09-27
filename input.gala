@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     . "martianoff/gala/go_interop"
+    "martianoff/gala/stream"
 )
 
 // Key is the type of a single keyboard press after ANSI decoding. Every
@@ -152,24 +153,17 @@ struct CsiScan(
 // scanCsi walks the body of an `ESC [ …` sequence looking for its final byte.
 // `buf` must already start with ESC [ (the caller checks that).
 func scanCsi(buf []byte) CsiScan {
-    val n = buf.Size()
-    var i = 2
-    for i < n {
-        val c = int(buf[i])
-        if c >= 0x40 && c <= 0x7E {
-            return CsiScan(Final = i, Drop = 0)
-        }
-        if c < 0x20 || c == 0x7F {
-            // A C0 control inside a CSI body is not part of the sequence.
-            // Almost always it's a fresh ESC because the first sequence was
-            // interrupted (a slow terminal, or a mouse packet racing a key).
-            // Drop only what we've scanned so the stream resyncs on that byte
-            // instead of swallowing it.
-            return CsiScan(Final = -1, Drop = i)
-        }
-        i = i + 1
-    }
-    return CsiScan(Final = -1, Drop = 0)
+    val isFinal = (c int) => c >= 0x40 && c <= 0x7E
+    // A C0 control inside a CSI body is not part of the sequence. Almost
+    // always it's a fresh ESC because the first sequence was interrupted (a
+    // slow terminal, or a mouse packet racing a key). Drop only what we've
+    // scanned so the stream resyncs on that byte instead of swallowing it.
+    val isControl = (c int) => c < 0x20 || c == 0x7F
+    return stream.Range(2, buf.Size())
+        .Find((i) => isFinal(int(buf[i])) || isControl(int(buf[i])))
+        .Map((i) => if (isFinal(int(buf[i]))) CsiScan(Final = i, Drop = 0)
+                    else CsiScan(Final = -1, Drop = i))
+        .GetOrElse(CsiScan(Final = -1, Drop = 0))
 }
 
 // csiParam returns the `idx`-th (0-based) parameter of the CSI sequence whose

@@ -14,7 +14,7 @@ import (
 func TestClearResetsItsArea(t T) T {
     val w = Stack(ArrayOf[Widget](TextStyled("xyz", DefaultStyle().On(Red())), Clear()))
     val buf = renderAt(w, 3, 1)
-    val t1 = Eq(t, BufferText(buf, 0), "   ")
+    val t1 = Eq(t, RowText(buf, 0), "   ")
     return IsTrue(t1, ColorEq(buf.StyleAt(0, 0).Bg, DefaultColor()))
 }
 
@@ -54,15 +54,15 @@ func TestChartBarsStandOnTheBaseline(t T) T {
 func TestTabsDivider(t T) T {
     val titles = ArrayOf[string]("a", "b", "c")
     val bodies = ArrayOf[Widget](Empty(), Empty(), Empty())
-    val t1 = Eq(t, BufferText(renderAt(Tabs(titles, bodies, 0, false, "│"), 12, 1), 0), " a │ b │ c  ")
-    return Eq(t1, BufferText(renderAt(Tabs(titles, bodies, 0), 12, 1), 0), " a  b  c    ")
+    val t1 = Eq(t, RowText(renderAt(Tabs(titles, bodies, 0, false, "│"), 12, 1), 0), " a │ b │ c  ")
+    return Eq(t1, RowText(renderAt(Tabs(titles, bodies, 0), 12, 1), 0), " a  b  c    ")
 }
 
 
 // A popup clears the area it covers, as a modal does.
 func TestPopupClearsTheAreaItCovers(t T) T {
     val w = PopupOver(FillCh('x'), Popup(0, 0, 6, 3, Empty()))
-    return Eq(t, BufferText(renderAt(w, 6, 3), 1), "│    │")
+    return Eq(t, RowText(renderAt(w, 6, 3), 1), "│    │")
 }
 
 // When the tab bar overflows, a divider is never drawn without the title it
@@ -70,6 +70,6 @@ func TestPopupClearsTheAreaItCovers(t T) T {
 func TestTabDividerNeverDanglesBeforeTheOverflowMarker(t T) T {
     val titles = ArrayOf[string]("Running", "Succeeded", "Failed")
     val bodies = ArrayOf[Widget](Empty(), Empty(), Empty())
-    val row = BufferText(renderAt(Tabs(titles, bodies, 0, false, "│"), 12, 1), 0)
+    val row = RowText(renderAt(Tabs(titles, bodies, 0, false, "│"), 12, 1), 0)
     return IsFalse(t, strings.Contains(row, "│›"))
 }

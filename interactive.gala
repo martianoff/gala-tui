@@ -1,7 +1,6 @@
 package gala_tui
 
 import (
-    "strings"
     . "martianoff/gala/collection_immutable"
 )
 
@@ -63,19 +62,7 @@ func renderProgressBar(percent int, width int, filled rune, empty rune) string {
     val p = clampPct(percent)
     val inner = MaxInt(0, width - 2)
     val fillCells = inner * p / 100
-    var sb strings.Builder
-    sb.WriteRune('[')
-    var i = 0
-    for i < fillCells {
-        sb.WriteRune(filled)
-        i = i + 1
-    }
-    for i < inner {
-        sb.WriteRune(empty)
-        i = i + 1
-    }
-    sb.WriteRune(']')
-    return sb.String()
+    return "[" + repeatRune(filled, fillCells) + repeatRune(empty, inner - fillCells) + "]"
 }
 
 // ----------------------------------------------------------------------------
@@ -156,23 +143,11 @@ func renderGauge(percent int, width int) string {
     val totalEighths = width * 8 * p / 100
     val fullCells = totalEighths / 8
     val remainder = totalEighths - fullCells * 8
-    var sb strings.Builder
-    var i = 0
-    for i < fullCells {
-        sb.WriteRune('█')
-        i = i + 1
-    }
     // A zero remainder has no partial block to draw — emitting one anyway
     // would spend a cell on a glyph indistinguishable from the track.
-    if remainder > 0 && fullCells < width {
-        sb.WriteRune(gaugeEighthRune(remainder))
-        i = i + 1
-    }
-    for i < width {
-        sb.WriteRune(gaugeTrack())
-        i = i + 1
-    }
-    return sb.String()
+    val partial = if (remainder > 0 && fullCells < width) string(gaugeEighthRune(remainder)) else ""
+    val trackCells = width - fullCells - partial.Size()
+    return repeatRune('█', fullCells) + partial + repeatRune(gaugeTrack(), trackCells)
 }
 
 // gaugeEighthRune maps an eighths-of-cell fill count (1..7) to its Unicode
@@ -281,17 +256,16 @@ func renderLineGaugeRule(percent int, filled Style, unfilled Style, area Rect, b
     val halves = area.Width * 2 * clampPct(percent) / 100
     val full = halves / 2
     val head = halves % 2 == 1
-    var i = 0
-    for i < area.Width {
-        // Glyph and style are never chosen independently — one conditional,
-        // so a change to the fill rule cannot reach the glyph and miss the
-        // colour.
-        val cell =
-            if (i < full) Cell(Ch = lineGaugeFilled(), St = filled)
-            else if (i == full && head) Cell(Ch = lineGaugeHead(), St = filled)
-            else Cell(Ch = lineGaugeTrack(), St = unfilled)
-        buf.Set(area.X + i, area.Y, cell)
-        i = i + 1
+    val headCells = if (head) 1 else 0
+    // Glyph and style are never chosen independently — each run is one
+    // Cell, so a change to the fill rule cannot reach the glyph and miss the
+    // colour.
+    buf.Fill(Rect(X = area.X, Y = area.Y, Width = full, Height = 1),
+        Cell(Ch = lineGaugeFilled(), St = filled))
+    if head {
+        buf.Set(area.X + full, area.Y, Cell(Ch = lineGaugeHead(), St = filled))
     }
+    buf.Fill(Rect(X = area.X + full + headCells, Y = area.Y, Width = area.Width - full - headCells, Height = 1),
+        Cell(Ch = lineGaugeTrack(), St = unfilled))
 }
 

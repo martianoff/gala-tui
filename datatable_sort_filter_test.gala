@@ -1,0 +1,42 @@
+package gala_tui
+
+import (
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+)
+
+// ============================================================================
+// DataTable sort stability and filter case-folding.
+//
+// The sort is a SortWith with an index tie-break (SortWith alone is not
+// stable), and the filter delegates to MatchSubstring. These pin both.
+// ============================================================================
+
+func dtVisibleNames(dt DataTable) string = dtVisible(dt).Map((r) => r.Get(0)).MkString(",")
+
+// Role has two ties ("admin" ×2, "user" ×2); equal keys must keep their
+// input order in both directions.
+func TestDataTableSortAscIsStable(t T) T {
+    val dt = DataTableUpdate(sampleDataTable(), DTSort(Col = 2))
+    return Eq(t, dtVisibleNames(dt), "Alice,Diana,Bob,Charlie")
+}
+
+func TestDataTableSortDescIsStable(t T) T {
+    var dt = DataTableUpdate(sampleDataTable(), DTSort(Col = 2))   // Asc
+    dt = DataTableUpdate(dt, DTSort(Col = 2))                       // Desc
+    return Eq(t, dtVisibleNames(dt), "Bob,Charlie,Alice,Diana")
+}
+
+// The filter used an ASCII-only lower-casing, so a non-ASCII query only
+// matched cells in the same case: "ÉCOLE" did not find "école".
+func TestDataTableFilterFoldsNonASCIICase(t T) T {
+    val dt = DataTableUpdate(NewDataTable(
+        ArrayOf("Name"),
+        ArrayOf[Constraint](Fill(1)),
+        ArrayOf(
+            ArrayOf("école"),
+            ArrayOf("office"),
+        ),
+    ), DTFilter(Query = "ÉCOLE"))
+    return Eq(t, dtVisibleNames(dt), "école")
+}

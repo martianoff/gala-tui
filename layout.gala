@@ -42,107 +42,80 @@ sealed type Constraint {
 // percent + minlen in one pass, distribute leftover space to Fill weights,
 // then clip any overflow from the tail.
 //
-// Internal scratch is a Go slice for O(1) indexed mutation across three
-// passes; returns an immutable `Array[int]` so callers can `.Map`, `.FoldLeft`
-// etc. over the widths without converting.
+// Solve runs for every Row and Column on every frame, so it sizes into one
+// Go scratch slice with two counted loops — the chain of Array passes it
+// replaces allocated about ten arrays per call. Returns an immutable
+// `Array[int]` so callers can `.Map`, `.FoldLeft` etc. over the widths.
 func Solve(total int, cs Array[Constraint]) Array[int] {
     val n = cs.Length()
-    var sizes = SliceWithSize[int](n)
     if n == 0 || total <= 0 {
-        return ArrayFromSlice(sizes)
+        return ArrayFill(n, 0)
     }
 
-    // Pass 1: assign fixed sizes (Length / Percent / MinLen) and total fill
-    // weight so we know how much room is left.
+    // Pass 1: assign fixed sizes (Length / Percent / MinLen / MaxLen /
+    // Ratio), the total fill weight so we know how much room is left, and
+    // the last Fill, which takes the rounding remainder.
+    var sizes = SliceWithSize[int](n)
     var fixedTotal = 0
     var totalWeight = 0
+    var lastFill = -1
     var i = 0
     for i < n {
         val c = cs.Get(i)
-        c match {
-            case Length(v) => {
-                val s = MaxInt(0, v)
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case Percent(p) => {
-                val clamped = clampPct(p)
-                val s = total * clamped / 100
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case MinLen(v) => {
-                val s = MaxInt(0, v)
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case MaxLen(v) => {
-                // A cap, not a request: take what is asked for unless the
-                // parent is narrower, in which case the parent wins.
-                val s = MinInt(MaxInt(0, v), total)
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case Ratio(num, den) => {
-                // Guard a zero denominator rather than trapping — a bad
-                // ratio collapses the child instead of killing the render.
-                val s = if (den <= 0) 0 else total * MaxInt(0, num) / den
-                sizes[i] = s
-                fixedTotal = fixedTotal + s
-                true
-            }
-            case Fill(w) => {
-                totalWeight = totalWeight + MaxInt(0, w)
-                true
-            }
-        }
+        sizes[i] = constraintClaim(c, total)
+        fixedTotal = fixedTotal + sizes[i]
+        totalWeight = totalWeight + fillWeight(c)
+        if isFill(c) { lastFill = i }
         i = i + 1
     }
 
-    // Pass 2: distribute leftover cells to Fill constraints, weighted.
+    // Pass 2: give each Fill its weighted share of the leftover cells (the
+    // last Fill also gets the remainder — by then every share is counted),
+    // and clamp the tail: if the sizes overflow the parent, chop off
+    // children that don't fit rather than rendering past the edge.
     val remaining = MaxInt(0, total - fixedTotal)
-    if totalWeight > 0 {
-        var distributed = 0
-        var lastFill = -1
-        var j = 0
-        for j < n {
-            val c = cs.Get(j)
-            c match {
-                case Fill(w) => {
-                    val share = remaining * MaxInt(0, w) / totalWeight
-                    sizes[j] = share
-                    distributed = distributed + share
-                    lastFill = j
-                    true
-                }
-                case _ => true
-            }
-            j = j + 1
-        }
-        // Give the remainder to the last Fill.
-        if lastFill >= 0 && distributed < remaining {
-            sizes[lastFill] = sizes[lastFill] + (remaining - distributed)
-        }
-    }
-
-    // Pass 3: clamp tail — if fixed sizes already overflow the parent, chop
-    // off children that don't fit rather than rendering past the edge.
+    var distributed = 0
     var used = 0
     var k = 0
     for k < n {
-        val s = sizes[k]
-        if used + s > total {
-            sizes[k] = MaxInt(0, total - used)
+        val c = cs.Get(k)
+        if totalWeight > 0 && isFill(c) {
+            val share = remaining * fillWeight(c) / totalWeight
+            distributed = distributed + share
+            sizes[k] = if (k == lastFill) share + remaining - distributed else share
         }
+        sizes[k] = MinInt(sizes[k], total - used)
         used = used + sizes[k]
         k = k + 1
     }
-
     return ArrayFromSlice(sizes)
+}
+
+// constraintClaim is what a non-Fill constraint claims of `total` before any Fill
+// is considered; a Fill claims nothing yet.
+func constraintClaim(c Constraint, total int) int = c match {
+    case Length(v)  => MaxInt(0, v)
+    case Percent(p) => total * clampPct(p) / 100
+    case MinLen(v)  => MaxInt(0, v)
+    // A cap, not a request: take what is asked for unless the parent is
+    // narrower, in which case the parent wins.
+    case MaxLen(v)  => MinInt(MaxInt(0, v), total)
+    // Guard a zero denominator rather than trapping — a bad ratio collapses
+    // the child instead of killing the render.
+    case Ratio(num, den) => if (den <= 0) 0 else total * MaxInt(0, num) / den
+    case Fill(_)    => 0
+}
+
+// fillWeight is a Fill's share weight (negative weights count as zero);
+// every other constraint weighs nothing.
+func fillWeight(c Constraint) int = c match {
+    case Fill(w) => MaxInt(0, w)
+    case _       => 0
+}
+
+func isFill(c Constraint) bool = c match {
+    case Fill(_) => true
+    case _       => false
 }
 
 // clampPct keeps percentage inputs in the [0..100] range.

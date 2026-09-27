@@ -1,9 +1,11 @@
 package main
 
 import (
+    "strings"
     . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/std"
+    gs "martianoff/gala/strings"
     . "martianoff/gala/time_utils"
 )
 
@@ -125,43 +127,13 @@ func slashCommands() Array[SlashCommand] = ArrayOf[SlashCommand](
 )
 
 // Visible slash popup ↔ composer starts with `/`.
-func slashPopupOpen(m Model) bool =
-    TextAreaContent(m.Composer) != "" &&
-    runeAt(TextAreaContent(m.Composer), 0) == '/'
-
-func runeAt(s string, idx int) rune {
-    var i = 0
-    for _, c := range s {
-        if i == idx { return c }
-        i = i + 1
-    }
-    return rune(0)
-}
+func slashPopupOpen(m Model) bool = strings.HasPrefix(TextAreaContent(m.Composer), "/")
 
 func filteredSlashCommands(m Model) Array[SlashCommand] {
     val q = TextAreaContent(m.Composer)
     val cmds = slashCommands()
-    if q == "" || runeAt(q, 0) != '/' { return cmds }
-    return cmds.Filter((cmd) => stringHasPrefix(cmd.Name, q))
-}
-
-func stringHasPrefix(s string, prefix string) bool {
-    var i = 0
-    val pn = RuneCount(prefix)
-    for _, c := range s {
-        if i >= pn { return true }
-        // Compare i-th rune of s with i-th rune of prefix.
-        var j = 0
-        var p = rune(0)
-        for _, pc := range prefix {
-            if j == i { p = pc; j = pn; }
-            else { j = j + 1 }
-        }
-        if c != p { return false }
-        i = i + 1
-        if i >= pn { return true }
-    }
-    return RuneCount(s) >= pn
+    if !strings.HasPrefix(q, "/") { return cmds }
+    return cmds.Filter((cmd) => strings.HasPrefix(cmd.Name, q))
 }
 
 // ----- Update --------------------------------------------------------------
@@ -311,13 +283,7 @@ func fakeReply(prompt string) Array[string] {
                  "+ ConversationLog widgets. Each chunk arrives via a " +
                  "FutureCmd so the UI updates between renders without " +
                  "blocking the input loop."
-    return chatRunes(canned).Grouped(5).Map((g) => string(g.ToGoSlice()))
-}
-
-func chatRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s { acc = acc.Append(c) }
-    return acc
+    return gs.S(canned).ToChars().Grouped(5).Map((g) => string(g.ToGoSlice()))
 }
 
 // ----- Log helpers ---------------------------------------------------------

@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "bytes"
     . "martianoff/gala/go_interop"
 )
 
@@ -183,7 +184,9 @@ func isMouseSgrPrefix(buf []byte) bool =
 // ----------------------------------------------------------------------------
 
 func pasteStartParam() int = 200
-func pasteEndParam() int   = 201
+
+// pasteCloser is the `ESC [ 201 ~` that ends a paste.
+func pasteCloser() []byte = ToBytes("\x1b[201~")
 
 // pasteCloserLen is the byte length of `ESC [ 201 ~`.
 func pasteCloserLen() int = 6
@@ -196,35 +199,25 @@ func pasteCloserLen() int = 6
 // partial paste would split one logical event across two — which is the
 // keypress-burst problem again, just at a coarser grain.
 func parseBracketedPaste(buf []byte, from int) Tuple[InputEvent, int] {
-    val end = pasteCloserIndex(buf, from)
-    if end < 0 {
-        return (UnknownInput(), 0)
+    return pasteCloserIndex(buf, from) match {
+        case Some(end) => (PasteInput(Content = ToString(Slice(buf, from, end))), end + pasteCloserLen())
+        case _ => (UnknownInput(), 0)
     }
-    return (PasteInput(Content = ToString(Slice(buf, from, end))),
-            end + pasteCloserLen())
 }
 
 // pasteCloserIndex returns the index of the ESC that begins `ESC [ 201 ~`,
-// searching from `from`, or -1 when the closer is not in `buf` yet.
-func pasteCloserIndex(buf []byte, from int) int {
-    val n = buf.Size()
-    var i = from
-    for i + pasteCloserLen() <= n {
-        if isPasteCloserAt(buf, i) {
-            return i
-        }
-        i = i + 1
-    }
-    return -1
+// searching from `from`, or None when the closer is not in `buf` yet.
+// bytes.Index rather than a per-offset marker test: a paste can be large,
+// and this runs again on every read until the closer arrives.
+func pasteCloserIndex(buf []byte, from int) Option[int] {
+    val idx = bytes.Index(SliceFrom(buf, from), pasteCloser())
+    return When(idx >= 0, from + idx)
 }
 
 // isPasteOpenerAt reports whether `ESC [ 200 ~` starts at `i`. The runtime
 // uses it to resync a paste that was opened and never closed.
 func isPasteOpenerAt(buf []byte, i int) bool =
     isPasteMarkerAt(buf, i, pasteStartParam())
-
-func isPasteCloserAt(buf []byte, i int) bool =
-    isPasteMarkerAt(buf, i, pasteEndParam())
 
 func isPasteMarkerAt(buf []byte, i int, param int) bool {
     if int(buf[i]) != 0x1B || int(buf[i + 1]) != 0x5B || int(buf[i + 5]) != 0x7E {
@@ -247,10 +240,9 @@ func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
     var field = 0                   // 0 = btn, 1 = x, 2 = y
     var pressed = true
     var done = false
+    // A wire-protocol parser, run per mouse event: the field being decoded
+    // carries from byte to byte, and the final byte ends it with `break`.
     for i < n {
-        if done {
-            break
-        }
         val c = int(buf[i])
         if c >= 0x30 && c <= 0x39 {
             val v = c - 0x30
@@ -273,11 +265,13 @@ func parseSgrMouse(buf []byte) Tuple[InputEvent, int] {
                     pressed = true
                     done = true
                     i = i + 1
+                    break
                 } else {
                     if c == 0x6D {  // 'm' = release
                         pressed = false
                         done = true
                         i = i + 1
+                        break
                     } else {
                         // Unexpected byte — drop the prefix.
                         return (UnknownInput(), 3)

@@ -129,22 +129,11 @@ func dtVisible(dt DataTable) Array[Array[string]] {
     return dtSort(dt, filtered)
 }
 
-// dtFilter keeps rows whose concatenated cells contain (case-insensitively)
-// the filter query. Empty query keeps everything.
+// dtFilter keeps rows with a cell that contains the filter query,
+// case-insensitively (MatchSubstring). Empty query keeps everything.
 func dtFilter(dt DataTable) Array[Array[string]] {
     if dt.FilterQuery == "" { return dt.Rows }
-    return dt.Rows.Filter((row) => dtRowMatchesFilter(row, dt.FilterQuery))
-}
-
-func dtRowMatchesFilter(row Array[string], q string) bool {
-    val ql = strToLower(q)
-    var i = 0
-    val n = row.Length()
-    for i < n {
-        if strContains(strToLower(row.Get(i)), ql) { return true }
-        i = i + 1
-    }
-    return false
+    return dt.Rows.Filter((row) => row.Exists((cell) => MatchSubstring(cell, dt.FilterQuery)))
 }
 
 func dtSort(dt DataTable, rows Array[Array[string]]) Array[Array[string]] {
@@ -155,30 +144,16 @@ func dtSort(dt DataTable, rows Array[Array[string]]) Array[Array[string]] {
         case SortDesc() => false
         case SortNone() => true
     }
-    return dtInsertionSort(rows, col, asc)
-}
-
-// dtInsertionSort — simple stable sort adequate for typical table sizes.
-func dtInsertionSort(rows Array[Array[string]], col int, asc bool) Array[Array[string]] {
-    var out = EmptyArray[Array[string]]()
-    var i = 0
-    val n = rows.Length()
-    for i < n {
-        val r = rows.Get(i)
-        out = dtInsertSorted(out, r, col, asc)
-        i = i + 1
-    }
-    return out
-}
-
-func dtInsertSorted(sorted Array[Array[string]], r Array[string], col int, asc bool) Array[Array[string]] {
-    val rv = if (col < r.Length()) r.Get(col) else ""
-    val keepBefore = (cur Array[string]) => {
-        val cv = if (col < cur.Length()) cur.Get(col) else ""
-        return if (asc) rv >= cv else rv <= cv
-    }
-    val (before, after) = sorted.Span(keepBefore)
-    return before.Append(r).AppendAll(after)
+    // Stable: rows with equal keys keep their input order in both
+    // directions. SortWith is not stable on its own, so ties fall back to
+    // the original index.
+    val key = (r Array[string]) => r.GetOption(col).GetOrElse("")
+    return rows.ZipWithIndex().SortWith((a, b) => {
+        val ka = key(a.V1)
+        val kb = key(b.V1)
+        if ka == kb { return a.V2 < b.V2 }
+        return if (asc) ka < kb else ka > kb
+    }).Map((t) => t.V1)
 }
 
 // ----------------------------------------------------------------------------
@@ -434,45 +409,4 @@ func SelectedRow(dt DataTable) Array[string] {
         return EmptyArray[string]()
     }
     return v.Get(dt.Selected)
-}
-
-// ----------------------------------------------------------------------------
-// String helpers (case-insensitive contains + lower-case).
-// ----------------------------------------------------------------------------
-
-func strToLower(s string) string {
-    var out = ""
-    for _, c := range s {
-        if c >= 'A' && c <= 'Z' {
-            out = out + string(rune(c + 32))
-        } else {
-            out = out + string(c)
-        }
-    }
-    return out
-}
-
-func strContains(hay string, needle string) bool {
-    val h = strRunes(hay)
-    val n = strRunes(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if h.Get(i + j) != n.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
 }

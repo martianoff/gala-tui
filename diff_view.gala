@@ -82,20 +82,9 @@ func diffLineWidget(line DiffLine) Widget {
     }
 }
 
-func diffCounts(lines Array[DiffLine]) DiffCounts {
-    var added = 0
-    var removed = 0
-    var ctx = 0
-    var i = 0
-    val n = lines.Length()
-    for i < n {
-        val line = lines.Get(i)
-        line match {
-            case DiffAdded(_)   => added = added + 1
-            case DiffRemoved(_) => removed = removed + 1
-            case DiffContext(_) => ctx = ctx + 1
-        }
-        i = i + 1
-    }
-    return DiffCounts(Added = added, Removed = removed, Context = ctx)
-}
+func diffCounts(lines Array[DiffLine]) DiffCounts =
+    lines.FoldLeft(DiffCounts(Added = 0, Removed = 0, Context = 0), (c, line) => line match {
+        case DiffAdded(_)   => c.Copy(Added = c.Added + 1)
+        case DiffRemoved(_) => c.Copy(Removed = c.Removed + 1)
+        case DiffContext(_) => c.Copy(Context = c.Context + 1)
+    })

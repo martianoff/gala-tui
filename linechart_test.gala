@@ -58,8 +58,8 @@ func TestLineChartRowsAscendingLine(t T) T {
     // Sanity: first column empty, last column full-height.
     val row0 = rows.Get(0)  // topmost row
     val rowN = rows.Get(3)  // bottommost row
-    val t1 = IsTrue(t, firstRune(row0) == ' ')    // column 0, topmost → empty
-    return IsTrue(t1, lastRune(rowN) == '█')      // column 5, bottommost → full
+    val t1 = IsTrue(t, stringRunes(row0).HeadOption().GetOrElse(' ') == ' ')    // column 0, topmost → empty
+    return IsTrue(t1, stringRunes(rowN).LastOption().GetOrElse(' ') == '█')      // column 5, bottommost → full
 }
 
 // ----------------------------------------------------------------------------
@@ -147,19 +147,4 @@ func TestMultiLineChartLeavesUnreachedCellsBlank(t T) T {
 func TestMultiLineChartEmpty(t T) T {
     val chart = MultiLineChart(EmptyArray[Array[int]](), EmptyArray[Style]())
     return Eq(t, defaultRenderWidth(chart), 0)
-}
-
-// ----------------------------------------------------------------------------
-// Helpers.
-// ----------------------------------------------------------------------------
-
-func firstRune(s string) rune {
-    for _, c := range s { return c }
-    return ' '
-}
-
-func lastRune(s string) rune {
-    var last rune = ' '
-    for _, c := range s { last = c }
-    return last
 }

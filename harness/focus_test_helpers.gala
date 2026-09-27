@@ -2,6 +2,7 @@ package harness
 
 import (
     . "github.com/martianoff/gala-tui"
+    "martianoff/gala/stream"
     . "martianoff/gala/test"
 )
 
@@ -70,18 +71,8 @@ func AssertFocusedShowsBrightYellow(
     val area = Rect(X = 0, Y = 0, Width = width, Height = height)
     val buf = NewBuffer(width, height)
     RenderTo(widget, area, buf)
-    var y = 0
-    var found = false
-    for y < height && !found {
-        var x = 0
-        for x < width && !found {
-            if ColorEq(buf.StyleAt(x, y).Fg, BrightYellow()) {
-                found = true
-            }
-            x = x + 1
-        }
-        y = y + 1
-    }
+    val found = stream.Range(0, height).Exists((y) =>
+        stream.Range(0, width).Exists((x) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
     return IsTrue(t, found)
 }
 
@@ -114,23 +105,20 @@ func AssertNavigationAdvancesCursor[S any](
 
 // buffersFullyEqual compares two buffers cell-by-cell — char + every
 // visible style attribute. Used by AssertFocusedRendersDifferently.
-func buffersFullyEqual(a *Buffer, b *Buffer, w int, h int) bool {
-    var y = 0
-    for y < h {
-        var x = 0
-        for x < w {
-            if a.CharAt(x, y) != b.CharAt(x, y) { return false }
-            val sa = a.StyleAt(x, y)
-            val sb = b.StyleAt(x, y)
-            if !ColorEq(sa.Fg, sb.Fg) { return false }
-            if !ColorEq(sa.Bg, sb.Bg) { return false }
-            if sa.Bold != sb.Bold { return false }
-            if sa.Reverse != sb.Reverse { return false }
-            if sa.Underline != sb.Underline { return false }
-            if sa.Dim != sb.Dim { return false }
-            x = x + 1
-        }
-        y = y + 1
-    }
-    return true
+func buffersFullyEqual(a *Buffer, b *Buffer, w int, h int) bool =
+    stream.Range(0, h).ForAll((y) =>
+        stream.Range(0, w).ForAll((x) => cellsFullyEqual(a, b, x, y)))
+
+// cellsFullyEqual compares one cell of two buffers — char plus every
+// visible style attribute.
+func cellsFullyEqual(a *Buffer, b *Buffer, x int, y int) bool {
+    val sa = a.StyleAt(x, y)
+    val sb = b.StyleAt(x, y)
+    return a.CharAt(x, y) == b.CharAt(x, y) &&
+        ColorEq(sa.Fg, sb.Fg) &&
+        ColorEq(sa.Bg, sb.Bg) &&
+        sa.Bold == sb.Bold &&
+        sa.Reverse == sb.Reverse &&
+        sa.Underline == sb.Underline &&
+        sa.Dim == sb.Dim
 }

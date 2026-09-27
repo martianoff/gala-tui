@@ -1,6 +1,7 @@
 package gala_tui
 
 import (
+    "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
     . "martianoff/gala/time_utils"
@@ -84,8 +85,8 @@ func TestToastViewShowsMostRecent(t T) T {
     q = q.PushInfo("newer", epoch(), Seconds(int64(1)))
     val buf = NewBuffer(20, 1)
     RenderTo(ToastView(q), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    return IsTrue(t, toastRowContains(row, "newer"))
+    val row = RowText(buf, 0)
+    return IsTrue(t, strings.Contains(row, "newer"))
 }
 
 func TestToastViewErrorIsRedBackground(t T) T {
@@ -103,9 +104,9 @@ func TestToastStackViewRendersAllToasts(t T) T {
     q = q.PushInfo("third",  epoch(), Seconds(int64(1)))
     val buf = NewBuffer(20, 3)
     RenderTo(ToastStackView(q), Rect(X = 0, Y = 0, Width = 20, Height = 3), buf)
-    val t1 = IsTrue(t, toastRowContains(BufferText(buf, 0), "first"))
-    val t2 = IsTrue(t1, toastRowContains(BufferText(buf, 1), "second"))
-    return IsTrue(t2, toastRowContains(BufferText(buf, 2), "third"))
+    val t1 = IsTrue(t, strings.Contains(RowText(buf, 0), "first"))
+    val t2 = IsTrue(t1, strings.Contains(RowText(buf, 1), "second"))
+    return IsTrue(t2, strings.Contains(RowText(buf, 2), "third"))
 }
 
 // ----------------------------------------------------------------------------
@@ -120,10 +121,10 @@ func TestStatusBarRendersThreeSlots(t T) T {
     )
     val buf = NewBuffer(60, 1)
     RenderTo(StatusBarView(bar), Rect(X = 0, Y = 0, Width = 60, Height = 1), buf)
-    val row = BufferText(buf, 0)
-    val t1 = IsTrue(t, toastRowContains(row, "focus: sidebar"))
-    val t2 = IsTrue(t1, toastRowContains(row, "doc.gala"))
-    return IsTrue(t2, toastRowContains(row, "12:34"))
+    val row = RowText(buf, 0)
+    val t1 = IsTrue(t, strings.Contains(row, "focus: sidebar"))
+    val t2 = IsTrue(t1, strings.Contains(row, "doc.gala"))
+    return IsTrue(t2, strings.Contains(row, "12:34"))
 }
 
 func TestStatusBarBackgroundStyled(t T) T {
@@ -132,41 +133,4 @@ func TestStatusBarBackgroundStyled(t T) T {
     RenderTo(StatusBarView(bar), Rect(X = 0, Y = 0, Width = 20, Height = 1), buf)
     // Whole row has the cyan background.
     return IsTrue(t, ColorEq(buf.StyleAt(10, 0).Bg, BrightCyan()))
-}
-
-// ----------------------------------------------------------------------------
-// Helpers.
-// ----------------------------------------------------------------------------
-
-func toastRowContains(hay string, needle string) bool {
-    val h = toastRuneArr(hay)
-    val n = toastRuneArr(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if h.Get(i + j) != n.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
-}
-
-func toastRuneArr(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
 }

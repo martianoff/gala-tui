@@ -1,7 +1,9 @@
 package gala_tui
 
 import (
+    "slices"
     . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
 )
 
 // ============================================================================
@@ -85,46 +87,44 @@ func tokenStyle(tok SyntaxToken) Style {
 // Tokenizer
 // ----------------------------------------------------------------------------
 
+// A lexer with variable stride: each branch decides how far the token it
+// emits advances `i`.
 func tokenize(line string, lang string) Array[SyntaxToken] {
-    val rs = syntaxRunes(line)
-    val n = rs.Length()
+    val rs = ToRunes(line)
+    val n = rs.Size()
     val keywords = keywordsFor(lang)
-    val lineCommentPrefix = lineCommentFor(lang)
+    // Converted once: the comment check runs at every punctuation rune.
+    val commentPrefix = ToRunes(lineCommentFor(lang))
     var out = EmptyArray[SyntaxToken]()
     var i = 0
     for i < n {
-        val c = rs.Get(i)
+        val c = rs[i]
         // Line comment — consume to end of line.
-        if lineCommentPrefix != "" && syntaxStartsWith(rs, i, lineCommentPrefix) {
-            val rest = syntaxSlice(rs, i, n)
-            out = out.Append(TokComment(Text = rest))
-            i = n
-            continue
+        if syntaxCommentAt(rs, i, commentPrefix) {
+            out = out.Append(TokComment(Text = runeRange(rs, i, n)))
+            break
         }
         // String literal — consume up to matching quote.
         if c == '"' || c == '\'' {
-            val end = syntaxFindRune(rs, c, i + 1)
-            if end < 0 {
-                out = out.Append(TokString(Text = syntaxSlice(rs, i, n)))
-                i = n
-            } else {
-                out = out.Append(TokString(Text = syntaxSlice(rs, i, end + 1)))
-                i = end + 1
-            }
+            // Unterminated: the rest of the line is the string, and the
+            // scan ends with it.
+            val stop = runeIndexFrom(rs, c, i + 1).Map((end) => end + 1).GetOrElse(n)
+            out = out.Append(TokString(Text = runeRange(rs, i, stop)))
+            i = stop
             continue
         }
         // Number — digit-led run.
         if c >= '0' && c <= '9' {
-            val end = syntaxRunWhile(rs, i, isNumberRune)
-            out = out.Append(TokNumber(Text = syntaxSlice(rs, i, end)))
+            val end = runeIndexWhere(rs, i, (k) => !isNumberRune(rs[k])).GetOrElse(n)
+            out = out.Append(TokNumber(Text = runeRange(rs, i, end)))
             i = end
             continue
         }
         // Identifier / keyword.
         if isIdentStart(c) {
-            val end = syntaxRunWhile(rs, i, isIdentRune)
-            val text = syntaxSlice(rs, i, end)
-            if syntaxContainsString(keywords, text) {
+            val end = runeIndexWhere(rs, i, (k) => !isIdentRune(rs[k])).GetOrElse(n)
+            val text = runeRange(rs, i, end)
+            if keywords.Contains(text) {
                 out = out.Append(TokKeyword(Text = text))
             } else {
                 out = out.Append(TokIdent(Text = text))
@@ -132,31 +132,35 @@ func tokenize(line string, lang string) Array[SyntaxToken] {
             i = end
             continue
         }
-        // Punctuation / whitespace — accumulate runes until the next major
-        // token boundary OR the start of a comment. We can't use a pure
-        // single-rune predicate here because the comment check is a
-        // multi-rune lookahead.
-        var end = i
-        for end < n {
-            val r = rs.Get(end)
-            if isIdentStart(r) || (r >= '0' && r <= '9') || r == '"' || r == '\'' {
-                break
-            }
-            if lineCommentPrefix != "" && syntaxStartsWith(rs, end, lineCommentPrefix) {
-                break
-            }
-            end = end + 1
-        }
+        // Punctuation / whitespace — runs until the next major token
+        // boundary OR the start of a comment. Not a single-rune predicate:
+        // the comment check is a multi-rune lookahead.
+        val end = runeIndexWhere(rs, i, (k) => syntaxPunctStop(rs, k, commentPrefix)).GetOrElse(n)
         if end == i {
             // Defensive: never advance zero. Take one rune as punctuation.
             out = out.Append(TokPunct(Text = string(c)))
             i = i + 1
         } else {
-            out = out.Append(TokPunct(Text = syntaxSlice(rs, i, end)))
+            out = out.Append(TokPunct(Text = runeRange(rs, i, end)))
             i = end
         }
     }
     return out
+}
+
+// syntaxPunctStop reports whether a punctuation run ends at rs[k]: an
+// identifier, number or string starts there, or a line comment does.
+func syntaxPunctStop(rs []rune, k int, commentPrefix []rune) bool {
+    val r = rs[k]
+    return isIdentStart(r) || (r >= '0' && r <= '9') || r == '"' || r == '\'' ||
+        syntaxCommentAt(rs, k, commentPrefix)
+}
+
+// syntaxCommentAt reports whether the line comment `prefix` starts at
+// rs[at]. An empty prefix (a language without line comments) never does.
+func syntaxCommentAt(rs []rune, at int, prefix []rune) bool {
+    val end = at + prefix.Size()
+    return prefix.Size() > 0 && end <= rs.Size() && slices.Equal(Slice(rs, at, end), prefix)
 }
 
 // ----------------------------------------------------------------------------
@@ -236,60 +240,3 @@ func isNumberRune(c rune) bool =
     c == 'b' || c == 'B' || c == 'o' || c == 'O' ||
     (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c == '_'
 
-// ----------------------------------------------------------------------------
-// Small string-rune helpers (kept here so syntax.gala is self-contained).
-// ----------------------------------------------------------------------------
-
-func syntaxRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
-}
-
-func syntaxSlice(rs Array[rune], lo int, hi int) string {
-    var out = ""
-    var i = lo
-    for i < hi {
-        out = out + string(rs.Get(i))
-        i = i + 1
-    }
-    return out
-}
-
-func syntaxStartsWith(rs Array[rune], at int, prefix string) bool {
-    val pr = syntaxRunes(prefix)
-    val pn = pr.Length()
-    val rn = rs.Length()
-    if at + pn > rn { return false }
-    var k = 0
-    for k < pn {
-        if rs.Get(at + k) != pr.Get(k) { return false }
-        k = k + 1
-    }
-    return true
-}
-
-func syntaxFindRune(rs Array[rune], target rune, start int) int {
-    var i = start
-    val n = rs.Length()
-    for i < n {
-        if rs.Get(i) == target { return i }
-        i = i + 1
-    }
-    return -1
-}
-
-func syntaxRunWhile(rs Array[rune], start int, pred func(rune) bool) int {
-    var i = start
-    val n = rs.Length()
-    for i < n {
-        if !pred(rs.Get(i)) { return i }
-        i = i + 1
-    }
-    return n
-}
-
-func syntaxContainsString(arr Array[string], target string) bool =
-    arr.Exists((s) => s == target)

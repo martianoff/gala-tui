@@ -346,6 +346,9 @@ func Run[M any, T any](
 
             // Any synchronously-emitted messages are dispatched in-line, same
             // as StepAll's behavior — supports `Cmd.MsgCmd(x)` chaining.
+            // Not `dispatchAll`: Run emits each update's prints as it goes,
+            // with a repaint, where dispatchAll only collects them for the
+            // caller to write afterwards.
             val emitted = PendingMsgs(cmd)
             var i = 0
             for i < emitted.Length() {
@@ -830,33 +833,9 @@ func processInputBytesWithHits[M any, T any](
         )
         *pendingClick = resolution.Pending
         *dragActive   = resolution.Drag
-        val msgs = resolution.Msgs
-        var mi = 0
-        for mi < msgs.Length() {
-            val msg = msgs.Get(mi)
-            val (newModel, cmd) = program.Update(*model, msg)
-            *model = newModel
-            // Collected before the quit check, same as dispatchAll: a
-            // keystroke whose update() prints and quits means both.
-            *prints = PendingPrints(cmd).FoldLeft(*prints, (acc, line) => acc.Append(line))
-            if IsQuit(cmd) {
-                return (true, SliceEmpty[byte]())
-            }
-            *pending = pending.AppendAll(PendingFutures(cmd))
-
-            val emitted = PendingMsgs(cmd)
-            var i = 0
-            for i < emitted.Length() {
-                val (nm, nc) = program.Update(*model, emitted.Get(i))
-                *model = nm
-                *prints = PendingPrints(nc).FoldLeft(*prints, (acc, line) => acc.Append(line))
-                if IsQuit(nc) {
-                    return (true, SliceEmpty[byte]())
-                }
-                *pending = pending.AppendAll(PendingFutures(nc))
-                i = i + 1
-            }
-            mi = mi + 1
+        val res = dispatchAll(program, *model, resolution.Msgs)
+        if applyDispatch(res, model, pending, prints) {
+            return (true, SliceEmpty[byte]())
         }
     }
     return (false, SliceEmpty[byte]())
@@ -1300,47 +1279,65 @@ struct DispatchResult[M any, T any](
 // dispatchAll walks `msgs`, calling program.Update for each, and threads the
 // model + pending-futures list forward. Stops short if any update() returns
 // QuitCmd.
+//
+// Each message's synchronously emitted messages (MsgCmd chains) are
+// dispatched inline, right after it and before the next message — one
+// level deep: what an emitted message emits in turn is not re-dispatched.
+// This is the one copy of that redispatch, shared by the key and input byte
+// loops and the async, tick and resize drains. Run keeps its own loop only
+// because it emits prints incrementally, repainting after each.
 func dispatchAll[M any, T any](
     program Program[M, T],
     start M,
     msgs Array[T],
 ) DispatchResult[M, T] {
-    var model = start
-    var futures = EmptyArray[concurrent.Future[T]]()
-    var prints = EmptyArray[string]()
-    var i = 0
-    val n = msgs.Length()
-    for i < n {
-        val (nm, cmd) = program.Update(model, msgs.Get(i))
-        model = nm
-        // A quit still carries its prints out. An app whose last act is to
-        // print a summary and quit means both, and dropping the lines
-        // because the same update() also asked to exit would make the
-        // ordering of a Batch decide whether its output survives.
-        prints = PendingPrints(cmd).FoldLeft(prints, (acc, line) => acc.Append(line))
-        if IsQuit(cmd) {
-            return DispatchResult[M, T](
-                Model = model, NewFutures = futures, Prints = prints, Quit = true)
-        }
-        futures = futures.AppendAll(PendingFutures(cmd))
-        // Inline synchronous re-dispatch for MsgCmd chains.
-        val emitted = PendingMsgs(cmd)
-        var j = 0
-        for j < emitted.Length() {
-            val (nm2, cmd2) = program.Update(model, emitted.Get(j))
-            model = nm2
-            prints = PendingPrints(cmd2).FoldLeft(prints, (acc, line) => acc.Append(line))
-            if IsQuit(cmd2) {
-                return DispatchResult[M, T](
-                    Model = model, NewFutures = futures, Prints = prints, Quit = true)
-            }
-            futures = futures.AppendAll(PendingFutures(cmd2))
-            j = j + 1
-        }
-        i = i + 1
-    }
-    return DispatchResult[M, T](
-        Model = model, NewFutures = futures, Prints = prints, Quit = false)
+    val seed = DispatchResult[M, T](
+        Model = start, NewFutures = EmptyArray[concurrent.Future[T]](),
+        Prints = EmptyArray[string](), Quit = false)
+    // Guarded folds: once an update quits, the remaining steps pass the
+    // result through untouched, which costs nothing.
+    return msgs.FoldLeft(seed, (acc, msg) => {
+        if acc.Quit { return acc }
+        val (res, cmd) = dispatchStep[M, T](program, acc, msg)
+        if res.Quit { return res }
+        return PendingMsgs(cmd).FoldLeft(res, (a, e) =>
+            if (a.Quit) a else dispatchStep[M, T](program, a, e).V1)
+    })
+}
+
+// dispatchStep runs one update() on top of `acc` and returns the command
+// with the result, so the caller can re-dispatch what it emitted.
+//
+// A quit still carries its prints out. An app whose last act is to print a
+// summary and quit means both, and dropping the lines because the same
+// update() also asked to exit would make the ordering of a Batch decide
+// whether its output survives. Its futures, though, are never started.
+func dispatchStep[M any, T any](
+    program Program[M, T],
+    acc DispatchResult[M, T],
+    msg T,
+) Tuple[DispatchResult[M, T], Cmd[T]] {
+    val (model, cmd) = program.Update(acc.Model, msg)
+    val prints = acc.Prints.AppendAll(PendingPrints(cmd))
+    val quit = IsQuit(cmd)
+    val futures = if (quit) acc.NewFutures else acc.NewFutures.AppendAll(PendingFutures(cmd))
+    return (DispatchResult[M, T](
+        Model = model, NewFutures = futures, Prints = prints, Quit = quit), cmd)
+}
+
+// applyDispatch writes a dispatch result through the byte loops' pointers.
+// Futures are kept even on a quit — those of the updates before it were
+// already started — and the result's Quit is the caller's to act on.
+func applyDispatch[M any, T any](
+    res DispatchResult[M, T],
+    model *M,
+    pending *Array[concurrent.Future[T]],
+    prints *Array[string],
+) bool {
+    *model = res.Model
+    *prints = prints.AppendAll(res.Prints)
+    *pending = pending.AppendAll(res.NewFutures)
+    return res.Quit
 }
 
 // processKeyBytes consumes the bytes produced by a stdin read and dispatches
@@ -1377,28 +1374,11 @@ func processKeyBytes[M any, T any](
             return (true, SliceEmpty[byte]())
         }
 
-        val msg = makeKeyMsg(ev)
-        val (newModel, cmd) = program.Update(*model, msg)
-        *model = newModel
-        // Collected before the quit check, same as dispatchAll: a keystroke
-        // whose update() prints and quits means both.
-        *prints = PendingPrints(cmd).FoldLeft(*prints, (acc, line) => acc.Append(line))
-        if IsQuit(cmd) {
+        // A keystroke whose update() prints and quits means both; see
+        // dispatchStep.
+        val res = dispatchAll(program, *model, ArrayOf(makeKeyMsg(ev)))
+        if applyDispatch(res, model, pending, prints) {
             return (true, SliceEmpty[byte]())
-        }
-        *pending = pending.AppendAll(PendingFutures(cmd))
-
-        val emitted = PendingMsgs(cmd)
-        var i = 0
-        for i < emitted.Length() {
-            val (nm, nc) = program.Update(*model, emitted.Get(i))
-            *model = nm
-            *prints = PendingPrints(nc).FoldLeft(*prints, (acc, line) => acc.Append(line))
-            if IsQuit(nc) {
-                return (true, SliceEmpty[byte]())
-            }
-            *pending = pending.AppendAll(PendingFutures(nc))
-            i = i + 1
         }
     }
     return (false, SliceEmpty[byte]())

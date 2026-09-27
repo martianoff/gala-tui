@@ -2,8 +2,10 @@ package main
 
 import (
     "fmt"
+    "strings"
     . "github.com/martianoff/gala-tui"
     . "martianoff/gala/collection_immutable"
+    "martianoff/gala/stream"
 )
 
 // ============================================================================
@@ -83,62 +85,57 @@ func renderSvg(w Widget, cols int, rows int) string {
 // boundaries and the renderer leaves a hairline seam between them — visible
 // as vertical stripes straight through a selection highlight. A run is one
 // rect with one pair of edges, so there is nothing to seam.
-func svgBackgrounds(buf *Buffer, cols int, rows int) string {
-    var sb = ""
-    var y = 0
-    for y < rows {
-        var x = 0
-        for x < cols {
-            val bg = effectiveBg(buf.StyleAt(x, y))
-            if bg == bgHex() {
-                x = x + 1
-                continue
-            }
-            val startX = x
-            for x < cols && effectiveBg(buf.StyleAt(x, y)) == bg {
-                x = x + 1
-            }
-            val px = float64(startX) * cellW()
+func svgBackgrounds(buf *Buffer, cols int, rows int) string =
+    ArrayTabulate(rows, (y) => svgBackgroundRow(buf, cols, y)).MkString("")
+
+func svgBackgroundRow(buf *Buffer, cols int, y int) string {
+    var sb strings.Builder
+    var x = 0
+    // Run-length scan: each step jumps to the end of the run it just found.
+    for x < cols {
+        val bg = effectiveBg(buf.StyleAt(x, y))
+        val end = stream.Range(x, cols)
+            .Find((i) => effectiveBg(buf.StyleAt(i, y)) != bg)
+            .GetOrElse(cols)
+        if bg != bgHex() {
+            val px = float64(x) * cellW()
             val py = float64(y) * cellH()
-            val w = float64(x - startX) * cellW()
-            sb = sb + s"<rect x=\"${fmtF(px)}\" y=\"${fmtF(py)}\" width=\"${fmtF(w)}\" height=\"${fmtF(cellH())}\" fill=\"$bg\"/>\n"
+            val w = float64(end - x) * cellW()
+            sb.WriteString(s"<rect x=\"${fmtF(px)}\" y=\"${fmtF(py)}\" width=\"${fmtF(w)}\" height=\"${fmtF(cellH())}\" fill=\"$bg\"/>\n")
         }
-        y = y + 1
+        x = end
     }
-    return sb
+    return sb.String()
 }
 
 // svgGlyphs emits one <text> per run of adjacent cells sharing a style, which
 // keeps the file to a few hundred elements instead of one per cell — and keeps
 // the text selectable when a reader opens the image on its own.
-func svgGlyphs(buf *Buffer, cols int, rows int) string {
-    var sb = ""
-    var y = 0
-    for y < rows {
-        var x = 0
-        for x < cols {
-            if buf.CharAt(x, y) == ' ' {
-                x = x + 1
-                continue
-            }
-            // Extend the run while the style holds and the glyphs keep coming.
-            // CharAt / StyleAt rather than Get().Ch: a field read through a
-            // returned struct comes back wrapped in Immutable, which will not
-            // unify with `rune` or `Style` (see buffer.gala).
-            var run = ""
-            val st = buf.StyleAt(x, y)
-            val startX = x
-            for x < cols {
-                val ch = buf.CharAt(x, y)
-                if ch == ' ' || !StyleEqual(buf.StyleAt(x, y), st) { break }
-                run = run + string(ch)
-                x = x + 1
-            }
-            sb = sb + svgText(run, startX, y, st)
+func svgGlyphs(buf *Buffer, cols int, rows int) string =
+    ArrayTabulate(rows, (y) => svgGlyphRow(buf, cols, y)).MkString("")
+
+func svgGlyphRow(buf *Buffer, cols int, y int) string {
+    var sb strings.Builder
+    var x = 0
+    // Run-length scan: each step jumps past the run (or blank) it just found.
+    for x < cols {
+        if buf.CharAt(x, y) == ' ' {
+            x = x + 1
+            continue
         }
-        y = y + 1
+        // Extend the run while the style holds and the glyphs keep coming.
+        // CharAt / StyleAt rather than Get().Ch: a field read through a
+        // returned struct comes back wrapped in Immutable, which will not
+        // unify with `rune` or `Style` (see buffer.gala).
+        val st = buf.StyleAt(x, y)
+        val end = stream.Range(x, cols)
+            .Find((i) => buf.CharAt(i, y) == ' ' || !StyleEqual(buf.StyleAt(i, y), st))
+            .GetOrElse(cols)
+        val run = ArrayTabulate(end - x, (k) => buf.CharAt(x + k, y))
+        sb.WriteString(svgText(string(run.ToGoSlice()), x, y, st))
+        x = end
     }
-    return sb
+    return sb.String()
 }
 
 func svgText(run string, x int, y int, st Style) string {
@@ -151,7 +148,8 @@ func svgText(run string, x int, y int, st Style) string {
     if st.Italic    { attrs = attrs + " font-style=\"italic\"" }
     if st.Underline { attrs = attrs + " text-decoration=\"underline\"" }
     if st.Dim       { attrs = attrs + " opacity=\"0.65\"" }
-    return s"<text $attrs>${xmlEscape(run)}</text>\n"
+    val escaped = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(run)
+    return s"<text $attrs>$escaped</text>\n"
 }
 
 // effectiveFg / effectiveBg fold Reverse in here rather than at every call
@@ -182,17 +180,6 @@ func ansiHex(i int) string {
         "#4d4d4d", "#dd3c69", "#4ebf22", "#ddaf3c", "#26b0d7", "#b954e1", "#54e1b9", "#ffffff")
     if i >= 0 && i < base.Length() { return base.Get(i) }
     return fgHex()
-}
-
-func xmlEscape(s string) string {
-    var out = ""
-    for _, c := range s {
-        if c == '&'      { out = out + "&amp;" }
-        else if c == '<' { out = out + "&lt;" }
-        else if c == '>' { out = out + "&gt;" }
-        else             { out = out + string(c) }
-    }
-    return out
 }
 
 // fmtF trims a float to two decimals without dragging in a format verb per

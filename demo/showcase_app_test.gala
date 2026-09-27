@@ -1,8 +1,9 @@
 package main
 
 import (
+    "strings"
     . "github.com/martianoff/gala-tui"
-    . "martianoff/gala/collection_immutable"
+    "martianoff/gala/stream"
     . "martianoff/gala/test"
 )
 
@@ -21,22 +22,22 @@ func TestShowcaseRendersWithoutCrashing(t T) T {
     RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     // Header's thick top border uses ┏ at the top-left.
     val row0 = RowText(buf, 0)
-    return IsTrue(t, showcaseContainsRune(row0, '┏'))
+    return IsTrue(t, strings.ContainsRune(row0, '┏'))
 }
 
 func TestShowcaseRendersSidebarMenu(t T) T {
     val m = NewShowcaseModel()
     val buf = NewBuffer(120, 30)
     RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
-    return IsTrue(t, showcaseContains(buf, "Overview"))
+    return IsTrue(t, containsAnyRow(buf, "Overview"))
 }
 
 func TestShowcaseRendersProcessTable(t T) T {
     val m = NewShowcaseModel()
     val buf = NewBuffer(120, 30)
     RenderTo(ShowcaseView(m), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
-    val t1 = IsTrue(t, showcaseContains(buf, "postgres"))
-    return IsTrue(t1, showcaseContains(buf, "PID"))
+    val t1 = IsTrue(t, containsAnyRow(buf, "postgres"))
+    return IsTrue(t1, containsAnyRow(buf, "PID"))
 }
 
 // ----------------------------------------------------------------------------
@@ -108,13 +109,8 @@ func TestShowcasePaletteBackspaceDropsOneRune(t T) T {
 }
 
 func TestShowcaseTickFillsSpark(t T) T {
-    var m = NewShowcaseModel()
-    var i = 0
-    for i < 5 {
-        val (nm, _) = ShowcaseUpdate(m, ShTick())
-        m = nm
-        i = i + 1
-    }
+    val m = stream.Range(0, 5).Fold(NewShowcaseModel(),
+        (acc, _) => ShowcaseUpdate(acc, ShTick()).V1)
     val t1 = Eq(t, m.Tick, 5)
     return Eq(t1, m.Spark.Length(), 5)
 }
@@ -168,59 +164,4 @@ func showcaseIsQuit(m ShowcaseMsg) bool {
         case ShQuit() => true
         case _        => false
     }
-}
-
-func showcaseContains(buf *Buffer, needle string) bool {
-    var y = 0
-    for y < buf.Height {
-        if showcaseRowContains(RowText(buf, y), needle) {
-            return true
-        }
-        y = y + 1
-    }
-    return false
-}
-
-func showcaseRowContains(hay string, needle string) bool {
-    val hr = showcaseToRunes(hay)
-    val nr = showcaseToRunes(needle)
-    val hn = hr.Length()
-    val nn = nr.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        if showcaseRunesEqAt(hr, nr, i) { return true }
-        i = i + 1
-    }
-    return false
-}
-
-func showcaseContainsRune(s string, target rune) bool {
-    for _, c := range s {
-        if c == target {
-            return true
-        }
-    }
-    return false
-}
-
-func showcaseToRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
-}
-
-func showcaseRunesEqAt(hay Array[rune], needle Array[rune], offset int) bool {
-    val n = needle.Length()
-    var j = 0
-    for j < n {
-        if hay.Get(offset + j) != needle.Get(j) {
-            return false
-        }
-        j = j + 1
-    }
-    return true
 }

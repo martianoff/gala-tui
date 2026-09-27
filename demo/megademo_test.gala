@@ -1,11 +1,13 @@
 package main
 
 import (
+    "strings"
     . "github.com/martianoff/gala-tui"
     . "github.com/martianoff/gala-tui/harness"
     . "martianoff/gala/collection_immutable"
+    "martianoff/gala/stream"
+    gs "martianoff/gala/strings"
     . "martianoff/gala/test"
-    "strings"
 )
 
 // ============================================================================
@@ -60,13 +62,7 @@ func TestMegaArrowOnPipelinesScreenWithTableFocusMovesTreeCursor(t T) T {
 func TestMegaPipelinesCursorClampsAtBottom(t T) T {
     val (mPipes, _)   = MegaUpdate(NewMegaModel(), MegaPushScreen(Route = "pipelines"))
     val (mFocused, _) = MegaUpdate(mPipes, MegaFocusNext())
-    var m = mFocused
-    var i = 0
-    for i < 50 {
-        val (mNext, _) = MegaUpdate(m, MegaKeyDown())
-        m = mNext
-        i = i + 1
-    }
+    val m = megaUpdateTimes(mFocused, MegaKeyDown(), 50)
     val total = TreeFlatRowCount(m.Pipelines)
     return Eq(t, m.PipelinesCursor, total - 1)
 }
@@ -305,7 +301,7 @@ func TestRegressionSidebarFocusedShowsHint(t T) T {
     RenderTo(MegaView(NewMegaModel()),
         Rect(X = 0, Y = 0, Width = 60, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "Enter to jump"))
+    return IsTrue(t, strings.Contains(joined, "Enter to jump"))
 }
 
 func TestRegressionSidebarUnfocusedHidesHint(t T) T {
@@ -313,7 +309,7 @@ func TestRegressionSidebarUnfocusedHidesHint(t T) T {
     var buf = NewBuffer(60, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 60, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsFalse(t, megaStringHas(joined, "Enter to jump"))
+    return IsFalse(t, strings.Contains(joined, "Enter to jump"))
 }
 
 // ----------------------------------------------------------------------------
@@ -862,7 +858,7 @@ func TestMegaRendersOverviewScreen(t T) T {
     RenderTo(MegaView(NewMegaModel()),
         Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "build server"))
+    return IsTrue(t, strings.Contains(joined, "build server"))
 }
 
 func TestMegaRendersHelpModalWhenOpen(t T) T {
@@ -870,7 +866,7 @@ func TestMegaRendersHelpModalWhenOpen(t T) T {
     val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "Key bindings"))
+    return IsTrue(t, strings.Contains(joined, "Key bindings"))
 }
 
 func TestMegaRendersPaletteWhenOpen(t T) T {
@@ -879,7 +875,7 @@ func TestMegaRendersPaletteWhenOpen(t T) T {
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
     // Palette modal shows the prompt with the ">" arrow.
-    return IsTrue(t, megaStringHas(joined, "Type a command"))
+    return IsTrue(t, strings.Contains(joined, "Type a command"))
 }
 
 // ----------------------------------------------------------------------------
@@ -903,22 +899,14 @@ func TestMegaCharOnFormsScreenTypesInsteadOfQuitting(t T) T {
 }
 
 func TestMegaFormLettersThatAreAlsoShortcutsAreTyped(t T) T {
-    var m = megaOnForms()
-    for _, c := range "admin" {
-        val (next, _) = megaPressChar(m, c)
-        m = next
-    }
+    val m = megaTypeChars(megaOnForms(), "admin")
     return Eq(t, m.FormUser, "admin")
 }
 
 // A click inside the value moves the caret, and the next character lands
 // there rather than at the end.
 func TestMegaFormClickPositionsCaretForTyping(t T) T {
-    var m = megaOnForms()
-    for _, c := range "admin" {
-        val (next, _) = megaPressChar(m, c)
-        m = next
-    }
+    val m = megaTypeChars(megaOnForms(), "admin")
     val (m2, _) = MegaUpdate(m, MegaFormCaret(Field = 0, Idx = 2))
     val (m3, _) = megaPressChar(m2, 'X')
     return Eq(t, m3.FormUser, "adXmin")
@@ -928,11 +916,7 @@ func TestMegaFormClickPositionsCaretForTyping(t T) T {
 // masked field resolve to the right rune of the secret.
 func TestMegaMaskedValueIsOneGlyphPerRune(t T) T {
     val (m1, _) = MegaUpdate(megaOnForms(), MegaFormCaret(Field = 1, Idx = 0))
-    var m = m1
-    for _, c := range "s3cr3t" {
-        val (next, _) = megaPressChar(m, c)
-        m = next
-    }
+    val m = megaTypeChars(m1, "s3cr3t")
     val t1 = Eq(t, m.FormPass, "s3cr3t")
     return Eq(t1, RuneCount(MaskValue(m.FormPass)), RuneCount(m.FormPass))
 }
@@ -1019,17 +1003,13 @@ func TestMegaCycleThemeFullLoop(t T) T {
 }
 
 func TestMegaCycleThemeAllFourAreDistinct(t T) T {
-    var m = NewMegaModel()
-    var seen = ArrayOf[string](megaThemeName(m.ActiveTheme))
-    var i = 0
-    for i < 3 {
-        val (mNext, _) = MegaUpdate(m, MegaCycleTheme())
-        m = mNext
-        seen = seen.Append(megaThemeName(m.ActiveTheme))
-        i = i + 1
-    }
+    // The start plus three cycles: Scan emits the seed first.
+    val seen = stream.Range(0, 3)
+        .Scan(NewMegaModel(), (m, _) => MegaUpdate(m, MegaCycleTheme()).V1)
+        .Map((m) => megaThemeName(m.ActiveTheme))
+        .ToArray()
     // Each theme name appears exactly once across 4 distinct themes.
-    return Eq(t, megaUniqueLength(seen), 4)
+    return Eq(t, seen.Distinct().Length(), 4)
 }
 
 // ----------------------------------------------------------------------------
@@ -1053,20 +1033,11 @@ func TestMegaSidebarNavSequence(t T) T {
 // re-feeds to update().
 func TestMegaPushFlowReachesAllRoutes(t T) T {
     val routes = ArrayOf[string]("overview", "builds", "pipelines", "logs")
-    var m = NewMegaModel()
-    var i = 0
-    var ok = true
-    for i < routes.Length() {
-        val (mNext, _) = MegaUpdate(m, MegaPushScreen(Route = routes.Get(i)))
-        if mNext.Screens.Current() != routes.Get(i) {
-            ok = false
-            i = routes.Length()
-        } else {
-            m = mNext
-            i = i + 1
-        }
-    }
-    return IsTrue(t, ok)
+    val start = (t, NewMegaModel())
+    return routes.FoldLeft(start, (acc, route) => {
+        val (next, _) = MegaUpdate(acc.V2, MegaPushScreen(Route = route))
+        return (Eq(acc.V1, next.Screens.Current(), route), next)
+    }).V1
 }
 
 func TestMegaPushScreenSwitchesRoute(t T) T {
@@ -1230,15 +1201,9 @@ func TestMegaFocusNextRotates(t T) T {
 }
 
 func TestMegaFocusCyclesBackToFirst(t T) T {
-    var m = NewMegaModel()
-    val first = m.Focus.Current()
-    val n = 2   // sidebar → table → sidebar
-    var i = 0
-    for i < n {
-        val (mNext, _) = MegaUpdate(m, MegaFocusNext())
-        m = mNext
-        i = i + 1
-    }
+    val m0 = NewMegaModel()
+    val first = m0.Focus.Current()
+    val m = megaUpdateTimes(m0, MegaFocusNext(), 2)   // sidebar → table → sidebar
     return Eq(t, m.Focus.Current(), first)
 }
 
@@ -1364,13 +1329,7 @@ func TestMegaLogPgDnAtBottomClampsAtZero(t T) T {
 }
 
 func TestMegaLogPgUpClampsAtMaxScroll(t T) T {
-    var m = NewMegaModel()
-    var i = 0
-    for i < 50 {
-        val (mNext, _) = MegaUpdate(m, MegaLogPgUp())
-        m = mNext
-        i = i + 1
-    }
+    val m = megaUpdateTimes(NewMegaModel(), MegaLogPgUp(), 50)
     val total = m.Logs.Length()
     val visible = 8
     val maxScroll = if (total > visible) total - visible else 0
@@ -1432,7 +1391,7 @@ func TestMegaRendersBuildsScreen(t T) T {
     val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "Branch"))
+    return IsTrue(t, strings.Contains(joined, "Branch"))
 }
 
 func TestMegaRendersPipelinesScreen(t T) T {
@@ -1440,7 +1399,7 @@ func TestMegaRendersPipelinesScreen(t T) T {
     val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "backend"))
+    return IsTrue(t, strings.Contains(joined, "backend"))
 }
 
 func TestMegaRendersLogsScreen(t T) T {
@@ -1448,7 +1407,7 @@ func TestMegaRendersLogsScreen(t T) T {
     val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "dashboard started"))
+    return IsTrue(t, strings.Contains(joined, "dashboard started"))
 }
 
 func TestMegaRendersConfirmModal(t T) T {
@@ -1456,7 +1415,7 @@ func TestMegaRendersConfirmModal(t T) T {
     val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "Deploy to Prod"))
+    return IsTrue(t, strings.Contains(joined, "Deploy to Prod"))
 }
 
 func TestMegaRendersLogDrawerOverlay(t T) T {
@@ -1466,7 +1425,7 @@ func TestMegaRendersLogDrawerOverlay(t T) T {
     val joined = megaStitchRows(buf)
     // The overlay shows the tail of the log buffer — assert on the last
     // seeded entry which is "ws clients online: 4".
-    return IsTrue(t, megaStringHas(joined, "ws clients online"))
+    return IsTrue(t, strings.Contains(joined, "ws clients online"))
 }
 
 func TestMegaRendersToastWhenPushed(t T) T {
@@ -1475,7 +1434,7 @@ func TestMegaRendersToastWhenPushed(t T) T {
     val buf = NewBuffer(120, 30)
     RenderTo(MegaView(m2), Rect(X = 0, Y = 0, Width = 120, Height = 30), buf)
     val joined = megaStitchRows(buf)
-    return IsTrue(t, megaStringHas(joined, "Confirmed"))
+    return IsTrue(t, strings.Contains(joined, "Confirmed"))
 }
 
 // ----------------------------------------------------------------------------
@@ -1485,40 +1444,16 @@ func TestMegaRendersToastWhenPushed(t T) T {
 func themesEqual(a MegaTheme, b MegaTheme) bool =
     megaThemeName(a) == megaThemeName(b)
 
-func megaStitchRows(buf *Buffer) string {
-    var s = ""
-    var y = 0
-    for y < buf.Height {
-        s = s + RowText(buf, y) + "\n"
-        y = y + 1
-    }
-    return s
-}
+// megaStitchRows is every row of the buffer, each followed by "\n".
+func megaStitchRows(buf *Buffer) string = megaColumns(buf, 0, buf.Width)
 
-func megaStringHas(hay string, needle string) bool {
-    val h = megaTestRunes(hay)
-    val n = megaTestRunes(needle)
-    val hn = h.Length()
-    val nn = n.Length()
-    if nn == 0 { return true }
-    if nn > hn { return false }
-    var i = 0
-    for i <= hn - nn {
-        var j = 0
-        var ok = true
-        for j < nn {
-            if h.Get(i + j) != n.Get(j) {
-                ok = false
-                j = nn
-            } else {
-                j = j + 1
-            }
-        }
-        if ok { return true }
-        i = i + 1
-    }
-    return false
-}
+// megaUpdateTimes applies `msg` to `m` n times, discarding the commands.
+func megaUpdateTimes(m MegaModel, msg MegaMsg, n int) MegaModel =
+    stream.Range(0, n).Fold(m, (acc, _) => MegaUpdate(acc, msg).V1)
+
+// megaTypeChars presses each rune of `s` in turn through megaPressChar.
+func megaTypeChars(m MegaModel, s string) MegaModel =
+    gs.S(s).Fold(m, (acc, c) => megaPressChar(acc, c).V1)
 
 // megaFindBrightYellowRowAfter returns the y of the FIRST row at or
 // after `startY` that contains any cell with BrightYellow foreground.
@@ -1526,49 +1461,22 @@ func megaStringHas(hay string, needle string) bool {
 // when focused) so they find the table-cursor row, not the tab cursor.
 //
 // Returns -1 if no such row is found.
-func megaFindBrightYellowRowAfter(buf *Buffer, w int, h int, startY int) int {
-    var y = startY
-    for y < h {
-        var x = 0
-        for x < w {
-            if ColorEq(buf.StyleAt(x, y).Fg, BrightYellow()) {
-                return y
-            }
-            x = x + 1
-        }
-        y = y + 1
-    }
-    return -1
-}
+func megaFindBrightYellowRowAfter(buf *Buffer, w int, h int, startY int) int =
+    stream.Range(startY, h)
+        .Find((y) => stream.Range(0, w).Exists((x) => ColorEq(buf.StyleAt(x, y).Fg, BrightYellow())))
+        .GetOrElse(-1)
 
 // megaCountNonBlankRowsInTreePane counts how many rows in the body area
 // (skipping the header / footer) have at least one non-space cell.
 // Used to detect tree expand/collapse changing the visible row count.
 func megaCountNonBlankRowsInTreePane(buf *Buffer, w int, h int) int {
-    var count = 0
-    var y = 4   // skip the title bar (rows 0–2) + the body's top border
-    val maxY = h - 2   // skip footer
-    for y < maxY {
-        var hasContent = false
-        var x = 2   // skip the left border + indent
-        val maxX = w - 2
-        for x < maxX && !hasContent {
-            val c = buf.CharAt(x, y)
-            if c != ' ' && c != '│' && c != ' ' { hasContent = true }
-            x = x + 1
-        }
-        if hasContent { count = count + 1 }
-        y = y + 1
-    }
-    return count
-}
-
-func megaTestRunes(s string) Array[rune] {
-    var acc = EmptyArray[rune]()
-    for _, c := range s {
-        acc = acc.Append(c)
-    }
-    return acc
+    // Rows: skip the title bar (rows 0–2) + the body's top border, and the
+    // footer. Columns: skip the left border + indent, and the right edge.
+    val hasContent = (y int) => stream.Range(2, w - 2).Exists((x) => {
+        val c = buf.CharAt(x, y)
+        return c != ' ' && c != '│'
+    })
+    return stream.Range(4, h - 2).Filter(hasContent).Count()
 }
 
 // A modal sits on top of the screen that opened it, so it answers Enter
@@ -1619,44 +1527,12 @@ func megaIsQuitMsg(msg MegaMsg) bool {
 // (the palette dispatches its action via `MsgCmd`, which we want to verify).
 func megaCmdHasMsg(cmd Cmd[MegaMsg]) bool = !PendingMsgs(cmd).IsEmpty()
 
-// megaUniqueLength counts distinct strings in `xs` — used to assert the
-// theme cycle covers all four themes.
-func megaUniqueLength(xs Array[string]) int {
-    var uniq = EmptyArray[string]()
-    var i = 0
-    val n = xs.Length()
-    for i < n {
-        val s = xs.Get(i)
-        var seen = false
-        var j = 0
-        val k = uniq.Length()
-        for j < k {
-            if uniq.Get(j) == s { seen = true; j = k }
-            else { j = j + 1 }
-        }
-        if !seen { uniq = uniq.Append(s) }
-        i = i + 1
-    }
-    return uniq.Length()
-}
-
-// megaColumns stitches columns [x0, x1) of every row — one pane's worth of
-// the screen, so an assertion about a pane cannot be satisfied by text that
-// happens to appear in another.
-func megaColumns(buf *Buffer, x0 int, x1 int) string {
-    var s = ""
-    var y = 0
-    for y < buf.Height {
-        var x = x0
-        for x < x1 {
-            s = s + string(buf.CharAt(x, y))
-            x = x + 1
-        }
-        s = s + "\n"
-        y = y + 1
-    }
-    return s
-}
+// megaColumns stitches columns [x0, x1) of every row, each followed by "\n"
+// — one pane's worth of the screen, so an assertion about a pane cannot be
+// satisfied by text that happens to appear in another. RowText has one rune
+// per cell, so a rune range is a column range.
+func megaColumns(buf *Buffer, x0 int, x1 int) string =
+    ArrayTabulate(buf.Height, (y int) => gs.S(RowText(buf, y)).Substring(x0, x1).ToString() + "\n").MkString("")
 
 func megaOverviewAt36() *Buffer {
     val buf = NewBuffer(120, 36)
@@ -1671,9 +1547,9 @@ func megaOverviewAt36() *Buffer {
 // between the nav and the tree.
 func TestMegaSidebarShowsTheGroupedThroughputChart(t T) T {
     val sidebar = megaColumns(megaOverviewAt36(), 0, 28)
-    val t1 = IsTrue(t, megaStringHas(sidebar, "api     web    infra"))
-    val t2 = IsTrue(t1, megaStringHas(sidebar, "42"))
-    return IsTrue(t2, megaStringHas(sidebar, "pass / fail"))
+    val t1 = IsTrue(t, strings.Contains(sidebar, "api     web    infra"))
+    val t2 = IsTrue(t1, strings.Contains(sidebar, "42"))
+    return IsTrue(t2, strings.Contains(sidebar, "pass / fail"))
 }
 
 // The overview's stage-time chart is the horizontal form: stage names as
@@ -1681,9 +1557,9 @@ func TestMegaSidebarShowsTheGroupedThroughputChart(t T) T {
 // its bar.
 func TestMegaOverviewShowsStageTimesLyingDown(t T) T {
     val main = megaColumns(megaOverviewAt36(), 28, 120)
-    val t1 = IsTrue(t, megaStringHas(main, "compile"))
-    val t2 = IsTrue(t1, megaStringHas(main, "p95 "))
-    return IsTrue(t2, megaStringHas(main, " 188"))
+    val t1 = IsTrue(t, strings.Contains(main, "compile"))
+    val t2 = IsTrue(t1, strings.Contains(main, "p95 "))
+    return IsTrue(t2, strings.Contains(main, " 188"))
 }
 
 // The Data screen's quota table is a TableView: the cursor row carries the
@@ -1694,9 +1570,9 @@ func TestMegaDataScreenTableHasCursorAndTotals(t T) T {
     val buf = NewBuffer(120, 36)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 36), buf)
     val table = megaColumns(buf, 28, 120)
-    val t1 = IsTrue(t, megaStringHas(table, "▶ us-east-1"))
-    val t2 = IsTrue(t1, megaStringHas(table, "total"))
-    return IsTrue(t2, megaStringHas(table, "2250"))
+    val t1 = IsTrue(t, strings.Contains(table, "▶ us-east-1"))
+    val t2 = IsTrue(t1, strings.Contains(table, "total"))
+    return IsTrue(t2, strings.Contains(table, "2250"))
 }
 
 // The Forms screen's note is a ParagraphView that reflows to its pane: at 40
@@ -1714,7 +1590,7 @@ func TestMegaFormsNoteWrapsToItsPane(t T) T {
         .Filter((y) => strings.Trim(RowText(b, y), " │") != "").Length()
     val t1 = IsTrue(t, rowsUsed(narrow) > rowsUsed(wide))
     val t2 = IsTrue(t1, ArrayTabulate(10, (y) => y + 1).ForAll((y) => narrow.CharAt(39, y) == '│'))
-    return IsTrue(t2, megaStringHas(megaStitchRows(narrow), "InputClick"))
+    return IsTrue(t2, strings.Contains(megaStitchRows(narrow), "InputClick"))
 }
 
 // The Data screen's region list marks its cursor with ▶ — visible without
@@ -1724,6 +1600,6 @@ func TestMegaRegionListMarksTheCursorWithASymbol(t T) T {
     val buf = NewBuffer(120, 36)
     RenderTo(MegaView(m1), Rect(X = 0, Y = 0, Width = 120, Height = 36), buf)
     val list = megaColumns(buf, 28, 74)
-    val t1 = IsTrue(t, megaStringHas(list, "▶ us-east-1"))
-    return IsTrue(t1, megaStringHas(list, "  us-west-2"))
+    val t1 = IsTrue(t, strings.Contains(list, "▶ us-east-1"))
+    return IsTrue(t1, strings.Contains(list, "  us-west-2"))
 }

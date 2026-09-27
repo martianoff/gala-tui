@@ -103,19 +103,14 @@ func ParagraphMaxScroll(p ParagraphSpec, width int, height int) int =
 // spaces and drops leading ones, which is right for prose that reflows and
 // wrong for an indented line that never needed to. This is why it is not
 // `WrapRichText`, which reflows every line.
-func paragraphRowsUpTo(p ParagraphSpec, width int, need int) Array[Line] {
-    var rows = EmptyArray[Line]()
-    var i = 0
-    val n = p.Text.Lines.Length()
-    for i < n && (need < 0 || rows.Length() < need) {
-        LineSplitNewlines(p.Text.Lines.Get(i)).ForEach((l) => {
-            rows = if (!p.Wrap || l.CellWidth() <= width) rows.Append(l)
-                   else rows.AppendAll(WrapSpans(l.Spans, width).Map((w) => w.Aligned(l.Align)))
-        })
-        i = i + 1
-    }
-    return rows
-}
+func paragraphRowsUpTo(p ParagraphSpec, width int, need int) Array[Line] =
+    // Once `need` rows exist, the remaining lines pass through untouched, so
+    // none of them is split or wrapped.
+    p.Text.Lines.FoldLeft(EmptyArray[Line](), (rows, line) =>
+        if (need >= 0 && rows.Length() >= need) rows
+        else rows.AppendAll(LineSplitNewlines(line).FlatMap((l) =>
+            if (!p.Wrap || l.CellWidth() <= width) ArrayOf(l)
+            else WrapSpans(l.Spans, width).Map((w) => w.Aligned(l.Align)))))
 
 // renderParagraphRich fills the area with the paragraph's style, then draws
 // the visible rows with every span patched over it.

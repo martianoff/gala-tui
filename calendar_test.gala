@@ -1,6 +1,8 @@
 package gala_tui
 
 import (
+    "martianoff/gala/stream"
+    "strings"
     . "martianoff/gala/test"
 )
 
@@ -89,8 +91,8 @@ func TestCalendarViewRendersMonthName(t T) T {
     val c = NewCalendarAt(2026, 4, 15)
     val buf = NewBuffer(30, 8)
     RenderTo(CalendarView(c), Rect(X = 0, Y = 0, Width = 30, Height = 8), buf)
-    val row0 = BufferText(buf, 0)
-    return IsTrue(t, fbRowHas(row0, "April"))
+    val row0 = RowText(buf, 0)
+    return IsTrue(t, strings.Contains(row0, "April"))
 }
 
 func TestCalendarViewSelectedDayIsReverse(t T) T {
@@ -99,26 +101,10 @@ func TestCalendarViewSelectedDayIsReverse(t T) T {
     RenderTo(CalendarView(c), Rect(X = 0, Y = 0, Width = 30, Height = 8), buf)
     // Walk the grid until we find a reverse cell — at least one cell
     // (the selected day) should be reverse-styled.
-    var found = false
-    var y = 2
-    for y < 8 && !found {
-        var x = 0
-        for x < 30 && !found {
-            if buf.StyleAt(x, y).Reverse { found = true }
-            x = x + 1
-        }
-        y = y + 1
-    }
+    val found = stream.Range(2, 8).Exists((y) =>
+        stream.Range(0, 30).Exists((x) => buf.StyleAt(x, y).Reverse))
     return IsTrue(t, found)
 }
-
-// ----------------------------------------------------------------------------
-// Integer formatting
-// ----------------------------------------------------------------------------
-
-func TestIntToStrZero(t T) T = Eq(t, intToStr(0), "0")
-func TestIntToStrPositive(t T) T = Eq(t, intToStr(2026), "2026")
-func TestIntToStrNegative(t T) T = Eq(t, intToStr(-42), "-42")
 
 func TestDaysInMonthFebLeap(t T) T {
     // 2024 was a leap year, 2026 is not.

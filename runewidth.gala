@@ -25,7 +25,11 @@ package gala_tui
 // ============================================================================
 
 import (
+    "slices"
     "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/go_interop"
+    . "martianoff/gala/std"
 )
 
 // RuneCellWidth returns how many terminal cells `r` occupies.
@@ -143,6 +147,9 @@ func isWideSymbol(r rune) bool {
 // StringCellWidth returns the total cell count the string `s` will occupy
 // when rendered on a grid-based terminal. Equivalent to the sum of
 // RuneCellWidth across all runes — runs in O(n) with a single pass.
+// A range loop rather than `S(s).Fold`: this measures text on every frame
+// (layout, alignment, clipping), and the Str fold first materialises the
+// string as an Array of runes — an allocation per call for a sum.
 func StringCellWidth(s string) int {
     var w = 0
     for _, r := range s {
@@ -232,3 +239,61 @@ func repeatRune(r rune, n int) string = if (n <= 0) "" else strings.Repeat(strin
 
 // cellPad is `n` spaces, or "" for a non-positive count.
 func cellPad(n int) string = repeatRune(' ', n)
+
+// ----------------------------------------------------------------------------
+// Rune helpers — rune-indexed views of a string.
+//
+// The scanners (tokenize, parseInlines) work on a Go []rune from ToRunes:
+// indexing and sub-slicing it is free, where Array.Slice / Drop copy.
+// ----------------------------------------------------------------------------
+
+// stringRunes splits `s` into its runes (invalid UTF-8 bytes become
+// U+FFFD, as `range` yields them).
+//
+// Not `S(s).ToChars()`: importing martianoff/gala/strings anywhere in this
+// package makes GALA 0.80 reject buffer.gala's `*strings.Builder` parameter
+// (GALA-E0025).
+func stringRunes(s string) Array[rune] = ArrayFromSlice(ToRunes(s))
+
+// runeSplitAt returns (lhs, rhs) such that lhs has `col` runes and rhs has
+// the remainder. Out-of-range cols clamp to the string boundaries.
+func runeSplitAt(s string, col int) Tuple[string, string] {
+    val rs = stringRunes(s)
+    return (string(rs.Take(col).ToGoSlice()), string(rs.Drop(col).ToGoSlice()))
+}
+
+// dropLastRune strips the last rune from `s`; "" stays "".
+func dropLastRune(s string) string {
+    val rs = stringRunes(s)
+    return string(rs.Take(rs.Length() - 1).ToGoSlice())
+}
+
+// dropRunes is `s` without its first `k` runes (k ≥ 0).
+func dropRunes(s string, k int) string = string(SliceDrop(ToRunes(s), k))
+
+// runeRange is the string of rs[lo:hi].
+func runeRange(rs []rune, lo int, hi int) string = string(Slice(rs, lo, hi))
+
+// runeIndexFrom is the index of the first `target` at or after `start`, if any.
+func runeIndexFrom(rs []rune, target rune, start int) Option[int] {
+    if start >= rs.Size() { return None[int]() }
+    val idx = slices.Index(SliceFrom(rs, start), target)
+    return When(idx >= 0, start + idx)
+}
+
+// runeIndexWhere is the first index k ≥ start of rs with p(k), if any. The
+// predicate takes the index, not the rune, so it can look ahead (a `**`
+// closer, a comment prefix).
+//
+// A counted loop, not `stream.Range(start, n).Find(p)`: the tokenizer and
+// the inline parser call this for every token of every code and markdown
+// line they render, per frame, and the stream allocates per step.
+func runeIndexWhere(rs []rune, start int, p func(int) bool) Option[int] {
+    val n = rs.Size()
+    var k = start
+    for k < n {
+        if p(k) { return Some(k) }
+        k = k + 1
+    }
+    return None[int]()
+}
