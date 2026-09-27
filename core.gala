@@ -143,13 +143,10 @@ func PollFutures[T any](pending Array[Future[T]]) Tuple[Array[T], Array[Future[T
 }
 
 // pollSuccessValue returns the future's success value, dropping failures.
-// Caller has already confirmed the future is completed (Value() is Some).
-func pollSuccessValue[T any](fut Future[T]) Option[T] {
-    val tr = fut.Value().Get()
-    if tr.IsSuccess() {
-        return Some(tr.Get())
-    }
-    return None[T]()
+// A future that has not completed yet also yields None.
+func pollSuccessValue[T any](fut Future[T]) Option[T] = fut.Value() match {
+    case Some(Success(v)) => Some(v)
+    case _                => None()
 }
 
 // Program is the Elm/TEA triple: initial model, update, and view.

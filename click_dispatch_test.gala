@@ -47,7 +47,7 @@ func TestResolveSingleClickOnlyFiresImmediately(t T) T {
     hits.Register(Rect(X = 0, Y = 0, Width = 10, Height = 1), CdSingle(N = 7))
 
     val (msgs, pend) = ResolveClickEvent[CdMsg](
-        cdLeftClick(5, 0), Now(), hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(5, 0), Now(), hits, None(), cdFallback(),
     )
     val t1 = Eq(t, msgs.Length(), 1)
     val isSingle = msgs.Get(0) match {
@@ -63,7 +63,7 @@ func TestResolveMissedClickFallsThroughToFallback(t T) T {
     hits.Register(Rect(X = 0, Y = 0, Width = 10, Height = 1), CdSingle(N = 1))
 
     val (msgs, pend) = ResolveClickEvent[CdMsg](
-        cdLeftClick(50, 0), Now(), hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(50, 0), Now(), hits, None(), cdFallback(),
     )
     val isFallback = msgs.Get(0) match {
         case CdNone() => true
@@ -86,7 +86,7 @@ func TestResolveSinglePlusDoubleDefersTheSingle(t T) T {
     hits.RegisterDouble(rect, CdDouble(N = 99))
 
     val (msgs, pend) = ResolveClickEvent[CdMsg](
-        cdLeftClick(5, 0), Now(), hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(5, 0), Now(), hits, None(), cdFallback(),
     )
     val t1 = Eq(t, msgs.Length(), 0)
     return IsTrue(t1, pend.IsDefined())
@@ -104,7 +104,7 @@ func TestResolveReleaseBetweenPressesPreservesPending(t T) T {
 
     val now = Now()
     val (msgs1, pend1) = ResolveClickEvent[CdMsg](
-        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(5, 0), now, hits, None(), cdFallback(),
     )
     val (msgsRel, pendRel) = ResolveClickEvent[CdMsg](
         cdLeftRelease(5, 0), now.Plus(Milliseconds(int64(10))),
@@ -143,7 +143,7 @@ func TestResolveTwoClicksWithinWindowFiresDouble(t T) T {
 
     val now = Now()
     val (msgs1, pend1) = ResolveClickEvent[CdMsg](
-        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(5, 0), now, hits, None(), cdFallback(),
     )
     val (msgs2, pend2) = ResolveClickEvent[CdMsg](
         cdLeftClick(5, 0), now.Plus(Milliseconds(int64(50))),
@@ -171,7 +171,7 @@ func TestResolveSecondClickOutOfWindowFiresOrphan(t T) T {
 
     val now = Now()
     val (_, pend1) = ResolveClickEvent[CdMsg](
-        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(5, 0), now, hits, None(), cdFallback(),
     )
     // Advance way past the window (1 second).
     val (msgs2, pend2) = ResolveClickEvent[CdMsg](
@@ -202,7 +202,7 @@ func TestResolveClickAtDifferentPositionFlushesPending(t T) T {
 
     val now = Now()
     val (_, pend1) = ResolveClickEvent[CdMsg](
-        cdLeftClick(5, 0), now, hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(5, 0), now, hits, None(), cdFallback(),
     )
     val (msgs2, _) = ResolveClickEvent[CdMsg](
         cdLeftClick(55, 0), now.Plus(Milliseconds(int64(50))),
@@ -231,7 +231,7 @@ func TestResolveClickAtDifferentPositionFlushesPending(t T) T {
 // fires the deferred single.
 func TestDrainExpiredFiresDeferred(t T) T {
     val now = Now()
-    val pend = Some[ClickPending](ClickPending(
+    val pend = Some(ClickPending(
         X = 5, Y = 0, At = now,
         Deferred = Some[any](CdSingle(N = 42)),
     ))
@@ -250,7 +250,7 @@ func TestDrainExpiredFiresDeferred(t T) T {
 // Within the window, drain is a no-op.
 func TestDrainWithinWindowIsNoOp(t T) T {
     val now = Now()
-    val pend = Some[ClickPending](ClickPending(
+    val pend = Some(ClickPending(
         X = 5, Y = 0, At = now,
         Deferred = Some[any](CdSingle(N = 42)),
     ))
@@ -265,9 +265,9 @@ func TestDrainWithinWindowIsNoOp(t T) T {
 // single) — drain clears state without dispatching anything.
 func TestDrainWithoutDeferredJustClears(t T) T {
     val now = Now()
-    val pend = Some[ClickPending](ClickPending(
+    val pend = Some(ClickPending(
         X = 5, Y = 0, At = now,
-        Deferred = None[any](),
+        Deferred = None(),
     ))
     val (msgs, after) = DrainExpiredPending[CdMsg](
         pend, now.Plus(Milliseconds(int64(500))),
@@ -309,7 +309,7 @@ func TestResolveDragPressEngagesDragActive(t T) T {
     hits.RegisterDrag(Rect(X = 0, Y = 0, Width = 10, Height = 1), cdDragPayload(3))
     val res = ResolveClickEventWithDrag[CdMsg](
         cdLeftClick(5, 0), Now(), hits,
-        None[ClickPending](), None[DragActive](), cdFallback(),
+        None(), None(), cdFallback(),
     )
     val gotPress = res.Msgs.Length() == 1 && (res.Msgs.Get(0) match {
         case CdDrag(idx, DragPress()) => idx == 3
@@ -328,7 +328,7 @@ func TestResolveDragMotionFiresOverWithCurrentEntry(t T) T {
     // Press on entry 0...
     val r1 = ResolveClickEventWithDrag[CdMsg](
         cdLeftClick(5, 0), Now(), hits,
-        None[ClickPending](), None[DragActive](), cdFallback(),
+        None(), None(), cdFallback(),
     )
     // ...then drag motion to entry 1.
     val r2 = ResolveClickEventWithDrag[CdMsg](
@@ -352,7 +352,7 @@ func TestResolveDragReleaseUsesOriginatingPressPayload(t T) T {
     // Press entry 7.
     val r1 = ResolveClickEventWithDrag[CdMsg](
         cdLeftClick(5, 0), Now(), hits,
-        None[ClickPending](), None[DragActive](), cdFallback(),
+        None(), None(), cdFallback(),
     )
     // Release at coords with no registered drag region — the runtime
     // must still fire DragRelease against entry 7's payload.
@@ -374,7 +374,7 @@ func TestResolveClickEventClickOnlyAPIIsUnchanged(t T) T {
     val hits = NewHitRegistry()
     hits.Register(Rect(X = 0, Y = 0, Width = 10, Height = 1), CdSingle(N = 9))
     val (msgs, _) = ResolveClickEvent[CdMsg](
-        cdLeftClick(5, 0), Now(), hits, None[ClickPending](), cdFallback(),
+        cdLeftClick(5, 0), Now(), hits, None(), cdFallback(),
     )
     return IsTrue(t, msgs.Length() == 1 && (msgs.Get(0) match {
         case CdSingle(n) => n == 9

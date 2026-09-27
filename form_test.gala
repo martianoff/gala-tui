@@ -94,12 +94,12 @@ func TestFormValueOptMissingFieldReturnsNone(t T) T {
 func TestFormCustomValidator(t T) T {
     val emailValidator = (v string) => {
         if v == "" {
-            return Some[string]("required")
+            return Some("required")
         }
         if !strings.Contains(v, "@") {
-            return Some[string]("missing @")
+            return Some("missing @")
         }
-        return None[string]()
+        return None()
     }
     val custom = NewForm(ArrayOf(
         NewFieldValidated("email", "Email", "you@…", emailValidator),
@@ -179,7 +179,7 @@ func TestAValidatorThatQuotesTheValueLeaksIt(t T) T {
     // the plaintext — it has to be, that is what it validates — and its
     // message is drawn as given. A validator that echoes its input puts the
     // secret back on screen, and masking cannot stop it.
-    val echoing = (v string) => if (v == "") None[string]() else Some(s"bad: $v")
+    val echoing = (v string) => if (v == "") None() else Some(s"bad: $v")
     val f = ArrayOf[FormEvent](FEChar(C = 'x'), FEChar(C = 'y')).FoldLeft(
         NewForm(ArrayOf(
             NewFieldValidated("pass", "Password", "", echoing).Copy(Masked = true),
@@ -226,7 +226,7 @@ func TestMaskCharDefaultsToMaskRune(t T) T {
         Label       = "Password",
         Value       = "",
         Placeholder = "",
-        Validator   = (_) => None[string](),
+        Validator   = (_) => None(),
     ).Copy(Masked = true)
     val f = ArrayOf[FormEvent](FEChar(C = 'a'), FEChar(C = 'b'))
         .FoldLeft(NewForm(ArrayOf(field)), FormUpdate)
