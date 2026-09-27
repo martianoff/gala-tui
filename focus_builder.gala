@@ -88,8 +88,9 @@ func (fb FocusBuilder) Tabs(
     bodies Array[Widget],
     sel int,
     divider string = "",
+    style TabBarStyle = DefaultTabBarStyle(),
 ) Widget =
-    Tabs(titles, bodies, sel, fb.IsFocused(pane), divider)
+    Tabs(titles, bodies, sel, fb.IsFocused(pane), divider, style)
 
 func (fb FocusBuilder) Input(pane string, value string, cursor int, placeholder string) Widget =
     Input(value, cursor, placeholder, fb.IsFocused(pane))
@@ -147,4 +148,5 @@ func (fb FocusBuilder) MenuPick[T any](
 func (fb FocusBuilder) TabsTabClick[T any](
     pane string, titles Array[string], bodies Array[Widget], sel int, onTabClick func(int) T,
     divider string = "",
-) Widget = TabsClick[T](titles, bodies, sel, fb.IsFocused(pane), onTabClick, divider)
+    style TabBarStyle = DefaultTabBarStyle(),
+) Widget = TabsClick[T](titles, bodies, sel, fb.IsFocused(pane), onTabClick, divider, style)

@@ -558,7 +558,7 @@ RenderTo(ToastView(toasts1), area, buf)
 |---|---|---|
 | `MenuView(m)` | `(Menu) Widget` | Vertical or horizontal menu — set `Menu.Orientation`. |
 | `DropdownView(d)` | `(Dropdown) Widget` | Closed = trigger; open = menu below. |
-| `Tabs(titles, bodies, selected, focused?, divider?)` | `(Array[string], Array[Widget], int, bool, string) Widget` | Tabbed pane — bodies parallel to titles. `divider` (e.g. `"│"`) goes between titles, dim; empty by default. |
+| `Tabs(titles, bodies, selected, focused?, divider?, style?)` | `(Array[string], Array[Widget], int, bool, string, TabBarStyle) Widget` | Tabbed pane — bodies parallel to titles. `divider` (e.g. `"│"`) goes between titles; empty by default. `style` is the bar's look: `DefaultTabBarStyle()` (selected bold-reverse, bright yellow while focused, the rest dim, one column of padding) with `.WithSelected`, `.WithFocused`, `.WithNormal`, `.WithDivider` or `.WithPadding(n)`. |
 | `Scrollbar(total, visible, offset)` | `(int, int, int) Widget` | Vertical scroll-thumb track on the right edge. Pass `visible = 0` to derive the viewport from the bar's own area. With nothing to scroll it draws track only, not a full thumb. |
 | `ScrollbarStyled(total, visible, offset, style)` | `(int, int, int, Style) Widget` | …with explicit fg/bg. |
 | `ScrollbarAt(total, visible, offset, style, orientation)` | `(int, int, int, Style, ScrollbarOrientation) Widget` | Pick the edge: `ScrollbarVerticalRight` / `…Left` / `ScrollbarHorizontalBottom` / `…Top`. |

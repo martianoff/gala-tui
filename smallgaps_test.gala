@@ -58,6 +58,33 @@ func TestTabsDivider(t T) T {
     return Eq(t1, RowText(renderAt(Tabs(titles, bodies, 0), 12, 1), 0), " a  b  c    ")
 }
 
+// The bar's look is the caller's: the selected title, the rest and the
+// divider each take their own style, and padding widens every title.
+func TestTabBarStyleColoursEachPart(t T) T {
+    val titles = ArrayOf[string]("a", "b")
+    val bodies = ArrayOf[Widget](Empty(), Empty())
+    val look = DefaultTabBarStyle()
+        .WithSelected(DefaultStyle().WithFg(Cyan()))
+        .WithNormal(DefaultStyle().WithFg(Green()))
+        .WithDivider(DefaultStyle().WithFg(Red()))
+        .WithPadding(2)
+    val buf = renderAt(Tabs(titles, bodies, 0, false, "│", look), 12, 1)
+    val t1 = Eq(t, RowText(buf, 0), "  a  │  b   ")
+    val t2 = IsTrue(t1, ColorEq(buf.StyleAt(2, 0).Fg, Cyan()))
+    val t3 = IsTrue(t2, ColorEq(buf.StyleAt(5, 0).Fg, Red()))
+    return IsTrue(t3, ColorEq(buf.StyleAt(8, 0).Fg, Green()))
+}
+
+// Focus swaps the selected title to the focused style; the rest are unchanged.
+func TestTabBarStyleFocusedUsesItsOwnStyle(t T) T {
+    val titles = ArrayOf[string]("a", "b")
+    val bodies = ArrayOf[Widget](Empty(), Empty())
+    val look = DefaultTabBarStyle().WithFocused(DefaultStyle().WithFg(Magenta()))
+    val buf = renderAt(Tabs(titles, bodies, 1, true, "", look), 6, 1)
+    val t1 = IsTrue(t, ColorEq(buf.StyleAt(4, 0).Fg, Magenta()))
+    return IsTrue(t1, buf.StyleAt(1, 0).Dim)
+}
+
 
 // A popup clears the area it covers, as a modal does.
 func TestPopupClearsTheAreaItCovers(t T) T {
