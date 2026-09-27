@@ -8,6 +8,7 @@ import (
     "golang.org/x/term"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/go_interop"
+    . "martianoff/gala/time_utils"
 )
 
 // ============================================================================
