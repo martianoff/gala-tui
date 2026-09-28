@@ -22,7 +22,7 @@ func shots() Array[Shot] = ArrayOf[Shot](
     Shot(Name = "richtext",     Cols = 64, Rows = 12, W = shotRichText()),
     Shot(Name = "canvas",       Cols = 64, Rows = 9,  W = shotCanvas()),
     Shot(Name = "charts",       Cols = 64, Rows = 34, W = shotCharts()),
-    Shot(Name = "lists",        Cols = 64, Rows = 15, W = shotLists()),
+    Shot(Name = "lists",        Cols = 64, Rows = 21, W = shotLists()),
     Shot(Name = "forms",        Cols = 64, Rows = 9,  W = shotForms()),
     Shot(Name = "modals",       Cols = 64, Rows = 9,  W = shotModals()),
     Shot(Name = "status",       Cols = 64, Rows = 9,  W = shotStatus()),
@@ -199,7 +199,23 @@ func shotLists() Widget =
         // footer that stays put, a cursor that reads without colour, and a
         // selected COLUMN crossing the selected row at one cell.
         Fixed(8, Titled(TableView(shotTableSpec()), " TableView ")),
+        // DataTable filtered and sorted: the rule says how much the filter
+        // shows, the sorted column carries its arrow.
+        Fixed(6, Titled(DataTableView(shotDataTable(), true), " DataTableView ")),
     ))
+
+func shotDataTable() DataTable {
+    val dt = NewDataTable(
+        ArrayOf[string]("build", "branch", "state"),
+        ArrayOf[Constraint](Length(8), Fill(1), Length(10)),
+        ArrayOf[Array[string]](
+            ArrayOf[string]("#4211", "feat/async", "running"),
+            ArrayOf[string]("#4210", "fix/race", "passed"),
+            ArrayOf[string]("#4209", "main", "passed"),
+            ArrayOf[string]("#4208", "feat/mega-dashboard", "running"),
+        ))
+    return DataTableUpdate(DataTableUpdate(dt, DTSort(1)), DTFilter("running"))
+}
 
 func shotTableSpec() TableSpec {
     val num = (s string) => CellOf(s).Aligned(AlignRight())

@@ -1,9 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="255.00" viewBox="0 0 537.60 255.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
+<svg xmlns="http://www.w3.org/2000/svg" width="537.60" height="357.00" viewBox="0 0 537.60 357.00" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.5">
 <rect width="100%" height="100%" fill="#121314"/>
 <rect x="8.40" y="34.00" width="252.00" height="17.00" fill="#ddaf3c"/>
 <rect x="277.20" y="51.00" width="252.00" height="17.00" fill="#cccccc"/>
 <rect x="8.40" y="187.00" width="277.20" height="17.00" fill="#cccccc"/>
 <rect x="285.60" y="187.00" width="243.60" height="17.00" fill="#ddaf3c"/>
+<rect x="8.40" y="306.00" width="520.80" height="17.00" fill="#ddaf3c"/>
 <text x="0.00" y="13.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">┌</text>
 <text x="16.80" y="13.00" fill="#cccccc" textLength="117.60" lengthAdjust="spacingAndGlyphs">SelectListView</text>
 <text x="142.80" y="13.00" fill="#cccccc" textLength="134.40" lengthAdjust="spacingAndGlyphs">──────────────┐┌</text>
@@ -73,4 +74,32 @@
 <text x="319.20" y="234.00" fill="#cccccc" textLength="33.60" lengthAdjust="spacingAndGlyphs" font-weight="bold">used</text>
 <text x="529.20" y="234.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
 <text x="0.00" y="251.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">└──────────────────────────────────────────────────────────────┘</text>
+<text x="0.00" y="268.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">┌</text>
+<text x="16.80" y="268.00" fill="#cccccc" textLength="109.20" lengthAdjust="spacingAndGlyphs">DataTableView</text>
+<text x="134.40" y="268.00" fill="#cccccc" textLength="403.20" lengthAdjust="spacingAndGlyphs">───────────────────────────────────────────────┐</text>
+<text x="0.00" y="285.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="285.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">build</text>
+<text x="84.00" y="285.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">branch</text>
+<text x="142.80" y="285.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" font-weight="bold">↑</text>
+<text x="445.20" y="285.00" fill="#cccccc" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">state</text>
+<text x="529.20" y="285.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="302.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="302.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">─</text>
+<text x="25.20" y="302.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">2</text>
+<text x="42.00" y="302.00" fill="#cccccc" textLength="16.80" lengthAdjust="spacingAndGlyphs" opacity="0.65">of</text>
+<text x="67.20" y="302.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">4</text>
+<text x="84.00" y="302.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs" opacity="0.65">·</text>
+<text x="100.80" y="302.00" fill="#cccccc" textLength="58.80" lengthAdjust="spacingAndGlyphs" opacity="0.65">running</text>
+<text x="168.00" y="302.00" fill="#cccccc" textLength="361.20" lengthAdjust="spacingAndGlyphs" opacity="0.65">───────────────────────────────────────────</text>
+<text x="529.20" y="302.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="319.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="8.40" y="319.00" fill="#121314" textLength="42.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">#4211</text>
+<text x="84.00" y="319.00" fill="#121314" textLength="84.00" lengthAdjust="spacingAndGlyphs" font-weight="bold">feat/async</text>
+<text x="445.20" y="319.00" fill="#121314" textLength="58.80" lengthAdjust="spacingAndGlyphs" font-weight="bold">running</text>
+<text x="529.20" y="319.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="336.00" fill="#cccccc" textLength="50.40" lengthAdjust="spacingAndGlyphs">│#4208</text>
+<text x="84.00" y="336.00" fill="#cccccc" textLength="159.60" lengthAdjust="spacingAndGlyphs">feat/mega-dashboard</text>
+<text x="445.20" y="336.00" fill="#cccccc" textLength="58.80" lengthAdjust="spacingAndGlyphs">running</text>
+<text x="529.20" y="336.00" fill="#cccccc" textLength="8.40" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="0.00" y="353.00" fill="#cccccc" textLength="537.60" lengthAdjust="spacingAndGlyphs">└──────────────────────────────────────────────────────────────┘</text>
 </svg>
