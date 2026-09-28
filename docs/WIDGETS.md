@@ -397,7 +397,8 @@ SparklineOf(ArrayOf[Option[int]](Some(4), Some(0),      Some(4)), style)  // █
 | `SelectListView(spec)` | `(ListSpec) Widget` | Every list option: `ListSpecOf(items, sel)` then `.Focus(b)`, `.ScrollTo(n)`, `.Reversed()`, `.WithHighlightSymbol("▶ ", spacing?)` — the cursor marked in a column of its own, visible without colour — and `.WithScrollPadding(n)`, which scrolls early to keep `n` items of context past the cursor. `SelectList`, `SelectListOf`, `SelectListAt` and `SelectListReversed` are this with the defaults. |
 | `Table(data)` | `(TableData) Widget` | Grid of strings with one selected row, scrolled into view; renders through `TableView`. |
 | `TableView(spec)` | `(TableSpec) Widget` | Styled cells, header + footer, multi-line rows, a highlight symbol, and row / column / cell selection. Scrolls to keep the cursor visible; `.WithScrollPadding(n)` scrolls early to keep `n` rows past it in view — the same rule as `SelectListView`. Build the spec with `TableSpecOf(widths, rows)` — see below. |
-| `DataTableView(dt)` | `(DataTable) Widget` | Sortable + filterable. State in `DataTable` model — drive with `DataTableUpdate`. |
+| `DataTableView(dt, focused?)` | `(DataTable, bool) Widget` | Sortable + filterable. State in `DataTable` model — drive with `DataTableUpdate`. While a filter is on, the header rule says how much it shows: `─ 2 of 10 · running ──`. |
+| `DataTableSpec(dt, focused?)` | `(DataTable, bool) TableSpec` | The `TableSpec` a DataTable renders as, for the `TableView` options `DataTableView` does not set: `TableView(DataTableSpec(dt).WithHighlightSymbol("▶ ").WithFooter(totals))`. `DataTableViewClick` / `…Clickable` / `…Interactive` are this with `.OnRowClick`, `.OnRowDoubleClick` and `.OnHeaderClick`. |
 | `Tree(root)` | `(TreeNode) Widget` | Static collapsible tree. Build with `NewTreeBranch`/`NewTreeBranchExpanded`/`NewTreeLeaf`. |
 | `TreeFocused(root, cursor, focused = false)` | `(TreeNode, int, bool) Widget` | Interactive variant — cursor highlight + focus accent. Pair with `TreeFlatRowCount` for clamping and `TreeToggleAt` for expand/collapse. |
 
@@ -410,7 +411,7 @@ val initial = NewDataTable(
         ArrayOf[string]("bob",   "away"),
     ),
 )
-val dt2 = DataTableUpdate(initial, DTSortBy(0))
+val dt2 = DataTableUpdate(initial, DTSort(0))
 RenderTo(DataTableView(dt2), area, buf)
 ```
 
@@ -453,6 +454,15 @@ TableView(TableSpecOf(
 - The header and footer take neither the cursor nor the column highlight, and
   the footer stays pinned while the body scrolls. `.ScrollTo(n)` pins the first
   body row instead of following the cursor.
+- **Clicks** — `.OnRowClick[Msg](f)`, `.OnRowDoubleClick[Msg](f)` and
+  `.OnHeaderClick[Msg](f)` dispatch `f(row)` / `f(col)`. The row is its index in
+  `Rows`, however the body has scrolled. `.DecorateRows((w, i) => …)` and
+  `.DecorateHeaderCells(…)` wrap each row or header cell in anything else;
+  decorators compose.
+- **Rule label and empty text** — `.WithRuleLabel("3 of 40")` writes a caption
+  into the rule under the header, dim, with `…` when it does not fit, without
+  changing the table's height. `.WithEmptyText("(no rows)")` is what the body
+  shows with no rows.
 
 ## Forms & input
 
