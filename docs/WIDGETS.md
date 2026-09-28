@@ -290,6 +290,7 @@ on one edge. Shapes outside the bounds clip; they do not wrap.
 | `LineGauge(percent)` | `(int) Widget` | One-row gauge captioned with its own percentage: ` 42% ━━━━━━╾──────`. Heavy `━` against light `─` so the split reads without colour, with `╾` where the fill ends mid-cell. Caption is right-aligned in a fixed 4 columns, so the rule's origin holds still as the number grows a digit. |
 | `LineGaugeLabeled(label, percent)` | `(string, int) Widget` | Caption of your choosing; `""` gives a bare rule across the row (down to one cell). Too narrow for the caption? The rule takes the row — a clipped caption can read as the wrong number. |
 | `LineGaugeStyled(label, percent, filled, unfilled)` | `(string, int, Style, Style) Widget` | Explicit filled/track styles. The caption takes the filled style — it is the value, not chrome. |
+| `LineGaugeWith(label, percent, symbols, filled?, unfilled?)` | `(string, int, LineGaugeSymbols, Style, Style) Widget` | Draw the rule with other glyphs (the styles default to `LineGaugeLabeled`'s): `LineGaugeDouble()` `══──`, `LineGaugeBlock()` `██▌░░`, `LineGaugeASCII()` `==---`, or `DefaultLineGaugeSymbols()` `━━╾──`. Each takes `.WithFilled(r)`, `.WithTrack(r)`, `.WithHead(r)` and `.WithoutHead()`. Without a head the fill moves a whole cell at a time, still floored, so 99% never draws as 100%. Glyphs must be one cell wide; any that are not fall back to the default set's. |
 
 ```gala
 BarChart(ArrayOf[BarChartDatum](

@@ -178,28 +178,78 @@ func gaugeEighthRune(eighths int) rune {
 // mid-cell. The weight contrast survives a monochrome terminal, a `NO_COLOR`
 // session and a colour-blind reader, none of which a distinction carried by
 // colour alone would; `╾` then buys back the half cell of resolution that
-// whole-cell glyphs would otherwise cost.
+// whole-cell glyphs would otherwise cost. `LineGaugeSymbols` swaps the three
+// glyphs for a double rule, a block bar, ASCII, or a set of the caller's own.
 // ----------------------------------------------------------------------------
 
-// lineGaugeFilled is the glyph for the completed run of a LineGauge.
-val lineGaugeFilled = '━'
-
-// lineGaugeHead is the boundary glyph, drawn when the fill ends inside a
-// cell rather than on its edge: U+257E, heavy on its left half and light on
-// its right. It continues the filled run into the cell and hands the rest of
-// the cell to the track, so the rule stays unbroken across the boundary —
-// U+2578 `╸`, the other candidate, is heavy-left and *blank* right, which
-// puts a half-cell hole in the middle of the gauge.
+// LineGaugeSymbols is what a LineGauge's rule is drawn with: the glyph for
+// the completed run, the glyph for the track behind it, and an optional head
+// for the boundary cell when the fill ends inside it rather than on its edge.
 //
-// It is deliberately not the same picture as a full cell: rounding a fill up
-// to `━` would let 99% paint the same rule as 100%, and "done" is the one
-// state a progress widget must never claim early.
-val lineGaugeHead = '╾'
+// Without a head the fill is counted in whole cells, so a set whose glyphs
+// have no half-cell form (`═`, `=`) still never paints 99% as 100%.
+struct LineGaugeSymbols(
+    Filled rune,
+    Head   Option[rune],
+    Track  rune,
+)
 
-// lineGaugeTrack is the glyph for the remainder — the same rule, drawn
-// light, so the gauge's full extent is visible at 0% exactly as `Gauge`'s
-// `░` track is.
-val lineGaugeTrack = '─'
+// DefaultLineGaugeSymbols is the heavy rule over a light one, `━━╾──`.
+//
+// The weight contrast survives a monochrome terminal, a `NO_COLOR` session
+// and a colour-blind reader, none of which a distinction carried by colour
+// alone would. The head is U+257E, heavy on its left half and light on its
+// right: it continues the filled run into the cell and hands the rest to the
+// track, so the rule stays unbroken — U+2578 `╸`, the other candidate, is
+// heavy-left and *blank* right, which puts a half-cell hole in the gauge.
+func DefaultLineGaugeSymbols() LineGaugeSymbols =
+    LineGaugeSymbols(Filled = '━', Head = Some('╾'), Track = '─')
+
+// LineGaugeDouble is a double rule over a light one, `══──`. Box drawing has
+// no half-double glyph, so the fill moves a whole cell at a time.
+func LineGaugeDouble() LineGaugeSymbols =
+    LineGaugeSymbols(Filled = '═', Head = None(), Track = '─')
+
+// LineGaugeBlock is a solid bar over `Gauge`'s shaded track, `██▌░░`, at
+// half-cell resolution rather than `Gauge`'s eighths.
+func LineGaugeBlock() LineGaugeSymbols =
+    LineGaugeSymbols(Filled = '█', Head = Some('▌'), Track = gaugeTrack)
+
+// LineGaugeASCII is `==---`, for a terminal or a log file that cannot be
+// trusted with box drawing.
+func LineGaugeASCII() LineGaugeSymbols =
+    LineGaugeSymbols(Filled = '=', Head = None(), Track = '-')
+
+// WithFilled draws the completed run with `r`.
+func (s LineGaugeSymbols) WithFilled(r rune) LineGaugeSymbols = s.Copy(Filled = r)
+
+// WithTrack draws the track behind the fill with `r`.
+func (s LineGaugeSymbols) WithTrack(r rune) LineGaugeSymbols = s.Copy(Track = r)
+
+// WithHead draws `r` in the boundary cell when the fill ends mid-cell.
+func (s LineGaugeSymbols) WithHead(r rune) LineGaugeSymbols = s.Copy(Head = Some(r))
+
+// WithoutHead counts the fill in whole cells.
+func (s LineGaugeSymbols) WithoutHead() LineGaugeSymbols = s.Copy(Head = None())
+
+// lineGaugeDrawable is `s` with every glyph the rule cannot draw replaced.
+//
+// The rule is laid out one glyph per cell, so a glyph must be exactly one
+// cell wide: a wide one (`＝`, an emoji) would paint two columns per cell and
+// push everything after it off the row, and a zero-width one would collapse
+// it. Either falls back to the default set's glyph for that slot.
+//
+// A head drawn the same as the fill is dropped, because then the head *is* a
+// full cell and 99% would paint the picture of 100%.
+func lineGaugeDrawable(s LineGaugeSymbols) LineGaugeSymbols {
+    val d = DefaultLineGaugeSymbols()
+    val filled = if (RuneCellWidth(s.Filled) == 1) s.Filled else d.Filled
+    return LineGaugeSymbols(
+        Filled = filled,
+        Head   = s.Head.Filter((r) => RuneCellWidth(r) == 1 && r != filled),
+        Track  = if (RuneCellWidth(s.Track) == 1) s.Track else d.Track,
+    )
+}
 
 // lineGaugeMinRule is the narrowest rule worth drawing *next to a label*.
 // Below four cells a rule cannot show a position — every percentage rounds
@@ -245,24 +295,31 @@ func lineGaugeCaption(percent int) string =
 // 100%. Flooring keeps the widget's one hard promise — nothing short of done
 // renders as done — and costs only a half cell of resolution, which the head
 // glyph is there to buy back.
-func renderLineGaugeRule(percent int, filled Style, unfilled Style, area Rect, buf *Buffer) {
+func renderLineGaugeRule(
+    percent int,
+    filled Style,
+    unfilled Style,
+    symbols LineGaugeSymbols,
+    area Rect,
+    buf *Buffer,
+) {
     // Halves of a cell, so the boundary test is integer arithmetic. `p` is
     // at most 100, so `halves` is at most `2 * width`; an odd `halves` is
     // therefore strictly below that, which is why `full` cannot reach
     // `width` on the head branch and needs no guard of its own.
     val halves = area.Width * 2 * clampPct(percent) / 100
     val full = halves / 2
-    val head = halves % 2 == 1
-    val headCells = if (head) 1 else 0
+    // A set with no head has no half-cell picture, so an odd half is simply
+    // not drawn — floored again, for the same reason as above.
+    val head = if (halves % 2 == 1) symbols.Head else None[rune]()
+    val headCells = if (head.IsDefined()) 1 else 0
     // Glyph and style are never chosen independently — each run is one
     // Cell, so a change to the fill rule cannot reach the glyph and miss the
     // colour.
     buf.Fill(Rect(X = area.X, Y = area.Y, Width = full, Height = 1),
-        Cell(Ch = lineGaugeFilled, St = filled))
-    if head {
-        buf.Set(area.X + full, area.Y, Cell(Ch = lineGaugeHead, St = filled))
-    }
+        Cell(Ch = symbols.Filled, St = filled))
+    head.ForEach((r) => buf.Set(area.X + full, area.Y, Cell(Ch = r, St = filled)))
     buf.Fill(Rect(X = area.X + full + headCells, Y = area.Y, Width = area.Width - full - headCells, Height = 1),
-        Cell(Ch = lineGaugeTrack, St = unfilled))
+        Cell(Ch = symbols.Track, St = unfilled))
 }
 
