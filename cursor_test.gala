@@ -162,6 +162,6 @@ func TestSessionCloseResetsAChangedCursorShape(t T) T {
     val t1 = Eq(t, cursorShapeReset(5), ansiCursorShape(0))
     val t2 = Eq(t1, cursorShapeReset(0), "")
     var closed = 0
-    withCursorShapeReset(BackendSession(Close = () => { closed = closed + 1 }), () => 0).Close()
+    withCursorShape(BackendSession(Close = () => { closed = closed + 1 }), () => 0).Close()
     return Eq(t2, closed, 1)
 }

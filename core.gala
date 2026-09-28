@@ -39,6 +39,18 @@ import (
 // available are the screen the app is drawing on and a stderr the app has
 // no reason to expect; a print that quietly does nothing is better than
 // one that corrupts the frame to complain.
+//
+// SuspendCmd hands the terminal back to the shell and stops the process, the
+// way Ctrl+Z stops any other program. The terminal is in raw mode, so Ctrl+Z
+// reaches the app as a key rather than as a signal, and suspending is the
+// app's call: bind it where the app has no other use for the key.
+//
+//     if KeyMatches(ev, "ctrl+z") { return (m, SuspendCmd[Msg]()) }
+//
+// When the shell resumes it (`fg`), the runtime takes the terminal back and
+// repaints the whole frame. Where there is no shell to come back to —
+// Windows, which has no job control, or a process started outside one — it
+// does nothing, rather than stopping a process nobody can restart.
 sealed type Cmd[T any] {
     case NoCmd()
     case QuitCmd()
@@ -46,6 +58,7 @@ sealed type Cmd[T any] {
     case BatchCmd(Cmds Array[Cmd[T]])
     case FutureCmd(Fut Future[T])
     case PrintCmd(Lines Array[string])
+    case SuspendCmd()
 }
 
 // Batch is the varargs constructor for `BatchCmd`. Saves the
@@ -68,6 +81,14 @@ func IsQuit[T any](c Cmd[T]) bool {
         case BatchCmd(cmds) => cmds.Exists((inner) => IsQuit(inner))
         case _              => false
     }
+}
+
+// IsSuspend walks a command tree and reports whether any branch is a
+// SuspendCmd.
+func IsSuspend[T any](c Cmd[T]) bool = c match {
+    case SuspendCmd()   => true
+    case BatchCmd(cmds) => cmds.Exists((inner) => IsSuspend(inner))
+    case _              => false
 }
 
 // PendingMsgs walks a command tree and returns all messages a pure runtime
