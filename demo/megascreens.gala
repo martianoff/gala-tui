@@ -140,14 +140,15 @@ func megaAreaChart(series Array[int], marker CanvasMarker) Widget {
         FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan)))
 }
 
-// megaGaugeStack shows the three gauge shapes against one value, which is the
-// comparison a reader actually wants: they differ in how much room they take,
-// not in what they mean.
+// megaGaugeStack shows the gauge shapes against one value, which is the
+// comparison a reader actually wants: they differ in how much room they take
+// and what they are drawn with, not in what they mean. The two captions are
+// the same width, so the heavy and the double rule start in one column.
 func megaGaugeStack(pct int) Widget =
     Column(ArrayOf[LayoutChild](
         Fixed(1, LineGauge(pct)),
         Fixed(1, LineGaugeLabeled(" deploy ", pct)),
-        Fixed(1, Text("")),
+        Fixed(1, LineGaugeWith(" build  ", pct, LineGaugeDouble())),
         Fixed(1, Gauge(pct)),
     ))
 
