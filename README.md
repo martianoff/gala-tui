@@ -28,7 +28,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 - Text · Paragraph (word-wrap) · **ParagraphView** (styled runs that survive wrapping, alignment, vertical + horizontal scroll) · Input (focus caret + horizontal scroll, **masked** for passwords, **click to position**) · Button · Spinner
 - List (**highlight symbol + scroll padding** via `SelectListView`) · Table · **TableView** (styled cells, footer, multi-line rows, row/column/cell selection) · **DataTable** (sort + filter + frozen header + scrolling) · Tree
 - Progress · ProgressLabeled · Gauge · **LineGauge** (one row: caption + rule; heavy, double, block or ASCII glyphs) · Sparkline · BarChart · **BarChartOf** / **HBarChartOf** (grouped bars, vertical or horizontal, eighth-cell precision) · **LineChart** (sub-cell resolution)
-- **Canvas** — shapes in your own coordinate space at 2×4 braille resolution, including filled areas
+- **Canvas** — shapes in your own coordinate space at 2×4 braille resolution, including filled areas and a world map (`WorldMap`)
 - **Tabs** (optional divider) · **Menu** · **Dropdown** · **Modal** (ConfirmDialog / AlertDialog) · **Scrollbar** (4 orientations) · **Viewport**
 - **Toast** · **StatusBar** · **LogPanel** · **Form** (multi-field with validators)
 - **Markdown** rendering (headings, bold, italic, code spans, links, lists, rules)

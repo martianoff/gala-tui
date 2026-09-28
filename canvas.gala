@@ -88,7 +88,35 @@ sealed type Shape {
     // containing (X, Y), after every dot shape, so a label is never buried
     // under the series it annotates.
     case ShapeLabel(X float64, Y float64, Text string, Style Style)
+    // ShapeWorldMap is the world's coastlines in degrees — longitude on X,
+    // latitude on Y — for a canvas over `WorldBounds()` or any part of it.
+    // See `WorldMap`.
+    case ShapeWorldMap(Detail MapResolution, Style Style)
 }
+
+// MapResolution is how much coastline a ShapeWorldMap draws. MapLow is
+// Natural Earth's 1:110m set, about 5,000 points — continents and the larger
+// islands, plenty for a map a terminal wide. MapHigh is the 1:50m set,
+// simplified to about 22,000 points, for a map zoomed in on a region.
+sealed type MapResolution {
+    case MapLow()
+    case MapHigh()
+}
+
+// WorldMap is the coastlines as a canvas shape. Pair it with
+// `WorldBounds()` for the whole world, or narrower bounds for a region, and
+// plot points in the same degrees on top:
+//
+//     val (x, y) = WorldBounds()
+//     CanvasOf(x, y, ArrayOf[Shape](
+//         WorldMap(MapLow(), DefaultStyle().WithDim()),
+//         ShapeLabel(-0.13, 51.5, "London", DefaultStyle().WithFg(Yellow)),
+//     ))
+func WorldMap(detail MapResolution = MapLow(), style Style = DefaultStyle()) Shape =
+    ShapeWorldMap(Detail = detail, Style = style)
+
+// WorldBounds is the whole world: longitude -180..180 by latitude -90..90.
+func WorldBounds() Tuple[Bounds, Bounds] = (XBounds(-180.0, 180.0), YBounds(-90.0, 90.0))
 
 // Bounds is the caller's coordinate range along one axis.
 struct Bounds(Min float64, Max float64)
@@ -216,7 +244,7 @@ func newCanvasGrid(area Rect, marker CanvasMarker) *canvasGrid {
 // plot lights the dot at grid coordinates, ignoring anything off-canvas so a
 // shape that runs past the bounds clips instead of wrapping or trapping.
 func (g *canvasGrid) plot(gx int, gy int, style Style) {
-    if gx < 0 || gy < 0 || gx >= g.W || gy >= g.H {
+    if !onGrid(g, gx, gy) {
         return
     }
     g.Set[gy*g.W+gx] = true
@@ -293,6 +321,7 @@ func renderCanvas(
         case ShapeCircle(_, _, _, _)          => {}
         case ShapePoints(_, _)                => {}
         case ShapeFilledLine(_, _, _, _, _, _)  => {}
+        case ShapeWorldMap(_, _)               => {}
     })
 }
 
@@ -321,9 +350,30 @@ func rasterShape(
         case ShapeFilledLine(x1, y1, x2, y2, yRef, style) =>
             plotFilledLine(g, toGx(x1), toGy(y1), toGx(x2), toGy(y2),
                            toGy(yRef), style)
+        case ShapeWorldMap(detail, style) => plotWorldMap(g, detail, toGx, toGy, style)
         // Labels are text and are drawn after the glyph pass.
         case ShapeLabel(_, _, _, _) => {}
     }
+}
+
+// plotWorldMap draws the coastlines segment by segment through plotLine,
+// which clips each one to the grid, so a canvas over one region draws just
+// that region. Every segment is still projected and tested each frame, so
+// the cost is set by the resolution, not by how much of the world is shown.
+func plotWorldMap(
+    g *canvasGrid,
+    detail MapResolution,
+    toGx func(float64) int,
+    toGy func(float64) int,
+    style Style,
+) {
+    val high = detail match {
+        case MapLow()  => false
+        case MapHigh() => true
+    }
+    worldMapEach(high, (x1 float64, y1 float64, x2 float64, y2 float64) => {
+        plotLine(g, toGx(x1), toGy(y1), toGx(x2), toGy(y2), style)
+    })
 }
 
 // plotFilledLine draws the segment and the band between it and row `yRef`.
@@ -481,8 +531,20 @@ func clipSegment(
 // stops a malformed walk from running forever, but it is not a clamp to the
 // canvas and never was.
 func plotLine(g *canvasGrid, x1 int, y1 int, x2 int, y2 int, style Style) {
-    clipSegment(g, x1, y1, x2, y2).ForEach((seg) => plotClippedLine(g, seg, style))
+    // The common cases skip the clipper, which allocates: a segment with both
+    // ends on the grid needs no clipping, and one wholly off one side of it
+    // has nothing to draw. A world map is 5,000 to 22,000 segments a frame,
+    // nearly all of them one or the other.
+    if onGrid(g, x1, y1) && onGrid(g, x2, y2) {
+        plotClippedLine(g, clippedSegment(X1 = x1, Y1 = y1, X2 = x2, Y2 = y2), style)
+    } else if !((x1 < 0 && x2 < 0) || (y1 < 0 && y2 < 0) ||
+                (x1 >= g.W && x2 >= g.W) || (y1 >= g.H && y2 >= g.H)) {
+        clipSegment(g, x1, y1, x2, y2).ForEach((seg) => plotClippedLine(g, seg, style))
+    }
 }
+
+// onGrid is whether dot (x, y) is on the grid.
+func onGrid(g *canvasGrid, x int, y int) bool = x >= 0 && y >= 0 && x < g.W && y < g.H
 
 // plotClippedLine is the Bresenham walk itself, over endpoints already known
 // to sit on the grid.
@@ -666,7 +728,7 @@ func sextantGlyph(bits int) rune = bits match {
 }
 
 func canvasDotAt(g *canvasGrid, gx int, gy int) bool {
-    if gx < 0 || gy < 0 || gx >= g.W || gy >= g.H {
+    if !onGrid(g, gx, gy) {
         return false
     }
     return g.Set[gy*g.W+gx]

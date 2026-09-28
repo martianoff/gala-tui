@@ -2,6 +2,7 @@ package gala_tui
 
 import (
     "martianoff/gala/stream"
+    gs "martianoff/gala/strings"
     "strings"
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
@@ -497,4 +498,48 @@ func TestLabelInsideTheBoundsStillRenders(t T) T {
                                Style = DefaultStyle()))),
         Rect(X = 0, Y = 0, Width = 12, Height = 1), buf)
     return IsTrue(t, strings.Contains(RowText(buf, 0), "OK"))
+}
+
+// ---- World map ---------------------------------------------------------------
+
+func TestWorldMapDecodesBothResolutions(t T) T {
+    // Far more coastline at MapHigh than at MapLow, and both non-trivial.
+    var low = 0
+    var high = 0
+    worldMapEach(false, (x1 float64, y1 float64, x2 float64, y2 float64) => { low = low + 1 })
+    worldMapEach(true, (x1 float64, y1 float64, x2 float64, y2 float64) => { high = high + 1 })
+    val t1 = IsTrue(t, low > 4000)
+    return IsTrue(t1, high > 3 * low)
+}
+
+func TestWorldMapStaysInsideTheWorld(t T) T {
+    var outside = 0
+    val lon = (x float64) => x < -180.0 || x > 180.0
+    val lat = (y float64) => y < -90.0 || y > 90.0
+    worldMapEach(true, (x1 float64, y1 float64, x2 float64, y2 float64) => {
+        if lon(x1) || lon(x2) || lat(y1) || lat(y2) { outside = outside + 1 }
+    })
+    return Eq(t, outside, 0)
+}
+
+func TestWorldMapDrawsLandWhereLandIs(t T) T {
+    // Zoomed on the Atlantic between Africa and South America: the coasts
+    // light the left and right edges, the ocean in the middle stays empty.
+    val canvas = Canvas(XBounds(-60.0, 20.0), YBounds(-40.0, 10.0), BlockMarker(),
+        ArrayOf[Shape](WorldMap(MapLow(), DefaultStyle())))
+    val rows = SnapshotLines(canvas, 40, 12)
+    // The top rows reach 10°N, where the west coast of Africa bulges out to
+    // 17°W; below it, 28°W..12°W is open ocean.
+    val mid = rows.Drop(3).Map((r) => gs.S(r).Substring(16, 24).ToString())
+    val t1 = IsTrue(t, rows.Exists((r) => gs.S(r).Take(12).Contains("█")))
+    val t2 = IsTrue(t1, rows.Exists((r) => gs.S(r).Drop(28).Contains("█")))
+    return IsTrue(t2, mid.ForAll((m) => !gs.S(m).Contains("█")))
+}
+
+func TestWorldMapTakesTheCanvasRestyle(t T) T {
+    val dimmed = restyleShape(WorldMap(MapLow(), DefaultStyle()), (s) => s.WithDim())
+    return IsTrue(t, dimmed match {
+        case ShapeWorldMap(_, st) => st.Dim
+        case _                    => false
+    })
 }
