@@ -41,6 +41,7 @@ import (
 
 sealed type MegaMsg {
     case MegaQuit()
+    case MegaSuspend()
     case MegaTick()
     case MegaPalTogglePalette()
     case MegaPalChar(C rune)
@@ -245,6 +246,7 @@ func seedInitialLogs(p LogPanel) LogPanel {
 func MegaUpdate(m MegaModel, msg MegaMsg) Tuple[MegaModel, Cmd[MegaMsg]] {
     return msg match {
         case MegaQuit()                => (m, QuitCmd[MegaMsg]())
+        case MegaSuspend()             => (m, SuspendCmd[MegaMsg]())
         case MegaTick()                => (megaTick(m), NoCmd[MegaMsg]())
         case MegaPalTogglePalette()    => (megaTogglePalette(m), NoCmd[MegaMsg]())
         case MegaPalChar(c)            => megaRouteChar(m, c)
@@ -1017,7 +1019,7 @@ func megaLayerConfirm(below Widget, m MegaModel) Widget =
     )).OnClick(MegaNoOp())
 
 func megaLayerHelp(below Widget, m MegaModel) Widget =
-    ModalOver(below, 70, 18, MarkdownView(megaHelpMarkdown())).OnClick(MegaNoOp())
+    ModalOver(below, 70, 19, MarkdownView(megaHelpMarkdown())).OnClick(MegaNoOp())
 
 func megaLayerPalette(below Widget, m MegaModel) Widget =
     ModalOver(below, 60, 12, PaletteViewClick[MegaMsg](m.Palette, true,
@@ -1094,6 +1096,7 @@ func megaHelpMarkdown() string =
     "- `?`      — toggle this help\n" +
     "- `t`      — cycle themes: default → dark → light → hi-contrast\n" +
     "- `q`      — quit\n" +
+    "- `Ctrl+Z` — suspend to the shell (`fg` comes back)\n" +
     "\n" +
     "## Source\n" +
     "\n" +
@@ -1107,6 +1110,7 @@ func megaHelpMarkdown() string =
 func MegaKeyToMsg(ev KeyEvent) MegaMsg {
     if KeyMatches(ev, "ctrl+p") { return MegaPalTogglePalette() }
     if KeyMatches(ev, "ctrl+c") { return MegaQuit() }
+    if KeyMatches(ev, "ctrl+z") { return MegaSuspend() }
     if ev.Ctrl { return MegaNoOp() }
     return ev.Key match {
         case Char(c)     => megaPlainChar(c)

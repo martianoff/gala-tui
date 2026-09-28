@@ -1,0 +1,168 @@
+package gala_tui
+
+import (
+    "strings"
+    . "martianoff/gala/collection_immutable"
+    . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
+)
+
+// ============================================================================
+// SuspendCmd — Ctrl+Z hands the terminal back to the shell.
+//
+// The stop itself cannot happen under test: it would stop the test binary.
+// What can be pinned is everything around it — that each entry point asks
+// its session to suspend when an update() says so, that the app carries on
+// afterwards, that a quit in the same update wins, and the order a session
+// lets go of the terminal and takes it back.
+// ============================================================================
+
+// 's' suspends, 'x' asks to suspend and quit in one Batch; everything else
+// is beUpdate's.
+func suspUpdate(m BeModel, msg BeMsg) Tuple[BeModel, Cmd[BeMsg]] = msg match {
+    case BeKey(k) if k == "s" => (m.Copy(Keys = m.Keys.Append(k)), SuspendCmd[BeMsg]())
+    case BeKey(k) if k == "x" => (m, Batch[BeMsg](SuspendCmd[BeMsg](), QuitCmd[BeMsg]()))
+    case _                    => beUpdate(m, msg)
+}
+
+func suspProgram() Program[BeModel, BeMsg] =
+    Program[BeModel, BeMsg](Initial = beInitial(), Update = suspUpdate, View = beView)
+
+val suspInputToMsg = LiftKeysToInput[BeMsg](beKeyToMsg, (s) => BeNoOp(), BeNoOp(), BeNoOp())
+
+// afterSuspend is what the run wrote once it had suspended ("" if it never
+// did).
+func afterSuspend(st *TestBackendState) string {
+    val _, after, _ = strings.Cut(st.Written, testBackendSuspendMark)
+    return after
+}
+
+func TestIsSuspendFindsASuspendInsideABatch(t T) T {
+    val t1 = IsTrue(t, IsSuspend(Batch[BeMsg](NoCmd[BeMsg](), SuspendCmd[BeMsg]())))
+    return IsFalse(t1, IsSuspend(Batch[BeMsg](NoCmd[BeMsg](), QuitCmd[BeMsg]())))
+}
+
+func TestRunSuspendsAndCarriesOn(t T) T {
+    val (backend, st) = NewTestBackend(40, 3, "asb")
+    val final = Run[BeModel, BeMsg](suspProgram(), beKeyToMsg, backend)
+    val t1 = Eq(t, st.Suspended, 1)
+    // The key after the suspend is still dispatched: the app resumed.
+    val t2 = Eq(t1, strings.Join(final.Keys.ToGoSlice(), ","), "a,s,b")
+    return EqMsg(t2, strings.Contains(afterSuspend(st), "keys=a,s"), true,
+                 "nothing was painted after resuming")
+}
+
+func TestRunWithSubSuspends(t T) T {
+    val (backend, st) = NewTestBackend(40, 3, "asb")
+    val final = RunWithSub[BeModel, BeMsg](suspProgram(), beKeyToMsg, NoSubs[BeMsg](), backend)
+    val t1 = Eq(t, st.Suspended, 1)
+    val t2 = Eq(t1, strings.Join(final.Keys.ToGoSlice(), ","), "a,s,b")
+    return EqMsg(t2, strings.Contains(afterSuspend(st), "keys=a,s"), true,
+                 "nothing was painted after resuming")
+}
+
+func TestRunWithMouseSuspends(t T) T {
+    val (backend, st) = NewTestBackend(40, 3, "asb")
+    val final = RunWithMouse[BeModel, BeMsg](suspProgram(), suspInputToMsg, NoSubs[BeMsg](), backend)
+    val t1 = Eq(t, st.Suspended, 1)
+    val t2 = Eq(t1, strings.Join(final.Keys.ToGoSlice(), ","), "a,s,b")
+    // This loop paints diffs, and a diff against the frame from before the
+    // suspend would redraw only what changed — over a screen the shell has
+    // had. The first paint and the one after resuming are the only full ones.
+    return EqMsg(t2, st.FullPaints, 2, "the frame after resuming was a diff, not a full repaint")
+}
+
+func TestAQuitInTheSameUpdateWinsOverASuspend(t T) T {
+    // Stopping a process on its way out would only make the user type `fg`
+    // to watch it exit.
+    val (backend, st) = NewTestBackend(40, 3, "ax")
+    Run[BeModel, BeMsg](suspProgram(), beKeyToMsg, backend)
+    val (mb, mst) = NewTestBackend(40, 3, "ax")
+    RunWithMouse[BeModel, BeMsg](suspProgram(), suspInputToMsg, NoSubs[BeMsg](), mb)
+    val t1 = Eq(t, st.Suspended, 0)
+    return Eq(t1, mst.Suspended, 0)
+}
+
+// ----------------------------------------------------------------------------
+// suspendIf / suspendSession
+// ----------------------------------------------------------------------------
+
+// suspendingSession suspends at once — no terminal, no stop — running both
+// hooks, and counts how often it was asked.
+func suspendingSession(asked *int) BackendSession =
+    BackendSession(Close = () => {}, Suspend = (before func(), after func()) => {
+        *asked = *asked + 1
+        before()
+        after()
+        return true
+    })
+
+func TestSuspendIfResumesOnlyWhenTheSessionSuspended(t T) T {
+    var asked = 0
+    var resumed = 0
+    val yes = suspendingSession(&asked)
+    val no = BackendSession(Close = () => {})
+    suspendIf(true, yes, () => { resumed = resumed + 1 })
+    suspendIf(true, no, () => { resumed = resumed + 10 })
+    suspendIf(false, yes, () => { resumed = resumed + 100 })
+    val t1 = EqMsg(t, asked, 1, "a session was asked to suspend when nothing asked for it")
+    return EqMsg(t1, resumed, 1, "resumed without having suspended")
+}
+
+func TestTheCursorWrapperForgetsOnlyAfterARealSuspend(t T) T {
+    // A wrapper that wiped its record of the cursor and then found the
+    // session could not suspend would stop hiding a cursor that is showing.
+    var asked = 0
+    var forgot = 0
+    val declines = withCursorShape(BackendSession(Close = () => {}), () => 0,
+                                   () => { forgot = forgot + 1 })
+    declines.Suspend(() => {}, () => {})
+    val t1 = EqMsg(t, forgot, 0, "forgot the cursor for a suspend that never happened")
+    val accepts = withCursorShape(suspendingSession(&asked), () => 0,
+                                  () => { forgot = forgot + 1 })
+    accepts.Suspend(() => {}, () => {})
+    return EqMsg(t1, forgot, 1, "kept a stale cursor record across a suspend")
+}
+
+func TestSuspendSessionLetsGoStopsAndTakesBackInThatOrder(t T) T {
+    var steps = EmptyArray[string]()
+    val done = suspendSession(
+        () => true,
+        () => { steps = steps.Append("leave") },
+        () => { steps = steps.Append("stop") },
+        () => { steps = steps.Append("resume") },
+    )
+    val t1 = IsTrue(t, done)
+    return Eq(t1, steps.MkString(","), "leave,stop,resume")
+}
+
+func TestSuspendSessionLeavesTheTerminalAloneWhenItCannotStop(t T) T {
+    // Letting go first would leave the terminal cooked under an app that is
+    // still running.
+    var steps = EmptyArray[string]()
+    val done = suspendSession(
+        () => false,
+        () => { steps = steps.Append("leave") },
+        () => { steps = steps.Append("stop") },
+        () => { steps = steps.Append("resume") },
+    )
+    val t1 = IsFalse(t, done)
+    return Eq(t1, steps.Length(), 0)
+}
+
+func TestResumeTickersDropsWhatFellDueWhileStopped(t T) T {
+    // A 100 ms ticker, an hour overdue. Without the restart every loop pass
+    // would fire it again until it had caught up 36,000 intervals.
+    val start = FromUnixNanos(int64(0))
+    val iv = Milliseconds(100)
+    val states = ArrayOf[TickerState[BeMsg]](
+        TickerState[BeMsg](Interval = iv, Make = () => BeNoOp(), NextDue = start.Plus(iv)))
+    val now = start.Plus(Milliseconds(3600 * 1000))
+    val resumed = resumeTickers(states, now)
+    val (atResume, _) = DispatchDueTicks(resumed, now)
+    val (oneLater, after) = DispatchDueTicks(resumed, now.Plus(iv))
+    val (next, _) = DispatchDueTicks(after, now.Plus(iv))
+    val t1 = EqMsg(t, atResume.Length(), 0, "a ticker fired at the moment of resume")
+    val t2 = Eq(t1, oneLater.Length(), 1)
+    return EqMsg(t2, next.Length(), 0, "a ticker was still catching up after the restart")
+}

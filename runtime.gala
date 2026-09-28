@@ -153,59 +153,25 @@ func currentTermModes(mouse bool) TermModes = TermModes(
     Kitty = kittyKeyboardEnabled,
 )
 
-// TermSession owns every piece of terminal-global state a run mutates:
-// raw mode, the alternate screen, cursor visibility, and the input modes in
-// TermModes. Acquisition and release live in one type, so a `use` binding
-// pairs them: cleanup runs on every exit path (normal return, an early return
-// from deep inside the read loop, or a panic).
+// TermSession is terminal state a run held — raw mode, the alternate
+// screen, the input modes in `ModesOff` — from before sessions came from
+// `Backend.Open`.
 //
-// Teardown order mirrors installCleanupGuard, so the signal path and the
-// ordinary path leave the terminal in exactly the same state.
-//
-// `ModesOff` is the disable string itself, not the mode set it came from.
-// Storing the string is what makes "the guard and Close emit the same
-// bytes" structural rather than conventional: there is one `termModesOff`
-// call per session and both consumers are handed its result, so they
-// cannot diverge even if the mode set is later derived differently on the
-// two paths.
+// Deprecated: nothing in the library builds one any more; a backend's `Open`
+// returns the session. Kept so code that constructed one still compiles.
 struct TermSession(
     Fd       int,
     State    *term.State,
     ModesOff string,
 )
 
-// Close restores the terminal. The `Close() error` shape is what a `use`
-// binding requires; the error is term.Restore's.
+// Close restores the terminal: the input modes off, the cursor shown, the
+// alternate screen left and raw mode undone.
 func (s TermSession) Close() error {
     fmt.Fprint(os.Stdout, s.ModesOff)
     fmt.Fprint(os.Stdout, ansiCursorShow)
     fmt.Fprint(os.Stdout, ansiAltScreenOff)
     return term.Restore(s.Fd, s.State)
-}
-
-// enterTermSession is the acquire half: it installs the signal guard,
-// switches to the alternate screen, hides the cursor, and enables the input
-// modes `currentTermModes` selected — SGR mouse reporting plus, for the mouse
-// entry point, bracketed paste and focus reporting, plus the kitty keyboard
-// protocol on every path.
-func enterTermSession(fd int, state *term.State, mouse bool) TermSession {
-    val modes = currentTermModes(mouse)
-    val modesOff = termModesOff(modes)
-    // Signal handler covers the paths cleanup can't reach (Ctrl+C,
-    // SIGTERM, kill). It gets the exact disable string Close will write —
-    // the same value, not an equal one.
-    installCleanupGuard(fd, state, modesOff)
-    if mouse {
-        // Windows: enable ENABLE_VIRTUAL_TERMINAL_INPUT so the ANSI mouse
-        // sequences below actually take effect on conhost / PowerShell.
-        // No-op on Linux / macOS.
-        val _ = EnableVTInput()
-    }
-    // Enter the alt screen so our UI doesn't trash the user's shell history.
-    fmt.Fprint(os.Stdout, ansiAltScreenOn)
-    fmt.Fprint(os.Stdout, ansiCursorHide)
-    fmt.Fprint(os.Stdout, termModesOn(modes))
-    return TermSession(Fd = fd, State = state, ModesOff = modesOff)
 }
 
 // ----------------------------------------------------------------------------
@@ -306,6 +272,9 @@ func Run[M any, T any](
     use _guard = closeOnExit(session)
 
     var model = program.Initial
+    // Nothing to redo after a suspend: this loop has no tickers and paints
+    // every frame in full anyway.
+    val resume = () => {}
 
     // First paint — the initial model before any input.
     paintFrame(program.View(model), backend)
@@ -362,6 +331,7 @@ func Run[M any, T any](
             if IsQuit(cmd) {
                 return model
             }
+            suspendIf(IsSuspend(cmd), session, resume)
 
             // Any synchronously-emitted messages are dispatched in-line, same
             // as StepAll's behavior — supports `Cmd.MsgCmd(x)` chaining.
@@ -378,6 +348,7 @@ func Run[M any, T any](
                 if IsQuit(nc) {
                     return model
                 }
+                suspendIf(IsSuspend(nc), session, resume)
                 i = i + 1
             }
 
@@ -534,6 +505,13 @@ func RunWithSub[M any, T any](
     var readFut = None[concurrent.Future[ReadResult]]()
     // Partial escape sequence held back from the previous read — see carryOver.
     var carry = SliceEmpty[byte]()
+    // What coming back from a suspend takes: see resumeTickers.
+    // This loop paints every frame in full, so a resume needs no paint of
+    // its own.
+    val resume = () => {
+        tickers = resumeTickers(tickers, Now())
+        carry = SliceEmpty[byte]()
+    }
 
     paintFrame(program.View(model), backend)
 
@@ -552,6 +530,7 @@ func RunWithSub[M any, T any](
         if asyncRes.Quit {
             return model
         }
+        suspendIf(asyncRes.Suspend, session, resume)
 
         // 2. Fire due tickers.
         val (tickMsgs, advanced) = DispatchDueTicks(tickers, Now())
@@ -564,6 +543,7 @@ func RunWithSub[M any, T any](
         if tickRes.Quit {
             return model
         }
+        suspendIf(tickRes.Suspend, session, resume)
 
         // If anything above changed the model, paint before blocking on the
         // next input event. Inserted lines count as a change: they overwrote
@@ -609,8 +589,9 @@ func RunWithSub[M any, T any](
         //    sequence held back from the previous read in front of them.
         val avail = SliceAppendAll(carry, Slice(rr.Buf, 0, rr.N))
         var keyPrints = EmptyArray[string]()
+        var keySuspend = false
         val (exitNow, leftover) = processKeyBytes(
-            program, &model, &pending, &keyPrints, avail, makeKeyMsg, backend.CursorReport,
+            program, &model, &pending, &keyPrints, &keySuspend, avail, makeKeyMsg, backend.CursorReport,
         )
         carry = leftover
         // Flushed before the exit check so a keystroke that prints on its
@@ -620,6 +601,7 @@ func RunWithSub[M any, T any](
         if exitNow {
             return model
         }
+        suspendIf(keySuspend, session, resume)
 
         paintFrame(program.View(model), backend)
     }
@@ -671,6 +653,13 @@ func RunWithMouse[M any, T any](
     // press's region in between.
     var dragActive = None[DragActive]()
     var prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+    // What coming back from a suspend takes: see resumeTickers.
+    val resume = () => {
+        tickers = resumeTickers(tickers, Now())
+        carry = SliceEmpty[byte]()
+        dragActive = None()
+        prevFrame = paintFrameDiffWithHits(program.View(model), nil, hits, backend)
+    }
 
     for {
         // 0. Drain a deferred single-click if its double-click window has
@@ -690,6 +679,7 @@ func RunWithMouse[M any, T any](
         if drainRes.Quit {
             return model
         }
+        suspendIf(drainRes.Suspend, session, resume)
         if drainMsgs.NonEmpty() {
             prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits, backend)
         }
@@ -708,6 +698,7 @@ func RunWithMouse[M any, T any](
         if asyncRes.Quit {
             return model
         }
+        suspendIf(asyncRes.Suspend, session, resume)
 
         // 2. Fire due tickers.
         val (tickMsgs, advanced) = DispatchDueTicks(tickers, Now())
@@ -723,6 +714,7 @@ func RunWithMouse[M any, T any](
         if tickRes.Quit {
             return model
         }
+        suspendIf(tickRes.Suspend, session, resume)
 
         // 3. Detect resize and dispatch it as a ResizeInput event.
         val (curW, curH) = backend.Size()
@@ -743,6 +735,7 @@ func RunWithMouse[M any, T any](
         if resRes.Quit {
             return model
         }
+        suspendIf(resRes.Suspend, session, resume)
 
         // Printing needs no clause of its own here: a print can only come
         // from a dispatched message, so these three already cover it — and
@@ -784,8 +777,9 @@ func RunWithMouse[M any, T any](
         //    the user's `makeInputMsg`.
         val avail = SliceAppendAll(carry, Slice(rr.Buf, 0, rr.N))
         var inputPrints = EmptyArray[string]()
+        var inputSuspend = false
         val (exitNow, leftover) = processInputBytesWithHits(
-            program, &model, &pending, &inputPrints, &pendingClick, &dragActive,
+            program, &model, &pending, &inputPrints, &inputSuspend, &pendingClick, &dragActive,
             avail, makeInputMsg, hits, () => backendViewport(backend), backend.CursorReport,
         )
         carry = leftover
@@ -797,6 +791,7 @@ func RunWithMouse[M any, T any](
         if exitNow {
             return model
         }
+        suspendIf(inputSuspend, session, resume)
 
         prevFrame = paintFrameDiffWithHits(program.View(model), prevFrame, hits, backend)
     }
@@ -814,6 +809,7 @@ func processInputBytesWithHits[M any, T any](
     model *M,
     pending *Array[concurrent.Future[T]],
     prints *Array[string],
+    suspend *bool,
     pendingClick *Option[ClickPending],
     dragActive *Option[DragActive],
     buf []byte,
@@ -853,7 +849,7 @@ func processInputBytesWithHits[M any, T any](
         *pendingClick = resolution.Pending
         *dragActive   = resolution.Drag
         val res = dispatchAll(program, *model, resolution.Msgs)
-        if applyDispatch(res, model, pending, prints) {
+        if applyDispatch(res, model, pending, prints, suspend) {
             return (true, SliceEmpty[byte]())
         }
     }
@@ -1290,6 +1286,9 @@ struct DispatchResult[M any, T any](
     // dispatchAll has no backend — and should not: it is the pure half.
     Prints     Array[string],
     Quit       bool,
+    // Whether any update() asked to suspend. Acted on after the batch, like
+    // the prints — see `suspendIf`.
+    Suspend    bool = false,
 )
 
 // dispatchAll walks `msgs`, calling program.Update for each, and threads the
@@ -1338,7 +1337,8 @@ func dispatchStep[M any, T any](
     val quit = IsQuit(cmd)
     val futures = if (quit) acc.NewFutures else acc.NewFutures.AppendAll(PendingFutures(cmd))
     return (DispatchResult[M, T](
-        Model = model, NewFutures = futures, Prints = prints, Quit = quit), cmd)
+        Model = model, NewFutures = futures, Prints = prints, Quit = quit,
+        Suspend = acc.Suspend || IsSuspend(cmd)), cmd)
 }
 
 // applyDispatch writes a dispatch result through the byte loops' pointers.
@@ -1349,9 +1349,11 @@ func applyDispatch[M any, T any](
     model *M,
     pending *Array[concurrent.Future[T]],
     prints *Array[string],
+    suspend *bool,
 ) bool {
     *model = res.Model
     *prints = prints.AppendAll(res.Prints)
+    *suspend = *suspend || res.Suspend
     *pending = pending.AppendAll(res.NewFutures)
     return res.Quit
 }
@@ -1368,6 +1370,7 @@ func processKeyBytes[M any, T any](
     model *M,
     pending *Array[concurrent.Future[T]],
     prints *Array[string],
+    suspend *bool,
     buf []byte,
     makeKeyMsg func(KeyEvent) T,
     onCursorReport func(int, int),
@@ -1393,7 +1396,7 @@ func processKeyBytes[M any, T any](
         // A keystroke whose update() prints and quits means both; see
         // dispatchStep.
         val res = dispatchAll(program, *model, ArrayOf(makeKeyMsg(ev)))
-        if applyDispatch(res, model, pending, prints) {
+        if applyDispatch(res, model, pending, prints, suspend) {
             return (true, SliceEmpty[byte]())
         }
     }
@@ -1470,6 +1473,27 @@ func toViewport(ev InputEvent, vp Rect) Option[InputEvent] = ev match {
 func emitPrints(backend Backend, lines Array[string], repaint func()) {
     if lines.NonEmpty() && backend.InsertBefore(lines) {
         repaint()
+    }
+}
+
+// suspendIf suspends `session` when an update() asked for it, and runs
+// `resume` once the shell continues the app — only then: a session that
+// cannot suspend runs neither hook. `resume` drops what the stop made stale:
+// a half-read escape sequence, a drag whose release went to the shell, the
+// tickers' clocks (`resumeTickers`). A loop that diffs its paints repaints
+// the whole frame there — the shell has had the screen, so nothing the last
+// frame put on it can be assumed to still be there; the loops that paint in
+// full every pass need not.
+//
+// It runs after the quit check at every site — an update() that asks for
+// both is leaving, and stopping a process on its way out would only make the
+// user type `fg` to watch it exit — and after the prints, so a line printed
+// in the same update() is in the scrollback before the shell takes over.
+// A session that cannot suspend (Windows, no job-control shell, a backend
+// that has no terminal to hand back) returns false and nothing is repainted.
+func suspendIf(asked bool, session BackendSession, resume func()) {
+    if asked {
+        session.Suspend(() => {}, resume)
     }
 }
 

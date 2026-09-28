@@ -619,7 +619,7 @@ func TestBackTabDecodesAsShiftTab(t T) T {
 // 6. Mode strings and teardown
 //
 // Every mode enabled on entry has to be disabled on exit, on both the
-// ordinary path (TermSession.Close) and the signal path (installCleanupGuard),
+// ordinary path (openRawSession's exit) and the signal path (installCleanupGuard),
 // which is why both write the same termModesOff string.
 // ----------------------------------------------------------------------------
 
