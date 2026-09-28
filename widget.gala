@@ -951,7 +951,7 @@ func LineGauge(percent int) Widget = LineGaugeLabeled(lineGaugeCaption(percent),
 //         Flex(1, LineGaugeLabeled("", pct)),
 //     ))), ...))
 func LineGaugeLabeled(label string, percent int) Widget =
-    LineGaugeStyled(label, percent, DefaultStyle(), DefaultStyle().WithDim())
+    LineGaugeWith(label, percent, DefaultLineGaugeSymbols())
 
 // LineGaugeStyled is LineGaugeLabeled with the two styles spelled out: one
 // for the completed run, one for the track behind it.
@@ -961,11 +961,27 @@ func LineGaugeLabeled(label string, percent int) Widget =
 // drawn in the track's dim style reads as a disabled control. A caller who
 // wants a third style for the caption composes it with the fixed-column
 // recipe on `LineGaugeLabeled`, styling the `Text` however they like.
-func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Widget {
+func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Widget =
+    LineGaugeWith(label, percent, DefaultLineGaugeSymbols(), filled, unfilled)
+
+// LineGaugeWith draws the rule with `symbols` — a double rule, a block bar,
+// plain ASCII, or glyphs of your own — in `LineGaugeLabeled`'s styles unless
+// given others:
+//
+//     LineGaugeWith("", pct, LineGaugeBlock())
+func LineGaugeWith(
+    label string,
+    percent int,
+    symbols LineGaugeSymbols,
+    filled Style = DefaultStyle(),
+    unfilled Style = DefaultStyle().WithDim(),
+) Widget {
     // Measured once, at tree-build time, rather than per branch per frame:
     // the closure below would otherwise re-scan the label's cells two to
-    // four times on every paint.
+    // four times on every paint. The glyphs are checked once for the same
+    // reason.
     val labelW = lineGaugeLabelWidth(label)
+    val glyphs = lineGaugeDrawable(symbols)
     return CustomW(
         MinW = labelW + lineGaugeMinRule,
         MinH = 1,
@@ -996,6 +1012,7 @@ func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Wi
                     percent,
                     filled,
                     unfilled,
+                    glyphs,
                     Rect(
                         X = area.X + labelW,
                         Y = area.Y,
@@ -1020,7 +1037,7 @@ func LineGaugeStyled(label string, percent int, filled Style, unfilled Style) Wi
             // worse, a different number: `LineGauge(100)` in two columns
             // would render "10", which reads as ten percent. The rule cannot
             // lie that way, so it takes the row.
-            renderLineGaugeRule(percent, filled, unfilled, row, buf)
+            renderLineGaugeRule(percent, filled, unfilled, glyphs, row, buf)
         },
     )
 }

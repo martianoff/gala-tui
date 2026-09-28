@@ -138,8 +138,8 @@ func TestLineGaugeCaptionKeepsTheRuleOriginFixed(t T) T {
     RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 20, Height = 1), big)
     val t1 = Eq(t, small.Get(4, 0).Ch, ' ')
     val t2 = Eq(t1, big.Get(4, 0).Ch, ' ')
-    val t3 = Eq(t2, small.Get(5, 0).Ch, lineGaugeHead)
-    return Eq(t3, big.Get(5, 0).Ch, lineGaugeFilled)
+    val t3 = Eq(t2, small.Get(5, 0).Ch, '╾')
+    return Eq(t3, big.Get(5, 0).Ch, '━')
 }
 
 func TestLineGaugeStillGrowsFrom99To100(t T) T {
@@ -153,8 +153,8 @@ func TestLineGaugeStillGrowsFrom99To100(t T) T {
     RenderTo(LineGauge(100), Rect(X = 0, Y = 0, Width = 24, Height = 1), done)
     // Same last cell, two different glyphs: 99% ends on the head, 100% on a
     // full cell. Nothing short of done paints the done picture.
-    val t1 = Eq(t, nearly.Get(23, 0).Ch, lineGaugeHead)
-    return Eq(t1, done.Get(23, 0).Ch, lineGaugeFilled)
+    val t1 = Eq(t, nearly.Get(23, 0).Ch, '╾')
+    return Eq(t1, done.Get(23, 0).Ch, '━')
 }
 
 func TestLineGaugeDrawsAHeadOnlyWhenTheFillEndsMidCell(t T) T {
@@ -262,6 +262,50 @@ func TestLineGaugeDrawsTheTrackAtZeroAndFillsAtFull(t T) T {
     val under = NewBuffer(8, 1)
     RenderTo(LineGaugeLabeled("", -40), Rect(X = 0, Y = 0, Width = 8, Height = 1), under)
     return Eq(t3, RowText(under, 0), "────────")
+}
+
+// lineGaugeRow renders a bare rule of `symbols` across `width` columns.
+func lineGaugeRow(symbols LineGaugeSymbols, percent int, width int) string =
+    Snapshot(LineGaugeWith("", percent, symbols), width, 1)
+
+func TestLineGaugeDefaultSymbolsDrawWhatLineGaugeAlwaysDrew(t T) T {
+    val t1 = Eq(t, lineGaugeRow(DefaultLineGaugeSymbols(), 50, 5), "━━╾──")
+    return Eq(t1, lineGaugeRow(DefaultLineGaugeSymbols(), 50, 8), "━━━━────")
+}
+
+func TestLineGaugeBlockSymbolsUseAHalfBlockHead(t T) T {
+    val t1 = Eq(t, lineGaugeRow(LineGaugeBlock(), 50, 5), "██▌░░")
+    return Eq(t1, lineGaugeRow(LineGaugeBlock(), 100, 5), "█████")
+}
+
+func TestLineGaugeWithoutAHeadCountsWholeCells(t T) T {
+    // Two and a half cells of fill, and no glyph for the half: it is floored
+    // away, not rounded up into a third full cell.
+    val t1 = Eq(t, lineGaugeRow(LineGaugeDouble(), 50, 5), "══───")
+    val t2 = Eq(t1, lineGaugeRow(LineGaugeASCII(), 50, 5), "==---")
+    // And 99% is still not the picture of done.
+    val t3 = Eq(t2, lineGaugeRow(LineGaugeDouble(), 99, 20), "═══════════════════─")
+    return Eq(t3, lineGaugeRow(DefaultLineGaugeSymbols().WithoutHead(), 50, 5), "━━───")
+}
+
+func TestLineGaugeReplacesGlyphsThatAreNotOneCellWide(t T) T {
+    // A full-width `＝` per cell would paint twenty columns into ten and
+    // push the rest of the row off the edge. Each slot falls back to the
+    // default glyph instead, so the row stays its own width.
+    val wide = LineGaugeASCII().WithFilled('＝').WithTrack('中').WithHead('＋')
+    return Eq(t, lineGaugeRow(wide, 50, 5), "━━───")
+}
+
+func TestLineGaugeDropsAHeadDrawnTheSameAsTheFill(t T) T {
+    // Such a head is a full cell by another name: 99% of twenty cells
+    // would paint all twenty.
+    val same = LineGaugeASCII().WithHead('=')
+    return Eq(t, lineGaugeRow(same, 99, 20), "===================-")
+}
+
+func TestLineGaugeSymbolsTakeGlyphsOfTheirOwn(t T) T {
+    val dots = LineGaugeASCII().WithFilled('#').WithTrack('.').WithHead('+')
+    return Eq(t, lineGaugeRow(dots, 50, 5), "##+..")
 }
 
 func TestLineGaugeKeepsTheLabelWhenTheRowIsTooNarrowForARule(t T) T {
