@@ -20,7 +20,7 @@ func shots() Array[Shot] = ArrayOf[Shot](
     Shot(Name = "primitives",   Cols = 64, Rows = 7,  W = shotPrimitives()),
     Shot(Name = "layout",       Cols = 64, Rows = 13, W = shotLayout()),
     Shot(Name = "richtext",     Cols = 64, Rows = 12, W = shotRichText()),
-    Shot(Name = "canvas",       Cols = 64, Rows = 9,  W = shotCanvas()),
+    Shot(Name = "canvas",       Cols = 64, Rows = 22, W = shotCanvas()),
     Shot(Name = "charts",       Cols = 64, Rows = 34, W = shotCharts()),
     Shot(Name = "lists",        Cols = 64, Rows = 21, W = shotLists()),
     Shot(Name = "forms",        Cols = 64, Rows = 9,  W = shotForms()),
@@ -114,10 +114,25 @@ func shotCanvas() Widget {
     val ys = demoSeries().Map((v) => float64(v))
     val area = (m CanvasMarker) => Canvas(XBounds(0.0, float64(n - 1)), YBounds(0.0, 64.0), m,
         FilledSeriesOf(xs, ys, 0.0, DefaultStyle().WithFg(BrightCyan)))
-    return Row(ArrayOf[LayoutChild](
-        Flex(2, Titled(area(BrailleMarker()), " FilledSeriesOf — braille 2x4 ")),
-        Flex(1, Titled(area(SextantMarker()), " sextant 2x3 ")),
-        Flex(1, Titled(area(QuadrantMarker()), " quadrant 2x2 ")),
+    val (wx, wy) = WorldBounds()
+    val city = (lon float64, lat float64) =>
+        ShapeLabel(X = lon, Y = lat, Text = "●", Style = DefaultStyle().WithFg(BrightYellow))
+    return Column(ArrayOf[LayoutChild](
+        Fixed(9, Row(ArrayOf[LayoutChild](
+            Flex(2, Titled(area(BrailleMarker()), " FilledSeriesOf — braille 2x4 ")),
+            Flex(1, Titled(area(SextantMarker()), " sextant 2x3 ")),
+            Flex(1, Titled(area(QuadrantMarker()), " quadrant 2x2 ")),
+        ))),
+        // The whole world at MapLow, with a few cities on it; then Europe at
+        // MapHigh, where the low set would show a coastline of straight lines.
+        Fixed(13, Row(ArrayOf[LayoutChild](
+            Flex(3, Titled(CanvasOf(wx, wy, ArrayOf[Shape](
+                WorldMap(MapLow(), DefaultStyle().WithFg(BrightBlack)),
+                city(-74.0, 40.7), city(-0.1, 51.5), city(139.7, 35.7),
+                city(151.2, -33.9), city(-46.6, -23.5))), " WorldMap — MapLow ")),
+            Flex(2, Titled(CanvasOf(XBounds(-12.0, 30.0), YBounds(35.0, 62.0), ArrayOf[Shape](
+                WorldMap(MapHigh(), DefaultStyle().WithFg(BrightBlack)))), " MapHigh ")),
+        ))),
     ))
 }
 

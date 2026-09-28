@@ -1613,3 +1613,7 @@ func TestMegaRegionListMarksTheCursorWithASymbol(t T) T {
     val t1 = IsTrue(t, strings.Contains(list, "▶ us-east-1"))
     return IsTrue(t1, strings.Contains(list, "  us-west-2"))
 }
+
+func TestMegaEveryQuotaRegionIsOnTheMap(t T) T =
+    megaQuotaRows().FoldLeft(t, (acc, r) =>
+        EqMsg(acc, megaRegionLocation(r.Get(0)).IsDefined(), true, "no map location for " + r.Get(0)))

@@ -217,9 +217,10 @@ Shapes in your own coordinate space, at sub-cell resolution. Braille packs
 | `XBounds(min, max)` / `YBounds(min, max)` | `(float64, float64) Bounds` | The caller's coordinate range per axis. |
 | `PointsOf(xs, ys, style)` | `(Array[float64], Array[float64], Style) Shape` | Build a series from parallel arrays. |
 | `FilledSeriesOf(xs, ys, yRef, style)` | `(Array[float64], Array[float64], float64, Style) Array[Shape]` | An area series: one `ShapeFilledLine` per adjacent pair, filled to `yRef`. |
+| `WorldMap(detail?, style?)` | `(MapResolution, Style) Shape` | The world's coastlines in degrees — longitude on X, latitude on Y. `MapLow()` (the default, ~5,000 points) is plenty a terminal wide; `MapHigh()` (~22,000) is for a canvas zoomed in on a region. Natural Earth data, public domain. `WorldBounds()` is the `(XBounds(-180, 180), YBounds(-90, 90))` pair for the whole world. |
 
 Shapes: `ShapeLine`, `ShapeFilledLine`, `ShapeRect` (outline), `ShapeCircle`,
-`ShapePoints`, `ShapeLabel`. Each carries its own `Style`, so one canvas holds
+`ShapePoints`, `ShapeLabel`, `ShapeWorldMap`. Each carries its own `Style`, so one canvas holds
 a dim grid, a bright series and a labelled axis. Only lit cells are written, so
 a canvas composes over whatever is beneath it.
 
@@ -258,6 +259,23 @@ CanvasOf(XBounds(-1.0, 1.0), YBounds(-1.0, 1.0), ArrayOf[Shape](
     ShapeLabel(X = -0.9, Y = 0.9, Text = "orbit", Style = dim),
 ))
 ```
+
+A map is a canvas in degrees. Draw the coastlines dim and put what you are
+locating on top in the same coordinates — a `ShapeLabel` for a marker, since a
+canvas cell takes the style of the last shape to light it:
+
+```gala
+val (x, y) = WorldBounds()
+CanvasOf(x, y, ArrayOf[Shape](
+    WorldMap(MapLow(), DefaultStyle().WithDim()),
+    ShapeLabel(X = -0.1, Y = 51.5, Text = "●", Style = warn),   // London
+))
+```
+
+For one region, narrow the bounds and switch to `MapHigh()`: segments outside
+the canvas are clipped away. The cost follows the resolution, not the part of
+the world on show — `MapHigh()` tests about four times the segments of
+`MapLow()` every frame — so keep `MapLow()` for a whole-world view.
 
 Y grows **up**, as a plot's does — `Y = 0.0` on `YBounds(0.0, 1.0)` is the
 bottom row. `YBounds(1.0, 0.0)` genuinely flips that, so a depth or a rank

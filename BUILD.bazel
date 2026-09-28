@@ -108,6 +108,7 @@ gala_library(
         "console_setup_windows.go",
         "suspend_unix.go",
         "suspend_windows.go",
+        "worldmap.go",
     ],
     importpath = "github.com/martianoff/gala-tui",
     visibility = ["//visibility:public"],
@@ -209,6 +210,7 @@ gala_test(
         "console_setup_windows.go",
         "suspend_unix.go",
         "suspend_windows.go",
+        "worldmap.go",
     ],
     lib_srcs = [
         "advanced.gala",

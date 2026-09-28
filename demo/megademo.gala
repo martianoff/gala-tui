@@ -846,7 +846,11 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
         " " + row.Get(0) + "  " + row.Get(1) + "  " + row.Get(2) + "  " + row.Get(3))))
     val children = ArrayOf[LayoutChild](
         Fixed(1, TextStyled(" Recent Builds", th.Heading)),
-    ).AppendAll(items)
+    ).AppendAll(items).AppendAll(ArrayOf[LayoutChild](
+        Fixed(1, Empty()),
+        Fixed(1, TextStyled(" Runner regions", th.Heading)),
+        Flex(1, megaRunnerMap(th)),
+    ))
     return Row(ArrayOf[LayoutChild](
         // Wide enough for the longest row; halved, it clipped a duration to
         // "00:00:4" — a different number rather than a shortened one.
@@ -859,6 +863,45 @@ func megaSummaryTiles(m MegaModel, th Theme) Widget {
             Flex(1, megaStageTimes(th)),
         ))),
     ))
+}
+
+// megaRunnerMap puts the quota table's regions on a world map, each dot in
+// its state's colour — the question "where is capacity running out" asked
+// of a picture instead of a column.
+func megaRunnerMap(th Theme) Widget {
+    val (x, y) = WorldBounds()
+    // Not Muted for an unused region: that is the coastline's own style,
+    // and the dot would vanish into it.
+    val dots = megaQuotaRows().FlatMap((r) => megaRegionLocation(r.Get(0)) match {
+        case Some(p) => ArrayOf[Shape](ShapeLabel(X = p.V1, Y = p.V2, Text = "●",
+                                                  Style = megaRegionStyle(r.Get(3), th)))
+        case None()  => EmptyArray[Shape]()
+    })
+    return CanvasOf(x, y, ArrayOf[Shape](WorldMap(MapLow(), th.Muted)).AppendAll(dots))
+}
+
+// megaRegionStyle is a region's dot in its quota state's colour.
+func megaRegionStyle(state string, th Theme) Style = (state match {
+    case "near limit" => th.Warning
+    case "unused"     => th.Text
+    case _            => th.Success
+}).WithBold()
+
+// megaRegionLocation is roughly where each region's data centres are, in
+// degrees of longitude and latitude, or None for a region it does not know —
+// which a test catches, rather than a dot appearing at 0°, 0°.
+func megaRegionLocation(region string) Option[Tuple[float64, float64]] = region match {
+    case "us-east-1"      => Some((-77.5, 39.0))
+    case "us-west-2"      => Some((-120.5, 45.6))
+    case "eu-west-1"      => Some((-6.3, 53.3))
+    case "eu-central-1"   => Some((8.7, 50.1))
+    case "ap-south-1"     => Some((72.9, 19.1))
+    case "sa-east-1"      => Some((-46.6, -23.5))
+    case "af-south-1"     => Some((18.4, -33.9))
+    case "me-south-1"     => Some((50.6, 26.1))
+    case "ca-central-1"   => Some((-73.6, 45.5))
+    case "ap-northeast-1" => Some((139.7, 35.7))
+    case _                => Some((0.0, 0.0))
 }
 
 // megaStageTimes is the horizontal form of the grouped bar chart: a stage per
