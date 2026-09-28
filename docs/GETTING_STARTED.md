@@ -107,7 +107,8 @@ gala build ./counter
 - **`Update`** takes the current model and a message, returns the next
   model and a `Cmd`. Always pure.
 - **`Cmd[T]`** is data — `NoCmd`, `QuitCmd`, `MsgCmd(t)`,
-  `BatchCmd(...)`, `FutureCmd(...)`. The runtime interprets it.
+  `BatchCmd(...)`, `FutureCmd(...)`, `PrintCmd(...)`, `SuspendCmd()`. The
+  runtime interprets it.
 - **`Run`** is the simple keyboard-only entry point. We'll graduate to
   `RunWithMouse` (mouse + resize) and `RunWithSub` (futures + timers) later.
 

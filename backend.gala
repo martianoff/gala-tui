@@ -42,9 +42,21 @@ import (
 
 // BackendSession is the release half of acquiring the terminal. `Close`
 // restores whatever `Open` changed and must be safe to call once.
+//
+// `Suspend(before, after)` lets go of the terminal the way `Close` does,
+// stops the process until the shell resumes it, then takes the terminal back
+// as `Open` did. `before` runs just before it lets go and `after` just after
+// it has taken the terminal back — and neither runs unless it does, which is
+// what lets a wrapper keep its own record of the terminal honest. It reports
+// whether it suspended; a session with no shell to hand the terminal to
+// leaves the field out and declines.
 struct BackendSession(
-    Close func(),
+    Close   func(),
+    Suspend func(func(), func()) bool = noSuspend,
 )
+
+// noSuspend is the session that cannot suspend: it runs neither hook.
+func noSuspend(before func(), after func()) bool = false
 
 // Backend is the terminal seam.
 //
@@ -122,7 +134,10 @@ func TerminalBackend() Backend {
         Write = (s) => stdoutWrite(s),
         Read  = (buf) => stdinRead(buf),
         ReadAsync = () => terminalReadFuture(),
-        Open  = (mouse) => withCursorShapeReset(terminalOpen(mouse), () => shape),
+        Open  = (mouse) => withCursorShape(terminalOpen(mouse), () => shape, () => {
+            shape = 0
+            shown = false
+        }),
         Paint = (frame, prev) => {
             stdoutWrite(terminalPaintString(frame, prev, shown, shape))
             shown = frame.Cursor().IsDefined()
@@ -148,15 +163,36 @@ func terminalPaintString(frame *Buffer, prev *Buffer, shown bool, shape int = 0)
 func cursorShapeChange(frame *Buffer, shape int) string =
     if (frame.cursorShape == shape) "" else ansiCursorShape(frame.cursorShape)
 
-// withCursorShapeReset hands the terminal its own cursor shape back when the
-// session closes, if the app ever changed it (`shape()` is the last shape
-// sent). The shape is the terminal's, not the screen's: left as a bar, the
-// shell's prompt would inherit it.
-func withCursorShapeReset(session BackendSession, shape func() int) BackendSession =
-    BackendSession(Close = () => {
-        stdoutWrite(cursorShapeReset(shape()))
-        session.Close()
-    })
+// withCursorShape hands the terminal its own cursor shape back whenever
+// the session lets go of it — on close, and before a suspend — if the app
+// ever changed it (`shape()` is the last shape sent). The shape is the
+// terminal's, not the screen's: left as a bar, the shell's prompt would
+// inherit it.
+//
+// `forget` runs once a suspend has taken the terminal back. What the backend
+// remembered telling the terminal — the cursor's shape, whether it was
+// showing — stopped being true while the shell had it, and the resumed
+// session starts with the cursor hidden and in the terminal's own shape.
+func withCursorShape(
+    session BackendSession,
+    shape func() int,
+    forget func() = () => {},
+) BackendSession =
+    BackendSession(
+        Close = () => {
+            stdoutWrite(cursorShapeReset(shape()))
+            session.Close()
+        },
+        Suspend = (before func(), after func()) => session.Suspend(
+            () => {
+                before()
+                stdoutWrite(cursorShapeReset(shape()))
+            },
+            () => {
+                forget()
+                after()
+            }),
+    )
 
 // cursorShapeReset is what closing writes when the last shape sent was
 // `shape`: the terminal's own shape back, or nothing if it never changed.
@@ -218,22 +254,17 @@ func stdinRead(buf []byte) Tuple[int, bool] {
 }
 
 // terminalOpen puts the terminal into raw mode and enters the alternate
-// screen, returning the session that undoes both.
+// screen, returning the session that undoes both. Entering switches to the
+// alternate screen (so the app does not trash the shell's history), hides the
+// cursor and turns the input modes on; leaving undoes them in reverse.
 //
 // A failure to enter raw mode is NOT fatal here. It means stdin is not a
 // tty — a piped or redirected run — and the caller's degraded path handles
 // that; the session it gets back is a no-op so `Close` stays safe to call.
-func terminalOpen(mouse bool) BackendSession {
-    val fd = int(os.Stdin.Fd())
-    var state, err = term.MakeRaw(fd)
-    if err != nil {
-        return BackendSession(Close = () => {})
-    }
-    val session = enterTermSession(fd, state, mouse)
-    return BackendSession(Close = () => {
-        FromError(session.Close())
-    })
-}
+func terminalOpen(mouse bool) BackendSession =
+    openRawSession(mouse,
+        (modesOn) => ansiAltScreenOn + ansiCursorHide + modesOn,
+        (modesOff) => modesOff + ansiCursorShow + ansiAltScreenOff)
 
 // ----------------------------------------------------------------------------
 // Test backend
@@ -247,6 +278,10 @@ type TestBackendState struct {
     var Pos     int
     var Opened  int
     var Closed  int
+    var Suspended int
+    // Paints with no previous frame to diff against: the first, and any
+    // repaint the run forced.
+    var FullPaints int
     // The real cursor the last painted frame asked for, in its own cells.
     var CursorShown bool
     var CursorX     int
@@ -303,14 +338,10 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
             }
             return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = n, Err = false))
         },
-        Open  = (mouse) => {
-            st.Opened = st.Opened + 1
-            return BackendSession(Close = () => {
-                st.Closed = st.Closed + 1
-            })
-        },
+        Open  = (mouse) => testBackendSession(st),
         Paint = (frame, prev) => {
             st.Written = st.Written + frame.String()
+            if prev == nil { st.FullPaints = st.FullPaints + 1 }
             testBackendRecordCursor(st, frame)
         },
         // Recorded verbatim, in order, into the same stream as the frames,
@@ -320,6 +351,30 @@ func NewTestBackend(width int, height int, input string) Tuple[Backend, *TestBac
     )
     return (b, st)
 }
+
+// testBackendSession counts opens and closes. A suspend is recorded into the
+// byte stream as well as counted, so a test can see what the run painted
+// after it.
+func testBackendSession(st *TestBackendState) BackendSession {
+    st.Opened = st.Opened + 1
+    return BackendSession(
+        Close = () => {
+            st.Closed = st.Closed + 1
+        },
+        Suspend = (before func(), after func()) => {
+            before()
+            st.Suspended = st.Suspended + 1
+            st.Written = st.Written + testBackendSuspendMark
+            after()
+            return true
+        },
+    )
+}
+
+// testBackendSuspendMark is what the test backend records where the run
+// suspended. Not an escape sequence: nothing a real frame writes can
+// contain it.
+val testBackendSuspendMark = "<suspended>"
 
 // Wrote reports whether the run emitted `needle` at any point. Enough for
 // the questions a run-loop test actually asks — "did it paint", "did it
@@ -439,14 +494,10 @@ func NewTestBackendChunks(
             }
             return concurrent.FutureOf[ReadResult](ReadResult(Buf = buf, N = n, Err = false))
         },
-        Open  = (mouse) => {
-            st.Opened = st.Opened + 1
-            return BackendSession(Close = () => {
-                st.Closed = st.Closed + 1
-            })
-        },
+        Open  = (mouse) => testBackendSession(st),
         Paint = (frame, prev) => {
             st.Written = st.Written + frame.String()
+            if prev == nil { st.FullPaints = st.FullPaints + 1 }
             testBackendRecordCursor(st, frame)
         },
         // Recorded verbatim, in order, into the same stream as the frames,
@@ -537,11 +588,36 @@ func InlineBackend(height int) Backend {
         ReadAsync = () => terminalReadFuture(),
         Open  = (mouse) => {
             val session = inlineOpen(h, mouse)
-            return withCursorShapeReset(BackendSession(Close = () => {
-                stdoutWrite(home())
-                if pending > 0 { drainCursorReport() }
-                session.Close()
-            }), () => shape)
+            return withCursorShape(
+                BackendSession(
+                    // Back to the block's top-left, where the exit string
+                    // expects the cursor, with any unanswered position query
+                    // read off first.
+                    Close = () => {
+                        stdoutWrite(home())
+                        if pending > 0 { drainCursorReport() }
+                        session.Close()
+                    },
+                    // No drain here. It reads stdin on a goroutine of its own
+                    // that outlives its wait, and an app that carries on after
+                    // `fg` would lose its next keystroke to it. A reply still
+                    // in flight is read by the run loop after the resume, like
+                    // any other.
+                    Suspend = (before func(), after func()) => session.Suspend(
+                        () => {
+                            before()
+                            stdoutWrite(home())
+                        },
+                        after),
+                ),
+                () => shape,
+                // The block is reserved afresh below whatever the shell
+                // printed, so where it was is no longer where it is.
+                () => {
+                    shape = 0
+                    ask = true
+                },
+            )
         },
         Paint = (frame, prev) => {
             val term = TermSize()
@@ -699,10 +775,19 @@ func inlineOpen(height int, mouse bool) BackendSession =
         (modesOn) => inlineEnterString(height, modesOn),
         (modesOff) => inlineExitString(height, modesOff))
 
-// openRawSession takes raw mode and the input modes on the NORMAL screen —
-// what every backend but the full-screen one wants — writing `enter` once
-// the modes are known and `exit` when the session closes. A failure to enter
-// raw mode means stdin is not a tty, and the session is a no-op.
+// openRawSession takes raw mode and the input modes, writing `enter` once the
+// modes are known and `exit` when the session closes. `enter` is where a
+// backend says what else it takes — the alternate screen, a reserved block of
+// rows — and `exit` gives it back. A failure to enter raw mode means stdin is
+// not a tty, and the session is a no-op.
+//
+// The signal guard gets the exact disable string `exit` is handed — the same
+// value, not an equal one — so Ctrl+C and the ordinary exit leave the same
+// modes off.
+//
+// A suspend is the same exit and the same entry around a stop: the shell
+// gets the terminal exactly as `Close` would have left it, and the app gets
+// it back exactly as `Open` first took it.
 func openRawSession(
     mouse bool,
     enter func(string) string,
@@ -719,11 +804,51 @@ func openRawSession(
     if mouse {
         EnableVTInput()
     }
-    stdoutWrite(enter(termModesOn(modes)))
-    return BackendSession(Close = () => {
+    val modesOn = termModesOn(modes)
+    stdoutWrite(enter(modesOn))
+    val release = () => {
         stdoutWrite(exit(modesOff))
         FromError(term.Restore(fd, state))
-    })
+    }
+    // Explicit lambdas around the Go-side functions: passed bare, GALA wraps
+    // a Go function it cannot see the type of in another thunk.
+    return BackendSession(
+        Close   = release,
+        Suspend = (before func(), after func()) => suspendSession(
+            () => canSuspend(),
+            () => {
+                before()
+                release()
+            },
+            () => stopUntilContinued(),
+            // Raw mode again, under the terminal lock: a SIGTERM that arrives
+            // with the SIGCONT (`kill %1` on the stopped job) must not restore
+            // the terminal between these two steps and leave the shell raw.
+            // The state to restore on exit is still the one taken at open —
+            // the shell hands the terminal back cooked.
+            () => {
+                withTerminalLock(() => {
+                    Try(term.MakeRaw(fd))
+                    stdoutWrite(enter(modesOn))
+                })
+                after()
+            }),
+    )
+}
+
+// suspendSession is the order a suspend happens in: let go of the terminal,
+// stop until the shell continues the process, take the terminal back. None
+// of it happens when `canStop` says there is no shell to come back to —
+// letting go first would leave the terminal cooked under an app that is
+// still running.
+func suspendSession(canStop func() bool, leave func(), stop func(), resume func()) bool {
+    if !canStop() {
+        return false
+    }
+    leave()
+    stop()
+    resume()
+    return true
 }
 
 // inlineEnterString reserves the viewport: hide the cursor, turn on the
@@ -792,7 +917,10 @@ func FixedBackend(area Rect) Backend {
         Write = (s) => stdoutWrite(s),
         Read  = (buf) => stdinRead(buf),
         ReadAsync = () => terminalReadFuture(),
-        Open  = (mouse) => withCursorShapeReset(fixedOpen(a, mouse), () => shape),
+        Open  = (mouse) => withCursorShape(fixedOpen(a, mouse), () => shape, () => {
+            shape = 0
+            shown = false
+        }),
         Paint = (frame, prev) => {
             val term = TermSize()
             val resized = term != lastTerm

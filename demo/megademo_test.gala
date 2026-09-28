@@ -969,8 +969,18 @@ func TestMegaKeyToMsgBackspaceForPalette(t T) T {
     return IsTrue(t, isBs)
 }
 
-func TestMegaKeyToMsgUnboundCtrlIsNoOp(t T) T {
+func TestMegaCtrlZSuspends(t T) T {
     val msg = MegaKeyToMsg(Ctrl(Char('z')))
+    val t1 = IsTrue(t, msg match {
+        case MegaSuspend() => true
+        case _             => false
+    })
+    val (_, cmd) = MegaUpdate(NewMegaModel(), msg)
+    return IsTrue(t1, IsSuspend(cmd))
+}
+
+func TestMegaKeyToMsgUnboundCtrlIsNoOp(t T) T {
+    val msg = MegaKeyToMsg(Ctrl(Char('y')))
     val isNoOp = msg match {
         case MegaNoOp() => true
         case _          => false

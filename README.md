@@ -11,7 +11,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 
 **Core architecture**
 - `Program[M, T]` — Elm-style Model / Update / View triple
-- `Cmd[T]` — pure data side effects (NoCmd / QuitCmd / MsgCmd / BatchCmd / **FutureCmd**)
+- `Cmd[T]` — pure data side effects (NoCmd / QuitCmd / MsgCmd / BatchCmd / **FutureCmd** / PrintCmd / SuspendCmd)
 - `Sub[T]` — subscriptions: KeySub / BatchSub / MapSub / **TickSub** (timer)
 - `RunRich` / `RunFull` — async-aware runtimes (futures + tickers + mouse + resize + diff render)
 
@@ -39,6 +39,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 - SGR mouse mode (`\x1b[?1006h`) — clicks, scroll, drag
 - **Bracketed paste** — a paste arrives as one event, not N keypresses
 - **`PrintAbove`** — put lines in the scrollback above an inline viewport, where they survive the app
+- **Ctrl+Z suspend** — `SuspendCmd` hands the terminal back to the shell; `fg` resumes and repaints
 - **Fixed viewport** — `FixedBackend(rect)` renders into one rectangle of the screen and leaves the rest alone
 - **Focus events** — know when the terminal window gains or loses focus
 - **Real terminal cursor** — a focused Input (or `CursorAt`) places the terminal's own cursor, so IME composition and screen readers land in the right field

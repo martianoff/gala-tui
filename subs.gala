@@ -128,6 +128,18 @@ func DispatchDueTicks[T any](states Array[TickerState[T]], now Instant) Tuple[Ar
     return (msgs, next)
 }
 
+// resumeTickers restarts every ticker's clock from `now`, for a run coming
+// back from a suspend.
+//
+// While the process was stopped every ticker fell behind by however long the
+// shell kept it, and DispatchDueTicks catches up one interval per ticker per
+// loop pass — the right thing after a busy frame, the wrong thing after an
+// hour in the background: a 100 ms spinner would replay 36,000 ticks at the
+// loop's pace, running the app fast-forward for half an hour. Nothing
+// happened while the process was stopped, so there is nothing to catch up.
+func resumeTickers[T any](states Array[TickerState[T]], now Instant) Array[TickerState[T]] =
+    states.Map((st) => st.Copy(NextDue = now.Plus(st.Interval)))
+
 // tickerIsDue returns true when `now` has reached the ticker's next-due instant.
 func tickerIsDue[T any](st TickerState[T], now Instant) bool =
     now.Since(st.NextDue).ToNanos() >= int64(0)

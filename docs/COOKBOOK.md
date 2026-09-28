@@ -21,6 +21,7 @@ and `Update` are.
 10. [Test an Update without booting a terminal](#test-an-update-without-booting-a-terminal)
 11. [Route arrow keys to the focused pane](#route-arrow-keys-to-the-focused-pane)
 12. [Visible focus on every interactive widget](#visible-focus-on-every-interactive-widget)
+13. [Suspend to the shell with Ctrl+Z](#suspend-to-the-shell-with-ctrlz)
 
 ---
 
@@ -600,3 +601,32 @@ Same payload-erasure rule as the built-ins: the `OnBarClick(i)` value
 is type `T`, the registry stores it as `any`, the runtime restores
 the type when it dispatches the click. You never see `any` at the
 call site.
+
+## Suspend to the shell with Ctrl+Z
+
+The terminal is in raw mode while the app runs, so Ctrl+Z arrives as a key
+rather than stopping the process. Return `SuspendCmd` for it:
+
+```gala
+func keyToMsg(ev KeyEvent) Msg {
+    if KeyMatches(ev, "ctrl+z") { return Suspend() }
+    // ...
+}
+
+func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
+    case Suspend() => (m, SuspendCmd[Msg]())
+    // ...
+}
+```
+
+The runtime gives the terminal back exactly as quitting would: it leaves the
+alternate screen, shows the cursor and turns mouse reporting off. Then it
+stops the process, and the shell prints `[1]+ Stopped`. On `fg` it takes the
+terminal back and repaints the whole frame. Tickers restart from the moment
+of resuming rather than replaying every tick missed while stopped. The model
+is untouched: the app carries on where it was.
+
+Binding the key is the app's choice, because some apps use Ctrl+Z for undo.
+Where there is no shell to return to, `SuspendCmd` does nothing: on Windows,
+which has no job control, and for a process started outside a job-control
+shell, which nothing could resume.
