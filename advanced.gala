@@ -46,16 +46,27 @@ struct TableData(
 // to keep the selection in view — it used to emit every row and let the
 // renderer clip, and a cursor past the bottom simply vanished. Reach for
 // `TableView` directly for styled cells, a footer or column selection.
-func Table(data TableData) Widget {
-    // Columns past the declared widths share the slack, as they always have
-    // here — `TableView` drops cells beyond its widths, so the widths are
-    // padded to the widest row first.
-    val ncols = data.Rows.FoldLeft(data.Headers.Length(), (acc, r) => MaxInt(acc, r.Length()))
-    val widths = ArrayTabulate(ncols, (i) => tableWidthAt(data.Widths, i))
-    val spec = TableSpecOf(widths, data.Rows.Map((r) => TableRowOfStrings(r.ToGoSlice()...)))
-        .Select(data.Selected)
-    return TableView(if (data.Headers.IsEmpty()) spec
-        else spec.WithHeader(TableRowOfStrings(data.Headers.ToGoSlice()...).WithStyle(DefaultStyle().WithBold())))
+func Table(data TableData) Widget =
+    TableView(tableStringSpec(data.Headers, data.Widths, data.Rows, CellOf).Select(data.Selected))
+
+// tableStringSpec is the spec for a grid of strings — `Table`'s and
+// `DataTable`'s — with `cell` making each cell and a bold header when there
+// are headers.
+//
+// Columns past the declared widths share the slack: `TableView` drops cells
+// beyond its widths, so the widths are padded to the widest row first.
+func tableStringSpec(
+    headers Array[string],
+    widths Array[Constraint],
+    rows Array[Array[string]],
+    cell func(string) TableCell,
+) TableSpec {
+    val ncols = rows.FoldLeft(headers.Length(), (acc, r) => MaxInt(acc, r.Length()))
+    val spec = TableSpecOf(
+        ArrayTabulate(ncols, (i) => tableWidthAt(widths, i)),
+        rows.Map((r) => TableRow(Cells = r.Map(cell), Style = DefaultStyle(), Height = 0)))
+    return if (headers.IsEmpty()) spec
+        else spec.WithHeader(TableRow(Cells = headers.Map(cell), Style = DefaultStyle().WithBold(), Height = 0))
 }
 
 // tableColumnSpacing is the blank column between two table columns.
@@ -75,30 +86,6 @@ val tableColumnSpacing = 1
 // width for shares the slack with `Fill(1)`.
 func tableWidthAt(widths Array[Constraint], idx int) Constraint =
     if (idx < widths.Length()) widths.Get(idx) else Fill(1)
-
-// tableHeaderCell / tableBodyCell are the header and body cells DataTable
-// lays out; Table itself now renders through TableView.
-func tableHeaderCell(header string, idx int, widths Array[Constraint]) LayoutChild {
-    val w = tableWidthAt(widths, idx)
-    return LayoutChild(Constraint = w,
-        Widget = CellTextStyled(header, DefaultStyle().WithBold()))
-}
-
-// tableBodyCell lays one cell through `CellText`, which caps it to its
-// slot with a "…". Drawn as a plain `Text` it filled the slot edge to edge
-// and ran straight into the next column: `build-103-running-forever` in a
-// `Length(10)` column came out as `build-103-running`, a row that reads as
-// a single token and names a build that does not exist. A full-width CJK
-// glyph on the boundary left no gap at all.
-func tableBodyCell(
-    cell string,
-    idx int,
-    widths Array[Constraint],
-    style Style,
-) LayoutChild {
-    val w = tableWidthAt(widths, idx)
-    return LayoutChild(Constraint = w, Widget = CellTextStyled(cell, style))
-}
 
 // NewTable is a convenience constructor for tables without headers.
 func NewTable(widths Array[Constraint], rows Array[Array[string]], selected int) TableData =

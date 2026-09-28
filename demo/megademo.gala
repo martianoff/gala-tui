@@ -877,15 +877,22 @@ func megaBuildsBody(m MegaModel, th Theme) Widget {
     // Click contract on the build rows: single-click selects the row,
     // double-click "opens" it (toast + log entry). The framework
     // dispatches both via the HitRegistry — no input-adapter code.
-    // One call carries all three contracts, each bound to the row it belongs
-    // to. Chaining `.OnDoublePickRow(n, ...)` here instead sliced the whole
-    // table — header and rule included — into n regions, so double-click
-    // indices came out offset by two and a filtered pane registered regions
-    // for rows that were not on screen.
-    val table = ui.DataTableInteractive[MegaMsg]("table", m.BuildsTable,
-                    (i) => MegaSelectRow(Idx = i),
-                    (i) => MegaOpenRow(Idx = i),
-                    (c) => MegaSortColumn(Col = c))
+    // Each contract is bound to the row it belongs to. Chaining
+    // `.OnDoublePickRow(n, ...)` here instead sliced the whole table — header
+    // and rule included — into n regions, so double-click indices came out
+    // offset by two and a filtered pane registered regions for rows that were
+    // not on screen.
+    //
+    // Drawn through DataTableSpec rather than DataTableView so it can take
+    // TableView's options too: a `▶` on the cursor row, which says where the
+    // arrow keys land without relying on the highlight colour.
+    val table = TableView(DataTableSpec(m.BuildsTable, focused)
+        // Always, so the columns do not shift when a filter empties the
+        // table and the cursor has nowhere to be.
+        .WithHighlightSymbol("▶ ", HighlightAlways())
+        .OnRowClick[MegaMsg]((i) => MegaSelectRow(Idx = i))
+        .OnRowDoubleClick[MegaMsg]((i) => MegaOpenRow(Idx = i))
+        .OnHeaderClick[MegaMsg]((c) => MegaSortColumn(Col = c)))
     val tabs = ui.Tabs(
         "table",
         ArrayOf[string]("Running", "Succeeded", "Failed"),

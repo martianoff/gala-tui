@@ -49,6 +49,13 @@ func CellOf(text string) TableCell = TableCell(
     Lines = gs.Split(text, "\n").Map((l) => LineFromString(l, DefaultStyle())),
     Style = DefaultStyle())
 
+// cellOfFirstLine is a one-line cell of `text`'s first line: a data value
+// that happens to carry a newline keeps its row one line tall, as a
+// DataTable's rows always have been.
+func cellOfFirstLine(text string) TableCell = TableCell(
+    Lines = ArrayOf[Line](LineFromString(gs.Split(text, "\n").HeadOption().GetOrElse(""), DefaultStyle())),
+    Style = DefaultStyle())
+
 // CellSpans is a one-line cell of styled runs.
 func CellSpans(spans ...Span) TableCell =
     TableCell(Lines = ArrayOf[Line](LineOf(ArrayOf(spans...))), Style = DefaultStyle())
@@ -107,6 +114,16 @@ struct TableSpec(
     HighlightSymbol  string,
     HighlightSpacing HighlightSpacing,
     ScrollPadding    int,
+    // Whether the keyboard is driving this table; see `Focus`.
+    Focused          bool = false,
+    // Text written into the header rule; see `WithRuleLabel`.
+    RuleLabel        string = "",
+    // What the body shows with no rows; see `WithEmptyText`.
+    EmptyText        string = "",
+    // Applied to each body row, and to each header cell, with its index —
+    // how a click reaches a row. See `DecorateRows`.
+    RowDecorator     func(Widget, int) Widget = (w, i) => w,
+    HeaderDecorator  func(Widget, int) Widget = (w, i) => w,
 )
 
 func noTableRow() TableRow = TableRow(Cells = EmptyArray[TableCell](), Style = DefaultStyle(), Height = 0)
@@ -165,8 +182,61 @@ func (t TableSpec) ScrollTo(offset int) TableSpec = t.Copy(Offset = offset)
 // already on screen.
 func (t TableSpec) WithScrollPadding(n int) TableSpec = t.Copy(ScrollPadding = n)
 
+// Focus brightens the cursor row to say the keyboard is driving this table:
+// bold and bright yellow over the row highlight — reverse by default, so a
+// focused table's cursor looks like a focused list's. It is a flag applied
+// at render, so it composes with `WithHighlights` in either order.
+func (t TableSpec) Focus(focused bool) TableSpec = t.Copy(Focused = focused)
+
+// tableFocusBoost is what `Focus` adds over the row highlight.
+val tableFocusBoost = DefaultStyle().WithBold().WithFg(BrightYellow)
+
 func (t TableSpec) WithHighlights(row Style, column Style, cell Style) TableSpec =
     t.Copy(RowHighlight = row, ColumnHighlight = column, CellHighlight = cell)
+
+// WithRuleLabel writes `label` into the rule under the header, dim, cut with
+// an ellipsis when it does not fit: `─ 3 of 40 · failed ──────`. The rule
+// is otherwise empty space, so a caption there — a filter's count, a unit —
+// never changes the table's height or pushes a row out of view. Needs a
+// header, since the rule is the header's.
+func (t TableSpec) WithRuleLabel(label string) TableSpec = t.Copy(RuleLabel = label)
+
+// WithEmptyText is what the body shows when there are no rows, dim, in
+// place of an empty pane that reads as "still loading".
+func (t TableSpec) WithEmptyText(text string) TableSpec = t.Copy(EmptyText = text)
+
+// DecorateRows wraps each body row's widget in `f`, given the row's index in
+// `Rows`. Decorators compose: each one wraps what the ones before it built.
+//
+// The index is the row's, not its position on screen, and the decoration is
+// built with the row — so a payload travels with its row as the body
+// scrolls, and a click on the first visible row of a table scrolled to row
+// 30 is a click on row 30.
+func (t TableSpec) DecorateRows(f func(Widget, int) Widget) TableSpec {
+    val prev = t.RowDecorator
+    return t.Copy(RowDecorator = (w, i) => f(prev(w, i), i))
+}
+
+// DecorateHeaderCells wraps each header cell's widget in `f`, given the
+// column's index.
+func (t TableSpec) DecorateHeaderCells(f func(Widget, int) Widget) TableSpec {
+    val prev = t.HeaderDecorator
+    return t.Copy(HeaderDecorator = (w, i) => f(prev(w, i), i))
+}
+
+// OnRowClick dispatches `f(row)` when a body row is clicked — `row` being
+// the index into `Rows`, however the body has scrolled.
+func (t TableSpec) OnRowClick[T any](f func(int) T) TableSpec =
+    t.DecorateRows((w, i) => w.OnClick[T](f(i)))
+
+// OnRowDoubleClick dispatches `f(row)` when a body row is double-clicked.
+func (t TableSpec) OnRowDoubleClick[T any](f func(int) T) TableSpec =
+    t.DecorateRows((w, i) => w.OnDoubleClick[T](f(i)))
+
+// OnHeaderClick dispatches `f(col)` when a header cell is clicked — the
+// "click a column to sort by it" shape.
+func (t TableSpec) OnHeaderClick[T any](f func(int) T) TableSpec =
+    t.DecorateHeaderCells((w, i) => w.OnClick[T](f(i)))
 
 // WithHighlightSymbol marks the selected row with `symbol` in a column of
 // its own — a cursor that stays visible without colour.
@@ -183,26 +253,52 @@ func (t TableSpec) WithHighlightSymbol(symbol string, spacing HighlightSpacing =
 func TableView(spec TableSpec) Widget {
     val t = if (spec.Selected < spec.Rows.Length()) spec else spec.Copy(Selected = -1)
     val symW = tableSymbolWidth(t)
-    val header = tableEdgeRow(t, t.Header, symW).AppendAll(
-        if (t.HeaderRule && t.Header.Cells.NonEmpty()) ArrayOf[LayoutChild](Fixed(1, FillChStyled('─', t.Style)))
+    val header = tableEdgeRow(t, t.Header, symW, t.HeaderDecorator).AppendAll(
+        // A labelled rule is drawn even with no header: the label says
+        // something about the rows (a filter's count), not about the header.
+        if (t.HeaderRule && (t.Header.Cells.NonEmpty() || t.RuleLabel != "")) ArrayOf[LayoutChild](Fixed(1, tableRule(t)))
         else EmptyArray[LayoutChild]())
-    val body = AutoScrollLazy(
+    val body = if (t.Rows.IsEmpty() && t.EmptyText != "")
+        CellTextStyled(t.EmptyText, t.Style.Patch(DefaultStyle().WithDim()))
+    else AutoScrollLazy(
         t.Rows.Length(),
         t.Rows.Map((r) => r.rowHeight()),
-        (i) => tableRowWidget(t, t.Rows.Get(i), i == t.Selected, t.SelectedCol, symW),
+        (i) => t.RowDecorator(tableRowWidget(t, t.Rows.Get(i), i == t.Selected, t.SelectedCol, symW), i),
         t.Selected, t.Offset, t.ScrollPadding)
     return Stack(ArrayOf[Widget](
         FillChStyled(' ', t.Style),
-        Column(header.Append(Flex(1, body)).AppendAll(tableEdgeRow(t, t.Footer, symW))),
+        Column(header.Append(Flex(1, body)).AppendAll(tableEdgeRow(t, t.Footer, symW, (w, i) => w))),
     ))
 }
 
 // tableEdgeRow is the header or footer as a layout slot, or nothing when the
 // row has no cells. Edge rows take neither the cursor nor the column
-// highlight — a highlighted column is a column of DATA.
-func tableEdgeRow(t TableSpec, r TableRow, symW int) Array[LayoutChild] =
+// highlight — a highlighted column is a column of DATA. `decorate` wraps
+// each of its cells.
+func tableEdgeRow(
+    t TableSpec,
+    r TableRow,
+    symW int,
+    decorate func(Widget, int) Widget,
+) Array[LayoutChild] =
     if (r.Cells.IsEmpty()) EmptyArray[LayoutChild]()
-    else ArrayOf[LayoutChild](Fixed(r.rowHeight(), tableRowWidget(t, r, false, -1, symW)))
+    else ArrayOf[LayoutChild](Fixed(r.rowHeight(), tableRowWidget(t, r, false, -1, symW, decorate)))
+
+// tableRule is the line under the header, with `RuleLabel` written into it,
+// dim and cut with an ellipsis rather than a hard clip: a caption cut short
+// with no mark reads as a different caption — `─ 2 of 4 · release-candidate `
+// clipped to fifteen columns names a filter on `rele`. Built from widgets a
+// restyle reaches, so a dimmed or themed table dims its rule label too.
+func tableRule(t TableSpec) Widget {
+    if t.RuleLabel == "" {
+        return FillChStyled('─', t.Style)
+    }
+    val dim = t.Style.Patch(DefaultStyle().WithDim())
+    return Stack(ArrayOf[Widget](
+        FillChStyled('─', dim),
+        CellTextStyled(s"─ ${t.RuleLabel} ", dim),
+    ))
+}
 
 // tableSymbolWidth is the symbol column's width. `TableView` has already
 // turned an out-of-range selection into none, so `Selected >= 0` is a row.
@@ -217,15 +313,24 @@ val emptyTableCell = CellOf("")
 // The columns are the spec's `Widths`: a row with more cells than that drops
 // the extra ones rather than growing a column of its own that would
 // squeeze its neighbours out of line with every other row.
-func tableRowWidget(t TableSpec, r TableRow, selected bool, selCol int, symW int) Widget {
+func tableRowWidget(
+    t TableSpec,
+    r TableRow,
+    selected bool,
+    selCol int,
+    symW int,
+    decorate func(Widget, int) Widget = (w, i) => w,
+) Widget {
     val base = t.Style.Patch(r.Style)
     val band = base.Patch(tableHighlight(t, selected, false))
     val ncols = if (t.Widths.NonEmpty()) t.Widths.Length() else r.Cells.Length()
     val cells = ArrayTabulate(ncols, (col) => {
         val cell = if (col < r.Cells.Length()) r.Cells.Get(col) else emptyTableCell
         return LayoutChild(Constraint = tableWidthAt(t.Widths, col),
-            Widget = CellRichW(Lines = cell.Lines, Style = base.Patch(cell.Style),
-                               Top = tableHighlight(t, selected, col == selCol)))
+            Widget = tableDecorated(
+                CellRichW(Lines = cell.Lines, Style = base.Patch(cell.Style),
+                          Top = tableHighlight(t, selected, col == selCol)),
+                col, r, decorate))
     })
     // The symbol sits flush against the first cell — it carries its own
     // trailing space, as in "> " — so it is outside the spaced columns.
@@ -240,6 +345,12 @@ func tableRowWidget(t TableSpec, r TableRow, selected bool, selCol int, symW int
     return Stack(ArrayOf[Widget](FillChStyled(' ', band), row))
 }
 
+// tableDecorated is cell `col` of row `r` passed through `decorate` — unless
+// the row has no cell there. A column past the row's cells is padding, not a
+// header or a value, and a click on it means nothing.
+func tableDecorated(w Widget, col int, r TableRow, decorate func(Widget, int) Widget) Widget =
+    if (col < r.Cells.Length()) decorate(w, col) else w
+
 // tableHighlight is the overlay a cell is under, in this order: the row
 // highlight, then the column highlight, then — where the cursor row crosses
 // the highlighted column — the cell highlight. It is patched over the cell
@@ -250,7 +361,9 @@ func tableRowWidget(t TableSpec, r TableRow, selected bool, selCol int, symW int
 // `Without…`: a cell that is already reversed shows no change under a
 // reverse-video highlight. Give such tables a highlight that sets a colour.
 func tableHighlight(t TableSpec, rowSel bool, colSel bool) Style {
-    val withRow = if (rowSel) t.RowHighlight else DefaultStyle()
+    val withRow = if (!rowSel) DefaultStyle()
+        else if (t.Focused) t.RowHighlight.Patch(tableFocusBoost)
+        else t.RowHighlight
     val withCol = if (colSel) withRow.Patch(t.ColumnHighlight) else withRow
     return if (rowSel && colSel) withCol.Patch(t.CellHighlight) else withCol
 }
