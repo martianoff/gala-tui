@@ -113,7 +113,7 @@ func inputToMsg(ev InputEvent) Msg = ev match {
 }
 
 func main() {
-    val _ = RunSimpleWithMouse[Model, Msg](
+    RunSimpleWithMouse[Model, Msg](
         Model(Score = 3, Max = 5),
         update, view, inputToMsg,
         NoSubs[Msg](),

@@ -210,7 +210,7 @@ func TestWhenFalseLeavesMapUnchanged(t T) T {
 // via a captured counter.
 func TestWhenFalseDoesNotInvokeBuilder(t T) T {
     var calls = 0
-    val _ = NewClickMap[CMTestMsg]()
+    NewClickMap[CMTestMsg]()
         .When(false, (b) => { calls = calls + 1; b })
     return Eq(t, calls, 0)
 }

@@ -41,5 +41,5 @@ func keyToMsg(ev KeyEvent) Msg {
 }
 
 func main() {
-    val _ = RunSimple[Model, Msg](Model(N = 0), update, view, keyToMsg)
+    RunSimple[Model, Msg](Model(N = 0), update, view, keyToMsg)
 }

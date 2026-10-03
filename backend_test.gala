@@ -74,7 +74,7 @@ func bePrintProgram() Program[BeModel, BeMsg] =
 
 func TestRunPaintsTheInitialModelBeforeAnyInput(t T) T {
     val (backend, st) = NewTestBackend(24, 3, "")
-    val _ = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
     return EqMsg(t, st.Wrote("keys= paste="), true,
                  "the first frame was never painted")
 }
@@ -112,7 +112,7 @@ func TestRunOpensAndClosesTheBackendExactlyOnce(t T) T {
     // is what leaves a real user's shell in the alternate screen with no
     // cursor and mouse reporting still on.
     val (backend, st) = NewTestBackend(20, 3, "ab")
-    val _ = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
     val t1 = EqMsg(t, st.Opened, 1, "backend opened the wrong number of times")
     return EqMsg(t1, st.Closed, 1, "backend was not released exactly once")
 }
@@ -121,7 +121,7 @@ func TestRunReleasesTheBackendOnAnEarlyQuit(t T) T {
     // Quit returns from deep inside the read loop, which is the path most
     // likely to skip cleanup if it were written by hand.
     val (backend, st) = NewTestBackend(20, 3, "q")
-    val _ = Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
+    Run[BeModel, BeMsg](beProgram(), beKeyToMsg, backend)
     return EqMsg(t, st.Closed, 1, "quitting from inside the loop skipped release")
 }
 
@@ -202,7 +202,7 @@ func TestSizeComesFromTheBackend(t T) T {
     val prog = Program[BeModel, BeMsg](
         Initial = beInitial(), Update = beUpdate,
         View = (m) => FillCh('#'))
-    val _ = Run[BeModel, BeMsg](prog, beKeyToMsg, backend)
+    Run[BeModel, BeMsg](prog, beKeyToMsg, backend)
     // Twelve '#' in a row, and not thirteen.
     val t1 = EqMsg(t, strings.Contains(st.Written, "############"), true,
                    "frame was not 12 columns wide")

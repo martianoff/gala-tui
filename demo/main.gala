@@ -18,5 +18,5 @@ import (
 //   t                       # cycles themes
 
 func main() {
-    val _ = RunMegaDemo()
+    RunMegaDemo()
 }

@@ -94,7 +94,7 @@ func inputToMsg(ev InputEvent) Msg = ev match {
 }
 
 func main() {
-    val _ = RunSimpleWithMouse[Model, Msg](
+    RunSimpleWithMouse[Model, Msg](
         Model(Sel = 0, Picked = ""),
         update, view, inputToMsg,
         NoSubs[Msg](),

@@ -168,7 +168,7 @@ func main() {
         Interval = Seconds(int64(1)),
         Make = () => Tick(Now = Now()),
     )
-    val _ = RunWithSub[Model, Msg](program, (ev) => keyToMsg(ev), sub)
+    RunWithSub[Model, Msg](program, (ev) => keyToMsg(ev), sub)
 }
 ```
 

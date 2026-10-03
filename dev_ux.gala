@@ -20,7 +20,7 @@ import (
 //         KeyBind("-",      Dec()),
 //     ), Inc())  // fallback
 //
-//     val _ = RunSimple[Model, Msg](Model(N = 0), update, view, km)
+//     RunSimple[Model, Msg](Model(N = 0), update, view, km)
 //
 // vs. the long form: 12+ lines for `keyToMsg` + 6 lines of `Program(...)`
 // + Run construction.
@@ -51,7 +51,7 @@ func DispatchKeys[T any](bindings Array[KeyBinding[T]], fallback T) func(KeyEven
 // most common shape — pure-keyboard app, no async cmds, no subs —
 // collapses from 6 lines to one.
 //
-//     val _ = RunSimple[Model, Msg](
+//     RunSimple[Model, Msg](
 //         Model(N = 0), update, view, keyToMsg,
 //     )
 func RunSimple[M any, T any](
@@ -68,7 +68,7 @@ func RunSimple[M any, T any](
 // that want a clock tick or another KeySub batched in.
 //
 //     val sub = TickSub[Msg](Interval = Milliseconds(100), Make = () => Tick())
-//     val _ = RunSimpleWithSub[Model, Msg](initial, update, view, keyToMsg, sub)
+//     RunSimpleWithSub[Model, Msg](initial, update, view, keyToMsg, sub)
 func RunSimpleWithSub[M any, T any](
     initial M,
     update func(M, T) Tuple[M, Cmd[T]],
@@ -85,7 +85,7 @@ func RunSimpleWithSub[M any, T any](
 // about keyboard events can use `LiftKeysToInput(keyToMsg)` to promote
 // a keys-only handler.
 //
-//     val _ = RunSimpleWithMouse[Model, Msg](
+//     RunSimpleWithMouse[Model, Msg](
 //         initial, update, view,
 //         (ev) => MyInputToMsg(ev),
 //         tickSub,
@@ -106,7 +106,7 @@ func RunSimpleWithMouse[M any, T any](
 // Saves apps from writing the InputEvent translator by hand when they
 // only want to handle keys + scroll wheel.
 //
-//     val _ = RunSimpleWithMouse[Model, Msg](
+//     RunSimpleWithMouse[Model, Msg](
 //         initial, update, view,
 //         LiftKeysToInput[Msg](keyToMsg, (s) => Paste(s), NoOp(), NoOp()),
 //         sub,
@@ -150,7 +150,7 @@ func LiftKeysToInput[T any](
 // `fallback`. Paste takes its own handler, for the reason on
 // `LiftKeysToInput`.
 //
-//     val _ = RunSimpleWithMouse[Model, Msg](
+//     RunSimpleWithMouse[Model, Msg](
 //         initial, update, view,
 //         LiftKeysToInputScroll[Msg](keyToMsg, (s) => Paste(s),
 //                                    ScrollUp(), ScrollDown(), NoOp(), NoOp()),

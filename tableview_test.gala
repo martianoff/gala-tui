@@ -229,7 +229,7 @@ func TestTableViewBuildsOnlyVisibleRows(t T) T {
         built = built + 1
         return Text(s"r$i")
     }, 0, -1)
-    val _ = renderAt(rows, 4, 3)
+    renderAt(rows, 4, 3)
     return IsTrue(t, built <= 3)
 }
 

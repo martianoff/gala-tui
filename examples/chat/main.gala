@@ -572,5 +572,5 @@ func main() {
         Interval = Milliseconds(int64(100)),
         Make     = () => ChTick(),
     )
-    val _ = RunWithMouse[Model, Msg](program, (ev) => inputToMsg(ev), sub)
+    RunWithMouse[Model, Msg](program, (ev) => inputToMsg(ev), sub)
 }
