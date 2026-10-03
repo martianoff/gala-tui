@@ -758,7 +758,7 @@ screen erases everything the app displayed.
 prompt and leaves the final frame on screen when the program exits:
 
 ```gala
-val _ = RunWithSub[Model, Msg](program, keyToMsg, sub, InlineBackend(5))
+RunWithSub[Model, Msg](program, keyToMsg, sub, InlineBackend(5))
 ```
 
 The viewport is positioned relatively throughout, so the app coexists with
@@ -788,8 +788,8 @@ func update(m Model, msg Msg) Tuple[Model, Cmd[Msg]] = msg match {
     ...
 }
 
-// …and it needs the inline backend — the default is the alternate screen.
-val _ = RunWithSub[Model, Msg](program, keyToMsg, sub, InlineBackend(3))
+// …and main runs it on the inline backend — the default is the alternate screen.
+RunWithSub[Model, Msg](program, keyToMsg, sub, InlineBackend(3))
 ```
 
 Writing to stdout yourself cannot do this: the viewport is drawn relative to
@@ -826,7 +826,7 @@ frame stays where it was when the program exits.
 
 ```gala
 // A 30x6 status panel pinned to the top-right of an 80-column terminal.
-val _ = RunWithSub[Model, Msg](program, keyToMsg, sub,
+RunWithSub[Model, Msg](program, keyToMsg, sub,
     FixedBackend(Rect(X = 50, Y = 0, Width = 30, Height = 6)))
 ```
 

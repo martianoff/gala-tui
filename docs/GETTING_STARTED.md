@@ -83,7 +83,7 @@ func main() {
         ),
         Inc(),   // any other key just bumps the count
     )
-    val _ = RunSimple[Model, Msg](Model(N = 0), update, view, keyToMsg)
+    RunSimple[Model, Msg](Model(N = 0), update, view, keyToMsg)
 }
 ```
 
@@ -192,7 +192,7 @@ func main() {
         Update  = (m, msg) => update(m, msg),
         View    = (m) => view(m),
     )
-    val _ = Run[Model, Msg](program, (ev) => keyToMsg(ev))
+    Run[Model, Msg](program, (ev) => keyToMsg(ev))
 }
 ```
 
@@ -290,7 +290,7 @@ func main() {
         Interval = Milliseconds(int64(100)),
         Make = () => Tick(),
     )
-    val _ = RunWithSub[Model, Msg](program, (ev) => keyToMsg(ev), sub)
+    RunWithSub[Model, Msg](program, (ev) => keyToMsg(ev), sub)
 }
 ```
 
@@ -321,7 +321,7 @@ func inputToMsg(ev InputEvent) Msg = ev match {
 }
 
 // in main:
-val _ = RunWithMouse[Model, Msg](program, (ev) => inputToMsg(ev), sub)
+RunWithMouse[Model, Msg](program, (ev) => inputToMsg(ev), sub)
 ```
 
 That's it — same program, same model, same view; the runtime now also
@@ -580,7 +580,7 @@ func main() {
         Update  = (m, msg) => update(m, msg),
         View    = (m) => view(m),
     )
-    val _ = Run[Model, Msg](program, (ev) => keyToMsg(ev))
+    Run[Model, Msg](program, (ev) => keyToMsg(ev))
 }
 ```
 

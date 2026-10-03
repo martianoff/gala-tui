@@ -85,7 +85,7 @@ func TestPollDelayedThenCompleted(t T) T {
     val (done1, still1) = PollFutures(ArrayOf[Future[AMsg]](p.Future()))
     val t1 = Eq(t, done1.Length(), 0)
     // Complete the promise.
-    val _ = p.Success(AData(Val = 99))
+    p.Success(AData(Val = 99))
     // Second poll on the *still-pending* list should drain it.
     val (done2, still2) = PollFutures(still1)
     val t2 = Eq(t1, done2.Length(), 1)

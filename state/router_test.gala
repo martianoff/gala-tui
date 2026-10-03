@@ -71,7 +71,7 @@ func TestScreenStackBreadcrumbIsDotSeparated(t T) T {
 
 func TestScreenStackImmutabilityPushDoesntMutate(t T) T {
     val s0 = NewScreenStack("home")
-    val _  = s0.Push("detail")          // returned value ignored
+    s0.Push("detail")   // returned value ignored
     // Original still has depth 1.
     return Eq(t, s0.Depth(), 1)
 }

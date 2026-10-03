@@ -16,7 +16,7 @@ import (
 func fvBuf(w int, h int, rows ...string) *Buffer {
     val b = NewBuffer(w, h)
     ArrayOf(rows...).ZipWithIndex().ForEach((p) => {
-        val _ = b.DrawText(0, p.V2, p.V1, DefaultStyle())
+        b.DrawText(0, p.V2, p.V1, DefaultStyle())
     })
     return b
 }

@@ -95,7 +95,7 @@ func TestRouteFirstMatchingCaseWins(t T) T {
 func TestRouteNonMatchingHandlersDontRun(t T) T {
     var sidebarCalls = 0
     var tableCalls = 0
-    val _ = tableFocused().Route[int](
+    tableFocused().Route[int](
         ArrayOf[FocusedCase[int]](
             OnPane[int]("sidebar",
                 () => { sidebarCalls = sidebarCalls + 1; 1 }),
@@ -138,7 +138,7 @@ func TestWhenFallsBackWhenWrongPane(t T) T {
 
 func TestWhenActionDoesNotRunOnMiss(t T) T {
     var calls = 0
-    val _ = ringSidebarTable().When[int]("table",
+    ringSidebarTable().When[int]("table",
         () => { calls = calls + 1; 99 },
         0,
     )

@@ -242,8 +242,8 @@ func KeySubForBindings[T any](Bindings Array[KeyBinding[T]]) Sub[T] {
     // pair this with a typed `None`-like message variant in their Msg type
     // if they need to tell "no match" from "match".
     //
-    // For cleanest semantics we expose DispatchKeyBindings instead.
-    val _ = Bindings
+    // For cleanest semantics we expose DispatchKeyBindings instead, so
+    // `Bindings` is not read here.
     return NoSub[T]()
 }
 
