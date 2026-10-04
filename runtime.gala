@@ -490,6 +490,8 @@ func resyncOverlongCarry(rest []byte) []byte {
 
 // RunWithSub adds Sub[T] support to Run: timer ticks, batched async
 // events, etc. Use when the app needs anything beyond synchronous key input.
+// Every key goes to `makeKeyMsg` and then through `initialSub`, so key
+// subscriptions (OnKey, KeyMapSub) fire alongside the keymap.
 func RunWithSub[M any, T any](
     program Program[M, T],
     makeKeyMsg func(KeyEvent) T,
@@ -591,7 +593,8 @@ func RunWithSub[M any, T any](
         var keyPrints = EmptyArray[string]()
         var keySuspend = false
         val (exitNow, leftover) = processKeyBytes(
-            program, &model, &pending, &keyPrints, &keySuspend, avail, makeKeyMsg, backend.CursorReport,
+            program, &model, &pending, &keyPrints, &keySuspend, avail, makeKeyMsg, initialSub,
+            backend.CursorReport,
         )
         carry = leftover
         // Flushed before the exit check so a keystroke that prints on its
@@ -780,7 +783,7 @@ func RunWithMouse[M any, T any](
         var inputSuspend = false
         val (exitNow, leftover) = processInputBytesWithHits(
             program, &model, &pending, &inputPrints, &inputSuspend, &pendingClick, &dragActive,
-            avail, makeInputMsg, hits, () => backendViewport(backend), backend.CursorReport,
+            avail, makeInputMsg, initialSub, hits, () => backendViewport(backend), backend.CursorReport,
         )
         carry = leftover
         // Flushed before the exit check so an event that prints on its way
@@ -814,6 +817,7 @@ func processInputBytesWithHits[M any, T any](
     dragActive *Option[DragActive],
     buf []byte,
     makeInputMsg func(InputEvent) T,
+    sub Sub[T],
     hits *HitRegistry,
     // Read per event, not once per batch: a cursor report earlier in the
     // same read can move the viewport the next mouse event is mapped into.
@@ -848,7 +852,12 @@ func processInputBytesWithHits[M any, T any](
         )
         *pendingClick = resolution.Pending
         *dragActive   = resolution.Drag
-        val res = dispatchAll(program, *model, resolution.Msgs)
+        // Only a key reaches the Sub; its messages follow the input's own.
+        val msgs = ev match {
+            case KeyInput(k) => resolution.Msgs.AppendAll(DispatchKey(sub, k))
+            case _           => resolution.Msgs
+        }
+        val res = dispatchAll(program, *model, msgs)
         if applyDispatch(res, model, pending, prints, suspend) {
             return (true, SliceEmpty[byte]())
         }
@@ -1373,6 +1382,7 @@ func processKeyBytes[M any, T any](
     suspend *bool,
     buf []byte,
     makeKeyMsg func(KeyEvent) T,
+    sub Sub[T],
     onCursorReport func(int, int),
 ) Tuple[bool, []byte] {
     val n = buf.Size()
@@ -1395,7 +1405,7 @@ func processKeyBytes[M any, T any](
 
         // A keystroke whose update() prints and quits means both; see
         // dispatchStep.
-        val res = dispatchAll(program, *model, ArrayOf(makeKeyMsg(ev)))
+        val res = dispatchAll(program, *model, ArrayOf(makeKeyMsg(ev)).AppendAll(DispatchKey(sub, ev)))
         if applyDispatch(res, model, pending, prints, suspend) {
             return (true, SliceEmpty[byte]())
         }

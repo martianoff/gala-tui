@@ -30,8 +30,8 @@ struct HelpSpec[T any](
     Desc string,
 )
 
-// HelpsToBindings converts help entries into KeyBinding[T] values the
-// runtime can dispatch through DispatchKeyBindings.
+// HelpsToBindings converts help entries into KeyBinding[T] values, ready
+// for DispatchKeys (a keymap) or KeyMapSub (a subscription).
 func HelpsToBindings[T any](entries Array[HelpSpec[T]]) Array[KeyBinding[T]] =
     entries.Map((h) => KeyBind[T](h.Spec, h.Msg))
 

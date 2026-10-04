@@ -11,11 +11,17 @@ import (
 // a KeySub maps every KeyEvent the terminal produces into a user-defined
 // message of type T.
 //
-// Sub variants intentionally mirror Cmd: NoSub (inert), KeySub (source),
-// BatchSub (union), MapSub (transformer).
+// Sub variants intentionally mirror Cmd: NoSub (inert), KeySub and
+// KeyBindingsSub (sources), BatchSub (union), MapSub (transformer).
+//
+// RunWithSub and RunWithMouse pass every key through the Sub after the
+// keymap: a keypress dispatches the keymap's message first, then whatever
+// the Sub produced for it, in order.
 sealed type Sub[T any] {
     case NoSub()
     case KeySub(Make func(KeyEvent) T)
+    // Built by KeySubForBindings; dispatched by DispatchKeyBindings.
+    case KeyBindingsSub(Bindings Array[KeyBinding[T]])
     case BatchSub(Subs Array[Sub[T]])
     case MapSub(Inner Sub[T], Transform func(T) T)
     case TickSub(Interval Duration, Make func() T)
@@ -48,11 +54,12 @@ func MapSubs[T any](inner Sub[T], f func(T) T) Sub[T] =
 // DispatchDueTicks — so they contribute nothing here.
 func DispatchKey[T any](s Sub[T], ev KeyEvent) Array[T] {
     return s match {
-        case NoSub()           => EmptyArray[T]()
-        case KeySub(f)         => ArrayOf(f(ev))
-        case BatchSub(ss)      => ss.FlatMap((sub) => DispatchKey(sub, ev))
-        case MapSub(inner, tf) => DispatchKey(inner, ev).Map(tf)
-        case TickSub(_, _)     => EmptyArray[T]()
+        case NoSub()            => EmptyArray[T]()
+        case KeySub(f)          => ArrayOf(f(ev))
+        case KeyBindingsSub(bs) => DispatchKeyBindings(bs, ev)
+        case BatchSub(ss)       => ss.FlatMap((sub) => DispatchKey(sub, ev))
+        case MapSub(inner, tf)  => DispatchKey(inner, ev).Map(tf)
+        case TickSub(_, _)      => EmptyArray[T]()
     }
 }
 
@@ -62,11 +69,12 @@ func DispatchKey[T any](s Sub[T], ev KeyEvent) Array[T] {
 // but doesn't need stdin).
 func SubIsActive[T any](s Sub[T]) bool {
     return s match {
-        case NoSub()           => false
-        case KeySub(_)         => true
-        case BatchSub(ss)      => ss.Exists((sub) => SubIsActive(sub))
-        case MapSub(in, _)     => SubIsActive(in)
-        case TickSub(_, _)     => true
+        case NoSub()            => false
+        case KeySub(_)          => true
+        case KeyBindingsSub(bs) => bs.NonEmpty()
+        case BatchSub(ss)       => ss.Exists((sub) => SubIsActive(sub))
+        case MapSub(in, _)      => SubIsActive(in)
+        case TickSub(_, _)      => true
     }
 }
 
@@ -99,6 +107,7 @@ func CollectTickers[T any](s Sub[T], start Instant) Array[TickerState[T]] {
     return s match {
         case NoSub()           => EmptyArray[TickerState[T]]()
         case KeySub(_)         => EmptyArray[TickerState[T]]()
+        case KeyBindingsSub(_) => EmptyArray[TickerState[T]]()
         case TickSub(iv, mk)   =>
             ArrayOf[TickerState[T]](TickerState[T](
                 Interval = iv,
@@ -193,63 +202,23 @@ func BindAny[T any](make func(KeyEvent) T) KeyBinding[T] = KeyBinding[T](
 func BindWhere[T any](pred func(KeyEvent) bool, make func(KeyEvent) T) KeyBinding[T] =
     KeyBinding[T](Match = pred, Make = make)
 
-// KeyMapSub builds a Sub from a list of bindings. Every event fires every
-// binding whose predicate matches, in order.
-func KeyMapSub[T any](bindings Array[KeyBinding[T]]) Sub[T] {
-    return OnKeyBindings[T](bindings)
-}
+// KeySubForBindings builds a Sub from a list of bindings. Every key event
+// fires every binding whose predicate matches, in order, so one keypress can
+// produce several messages (`Ctrl-S` can both save and show a toast) or none.
+func KeySubForBindings[T any](Bindings Array[KeyBinding[T]]) Sub[T] =
+    KeyBindingsSub[T](Bindings = Bindings)
 
-// OnKeyBindings is an internal helper: makes a KeySub that runs all matching
-// bindings. Emits one message per matching binding, so a single keypress can
-// produce multiple messages (e.g., `Ctrl-S` matches both "save" and "also
-// show a confirmation toast").
-//
-// The current `DispatchKey` API returns Array[T], and `KeySub.Make` returns
-// exactly one T — to fan one event out to multiple messages, we wrap in a
-// BatchSub where each element is a KeySub for a single binding. That is
-// what this helper constructs.
-func OnKeyBindings[T any](bindings Array[KeyBinding[T]]) Sub[T] {
-    // Each binding becomes its own sub; matching is folded into Make via a
-    // predicate wrapper. Non-matching bindings emit no message via a
-    // sentinel-skipping filter sub.
-    //
-    // Design compromise: because KeySub always produces a message per event,
-    // we can't "skip" cleanly without an Option[T]. Instead, every binding's
-    // Make is wrapped to only produce when the predicate matches, and
-    // DispatchKey's output is filtered by the caller. For now we emit one
-    // message per matching binding by implementing the loop explicitly in
-    // `DispatchKeyBindings` — see below.
-    return KeySubForBindings[T](Bindings = bindings)
-}
+// KeyMapSub is KeySubForBindings, named for use alongside a keymap.
+func KeyMapSub[T any](bindings Array[KeyBinding[T]]) Sub[T] =
+    KeySubForBindings(Bindings = bindings)
 
-// Specialized sub variant for bindings — carries the bindings array directly
-// so DispatchKey can treat it specially (zero messages for no match, one per
-// match).
-//
-// Rather than introduce another variant to the main `Sub[T]` sealed type
-// (which would require updating DispatchKey, SubIsActive, MapSubs…), we
-// encode this as a single KeySub with a specialized Make that never fires
-// outside DispatchKeyBindings. `KeySubForBindings` below is the
-// user-facing factory.
-sealed type KeyBindingSub[T any] {
-    case KBindings(Bindings Array[KeyBinding[T]])
-}
+// OnKeyBindings is KeySubForBindings, named after OnKey.
+func OnKeyBindings[T any](bindings Array[KeyBinding[T]]) Sub[T] =
+    KeySubForBindings(Bindings = bindings)
 
-func KeySubForBindings[T any](Bindings Array[KeyBinding[T]]) Sub[T] {
-    // Produce a standard Sub backed by a KeySub whose Make runs the first
-    // matching binding. If none match, a no-op event is returned — but since
-    // there's no Option[T] without changing the T constraint, callers should
-    // pair this with a typed `None`-like message variant in their Msg type
-    // if they need to tell "no match" from "match".
-    //
-    // For cleanest semantics we expose DispatchKeyBindings instead, so
-    // `Bindings` is not read here.
-    return NoSub[T]()
-}
-
-// DispatchKeyBindings is the intended way to use KeyBinding[T] arrays:
-// call from your `view` or your Sub construction. Walks the bindings,
-// returns all messages from matching ones.
+// DispatchKeyBindings returns the messages of every binding that matches
+// `ev`, in order — what a KeyBindingsSub produces for one key. Usable on its
+// own from an update() or a keymap function.
 func DispatchKeyBindings[T any](bindings Array[KeyBinding[T]], ev KeyEvent) Array[T] {
     return bindings
         .Filter((b) => b.Match(ev))

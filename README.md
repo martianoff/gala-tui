@@ -12,7 +12,7 @@ Includes everything you'd expect from a serious TUI library — and several thin
 **Core architecture**
 - `Program[M, T]` — Elm-style Model / Update / View triple
 - `Cmd[T]` — pure data side effects (NoCmd / QuitCmd / MsgCmd / BatchCmd / **FutureCmd** / PrintCmd / SuspendCmd)
-- `Sub[T]` — subscriptions: KeySub / BatchSub / MapSub / **TickSub** (timer)
+- `Sub[T]` — subscriptions: KeySub / KeyBindingsSub / BatchSub / MapSub / **TickSub** (timer)
 - `RunRich` / `RunFull` — async-aware runtimes (futures + tickers + mouse + resize + diff render)
 
 **Layout & rendering**
