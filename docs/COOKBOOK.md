@@ -243,7 +243,13 @@ func main() {
 
 Each keystroke becomes both a `ChildA(...)` and a `ChildB(...)` —
 useful when you want a global keymap to coexist with a focused-pane
-keymap, both seeing every key.
+keymap, both seeing every key. Pass `sub` to `RunWithSub` or
+`RunWithMouse`: each key dispatches the keymap's message first, then
+the sub's. For a list of `KeyBinding`s use `KeyMapSub(bindings)`, which
+fires every binding that matches the key and nothing when none does.
+The sub is fixed for the whole run, so it sees every key whatever has
+focus; route keys that depend on focus through `update`, which can read
+the model.
 
 ## Save / restore window state on quit
 

@@ -3,6 +3,7 @@ package gala_tui
 import (
     . "martianoff/gala/collection_immutable"
     . "martianoff/gala/test"
+    . "martianoff/gala/time_utils"
 )
 
 // ============================================================================
@@ -124,4 +125,84 @@ func TestDispatchKeyBindingsFansMultipleMatches(t T) T {
     )
     val msgs = DispatchKeyBindings(bindings, PlainKey(Char('q')))
     return Eq(t, msgs.Length(), 2)
+}
+
+// ----------------------------------------------------------------------------
+// Binding subscriptions — KeySubForBindings / OnKeyBindings / KeyMapSub
+// ----------------------------------------------------------------------------
+
+// The keymap ignores every key, so whatever lands in the model came from the
+// subscription.
+func ignoreKeys(ev KeyEvent) BeMsg = BeNoOp()
+
+val ignoreInput = LiftKeysToInput[BeMsg](ignoreKeys, (s) => BeNoOp(), BeNoOp(), BeNoOp())
+
+// 'x' is bound twice and 'y' once; nothing else is bound.
+func xyBindings() Array[KeyBinding[BeMsg]] = ArrayOf[KeyBinding[BeMsg]](
+    Bind[BeMsg](Char('x'), BeKey(K = "x1")),
+    Bind[BeMsg](Char('y'), BeKey(K = "y")),
+    BindWhere[BeMsg]((ev) => KeyEqual(ev.Key, Char('x')), (ev) => BeKey(K = "x2")),
+)
+
+func keysOf(m BeModel) string = m.Keys.MkString(",")
+
+func TestKeySubForBindingsDispatchesEveryMatch(t T) T {
+    val sub = KeySubForBindings(Bindings = xyBindings())
+    val t1 = Eq(t, DispatchKey(sub, PlainKey(Char('x'))).Length(), 2)
+    val t2 = Eq(t1, DispatchKey(sub, PlainKey(Char('y'))).Length(), 1)
+    Eq(t2, DispatchKey(sub, PlainKey(Char('z'))).Length(), 0)
+}
+
+func TestKeyMapSubFiresUnderRunWithSub(t T) T {
+    val (backend, _) = NewTestBackend(40, 3, "zxy")
+    val final = RunWithSub[BeModel, BeMsg](beProgram(), ignoreKeys, KeyMapSub(xyBindings()), backend)
+    Eq(t, keysOf(final), "x1,x2,y")
+}
+
+func TestOnKeyBindingsFiresUnderRunWithMouse(t T) T {
+    val (backend, _) = NewTestBackend(40, 3, "zxy")
+    val final = RunWithMouse[BeModel, BeMsg](beProgram(), ignoreInput, OnKeyBindings(xyBindings()), backend)
+    Eq(t, keysOf(final), "x1,x2,y")
+}
+
+func TestBindingSubIsActiveOnlyWithBindings(t T) T {
+    val t1 = IsTrue(t, SubIsActive(KeyMapSub(xyBindings())))
+    IsFalse(t1, SubIsActive(KeyMapSub(EmptyArray[KeyBinding[BeMsg]]())))
+}
+
+func TestBindingSubHasNoTickers(t T) T {
+    val sub = BatchSubs(ArrayOf[Sub[BeMsg]](
+        OnKeyBindings(xyBindings()),
+        TickSub[BeMsg](Interval = Milliseconds(int64(100)), Make = () => BeNoOp()),
+    ))
+    Eq(t, CollectTickers(sub, Now()).Length(), 1)
+}
+
+// The keymap's message comes first, then the subscription's, in sub order.
+func TestKeymapMessageComesBeforeTheSubscriptions(t T) T {
+    val sub = BatchSubs(ArrayOf[Sub[BeMsg]](
+        KeySubForBindings(Bindings = xyBindings()),
+        OnKey[BeMsg]((ev) => BeKey(K = "any")),
+    ))
+    val (backend, _) = NewTestBackend(40, 3, "x")
+    val final = RunWithSub[BeModel, BeMsg](beProgram(), beKeyToMsg, sub, backend)
+    Eq(t, keysOf(final), "x,x1,x2,any")
+}
+
+func TestMappedBindingSubFiresUnderRunWithSub(t T) T {
+    val sub = MapSubs(KeyMapSub(xyBindings()), (m) => m match {
+        case BeKey(k) => BeKey(K = "m" + k)
+        case _        => m
+    })
+    val (backend, _) = NewTestBackend(40, 3, "y")
+    val final = RunWithSub[BeModel, BeMsg](beProgram(), ignoreKeys, sub, backend)
+    Eq(t, keysOf(final), "my")
+}
+
+// A paste is text, not keystrokes: the 'x' inside it must not fire the
+// binding, while the typed 'y' after it does.
+func TestPastedTextDoesNotFireKeyBindings(t T) T {
+    val (backend, _) = NewTestBackend(40, 3, "\x1b[200~x\x1b[201~y")
+    val final = RunWithMouse[BeModel, BeMsg](beProgram(), ignoreInput, OnKeyBindings(xyBindings()), backend)
+    Eq(t, keysOf(final), "y")
 }

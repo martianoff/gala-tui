@@ -6,7 +6,7 @@ Files are organized by concern below.
 
 ## Core (Elm-architecture types)
 - `core.gala` — `Program`, `Cmd[T]` (incl. `FutureCmd`), `IsQuit`, `PendingMsgs`, `PendingFutures`, `PollFutures`, `StepAll`
-- `subs.gala` — `Sub[T]` (KeySub / BatchSub / MapSub / TickSub), `DispatchKey`, `CollectTickers`, `DispatchDueTicks`
+- `subs.gala` — `Sub[T]` (KeySub / KeyBindingsSub / BatchSub / MapSub / TickSub), `DispatchKey`, `CollectTickers`, `DispatchDueTicks`
 
 ## Layout & rendering primitives
 - `layout.gala` — `Constraint` sealed (Length / Percent / Fill / MinLen /
