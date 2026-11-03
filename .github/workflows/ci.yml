@@ -32,10 +32,21 @@ jobs:
           chmod +x /usr/local/bin/gala
           gala version
 
-      # One Go package compiles at a time. Compiling the root package peaks at
-      # ~10 GB of RSS (its generics instantiate heavily), and the demo package
-      # at ~6.5 GB; built in parallel they exceed the 16 GB runner, which then
-      # kills the step with exit 143 and no error.
+      # With GALA 0.100.0 the largest package compile peaks at about 16 GB (its
+      # generics instantiate heavily), which is the whole runner. Without more
+      # memory the step is killed with exit 143 and no error, so add a 16 GB
+      # swap file on the runner's spare disk.
+      - name: Add swap
+        run: |
+          sudo swapoff -a
+          sudo fallocate -l 16G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+
+      # One Go package compiles at a time: the root and demo packages each
+      # need several GB, and built in parallel they exceed the runner.
       - name: Test
         env:
           GOFLAGS: -p=1
