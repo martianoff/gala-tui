@@ -3,7 +3,6 @@ package gala_tui
 import (
     "strings"
     . "martianoff/gala/collection_immutable"
-    . "martianoff/gala/std"
     . "martianoff/gala/test"
 )
 

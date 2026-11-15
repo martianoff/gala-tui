@@ -4,7 +4,6 @@ import (
     . "github.com/martianoff/gala-tui"
     "github.com/martianoff/gala-tui/state"
     . "martianoff/gala/collection_immutable"
-    . "martianoff/gala/go_interop"
     . "martianoff/gala/std"
     "martianoff/gala/stream"
     "strconv"

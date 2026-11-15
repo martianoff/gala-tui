@@ -3,7 +3,6 @@ package gala_tui
 import (
     "strings"
     . "martianoff/gala/collection_immutable"
-    . "martianoff/gala/go_interop"
 )
 
 // Style bundles every SGR-level attribute a cell can carry. It is a plain
