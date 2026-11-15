@@ -2,7 +2,6 @@ package main
 
 import (
     . "github.com/martianoff/gala-tui"
-    . "martianoff/gala/std"
     gs "martianoff/gala/strings"
     . "martianoff/gala/test"
 )

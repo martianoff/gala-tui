@@ -2,7 +2,6 @@ package gala_tui
 
 import (
     gs "martianoff/gala/strings"
-    . "martianoff/gala/collection_immutable"
     "strconv"
     . "martianoff/gala/go_interop"
     "martianoff/gala/stream"

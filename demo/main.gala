@@ -1,9 +1,5 @@
 package main
 
-import (
-    . "github.com/martianoff/gala-tui"
-)
-
 // Thin runnable wrapper that launches the mega demo — a maximalist build
 // server dashboard exercising every feature of gala-tui: router, command
 // palette, DataTable with sort/filter, tabs, markdown help, themes,

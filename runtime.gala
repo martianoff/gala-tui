@@ -2,7 +2,6 @@ package gala_tui
 
 import (
     "fmt"
-    "io"
     "os"
     "golang.org/x/term"
     . "martianoff/gala/collection_immutable"

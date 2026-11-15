@@ -1,9 +1,5 @@
 package gala_tui
 
-import (
-    . "martianoff/gala/collection_immutable"
-)
-
 // ============================================================================
 // Fluent Widget API.
 //
